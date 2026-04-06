@@ -15,6 +15,7 @@ import { cleanupPackage } from "./phases/resolve.js";
 import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } from "./stripe.js";
 import { recordPayment, getPayment, cleanupOldPayments } from "./payment-map.js";
 import { NpmGuardError, QueueFullError } from "./errors.js";
+import { getAvailableDemos, startReplay } from "./demo.js";
 
 const app = new Hono();
 
@@ -207,6 +208,33 @@ app.get("/config/public", (c) =>
     priceCents: config.auditPriceCents,
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Demo replay endpoints
+// ---------------------------------------------------------------------------
+
+app.get("/demo/packages", (c) => c.json({ packages: getAvailableDemos() }));
+
+app.post("/demo/start", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const { packageName } = body as { packageName?: string };
+  if (!packageName) {
+    return c.json({ error: "packageName is required" }, 400);
+  }
+
+  try {
+    const result = startReplay(packageName);
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Unknown error" }, 404);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // POST /audit — sync for CLI, fire-and-forget for CRE
@@ -443,6 +471,14 @@ app.get("/audit/:id/file/*", (c) => {
   }
 
   const filePath = c.req.path.replace(`/audit/${auditId}/file/`, "");
+
+  // Demo replay: serve from in-memory file contents
+  if (session.fileContents) {
+    const content = session.fileContents[filePath];
+    if (content !== undefined) return c.text(content);
+    return c.json({ error: "File not found" }, 404);
+  }
+
   const absPath = path.join(session.packagePath, filePath);
 
   // Security: ensure path stays within package directory
