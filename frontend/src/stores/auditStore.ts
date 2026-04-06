@@ -62,8 +62,13 @@ interface AuditState {
   agentThinking: boolean;
   triageProgress: { current: number; total: number } | null;
 
+  // Checkout state
+  checkoutLoading: boolean;
+
   // Actions
   startAudit: (packageName: string, version?: string) => Promise<void>;
+  startCheckout: (packageName: string, version?: string, email?: string) => Promise<void>;
+  startAuditFromCheckout: (sessionId: string) => Promise<void>;
   connectToSession: (auditId: string) => Promise<void>;
   handleEvent: (event: SSEEvent) => void;
   selectFile: (path: string) => Promise<void>;
@@ -96,6 +101,7 @@ const initialState = {
   error: null,
   agentThinking: false,
   triageProgress: null,
+  checkoutLoading: false,
 };
 
 let activeEventSource: EventSource | null = null;
@@ -192,6 +198,76 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     }
     set({ auditId });
 
+    connectSSE(auditId, set, get);
+  },
+
+  startCheckout: async (packageName: string, version?: string, email?: string) => {
+    set({ checkoutLoading: true, error: null });
+
+    try {
+      const res = await fetch(`${API_BASE}/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          packageName,
+          ...(version && { version }),
+          ...(email && { email }),
+        }),
+      });
+
+      if (res.status === 501) {
+        // Payments not configured — fall back to free audit
+        set({ checkoutLoading: false });
+        return get().startAudit(packageName, version);
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        set({ checkoutLoading: false, error: body.error || `Payment error (${res.status})` });
+        return;
+      }
+
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch {
+      set({ checkoutLoading: false, error: "Failed to connect to payment system" });
+    }
+  },
+
+  startAuditFromCheckout: async (sessionId: string) => {
+    get().reset();
+    set({ isRunning: true });
+
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/audit/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stripeSessionId: sessionId }),
+      });
+    } catch {
+      set({ isRunning: false, error: "Failed to connect to audit engine" });
+      return;
+    }
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      set({ isRunning: false, error: body.error || `Engine returned ${res.status}` });
+      return;
+    }
+
+    let auditId: string;
+    let pkgName: string | undefined;
+    try {
+      const body = await res.json();
+      auditId = body.auditId;
+      pkgName = body.packageName;
+    } catch {
+      set({ isRunning: false, error: "Invalid response from engine" });
+      return;
+    }
+
+    set({ auditId, ...(pkgName && { packageName: pkgName }) });
     connectSSE(auditId, set, get);
   },
 

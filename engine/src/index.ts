@@ -4,58 +4,16 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
 import { z } from "zod";
-import { createPublicClient, http, defineChain } from "viem";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const ogGalileo = defineChain({
-  id: 16602,
-  name: "0G-Galileo-Testnet",
-  nativeCurrency: { name: "0G", symbol: "0G", decimals: 18 },
-  rpcUrls: { default: { http: ["https://evmrpc-testnet.0g.ai"] } },
-  blockExplorers: { default: { name: "0G Explorer", url: "https://chainscan-galileo.0g.ai" } },
-  testnet: true,
-});
-import { config } from "./config.js";
+import { config, PAYMENT_ENABLED } from "./config.js";
 import { runAudit } from "./pipeline.js";
 import { publishAuditResults } from "./publish.js";
 import { createSession, getSession, finalizeSession, createEmitFn, type AuditEvent } from "./events.js";
 import { cleanupPackage } from "./phases/resolve.js";
-
-const AUDIT_REQUEST_ABI = [
-  {
-    inputs: [
-      { name: "packageName", type: "string" },
-      { name: "version", type: "string" },
-    ],
-    name: "isRequested",
-    outputs: [{ name: "", type: "bool" }],
-    stateMutability: "view",
-    type: "function",
-  },
-] as const;
-
-async function checkPaymentOnChain(packageName: string, version: string): Promise<boolean> {
-  if (!config.contractAddress) return true; // No contract configured — skip check
-
-  const client = createPublicClient({
-    chain: ogGalileo,
-    transport: http(config.ogRpcUrl),
-  });
-
-  try {
-    const paid = await client.readContract({
-      address: config.contractAddress as `0x${string}`, // validated by config schema regex
-      abi: AUDIT_REQUEST_ABI,
-      functionName: "isRequested",
-      args: [packageName, version],
-    });
-    return paid;
-  } catch (err) {
-    console.warn("[payment] on-chain check failed:", err instanceof Error ? err.message : "unknown error");
-    return false;
-  }
-}
+import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } from "./stripe.js";
+import { recordPayment, getPayment, cleanupOldPayments } from "./payment-map.js";
 
 const app = new Hono();
 
@@ -118,6 +76,105 @@ function enqueueAudit(packageName: string, version?: string): Promise<any> {
 }
 
 // ---------------------------------------------------------------------------
+// Stripe checkout & webhooks
+// ---------------------------------------------------------------------------
+
+const CheckoutRequest = z.object({
+  packageName: z.string().min(1),
+  version: z.string().optional(),
+  email: z.string().email().optional(),
+});
+
+app.post("/checkout", async (c) => {
+  if (!PAYMENT_ENABLED) {
+    return c.json({ error: "Payments not configured" }, 501);
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const parsed = CheckoutRequest.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.format() }, 400);
+  }
+
+  const version = parsed.data.version || "latest";
+  const origin = c.req.header("Origin")
+    || c.req.header("Referer")?.replace(/\/+$/, "")
+    || `http://localhost:${config.apiPort}`;
+
+  try {
+    const { url } = await createCheckoutSession({
+      packageName: parsed.data.packageName,
+      version,
+      email: parsed.data.email,
+      origin,
+    });
+    return c.json({ url });
+  } catch (err) {
+    console.error("[checkout] Stripe session creation failed:", err);
+    return c.json({ error: "Payment system error" }, 500);
+  }
+});
+
+app.post("/webhooks/stripe", async (c) => {
+  if (!PAYMENT_ENABLED || !config.stripeWebhookSecret) {
+    return c.json({ error: "Webhook not configured" }, 501);
+  }
+
+  const signature = c.req.header("stripe-signature");
+  if (!signature) {
+    return c.json({ error: "Missing signature" }, 400);
+  }
+
+  let rawBody: string;
+  try {
+    rawBody = await c.req.text();
+  } catch {
+    return c.json({ error: "Cannot read body" }, 400);
+  }
+
+  let event: import("stripe").Stripe.Event;
+  try {
+    event = constructWebhookEvent(rawBody, signature);
+  } catch (err) {
+    console.warn("[webhook] signature verification failed:", err instanceof Error ? err.message : err);
+    return c.json({ error: "Invalid signature" }, 400);
+  }
+
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const session = event.data.object;
+      const { packageName, version } = session.metadata || {};
+      console.log(`[webhook] checkout.session.completed: ${session.id} for ${packageName}@${version}`);
+
+      const existing = getPayment(session.id);
+      if (existing) {
+        console.log(`[webhook] audit already started: ${existing.auditId}`);
+      } else {
+        console.warn(`[webhook] payment received but audit not started (user may not have returned): ${session.id}`);
+      }
+      break;
+    }
+    default:
+      console.log(`[webhook] unhandled event type: ${event.type}`);
+  }
+
+  return c.json({ received: true });
+});
+
+app.get("/config/public", (c) =>
+  c.json({
+    paymentEnabled: PAYMENT_ENABLED,
+    priceCents: config.auditPriceCents,
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // POST /audit — sync for CLI, fire-and-forget for CRE
 // ---------------------------------------------------------------------------
 
@@ -139,15 +196,8 @@ app.post("/audit", async (c) => {
 
   if (isCre) {
     console.log(`[auth] CRE authenticated for ${parsed.data.packageName}`);
-  } else if (config.contractAddress) {
-    if (!parsed.data.version) {
-      return c.json({ error: "version is required for paid audits" }, 400);
-    }
-    const paid = await checkPaymentOnChain(parsed.data.packageName, parsed.data.version);
-    if (!paid) {
-      return c.json({ error: "Payment required. Call requestAudit() on the contract first." }, 402);
-    }
-    console.log(`[auth] Payment verified for ${parsed.data.packageName}@${parsed.data.version}`);
+  } else if (PAYMENT_ENABLED) {
+    return c.json({ error: "Use /checkout for paid audits, or /audit/stream with stripeSessionId" }, 402);
   }
 
   // CRE: fire-and-forget — return 202 immediately, audit queued in background
@@ -180,6 +230,12 @@ app.post("/audit", async (c) => {
 // ---------------------------------------------------------------------------
 
 // Start audit asynchronously, returns auditId for SSE streaming
+const StreamAuditRequest = z.object({
+  packageName: z.string().min(1).optional(),
+  version: z.string().optional(),
+  stripeSessionId: z.string().optional(),
+});
+
 app.post("/audit/stream", async (c) => {
   let body: unknown;
   try {
@@ -188,28 +244,71 @@ app.post("/audit/stream", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const parsed = AuditRequest.safeParse(body);
+  const parsed = StreamAuditRequest.safeParse(body);
   if (!parsed.success) {
     return c.json({ error: "Invalid request", details: parsed.error.format() }, 400);
   }
 
-  const session = createSession(parsed.data.packageName);
+  // --- Payment gate ---
+  let packageName: string;
+  let version: string | undefined;
+
+  if (parsed.data.stripeSessionId) {
+    if (!PAYMENT_ENABLED) {
+      return c.json({ error: "Payments not configured" }, 501);
+    }
+
+    // Dedup: return existing auditId if this session was already verified
+    const existing = getPayment(parsed.data.stripeSessionId);
+    if (existing) {
+      return c.json({ auditId: existing.auditId, packageName: existing.packageName });
+    }
+
+    try {
+      const verification = await verifyCheckoutSession(parsed.data.stripeSessionId);
+      if (!verification.paid) {
+        return c.json({ error: "Payment not completed" }, 402);
+      }
+      packageName = verification.packageName;
+      version = verification.version;
+    } catch (err) {
+      console.error("[payment] Stripe verification failed:", err);
+      return c.json({ error: "Payment verification failed" }, 402);
+    }
+  } else if (!PAYMENT_ENABLED) {
+    // Dev mode: no payment required
+    if (!parsed.data.packageName) {
+      return c.json({ error: "packageName is required" }, 400);
+    }
+    packageName = parsed.data.packageName;
+    version = parsed.data.version;
+  } else {
+    // Payment enabled but no stripeSessionId
+    return c.json({ error: "Payment required. Use /checkout first." }, 402);
+  }
+
+  // --- Start audit ---
+  const session = createSession(packageName);
   const emit = createEmitFn(session.auditId, session.emitter);
 
+  // Record payment for dedup (if Stripe-paid)
+  if (parsed.data.stripeSessionId) {
+    recordPayment(parsed.data.stripeSessionId, session.auditId, packageName, version || "latest");
+  }
+
   // Run audit in background — don't await
-  runAudit(parsed.data.packageName, emit, session.auditId)
+  runAudit(packageName, emit, session.auditId)
     .then(({ report, packagePath, cleanup }) => {
       finalizeSession(session.auditId, report);
 
-      // Publish to IPFS + ENS for all verdicts
       if (process.env.PINATA_JWT) {
-        let resolvedVersion = parsed.data.version || "latest";
+        let resolvedVersion = version || "latest";
         try {
           const pkgJson = JSON.parse(fs.readFileSync(path.join(packagePath, "package.json"), "utf-8"));
           if (pkgJson.version) resolvedVersion = pkgJson.version;
         } catch { /* use fallback */ }
 
-        publishAuditResults(parsed.data.packageName, resolvedVersion, report, packagePath)
+        publishAuditResults(packageName, resolvedVersion, report, packagePath)
           .then((pub) => {
             console.log(`[publish] done: report=${pub.reportCid} source=${pub.sourceCid} ens=${pub.ensName ?? "skipped"}`);
             emit("publish_complete", { reportCid: pub.reportCid, sourceCid: pub.sourceCid, ensName: pub.ensName });
@@ -230,7 +329,7 @@ app.post("/audit/stream", async (c) => {
       finalizeSession(session.auditId, null, message);
     });
 
-  return c.json({ auditId: session.auditId });
+  return c.json({ auditId: session.auditId, packageName });
 });
 
 // SSE event stream for a running audit
@@ -379,6 +478,9 @@ if (fs.existsSync(frontendDist)) {
 } else {
   console.log(`[static] No frontend build found at ${frontendDist} — API-only mode`);
 }
+
+// Periodic cleanup of expired payment records
+setInterval(cleanupOldPayments, 10 * 60_000);
 
 console.log(`NpmGuard Engine starting on ${config.apiHost}:${config.apiPort}`);
 serve({ fetch: app.fetch, hostname: config.apiHost, port: config.apiPort });

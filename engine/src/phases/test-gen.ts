@@ -215,7 +215,7 @@ async function generateTestDirect(
         system: TESTGEN_SYSTEM_PROMPT,
         prompt: userPrompt,
         temperature: 0.2 + (attempt * 0.1), // nudge creativity on retries
-        maxTokens: 8192,
+        maxOutputTokens: 8192,
       });
 
       const code = cleanGeneratedCode(result.text);
