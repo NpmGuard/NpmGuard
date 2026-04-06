@@ -17,7 +17,7 @@ Resolve → Inventory → Triage (LLM) → Investigation (agentic LLM) → Test 
 
 ```
 engine/          → Hono API server + 6-phase audit pipeline
-frontend/        → React + Vite streaming dashboard  
+frontend/        → React + Vite streaming dashboard
 sandbox/         → Docker execution harness + test fixtures
 docs/            → Architecture, research, guides
 ```
@@ -34,20 +34,20 @@ Everything else (contracts/, chainlink/, npmguard/, cli/) gets deleted.
 
 ### 0.1 Delete crypto subprojects
 
-| Delete | Reason |
-|--------|--------|
+| Delete       | Reason                                         |
+| ------------ | ---------------------------------------------- |
 | `contracts/` | Solidity payment contract (0G Galileo testnet) |
-| `chainlink/` | Chainlink CRE monitoring (depends on ENS) |
-| `npmguard/` | ENS/IPFS publisher, demo packages, sginstall |
-| `cli/` | ENS resolver + WalletConnect payment CLI |
+| `chainlink/` | Chainlink CRE monitoring (depends on ENS)      |
+| `npmguard/`  | ENS/IPFS publisher, demo packages, sginstall   |
+| `cli/`       | ENS resolver + WalletConnect payment CLI       |
 
 ### 0.2 Sever crypto from engine
 
-| File | What to remove |
-|------|----------------|
-| `engine/src/index.ts` | `viem` import, `ogGalileo` chain definition (lines 7-18), `AUDIT_REQUEST_ABI` (25-36), `checkPaymentOnChain()` (38-58), contract payment gate in POST `/audit` (142-150), all `publishAuditResults()` calls (86-101, 201-224) |
-| `engine/src/publish.ts` | Delete entire file |
-| `engine/package.json` | Remove `viem`, `pinata`, `@ensdomains/content-hash` deps |
+| File                    | What to remove                                                                                                                                                                                                                |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `engine/src/index.ts`   | `viem` import, `ogGalileo` chain definition (lines 7-18), `AUDIT_REQUEST_ABI` (25-36), `checkPaymentOnChain()` (38-58), contract payment gate in POST `/audit` (142-150), all `publishAuditResults()` calls (86-101, 201-224) |
+| `engine/src/publish.ts` | Delete entire file                                                                                                                                                                                                            |
+| `engine/package.json`   | Remove `viem`, `pinata`, `@ensdomains/content-hash` deps                                                                                                                                                                      |
 
 ### 0.3 Fix the uuid dependency
 
@@ -58,20 +58,11 @@ Everything else (contracts/, chainlink/, npmguard/, cli/) gets deleted.
 
 Pinned to an IPFS gateway URL — will break when Pinata is down.
 
-### 0.4 Rotate leaked secrets
-
-The `.env` file has been committed to git history. Rotate immediately:
-- All LLM API keys (OpenRouter, Anthropic)
-- Any IPFS/Pinata tokens
-- Any blockchain private keys
-
-Add to `.gitignore` at root level: `**/.env`, `**/.env.*`, `!**/.env.example`, `!**/.env.template`
-
 ### 0.5 Lock CORS
 
 ```diff
 - app.use("/*", cors({ origin: "*" }));
-+ app.use("/*", cors({ 
++ app.use("/*", cors({
 +   origin: process.env.NPMGUARD_CORS_ORIGIN ?? "http://localhost:5173",
 +   credentials: true,
 + }));
@@ -94,14 +85,21 @@ Add to `.gitignore` at root level: `**/.env`, `**/.env.*`, `!**/.env.example`, `
 **What to do:**
 
 ```typescript
-const PackageName = z.string()
-  .min(1).max(214)
-  .regex(/^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/,
-    "Invalid npm package name");
+const PackageName = z
+  .string()
+  .min(1)
+  .max(214)
+  .regex(
+    /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/,
+    "Invalid npm package name",
+  );
 
 const AuditRequest = z.object({
   packageName: PackageName,
-  version: z.string().regex(/^\d+\.\d+\.\d+(-[\w.]+)?$/).optional(),
+  version: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+(-[\w.]+)?$/)
+    .optional(),
 });
 ```
 
@@ -116,12 +114,15 @@ const AuditRequest = z.object({
 ```typescript
 import { rateLimiter } from "hono-rate-limiter";
 
-app.use("/audit/*", rateLimiter({
-  windowMs: 60_000,
-  limit: 10,           // 10 audits per minute per IP
-  keyGenerator: (c) => c.req.header("x-forwarded-for") ?? "global",
-  standardHeaders: "draft-6",
-}));
+app.use(
+  "/audit/*",
+  rateLimiter({
+    windowMs: 60_000,
+    limit: 10, // 10 audits per minute per IP
+    keyGenerator: (c) => c.req.header("x-forwarded-for") ?? "global",
+    standardHeaders: "draft-6",
+  }),
+);
 ```
 
 **File:** `engine/src/index.ts` — add before route handlers
@@ -150,6 +151,7 @@ Return HTTP 503 with `Retry-After` header.
 
 **Current gap:** `sessions` Map and `eventBuffer` grow unbounded.
 **What to do:**
+
 - Max 100 concurrent sessions. Reject new audits with 503 if exceeded.
 - Cap `eventBuffer` at 5000 events per session.
 - Session TTL: 30 minutes after finalization (already partially exists).
@@ -178,13 +180,22 @@ export class NpmGuardError extends Error {
 
 export class PackageNotFoundError extends NpmGuardError {
   constructor(packageName: string) {
-    super("NPMGUARD-0001", `Package "${packageName}" not found on npm registry`, 404);
+    super(
+      "NPMGUARD-0001",
+      `Package "${packageName}" not found on npm registry`,
+      404,
+    );
   }
 }
 
 export class LLMUnavailableError extends NpmGuardError {
   constructor(backend: string, cause?: Error) {
-    super("NPMGUARD-0010", `LLM backend "${backend}" unavailable: ${cause?.message}`, 503, true);
+    super(
+      "NPMGUARD-0010",
+      `LLM backend "${backend}" unavailable: ${cause?.message}`,
+      503,
+      true,
+    );
   }
 }
 
@@ -196,7 +207,12 @@ export class DockerUnavailableError extends NpmGuardError {
 
 export class AuditTimeoutError extends NpmGuardError {
   constructor(phase: string, timeoutMs: number) {
-    super("NPMGUARD-0030", `Phase "${phase}" timed out after ${timeoutMs}ms`, 504, true);
+    super(
+      "NPMGUARD-0030",
+      `Phase "${phase}" timed out after ${timeoutMs}ms`,
+      504,
+      true,
+    );
   }
 }
 
@@ -224,6 +240,7 @@ export class QueueFullError extends NpmGuardError {
 ```
 
 Priority files (by count of silent catches):
+
 1. `engine/src/sandbox/instrumentation.ts` — 6 empty catches
 2. `engine/src/index.ts` — 4 empty catches
 3. `engine/src/phases/verify.ts` — 3 empty catches
@@ -236,7 +253,11 @@ Priority files (by count of silent catches):
 **What to do:**
 
 ```typescript
-const server = serve({ fetch: app.fetch, hostname: config.apiHost, port: config.apiPort });
+const server = serve({
+  fetch: app.fetch,
+  hostname: config.apiHost,
+  port: config.apiPort,
+});
 
 let shuttingDown = false;
 
@@ -332,13 +353,16 @@ app.get("/health/live", (c) => c.json({ status: "ok" }));
 
 app.get("/health/ready", async (c) => {
   const checks = {
-    docker: await checkDocker(),      // exec "docker info" with 5s timeout
+    docker: await checkDocker(), // exec "docker info" with 5s timeout
     llm: config.llmApiKey ? true : false,
     queue: auditQueue.length < MAX_QUEUE_SIZE,
     sessions: sessions.size < MAX_SESSIONS,
   };
   const healthy = Object.values(checks).every(Boolean);
-  return c.json({ status: healthy ? "ok" : "degraded", checks }, healthy ? 200 : 503);
+  return c.json(
+    { status: healthy ? "ok" : "degraded", checks },
+    healthy ? 200 : 503,
+  );
 });
 ```
 
@@ -349,6 +373,7 @@ app.get("/health/ready", async (c) => {
 **What to do:** Start with 3 workflows:
 
 **`.github/workflows/ci.yml`** — runs on every PR and push to main:
+
 ```yaml
 name: CI
 on:
@@ -406,11 +431,13 @@ jobs:
 ```
 
 **`.github/workflows/security.yml`** — weekly + on push:
+
 - `npm audit --audit-level=high`
 - CodeQL (if applicable to TS)
 - OpenSSF Scorecard
 
 **`.github/workflows/release.yml`** — on tag push:
+
 - Full test suite
 - Docker image build + push
 - SHA256 checksums
@@ -522,14 +549,15 @@ Start with API key auth (simplest production-ready approach):
 ```typescript
 // Middleware
 function requireAuth(c: Context, next: Next) {
-  const key = c.req.header("authorization")?.replace("Bearer ", "")
-    ?? c.req.header("x-api-key");
-  
+  const key =
+    c.req.header("authorization")?.replace("Bearer ", "") ??
+    c.req.header("x-api-key");
+
   if (!key) return c.json({ error: "API key required" }, 401);
-  
+
   const account = validateApiKey(key); // lookup in DB
   if (!account) return c.json({ error: "Invalid API key" }, 403);
-  
+
   c.set("account", account);
   return next();
 }
@@ -559,14 +587,14 @@ Later: Add Stripe-based billing, usage tracking per API key, tiered rate limits.
 
 **What Snyk does:** Exit codes are part of the contract for CI/CD integration.
 
-| Code | Meaning |
-|------|---------|
-| 0 | Audit passed — no issues found |
-| 1 | Issues found — package flagged as dangerous |
-| 2 | Execution error (bad input, crash) |
-| 3 | No packages to audit |
-| 69 | External service unavailable (LLM, Docker, npm registry) |
-| 75 | Transient failure — retry recommended |
+| Code | Meaning                                                  |
+| ---- | -------------------------------------------------------- |
+| 0    | Audit passed — no issues found                           |
+| 1    | Issues found — package flagged as dangerous              |
+| 2    | Execution error (bad input, crash)                       |
+| 3    | No packages to audit                                     |
+| 69   | External service unavailable (LLM, Docker, npm registry) |
+| 75   | Transient failure — retry recommended                    |
 
 Define in `engine/src/constants.ts` for API response codes too.
 
@@ -580,19 +608,22 @@ Define in `engine/src/constants.ts` for API response codes too.
 // engine/src/formatters/sarif.ts
 export function toSarif(report: AuditReport, packageName: string): SarifLog {
   return {
-    $schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+    $schema:
+      "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
     version: "2.1.0",
-    runs: [{
-      tool: {
-        driver: {
-          name: "NpmGuard",
-          version: "1.0.0",
-          informationUri: "https://npmguard.dev",
-          rules: report.proofs.map(proofToRule),
-        }
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "NpmGuard",
+            version: "1.0.0",
+            informationUri: "https://npmguard.dev",
+            rules: report.proofs.map(proofToRule),
+          },
+        },
+        results: report.proofs.map(proofToResult),
       },
-      results: report.proofs.map(proofToResult),
-    }],
+    ],
   };
 }
 ```
@@ -636,8 +667,12 @@ export async function withRetry<T>(
       return await fn();
     } catch (err) {
       if (attempt === maxAttempts) throw err;
-      const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 500;
-      log.warn({ err, attempt, maxAttempts, delay, label }, "Retrying after failure");
+      const delay =
+        baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 500;
+      log.warn(
+        { err, attempt, maxAttempts, delay, label },
+        "Retrying after failure",
+      );
       await new Promise((r) => setTimeout(r, delay));
     }
   }
@@ -658,7 +693,7 @@ class CircuitBreaker {
   private failures = 0;
   private lastFailure = 0;
   private state: "closed" | "open" | "half-open" = "closed";
-  
+
   constructor(
     private threshold: number = 5,
     private resetTimeMs: number = 60_000,
@@ -713,13 +748,18 @@ Use `prom-client` library. Expose at `/metrics` (Prometheus-compatible).
 
 ```typescript
 // In resolve.ts
-const metadata = await fetch(`${NPM_REGISTRY}/${packageName}`).then(r => r.json());
+const metadata = await fetch(`${NPM_REGISTRY}/${packageName}`).then((r) =>
+  r.json(),
+);
 const tarball = metadata.versions[version].dist;
 const response = await fetch(tarball.tarball);
 const buffer = await response.arrayBuffer();
 
 // Verify integrity
-const hash = crypto.createHash("sha512").update(Buffer.from(buffer)).digest("base64");
+const hash = crypto
+  .createHash("sha512")
+  .update(Buffer.from(buffer))
+  .digest("base64");
 const expected = tarball.integrity; // "sha512-..."
 if (`sha512-${hash}` !== expected) {
   throw new IntegrityError(packageName, version);
@@ -737,7 +777,9 @@ async function validateRuntime() {
   try {
     execFileSync("docker", ["info"], { timeout: 5000, stdio: "pipe" });
   } catch {
-    logger.error("Docker daemon not reachable — sandbox verification will fail");
+    logger.error(
+      "Docker daemon not reachable — sandbox verification will fail",
+    );
     if (process.env.NODE_ENV === "production") process.exit(1);
   }
 
@@ -753,7 +795,8 @@ async function validateRuntime() {
 
   // Check disk space (need temp space for package extraction)
   const { available } = await checkDiskSpace("/tmp");
-  if (available < 500 * 1024 * 1024) { // 500MB
+  if (available < 500 * 1024 * 1024) {
+    // 500MB
     logger.warn({ available }, "Low disk space on /tmp");
   }
 }
@@ -804,20 +847,21 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       thresholds: {
-        lines: 60,    // Start here, increase to 80 over time
+        lines: 60, // Start here, increase to 80 over time
         branches: 50,
       },
     },
-    testTimeout: 10_000,  // 10s default
+    testTimeout: 10_000, // 10s default
   },
 });
 ```
 
 Organize tests:
+
 ```
 tests/
   unit/           # No external deps, <100ms each
-  integration/    # Needs Docker or mocked LLM, <30s each  
+  integration/    # Needs Docker or mocked LLM, <30s each
   e2e/            # Full pipeline, <5min each
 ```
 
@@ -924,6 +968,7 @@ Uploads SARIF to GitHub Code Scanning. This is how most teams will use NpmGuard.
 
 **What OSV-Scanner does:** Jekyll-based docs site with link validation CI.
 **What to do:**
+
 - Landing page explaining what NpmGuard does
 - API reference (auto-generated from OpenAPI spec)
 - Getting started guide
@@ -975,6 +1020,7 @@ Replace SQLite with PostgreSQL when traffic exceeds what a single instance handl
 ### 7.2 Redis-backed queue
 
 Replace in-memory audit queue with BullMQ (Redis-backed):
+
 - Persistent across restarts
 - Multiple worker instances
 - Dead letter queue for failed audits
@@ -1009,16 +1055,16 @@ type MetricsMode = "auto" | "on" | "off";
 
 ## Priority Matrix
 
-| Phase | Items | Urgency | Effort | Ship Blocker? |
-|-------|-------|---------|--------|---------------|
-| **0** | Crypto removal, secret rotation, CORS | **NOW** | 1 day | Yes |
-| **1** | Input validation, rate limiting, errors, shutdown | **Week 1** | 3–4 days | Yes |
-| **2** | Logging, CI/CD, persistence, Dockerfile | **Weeks 2–3** | 8–10 days | Yes |
-| **3** | Auth, API design, SARIF, versioning | **Weeks 3–4** | 5–7 days | Yes |
-| **4** | Retries, circuit breakers, metrics, Sentry | **Weeks 4–6** | 5–7 days | No (but critical for ops) |
-| **5** | Test coverage, VCR, integration tests | **Weeks 4–8** | 8–10 days | No (but critical for confidence) |
-| **6** | CLI, GitHub Action, docs site, Docker Compose | **Weeks 6–10** | 10–15 days | Partially (need CLI + docs) |
-| **7** | PostgreSQL, Redis queue, multi-instance, caching | **Months 2–3** | 15–20 days | No (scale when needed) |
+| Phase | Items                                             | Urgency        | Effort     | Ship Blocker?                    |
+| ----- | ------------------------------------------------- | -------------- | ---------- | -------------------------------- |
+| **0** | Crypto removal, secret rotation, CORS             | **NOW**        | 1 day      | Yes                              |
+| **1** | Input validation, rate limiting, errors, shutdown | **Week 1**     | 3–4 days   | Yes                              |
+| **2** | Logging, CI/CD, persistence, Dockerfile           | **Weeks 2–3**  | 8–10 days  | Yes                              |
+| **3** | Auth, API design, SARIF, versioning               | **Weeks 3–4**  | 5–7 days   | Yes                              |
+| **4** | Retries, circuit breakers, metrics, Sentry        | **Weeks 4–6**  | 5–7 days   | No (but critical for ops)        |
+| **5** | Test coverage, VCR, integration tests             | **Weeks 4–8**  | 8–10 days  | No (but critical for confidence) |
+| **6** | CLI, GitHub Action, docs site, Docker Compose     | **Weeks 6–10** | 10–15 days | Partially (need CLI + docs)      |
+| **7** | PostgreSQL, Redis queue, multi-instance, caching  | **Months 2–3** | 15–20 days | No (scale when needed)           |
 
 **Minimum viable ship (Phases 0–3):** ~4 weeks of focused work.
 **Production-grade (Phases 0–6):** ~10 weeks.
@@ -1028,22 +1074,22 @@ type MetricsMode = "auto" | "on" | "off";
 
 ## Quick Reference: What Production Tools Do That We Don't
 
-| Capability | OSV-Scanner | Snyk | Socket | Semgrep | Trivy | **NpmGuard** |
-|------------|:-----------:|:----:|:------:|:-------:|:-----:|:------------:|
-| CI/CD pipeline | 18 workflows | CircleCI | 3 workflows | GHA + Circle | GHA | **None** |
-| Structured logging | slog (Go) | Bunyan | Console | Python logging | logr | **console.log** |
-| Error codes | Sentinel errors | Error catalog | Typed errors | Named errors | Wrapped errors | **Strings** |
-| Auth | N/A (CLI) | Token + OAuth | API token | Token + OAuth | N/A (CLI) | **None** |
-| Rate limiting | None (CLI) | Leaky bucket | None (CLI) | None (CLI) | None (scanner) | **None** |
-| Retry/backoff | None | 5x with backoff | None | None | None | **None** |
-| Test coverage | High + VCR | High + mocks | Type coverage 95% | Categorized | High | **Partial unit** |
-| SARIF output | Yes | Yes | Yes | Yes | Yes | **No** |
-| Provenance/SLSA | SLSA3 | N/A | npm provenance | N/A | Cosign | **No** |
-| Graceful shutdown | N/A | N/A | N/A | N/A | Dual WaitGroup | **None** |
-| Health checks | N/A | N/A | N/A | N/A | /healthz + /readyz | **Stub** |
-| Persistence | N/A | Cloud | Cloud | Cloud | SQLite/Redis | **In-memory** |
-| Config validation | Go types | Viper + flags | JSONSchema + Ajv | YAML schema | Viper + Flag[T] | **Zod (good)** |
-| Request tracing | N/A | Interaction ID | N/A | N/A | N/A | **None** |
-| Crash reporting | N/A | N/A | Sentry | N/A | N/A | **None** |
+| Capability         |   OSV-Scanner   |      Snyk       |      Socket       |    Semgrep     |       Trivy        |   **NpmGuard**   |
+| ------------------ | :-------------: | :-------------: | :---------------: | :------------: | :----------------: | :--------------: |
+| CI/CD pipeline     |  18 workflows   |    CircleCI     |    3 workflows    |  GHA + Circle  |        GHA         |     **None**     |
+| Structured logging |    slog (Go)    |     Bunyan      |      Console      | Python logging |        logr        | **console.log**  |
+| Error codes        | Sentinel errors |  Error catalog  |   Typed errors    |  Named errors  |   Wrapped errors   |   **Strings**    |
+| Auth               |    N/A (CLI)    |  Token + OAuth  |     API token     | Token + OAuth  |     N/A (CLI)      |     **None**     |
+| Rate limiting      |   None (CLI)    |  Leaky bucket   |    None (CLI)     |   None (CLI)   |   None (scanner)   |     **None**     |
+| Retry/backoff      |      None       | 5x with backoff |       None        |      None      |        None        |     **None**     |
+| Test coverage      |   High + VCR    |  High + mocks   | Type coverage 95% |  Categorized   |        High        | **Partial unit** |
+| SARIF output       |       Yes       |       Yes       |        Yes        |      Yes       |        Yes         |      **No**      |
+| Provenance/SLSA    |      SLSA3      |       N/A       |  npm provenance   |      N/A       |       Cosign       |      **No**      |
+| Graceful shutdown  |       N/A       |       N/A       |        N/A        |      N/A       |   Dual WaitGroup   |     **None**     |
+| Health checks      |       N/A       |       N/A       |        N/A        |      N/A       | /healthz + /readyz |     **Stub**     |
+| Persistence        |       N/A       |      Cloud      |       Cloud       |     Cloud      |    SQLite/Redis    |  **In-memory**   |
+| Config validation  |    Go types     |  Viper + flags  | JSONSchema + Ajv  |  YAML schema   |  Viper + Flag[T]   |  **Zod (good)**  |
+| Request tracing    |       N/A       | Interaction ID  |        N/A        |      N/A       |        N/A         |     **None**     |
+| Crash reporting    |       N/A       |       N/A       |      Sentry       |      N/A       |        N/A         |     **None**     |
 
 **Our one advantage:** Zod config validation is already on par with the best. The audit pipeline itself is novel and more sophisticated than any of these tools' scanning approaches. We just need the production wrapper.
