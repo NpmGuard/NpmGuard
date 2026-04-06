@@ -523,11 +523,11 @@ input:focus {
 
 .landing-terminal-label {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-bottom: 12px;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+  font-weight: 500;
 }
 
 .landing-terminal {
