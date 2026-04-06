@@ -20,6 +20,7 @@ export function getModel(modelName: string): LanguageModel {
   const openai = createOpenAI({
     baseURL: config.llmBaseUrl,
     apiKey: config.llmApiKey ?? "",
+    compatibility: "compatible",
   });
   return openai(modelName);
 }
