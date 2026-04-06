@@ -8,7 +8,7 @@ import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
 import { startAuditLog, type AuditLogger } from "./audit-log.js";
 import type { EmitFn } from "./events.js";
-import { setSessionPackagePath } from "./events.js";
+import { setSessionPackagePath, setSessionCleanup } from "./events.js";
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -54,8 +54,8 @@ export interface AuditResult {
   cleanup: () => void;
 }
 
-export async function runAudit(packageName: string, emit?: EmitFn, auditId?: string): Promise<AuditResult> {
-  console.log(`[pipeline] starting audit for ${packageName}`);
+export async function runAudit(packageName: string, emit?: EmitFn, auditId?: string, version?: string): Promise<AuditResult> {
+  console.log(`[pipeline] starting audit for ${packageName}${version ? `@${version}` : ""}`);
   const log = startAuditLog(packageName);
   const trace: PhaseLog[] = [];
 
@@ -64,9 +64,9 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
   // Phase 0a: Resolve package
   const { result: resolved, log: resolveLog } = await timedPhase(
     "resolve",
-    () => resolvePackage(packageName),
+    () => resolvePackage(packageName, version),
     2 * 60_000,
-    { packageName },
+    { packageName, version },
     (r) => ({ path: r.path, needsCleanup: r.needsCleanup }),
     emit,
   );
@@ -74,7 +74,10 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
   log.writeLog("resolve.json", resolved);
 
   // Store package path on session so file-serving endpoint works
-  if (auditId) setSessionPackagePath(auditId, resolved.path);
+  if (auditId) {
+    setSessionPackagePath(auditId, resolved.path);
+    setSessionCleanup(auditId, () => cleanupPackage(resolved));
+  }
 
   try {
     // Phase 0b: Inventory

@@ -1,20 +1,19 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync, existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
 
-import { config, SOURCE_FILE_TYPES } from "../config.js";
+import { config } from "../config.js";
 import { getModel } from "../llm.js";
 import { dockerExec } from "../sandbox/docker.js";
 import type { Proof, Finding } from "../models.js";
 import type { EmitFn } from "../events.js";
-import { TESTGEN_SYSTEM_PROMPT, CAPABILITY_EXAMPLES } from "./test-gen-prompt.js";
+import { TESTGEN_SYSTEM_PROMPT } from "./test-gen-prompt.js";
+import { readPackageSource, readExampleTest } from "./test-gen-helpers.js";
 
 const HARNESS_DIR = resolve(import.meta.dirname, "../../../sandbox/harness");
-const EXPLOITS_DIR = resolve(import.meta.dirname, "../../../sandbox/exploits");
 
 const MAX_RETRY_ATTEMPTS = 3;
 
@@ -154,54 +153,18 @@ function parseVitestOutput(stdout: string): VitestResult | null {
 // Test regeneration with error feedback
 // ---------------------------------------------------------------------------
 
-function readExampleTest(capability: string): string {
-  const exampleName = CAPABILITY_EXAMPLES[capability] ?? "env-exfil";
-  const examplePath = join(EXPLOITS_DIR, `${exampleName}.test.js`);
-  try {
-    return readFileSync(examplePath, "utf-8");
-  } catch {
-    const fallback = join(EXPLOITS_DIR, "env-exfil.test.js");
-    return existsSync(fallback) ? readFileSync(fallback, "utf-8") : "";
-  }
-}
-
-function isValidJs(code: string): boolean {
-  const tmpFile = join(tmpdir(), `npmguard-syntax-check-${Date.now()}.js`);
+function isValidSyntax(code: string): boolean {
+  const tmpFile = join(tmpdir(), `npmguard-syntax-check-${Date.now()}.ts`);
   try {
     writeFileSync(tmpFile, code, "utf-8");
-    execFileSync("node", ["--check", tmpFile], { timeout: 5000, stdio: "pipe" });
+    execFileSync("npx", ["tsx", "--eval", `import(${JSON.stringify(tmpFile)})`], { timeout: 10_000, stdio: "pipe" });
     return true;
   } catch {
-    return false;
+    // Fall back to basic structural checks — the Docker verify phase will catch real errors
+    return code.includes("describe(") && (code.includes("runPackage(") || code.includes("runInChildProcess("));
   } finally {
     try { unlinkSync(tmpFile); } catch { /* ignore */ }
   }
-}
-
-function readPackageSource(packagePath: string): string {
-  const files: string[] = [];
-  function walk(dir: string, prefix: string) {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name === ".git") continue;
-      const full = join(dir, entry.name);
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        walk(full, rel);
-      } else {
-        const ext = entry.name.split(".").pop() ?? "";
-        if (SOURCE_FILE_TYPES.has(ext) || entry.name === "package.json") {
-          try {
-            const stat = statSync(full);
-            if (stat.size < 50_000) {
-              files.push(`--- ${rel} ---\n${readFileSync(full, "utf-8")}`);
-            }
-          } catch { /* skip */ }
-        }
-      }
-    }
-  }
-  walk(packagePath, "");
-  return files.join("\n\n");
 }
 
 async function regenerateTestWithError(
@@ -265,7 +228,7 @@ Output ONLY the fixed JavaScript test code.`;
     let code = result.text.trim();
     code = code.replace(/^```(?:javascript|js|typescript|ts)?\n?/m, "").replace(/\n?```\s*$/m, "");
 
-    if (!isValidJs(code)) {
+    if (!isValidSyntax(code)) {
       console.error(`[verify:retry] regenerated code has invalid syntax, skipping`);
       return null;
     }

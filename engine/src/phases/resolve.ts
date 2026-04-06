@@ -23,7 +23,7 @@ function resolveTestFixture(packageName: string): string | null {
   return null;
 }
 
-export async function resolvePackage(packageName: string): Promise<ResolvedPackage> {
+export async function resolvePackage(packageName: string, version?: string): Promise<ResolvedPackage> {
   // Test fixtures: resolve locally
   if (packageName.startsWith("test-pkg-")) {
     const fixturePath = resolveTestFixture(packageName);
@@ -33,7 +33,7 @@ export async function resolvePackage(packageName: string): Promise<ResolvedPacka
   }
 
   // Real packages: fetch from npm
-  const { tarballUrl } = await resolveTarballUrl(packageName);
+  const { tarballUrl } = await resolveTarballUrl(packageName, version);
   const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "npmguard-"));
 
   try {
