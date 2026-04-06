@@ -131,6 +131,11 @@ export function getSession(auditId: string): AuditSession | undefined {
   return sessions.get(auditId);
 }
 
+export function setSessionCleanup(auditId: string, cleanupFn: () => void): void {
+  const session = sessions.get(auditId);
+  if (session) session.cleanupFn = cleanupFn;
+}
+
 export function finalizeSession(auditId: string, report: AuditReport | null, error?: string): void {
   const session = sessions.get(auditId);
   if (!session) {

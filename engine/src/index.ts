@@ -8,7 +8,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { config, PAYMENT_ENABLED } from "./config.js";
-import { runAudit } from "./pipeline.js";
+import { runAudit, type AuditResult } from "./pipeline.js";
+import type { AuditReport } from "./models.js";
 import { createSession, getSession, finalizeSession, createEmitFn, type AuditEvent } from "./events.js";
 import { cleanupPackage } from "./phases/resolve.js";
 import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } from "./stripe.js";
@@ -45,7 +46,7 @@ const AuditRequest = z.object({
 // Audit queue — one audit at a time, prevents rate limiting & resource exhaustion
 // ---------------------------------------------------------------------------
 
-type QueueItem = { packageName: string; version?: string; resolve: (v: any) => void; reject: (e: any) => void };
+type QueueItem = { packageName: string; version?: string; resolve: (v: AuditReport) => void; reject: (e: unknown) => void };
 const auditQueue: QueueItem[] = [];
 let auditRunning = false;
 
@@ -56,7 +57,7 @@ async function processQueue() {
   console.log(`[queue] starting ${item.packageName} (${auditQueue.length} queued)`);
 
   try {
-    const { report, cleanup } = await runAudit(item.packageName);
+    const { report, cleanup } = await runAudit(item.packageName, undefined, undefined, item.version);
     cleanup();
     item.resolve(report);
   } catch (err) {
@@ -69,7 +70,7 @@ async function processQueue() {
 
 const MAX_QUEUE_SIZE = 50;
 
-function enqueueAudit(packageName: string, version?: string): Promise<any> {
+function enqueueAudit(packageName: string, version?: string): Promise<AuditReport> {
   if (auditQueue.length >= MAX_QUEUE_SIZE) {
     return Promise.reject(new QueueFullError());
   }
@@ -174,7 +175,7 @@ app.post("/webhooks/stripe", async (c) => {
         const emit = createEmitFn(auditSession.auditId, auditSession.emitter);
         recordPayment(stripeSession.id, auditSession.auditId, packageName, version || "latest");
 
-        runAudit(packageName, emit, auditSession.auditId)
+        runAudit(packageName, emit, auditSession.auditId, version || undefined)
           .then(({ report, cleanup }) => {
             finalizeSession(auditSession.auditId, report);
             cleanup();
@@ -260,7 +261,7 @@ app.post("/audit", async (c) => {
       message,
       code: err instanceof NpmGuardError ? err.code : "NPMGUARD-9999",
       retryable: err instanceof NpmGuardError ? err.retryable : false,
-    }, statusCode as any);
+    }, statusCode as 400 | 404 | 500 | 503 | 504);
   }
 });
 
@@ -342,7 +343,7 @@ app.post("/audit/stream", async (c) => {
   }
 
   // Run audit in background — don't await
-  runAudit(packageName, emit, session.auditId)
+  runAudit(packageName, emit, session.auditId, version)
     .then(({ report, cleanup }) => {
       finalizeSession(session.auditId, report);
       cleanup();

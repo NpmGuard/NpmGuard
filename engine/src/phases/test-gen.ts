@@ -1,19 +1,19 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync, rmSync, unlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, unlinkSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { generateText } from "ai";
 
-import { config, SOURCE_FILE_TYPES } from "../config.js";
+import { config } from "../config.js";
 import { getModel } from "../llm.js";
 import type { Proof, Finding } from "../models.js";
 import type { InvestigationResult } from "./investigate.js";
 import {
   TESTGEN_SYSTEM_PROMPT,
-  CAPABILITY_EXAMPLES,
   buildTestGenUserPrompt,
 } from "./test-gen-prompt.js";
+import { readPackageSource, readExampleTest } from "./test-gen-helpers.js";
 
 const EXPLOITS_DIR = resolve(import.meta.dirname, "../../../sandbox/exploits");
 const SANDBOX_DIR = resolve(import.meta.dirname, "../../../sandbox");
@@ -23,45 +23,6 @@ const MAX_RETRIES = 3;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function readExampleTest(capability: string): string {
-  const exampleName = CAPABILITY_EXAMPLES[capability] ?? "env-exfil";
-  // Try .ts first, fall back to .js
-  for (const ext of [".test.ts", ".test.js"]) {
-    const p = join(EXPLOITS_DIR, `${exampleName}${ext}`);
-    if (existsSync(p)) return readFileSync(p, "utf-8");
-  }
-  const fallback = join(EXPLOITS_DIR, "env-exfil.test.js");
-  return existsSync(fallback) ? readFileSync(fallback, "utf-8") : "";
-}
-
-function readPackageSource(packagePath: string): string {
-  const files: string[] = [];
-
-  function walk(dir: string, prefix: string) {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name === ".git") continue;
-      const full = join(dir, entry.name);
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        walk(full, rel);
-      } else {
-        const ext = entry.name.split(".").pop() ?? "";
-        if (SOURCE_FILE_TYPES.has(ext) || entry.name === "package.json") {
-          try {
-            const stat = statSync(full);
-            if (stat.size < 50_000) {
-              files.push(`--- ${rel} ---\n${readFileSync(full, "utf-8")}`);
-            }
-          } catch { /* skip unreadable */ }
-        }
-      }
-    }
-  }
-
-  walk(packagePath, "");
-  return files.join("\n\n");
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
