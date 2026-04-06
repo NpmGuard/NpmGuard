@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 3000,
+    allowedHosts: ['npmguard.com', 'www.npmguard.com'],
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
