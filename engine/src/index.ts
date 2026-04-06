@@ -368,6 +368,9 @@ app.get("/audit/:id/events", (c) => {
     return c.json({ error: "Audit session not found" }, 404);
   }
 
+  // Disable nginx proxy buffering so SSE events stream immediately
+  c.header("X-Accel-Buffering", "no");
+
   return streamSSE(c, async (stream) => {
     let eventId = 0;
 
