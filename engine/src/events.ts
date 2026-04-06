@@ -79,8 +79,30 @@ export interface AuditSession {
 const sessions = new Map<string, AuditSession>();
 
 const SESSION_TTL_MS = 30 * 60_000; // 30 minutes after completion
+const MAX_SESSIONS = 100;
+const MAX_EVENT_BUFFER = 5000;
+
+/** Evict the oldest finalized session to make room for a new one. */
+function evictOldestFinalized(): boolean {
+  for (const [id, s] of sessions) {
+    if (s.status !== "running") {
+      if (s.cleanupTimer) clearTimeout(s.cleanupTimer);
+      if (s.cleanupFn) s.cleanupFn();
+      sessions.delete(id);
+      return true;
+    }
+  }
+  return false;
+}
 
 export function createSession(packageName: string): AuditSession {
+  // Enforce session limit — evict finalized sessions first
+  if (sessions.size >= MAX_SESSIONS) {
+    if (!evictOldestFinalized()) {
+      throw new Error("Too many concurrent audit sessions");
+    }
+  }
+
   const auditId = randomUUID();
   const emitter = new EventEmitter();
   emitter.setMaxListeners(20);
@@ -96,8 +118,10 @@ export function createSession(packageName: string): AuditSession {
   };
   // Buffer all events so late-connecting SSE clients can replay them
   emitter.on("event", (event: AuditEvent) => {
-    event.seq = session.eventBuffer.length;   // stamp with stable buffer index
-    session.eventBuffer.push(event);
+    if (session.eventBuffer.length < MAX_EVENT_BUFFER) {
+      event.seq = session.eventBuffer.length;   // stamp with stable buffer index
+      session.eventBuffer.push(event);
+    }
   });
   sessions.set(auditId, session);
   return session;
@@ -109,7 +133,10 @@ export function getSession(auditId: string): AuditSession | undefined {
 
 export function finalizeSession(auditId: string, report: AuditReport | null, error?: string): void {
   const session = sessions.get(auditId);
-  if (!session) return;
+  if (!session) {
+    console.warn(`[events] finalizeSession called for unknown session: ${auditId}`);
+    return;
+  }
   session.report = report;
   session.status = error ? "error" : "done";
   // Schedule cleanup of the session and package files

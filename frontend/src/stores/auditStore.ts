@@ -21,6 +21,8 @@ interface AuditState {
   auditId: string | null;
   packageName: string;
   isRunning: boolean;
+  hasStarted: boolean;
+  reconnecting: boolean;
 
   // Pipeline state
   phase: string | null;
@@ -57,6 +59,8 @@ interface AuditState {
   selectedFileContent: string | null;
   autoFollow: boolean;
   error: string | null;
+  errorCode: string | null;
+  errorRetryable: boolean;
 
   // Animation state
   agentThinking: boolean;
@@ -79,6 +83,8 @@ const initialState = {
   auditId: null,
   packageName: "",
   isRunning: false,
+  hasStarted: false,
+  reconnecting: false,
   phase: null,
   phases: PHASE_ORDER.map((name) => ({ name, status: "pending" as const })),
   files: [],
@@ -99,6 +105,8 @@ const initialState = {
   selectedFileContent: null,
   autoFollow: true,
   error: null,
+  errorCode: null,
+  errorRetryable: false,
   agentThinking: false,
   triageProgress: null,
   checkoutLoading: false,
@@ -108,6 +116,22 @@ let activeEventSource: EventSource | null = null;
 let activeFileAbort: AbortController | null = null;
 // Per-connection seen-set; replaced on every connectSSE call so replays are always fresh
 let seenEventSeqs = new Set<number>();
+let reconnectAttempts = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+const MAX_RECONNECT_ATTEMPTS = 5;
+const BASE_RECONNECT_DELAY_MS = 1000;
+
+function closeSSE() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
+  }
+}
 
 function connectSSE(
   auditId: string,
@@ -115,61 +139,83 @@ function connectSSE(
   get: () => AuditState,
 ) {
   // Close any existing connection first (guards against React Strict Mode double-fire)
-  if (activeEventSource) {
-    activeEventSource.close();
-    activeEventSource = null;
-  }
+  closeSSE();
   // Fresh dedup set per connection — replayed events from the server always start at seq 0
   seenEventSeqs = new Set();
-  const es = new EventSource(`${API_BASE}/audit/${auditId}/events`);
-  activeEventSource = es;
+  reconnectAttempts = 0;
 
-  const handler = (e: MessageEvent) => {
-    try {
-      const event = JSON.parse(e.data) as SSEEvent;
-      get().handleEvent(event);
-    } catch (err) {
-      console.warn("Malformed SSE event, skipping:", err);
+  function openConnection() {
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
     }
-  };
 
-  const eventTypes = [
-    "audit_started", "phase_started", "phase_completed",
-    "file_list", "file_analyzing", "file_verdict",
-    "triage_complete", "triage_progress", "inventory_meta",
-    "agent_thinking", "agent_tool_call", "agent_tool_result",
-    "agent_reasoning", "finding_discovered",
-    "verify_started", "verify_test_result",
-    "verdict_reached", "audit_error",
-  ] as const;
-  for (const type of eventTypes) {
-    es.addEventListener(type, handler);
+    const es = new EventSource(`${API_BASE}/audit/${auditId}/events`);
+    activeEventSource = es;
+
+    const handler = (e: MessageEvent) => {
+      try {
+        const event = JSON.parse(e.data) as SSEEvent;
+        // Successful message — reset reconnect counter and clear reconnecting state
+        if (reconnectAttempts > 0) {
+          reconnectAttempts = 0;
+          set({ reconnecting: false });
+        }
+        get().handleEvent(event);
+      } catch (err) {
+        console.warn("Malformed SSE event, skipping:", err);
+      }
+    };
+
+    const eventTypes = [
+      "audit_started", "phase_started", "phase_completed",
+      "file_list", "file_analyzing", "file_verdict",
+      "triage_complete", "triage_progress", "inventory_meta",
+      "agent_thinking", "agent_tool_call", "agent_tool_result",
+      "agent_reasoning", "finding_discovered",
+      "verify_started", "verify_test_result",
+      "verdict_reached", "audit_error",
+    ] as const;
+    for (const type of eventTypes) {
+      es.addEventListener(type, handler);
+    }
+
+    es.onerror = () => {
+      es.close();
+      activeEventSource = null;
+
+      // Only reconnect if the audit is still supposed to be running
+      if (!get().isRunning) return;
+
+      reconnectAttempts++;
+      if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(
+          BASE_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts - 1),
+          16_000,
+        );
+        set({ reconnecting: true });
+        reconnectTimer = setTimeout(openConnection, delay);
+      } else {
+        // All retries exhausted
+        set({ isRunning: false, reconnecting: false, error: "Lost connection to audit engine" });
+      }
+    };
   }
 
-  es.onerror = () => {
-    es.close();
-    activeEventSource = null;
-    if (get().isRunning) {
-      set({ isRunning: false, error: "Lost connection to audit engine" });
-    }
-  };
+  openConnection();
 }
 
 export const useAuditStore = create<AuditState>((set, get) => ({
   ...initialState,
 
   reset: () => {
-    if (activeEventSource) {
-      activeEventSource.close();
-      activeEventSource = null;
-    }
-    // seenEventSeqs is reset inside connectSSE on every new connection — no need to clear here
+    closeSSE();
     set({ ...initialState, phases: PHASE_ORDER.map((name) => ({ name, status: "pending" as const })) });
   },
 
   startAudit: async (packageName: string, version?: string) => {
     get().reset();
-    set({ packageName, isRunning: true });
+    set({ packageName, isRunning: true, hasStarted: true });
 
     let res: Response;
     try {
@@ -236,7 +282,7 @@ export const useAuditStore = create<AuditState>((set, get) => ({
 
   startAuditFromCheckout: async (sessionId: string) => {
     get().reset();
-    set({ isRunning: true });
+    set({ isRunning: true, hasStarted: true });
 
     let res: Response;
     try {
@@ -273,7 +319,7 @@ export const useAuditStore = create<AuditState>((set, get) => ({
 
   connectToSession: async (auditId: string) => {
     get().reset();
-    set({ auditId, isRunning: true });
+    set({ auditId, isRunning: true, hasStarted: true });
 
     // Check if session exists before connecting SSE
     try {
@@ -282,7 +328,8 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         const msg = res.status === 404
           ? "This audit session has expired or was not found."
           : `Engine returned ${res.status}`;
-        set({ isRunning: false, error: msg });
+        // Session truly gone — nothing to show in AuditView
+        set({ isRunning: false, hasStarted: false, error: msg });
         return;
       }
     } catch {
@@ -539,7 +586,19 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       }
 
       case "audit_error": {
-        set({ isRunning: false, error: event.error ?? "Audit failed" });
+        const errorMsg = event.error ?? "Audit failed";
+        set({
+          isRunning: false,
+          reconnecting: false,
+          error: errorMsg,
+          errorCode: event.code ?? null,
+          errorRetryable: event.retryable ?? false,
+          pipelineLog: [...state.pipelineLog, {
+            kind: "info" as const,
+            text: `Error: ${errorMsg}`,
+            timestamp: event.timestamp,
+          }],
+        });
         break;
       }
     }

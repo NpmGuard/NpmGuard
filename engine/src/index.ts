@@ -13,6 +13,7 @@ import { createSession, getSession, finalizeSession, createEmitFn, type AuditEve
 import { cleanupPackage } from "./phases/resolve.js";
 import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } from "./stripe.js";
 import { recordPayment, getPayment, cleanupOldPayments } from "./payment-map.js";
+import { NpmGuardError, QueueFullError } from "./errors.js";
 
 const app = new Hono();
 
@@ -22,9 +23,22 @@ app.use("/*", cors({
   credentials: true,
 }));
 
+const PackageName = z
+  .string()
+  .min(1)
+  .max(214)
+  .regex(
+    /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/,
+    "Invalid npm package name",
+  );
+
+const SemverVersion = z
+  .string()
+  .regex(/^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/, "Invalid semver version");
+
 const AuditRequest = z.object({
-  packageName: z.string().min(1),
-  version: z.string().optional(),
+  packageName: PackageName,
+  version: SemverVersion.optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -53,7 +67,12 @@ async function processQueue() {
   }
 }
 
+const MAX_QUEUE_SIZE = 50;
+
 function enqueueAudit(packageName: string, version?: string): Promise<any> {
+  if (auditQueue.length >= MAX_QUEUE_SIZE) {
+    return Promise.reject(new QueueFullError());
+  }
   return new Promise((resolve, reject) => {
     auditQueue.push({ packageName, version, resolve, reject });
     processQueue();
@@ -65,8 +84,8 @@ function enqueueAudit(packageName: string, version?: string): Promise<any> {
 // ---------------------------------------------------------------------------
 
 const CheckoutRequest = z.object({
-  packageName: z.string().min(1),
-  version: z.string().optional(),
+  packageName: PackageName,
+  version: SemverVersion.optional(),
   email: z.string().email().optional(),
 });
 
@@ -133,15 +152,44 @@ app.post("/webhooks/stripe", async (c) => {
 
   switch (event.type) {
     case "checkout.session.completed": {
-      const session = event.data.object;
-      const { packageName, version } = session.metadata || {};
-      console.log(`[webhook] checkout.session.completed: ${session.id} for ${packageName}@${version}`);
+      const stripeSession = event.data.object;
+      const { packageName, version } = stripeSession.metadata || {};
+      console.log(`[webhook] checkout.session.completed: ${stripeSession.id} for ${packageName}@${version}`);
 
-      const existing = getPayment(session.id);
+      if (!packageName) {
+        console.warn(`[webhook] checkout.session.completed missing metadata: ${stripeSession.id}`);
+        break;
+      }
+
+      const existing = getPayment(stripeSession.id);
       if (existing) {
         console.log(`[webhook] audit already started: ${existing.auditId}`);
-      } else {
-        console.warn(`[webhook] payment received but audit not started (user may not have returned): ${session.id}`);
+        break;
+      }
+
+      // Client hasn't returned yet — start the audit from the webhook
+      console.log(`[webhook] starting audit for ${packageName}@${version} (session ${stripeSession.id})`);
+      try {
+        const auditSession = createSession(packageName);
+        const emit = createEmitFn(auditSession.auditId, auditSession.emitter);
+        recordPayment(stripeSession.id, auditSession.auditId, packageName, version || "latest");
+
+        runAudit(packageName, emit, auditSession.auditId)
+          .then(({ report, cleanup }) => {
+            finalizeSession(auditSession.auditId, report);
+            cleanup();
+          })
+          .catch((err) => {
+            console.error(`[webhook] audit failed for ${packageName}:`, err);
+            const message = err instanceof Error ? err.message : "Unknown error";
+            const code = err instanceof NpmGuardError ? err.code : "NPMGUARD-9999";
+            emit("audit_error", { error: message, code, retryable: false });
+            finalizeSession(auditSession.auditId, null, message);
+          });
+      } catch (err) {
+        console.error(`[webhook] failed to start audit for ${packageName}:`, err);
+        // Return 500 so Stripe retries the webhook later
+        return c.json({ error: "Failed to start audit" }, 500);
       }
       break;
     }
@@ -206,7 +254,13 @@ app.post("/audit", async (c) => {
   } catch (err) {
     console.error("[api] audit failed:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
-    return c.json({ error: "Audit failed", message }, 500);
+    const statusCode = err instanceof NpmGuardError ? err.statusCode : 500;
+    return c.json({
+      error: "Audit failed",
+      message,
+      code: err instanceof NpmGuardError ? err.code : "NPMGUARD-9999",
+      retryable: err instanceof NpmGuardError ? err.retryable : false,
+    }, statusCode as any);
   }
 });
 
@@ -216,8 +270,8 @@ app.post("/audit", async (c) => {
 
 // Start audit asynchronously, returns auditId for SSE streaming
 const StreamAuditRequest = z.object({
-  packageName: z.string().min(1).optional(),
-  version: z.string().optional(),
+  packageName: PackageName.optional(),
+  version: SemverVersion.optional(),
   stripeSessionId: z.string().optional(),
 });
 
@@ -260,6 +314,12 @@ app.post("/audit/stream", async (c) => {
       console.error("[payment] Stripe verification failed:", err);
       return c.json({ error: "Payment verification failed" }, 402);
     }
+
+    // Double-check: webhook may have started the audit during our async Stripe call
+    const claimedDuringVerify = getPayment(parsed.data.stripeSessionId);
+    if (claimedDuringVerify) {
+      return c.json({ auditId: claimedDuringVerify.auditId, packageName: claimedDuringVerify.packageName });
+    }
   } else if (!PAYMENT_ENABLED) {
     // Dev mode: no payment required
     if (!parsed.data.packageName) {
@@ -290,7 +350,9 @@ app.post("/audit/stream", async (c) => {
     .catch((err) => {
       console.error("[api] streaming audit failed:", err);
       const message = err instanceof Error ? err.message : "Unknown error";
-      emit("audit_error", { error: message });
+      const code = err instanceof NpmGuardError ? err.code : "NPMGUARD-9999";
+      const retryable = err instanceof NpmGuardError ? err.retryable : false;
+      emit("audit_error", { error: message, code, retryable });
       finalizeSession(session.auditId, null, message);
     });
 
@@ -316,7 +378,10 @@ app.get("/audit/:id/events", (c) => {
           data: JSON.stringify(event),
           id: String(eventId++),
         });
-      } catch { break; }
+      } catch {
+        console.warn(`[sse] replay write failed for ${auditId}, client likely disconnected`);
+        break;
+      }
     }
 
     // If audit already finished, we're done after replay
@@ -332,7 +397,7 @@ app.get("/audit/:id/events", (c) => {
           id: String(eventId++),
         });
       } catch {
-        // Client disconnected
+        console.warn(`[sse] live write failed for ${auditId}, client likely disconnected`);
       }
     };
 

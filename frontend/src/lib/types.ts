@@ -186,6 +186,8 @@ export interface InventoryMetaEvent extends BaseEvent {
 export interface AuditErrorEvent extends BaseEvent {
   type: "audit_error";
   error?: string;
+  code?: string;
+  retryable?: boolean;
 }
 
 export interface VerifyStartedEvent extends BaseEvent {
