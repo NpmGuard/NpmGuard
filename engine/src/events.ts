@@ -74,6 +74,7 @@ export interface AuditSession {
   status: "running" | "done" | "error";
   cleanupFn: (() => void) | null;
   cleanupTimer: ReturnType<typeof setTimeout> | null;
+  fileContents: Record<string, string> | null;
 }
 
 const sessions = new Map<string, AuditSession>();
@@ -115,6 +116,7 @@ export function createSession(packageName: string): AuditSession {
     status: "running",
     cleanupFn: null,
     cleanupTimer: null,
+    fileContents: null,
   };
   // Buffer all events so late-connecting SSE clients can replay them
   emitter.on("event", (event: AuditEvent) => {
