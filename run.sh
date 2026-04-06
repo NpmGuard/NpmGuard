@@ -20,6 +20,20 @@ trap cleanup INT TERM EXIT
 ./engine/run.sh &
 ENGINE_PID=$!
 
+# Wait for engine to be ready before starting frontend
+echo "Waiting for engine on :8000..."
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+    echo "Engine ready."
+    break
+  fi
+  if ! kill -0 "$ENGINE_PID" 2>/dev/null; then
+    echo "Engine failed to start."
+    exit 1
+  fi
+  sleep 0.5
+done
+
 ./frontend/run.sh &
 FRONTEND_PID=$!
 

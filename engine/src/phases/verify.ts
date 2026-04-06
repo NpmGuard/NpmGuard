@@ -259,7 +259,7 @@ Output ONLY the fixed JavaScript test code.`;
       system: TESTGEN_SYSTEM_PROMPT,
       prompt: retryPrompt,
       temperature: 0.3,
-      maxTokens: 8192,
+      maxOutputTokens: 8192,
     });
 
     let code = result.text.trim();

@@ -1,4 +1,4 @@
-import { generateText, generateObject, tool } from "ai";
+import { generateText, generateObject, tool, stepCountIs } from "ai";
 import { z } from "zod";
 import { config } from "../config.js";
 import { getModel } from "../llm.js";
@@ -23,17 +23,17 @@ export async function runInvestigationAgent(
   const tools = {
     readFile: tool({
       description: "Read a file from the package. Path is relative to package root.",
-      parameters: z.object({ path: z.string() }),
+      inputSchema: z.object({ path: z.string() }),
       execute: async ({ path }) => readFileImpl(packagePath, path),
     }),
     listFiles: tool({
       description: "List all files in the package with sizes and extensions.",
-      parameters: z.object({}),
+      inputSchema: z.object({}),
       execute: async () => listFilesImpl(packagePath),
     }),
     searchFiles: tool({
       description: "Regex search across all text files in the package. Returns matches with surrounding context.",
-      parameters: z.object({ pattern: z.string() }),
+      inputSchema: z.object({ pattern: z.string() }),
       execute: async ({ pattern }) => searchFilesImpl(packagePath, pattern),
     }),
     evalJs: tool({
@@ -41,7 +41,7 @@ export async function runInvestigationAgent(
         'Execute a JavaScript snippet in the sandbox for deobfuscation. ' +
         "e.g., evalJs({ code: \"console.log(atob('Y2hpbGRf...'))\" }) to decode base64. " +
         "Returns stdout + stderr. Hard timeout applies.",
-      parameters: z.object({ code: z.string() }),
+      inputSchema: z.object({ code: z.string() }),
       execute: async ({ code }) => evalJsImpl(sandbox, code),
     }),
     requireAndTrace: tool({
@@ -49,14 +49,14 @@ export async function runInvestigationAgent(
         "Load a package entry point with full Node.js instrumentation. " +
         "Monkey-patches require, fs, http, child_process, process.env, crypto, eval, timers. " +
         "Returns a structured trace log. Entrypoint relative to package root (e.g. 'index.js').",
-      parameters: z.object({ entrypoint: z.string() }),
+      inputSchema: z.object({ entrypoint: z.string() }),
       execute: async ({ entrypoint }) => requireAndTraceImpl(sandbox, entrypoint),
     }),
     runLifecycleHook: tool({
       description:
         "Run a lifecycle script (preinstall, postinstall, install, prepare) with instrumentation. " +
         "Only allowed hook names are accepted.",
-      parameters: z.object({ hookName: z.string() }),
+      inputSchema: z.object({ hookName: z.string() }),
       execute: async ({ hookName }) => runLifecycleHookImpl(sandbox, hookName, lifecycleHooks),
     }),
     fastForwardTimers: tool({
@@ -64,7 +64,7 @@ export async function runInvestigationAgent(
         "Load the package with fake timers, then advance time by advanceMs milliseconds. " +
         "Use to trigger time-gated payloads (e.g., setTimeout with 48h delay). " +
         "Entrypoint relative to package root.",
-      parameters: z.object({
+      inputSchema: z.object({
         entrypoint: z.string(),
         advanceMs: z.number(),
       }),
@@ -90,22 +90,22 @@ export async function runInvestigationAgent(
     system: SYSTEM_PROMPT,
     prompt: buildUserPrompt(input),
     tools,
-    maxSteps: config.maxAgentTurns,
+    stopWhen: stepCountIs(config.maxAgentTurns),
     onStepFinish({ toolCalls, toolResults, text }) {
       stepIndex++;
       console.log(`[agent] ── step ${stepIndex} ──`);
 
       // Log each tool call and its result
       for (const tc of toolCalls) {
-        const argsStr = JSON.stringify(tc.args).slice(0, 200);
+        const argsStr = JSON.stringify(tc.input).slice(0, 200);
         console.log(`[agent]   → ${tc.toolName}(${argsStr})`);
 
-        emit?.("agent_tool_call", { tool: tc.toolName, args: tc.args as Record<string, unknown>, step: stepIndex });
+        emit?.("agent_tool_call", { tool: tc.toolName, args: tc.input as Record<string, unknown>, step: stepIndex });
 
         const tr = toolResults.find(
           (r: { toolCallId: string }) => r.toolCallId === tc.toolCallId,
         );
-        const resultStr = tr ? String(tr.result) : "(no result)";
+        const resultStr = tr ? String(tr.output) : "(no result)";
         const preview = resultStr.slice(0, 500);
         const injectionDetected = resultStr.includes("[REDACTED: potential prompt injection");
 
@@ -123,7 +123,7 @@ export async function runInvestigationAgent(
 
         toolCallRecords.push({
           tool: tc.toolName,
-          args: tc.args as Record<string, unknown>,
+          args: tc.input as Record<string, unknown>,
           resultPreview: preview,
           timestamp: new Date().toISOString(),
           injectionDetected,
@@ -132,7 +132,7 @@ export async function runInvestigationAgent(
         // Save full untruncated result
         fullToolResults.push({
           tool: tc.toolName,
-          args: tc.args,
+          args: tc.input,
           result: resultStr,
           reasoning: text || "",
         });

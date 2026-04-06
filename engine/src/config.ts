@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { z } from "zod";
 
-const LLMBackend = z.enum(["anthropic", "openai_compatible"]);
+const LLMBackend = z.enum(["anthropic", "google", "openai_compatible"]);
 
 const ConfigSchema = z.object({
   llmBackend: LLMBackend.default("anthropic"),
@@ -12,10 +12,11 @@ const ConfigSchema = z.object({
   apiHost: z.string().default("0.0.0.0"),
   apiPort: z.coerce.number().int().min(1).max(65535).default(8000),
 
-  // Payment verification
+  // Payment (Stripe)
   creApiKey: z.string().optional(),
-  contractAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "Must be a valid 0x-prefixed Ethereum address").optional(),
-  ogRpcUrl: z.string().default("https://evmrpc-testnet.0g.ai"),
+  stripeSecretKey: z.string().optional(),
+  stripeWebhookSecret: z.string().optional(),
+  auditPriceCents: z.coerce.number().int().min(50).default(500),
 
   triageModel: z.string().default("claude-haiku-4-5-20251001"),
   triageRiskThreshold: z.coerce.number().int().min(0).max(10).default(3),
@@ -48,8 +49,9 @@ function loadConfig() {
     apiHost: env.NPMGUARD_API_HOST,
     apiPort: env.NPMGUARD_API_PORT,
     creApiKey: env.NPMGUARD_CRE_API_KEY,
-    contractAddress: env.NPMGUARD_CONTRACT_ADDRESS,
-    ogRpcUrl: env.NPMGUARD_OG_RPC_URL,
+    stripeSecretKey: env.NPMGUARD_STRIPE_SECRET_KEY,
+    stripeWebhookSecret: env.NPMGUARD_STRIPE_WEBHOOK_SECRET,
+    auditPriceCents: env.NPMGUARD_AUDIT_PRICE_CENTS,
     triageModel: env.NPMGUARD_TRIAGE_MODEL,
     triageRiskThreshold: env.NPMGUARD_TRIAGE_RISK_THRESHOLD,
     investigationModel: env.NPMGUARD_INVESTIGATION_MODEL,
@@ -85,6 +87,7 @@ function loadConfig() {
 
 export const config = loadConfig();
 export type Config = z.infer<typeof ConfigSchema>;
+export const PAYMENT_ENABLED = !!config.stripeSecretKey;
 
 export const SKIP_DIRS = new Set(["node_modules", ".git", ".svn"]);
 

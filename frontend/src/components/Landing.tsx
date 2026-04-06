@@ -1,15 +1,30 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuditStore } from "../stores/auditStore";
 
 export function Landing() {
   const [input, setInput] = useState("");
   const [version, setVersion] = useState("");
-  const startAudit = useAuditStore((s) => s.startAudit);
+  const [priceCents, setPriceCents] = useState<number | null>(null);
+  const [paymentEnabled, setPaymentEnabled] = useState(false);
+  const startCheckout = useAuditStore((s) => s.startCheckout);
+  const checkoutLoading = useAuditStore((s) => s.checkoutLoading);
   const error = useAuditStore((s) => s.error);
+
+  useEffect(() => {
+    fetch("/api/config/public")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) {
+          setPaymentEnabled(data.paymentEnabled);
+          setPriceCents(data.priceCents);
+        }
+      })
+      .catch(() => {}); // non-critical
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim()) startAudit(input.trim(), version.trim() || undefined);
+    if (input.trim()) startCheckout(input.trim(), version.trim() || undefined);
   };
 
   return (
@@ -32,9 +47,9 @@ export function Landing() {
         className="text-center max-w-[360px] leading-[1.7]"
         style={{ color: "var(--text-dim)", fontSize: "0.95rem" }}
       >
-        AI-powered security audit for npm packages. Results published on-chain.
+        AI-powered security audit for npm packages.
       </p>
-      <form onSubmit={handleSubmit} className="flex gap-2 w-full max-w-[440px]">
+      <form onSubmit={handleSubmit} className="flex items-center gap-2 w-full max-w-[520px]">
         <label className="sr-only" htmlFor="pkg-input">
           Package name
         </label>
@@ -79,7 +94,7 @@ export function Landing() {
         />
         <button
           type="submit"
-          disabled={!input.trim()}
+          disabled={!input.trim() || checkoutLoading}
           className="disabled:opacity-30 disabled:cursor-not-allowed"
           style={{
             padding: "10px 20px",
@@ -93,8 +108,20 @@ export function Landing() {
             letterSpacing: "0.02em",
           }}
         >
-          Audit
+          {checkoutLoading ? "..." : "Audit"}
         </button>
+        {paymentEnabled && priceCents != null && (
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.8rem",
+              color: "var(--text-muted)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ${(priceCents / 100).toFixed(2)}
+          </span>
+        )}
       </form>
       {error && (
         <p style={{ color: "var(--danger)", fontSize: "0.8rem" }} role="alert">

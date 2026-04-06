@@ -10,8 +10,19 @@ function App() {
   const verdict = useAuditStore((s) => s.verdict);
   const auditId = useAuditStore((s) => s.auditId);
   const connectToSession = useAuditStore((s) => s.connectToSession);
+  const startAuditFromCheckout = useAuditStore((s) => s.startAuditFromCheckout);
   const reset = useAuditStore((s) => s.reset);
   const hasAudit = isRunning || verdict;
+
+  // On mount: if returning from Stripe checkout with ?session_id, start audit
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (sessionId && !auditId) {
+      history.replaceState(null, "", "/audit");
+      startAuditFromCheckout(sessionId);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // On mount: if URL is /audit/<uuid>, reconnect to that session
   useEffect(() => {
