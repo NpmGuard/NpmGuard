@@ -12,7 +12,7 @@ import type {
   PipelineLogEntry,
   InventoryMeta,
 } from "../lib/types";
-import { PHASE_ORDER, PHASE_LABELS } from "../lib/types";
+import { PHASE_ORDER, PHASE_LABELS, readFileArg } from "../lib/types";
 
 const API_BASE = "/api";
 
@@ -343,7 +343,7 @@ export const useAuditStore = create<AuditState>((set, get) => ({
   handleEvent: (event: SSEEvent) => {
     // Deduplicate: skip events we've already processed (guards against SSE replay + Strict Mode)
     // Use server-assigned seq (buffer index) — unique even for same-millisecond events
-    const seq = (event as { seq?: number }).seq;
+    const seq = event.seq;
     if (seq !== undefined) {
       if (seenEventSeqs.has(seq)) return;
       seenEventSeqs.add(seq);
@@ -352,6 +352,13 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     const state = get();
 
     switch (event.type) {
+      case "audit_started": {
+        if (event.packageName) {
+          set({ packageName: event.packageName });
+        }
+        break;
+      }
+
       case "phase_started": {
         set({
           phase: event.phase,
@@ -505,7 +512,7 @@ export const useAuditStore = create<AuditState>((set, get) => ({
 
         // Auto-follow: if agent reads a file, select it
         if (state.autoFollow && event.tool === "readFile") {
-          const filePath = (event.args as { path?: string })?.path;
+          const filePath = readFileArg(event.args);
           if (filePath) get().selectFile(filePath);
         }
         break;

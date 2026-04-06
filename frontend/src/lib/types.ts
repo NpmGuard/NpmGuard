@@ -91,10 +91,12 @@ export interface InventoryMeta {
 interface BaseEvent {
   auditId: string;
   timestamp: string;
+  seq?: number;
 }
 
 export interface AuditStartedEvent extends BaseEvent {
   type: "audit_started";
+  packageName?: string;
 }
 
 export interface PhaseStartedEvent extends BaseEvent {
@@ -245,6 +247,27 @@ export const PHASE_WAIT_LABELS: Record<string, string> = {
   "test-gen": "Generating exploit tests...",
   verify: "Running verification in sandbox...",
 };
+
+/** Extract the file path from a "file:line" string. */
+export function fileFromFileLine(fileLine: string): string | undefined {
+  return fileLine.split(":")[0] || undefined;
+}
+
+/** Type-safe extraction of the `path` arg from a readFile tool call. */
+export function readFileArg(args?: Record<string, unknown>): string | undefined {
+  const path = args?.path;
+  return typeof path === "string" ? path : undefined;
+}
+
+/** Shared proof-verification counts used by VerdictBanner and CompletionItem. */
+export function computeProofStats(findings: Finding[], proofs: Proof[]) {
+  const verified = findings.filter((_, i) => proofs[i]?.kind === "TEST_CONFIRMED").length;
+  const observed = findings.filter((_, i) => proofs[i]?.kind === "AI_DYNAMIC").length;
+  const dealbreaker = proofs.find(
+    (p) => p.kind === "STRUCTURAL" && p.evidence?.startsWith("Dealbreaker:"),
+  );
+  return { verified, observed, rest: findings.length - verified - observed, dealbreaker };
+}
 
 export function parseLineRanges(spec: string | null): Array<[number, number]> {
   if (!spec) return [];

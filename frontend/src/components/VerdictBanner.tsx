@@ -1,15 +1,12 @@
 import { useEffect, useState } from "react";
 import { useAuditStore } from "../stores/auditStore";
+import { computeProofStats } from "../lib/types";
 
 export function VerdictBanner() {
   const verdict = useAuditStore((s) => s.verdict);
   const capabilities = useAuditStore((s) => s.capabilities);
   const findings = useAuditStore((s) => s.findings);
   const proofs = useAuditStore((s) => s.proofs);
-
-  const dealbreaker = proofs.find(
-    (p) => p.kind === "STRUCTURAL" && p.evidence?.startsWith("Dealbreaker:")
-  );
 
   // Staged reveal: 0=hidden, 1=verdict word, 2=stats, 3=caps
   const [stage, setStage] = useState(0);
@@ -28,11 +25,7 @@ export function VerdictBanner() {
 
   if (!verdict) return null;
 
-  // Compute verification-aware presentation
-  // Proofs are 1:1 index-aligned with findings
-  const verified = findings.filter((_, i) => proofs[i]?.kind === "TEST_CONFIRMED").length;
-  const observed = findings.filter((_, i) => proofs[i]?.kind === "AI_DYNAMIC").length;
-  const rest = findings.length - verified - observed;
+  const { verified, observed, rest, dealbreaker } = computeProofStats(findings, proofs);
 
   // Derive display label + color from what was actually proven
   let displayLabel: string;

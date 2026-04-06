@@ -371,7 +371,7 @@ export function CodeViewer({
               >
                 <span style={{ color: "var(--suspected)", flexShrink: 0 }}>&gt;</span>
                 <span>
-                  {pattern.replace(/^L[\d,\s\-]+:?\s*/, "")}
+                  {pattern.replace(/^L[\d,\s-]+:?\s*/, "")}
                 </span>
                 {lineMatch && (
                   <span style={{ color: "var(--accent-light)", flexShrink: 0, marginLeft: "auto" }}>

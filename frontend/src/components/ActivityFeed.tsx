@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo } from "react";
 import { useAuditStore } from "../stores/auditStore";
 import { useTypewriter } from "../hooks/useTypewriter";
 import { useCountUp } from "../hooks/useCountUp";
-import { PHASE_WAIT_LABELS } from "../lib/types";
+import { PHASE_WAIT_LABELS, readFileArg, fileFromFileLine, computeProofStats } from "../lib/types";
 import type { AgentStep, Finding, PipelineLogEntry } from "../lib/types";
 
 // ── Sub-components ──
@@ -40,10 +40,7 @@ function FeedTag({
 
 function ToolCallItem({ step, isPending }: { step: AgentStep; isPending: boolean }) {
   const selectFile = useAuditStore((s) => s.selectFile);
-  const filePath =
-    step.tool === "readFile"
-      ? (step.args as { path?: string })?.path
-      : undefined;
+  const filePath = step.tool === "readFile" ? readFileArg(step.args) : undefined;
 
   return (
     <div className="feed-item" style={{ cursor: filePath ? "pointer" : undefined }}>
@@ -212,7 +209,7 @@ function FindingItem({ finding }: { finding: Finding }) {
         <div
           className="feed-file-ref"
           onClick={() => {
-            const file = finding.fileLine.split(":")[0];
+            const file = fileFromFileLine(finding.fileLine);
             if (file) selectFile(file);
           }}
         >
@@ -373,13 +370,7 @@ function PipelineLogItem({ entry }: { entry: PipelineLogEntry }) {
 function CompletionItem({ verdict }: { verdict: "SAFE" | "DANGEROUS" }) {
   const proofs = useAuditStore((s) => s.proofs);
   const findings = useAuditStore((s) => s.findings);
-  const dealbreaker = proofs.find(
-    (p) => p.kind === "STRUCTURAL" && p.evidence?.startsWith("Dealbreaker:")
-  );
-
-  // Proofs are 1:1 index-aligned with findings
-  const verified = findings.filter((_, i) => proofs[i]?.kind === "TEST_CONFIRMED").length;
-  const observed = findings.filter((_, i) => proofs[i]?.kind === "AI_DYNAMIC").length;
+  const { verified, observed, dealbreaker } = computeProofStats(findings, proofs);
 
   let summary: string;
   let color: string;
