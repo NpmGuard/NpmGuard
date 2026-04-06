@@ -10,6 +10,9 @@ export function AuditView() {
   const [fileExplorerOpen, setFileExplorerOpen] = useState(true);
   const [showResults, setShowResults] = useState(false);
   const verdict = useAuditStore((s) => s.verdict);
+  const error = useAuditStore((s) => s.error);
+  const isRunning = useAuditStore((s) => s.isRunning);
+  const reconnecting = useAuditStore((s) => s.reconnecting);
 
   // Auto-switch to results when verdict first arrives (adjust state during render)
   const [prevVerdict, setPrevVerdict] = useState(verdict);
@@ -22,6 +25,37 @@ export function AuditView() {
 
   return (
     <>
+      {reconnecting && (
+        <div
+          style={{
+            background: "var(--warning, #b8860b)",
+            color: "#fff",
+            padding: "6px 16px",
+            fontSize: "0.8rem",
+            fontFamily: "var(--font-mono)",
+            textAlign: "center",
+          }}
+        >
+          Reconnecting to audit engine...
+        </div>
+      )}
+      {error && !isRunning && !verdict && (
+        <div
+          style={{
+            background: "var(--danger, #dc3545)",
+            color: "#fff",
+            padding: "8px 16px",
+            fontSize: "0.85rem",
+            fontFamily: "var(--font-mono)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "12px",
+          }}
+        >
+          <span>{error}</span>
+        </div>
+      )}
       <VerdictBanner />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Activity Feed — left */}

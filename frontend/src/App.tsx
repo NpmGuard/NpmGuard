@@ -12,7 +12,8 @@ function App() {
   const connectToSession = useAuditStore((s) => s.connectToSession);
   const startAuditFromCheckout = useAuditStore((s) => s.startAuditFromCheckout);
   const reset = useAuditStore((s) => s.reset);
-  const hasAudit = isRunning || verdict;
+  const hasStarted = useAuditStore((s) => s.hasStarted);
+  const hasAudit = hasStarted || isRunning || verdict;
 
   // On mount: if returning from Stripe checkout with ?session_id, start audit
   useEffect(() => {

@@ -11,64 +11,19 @@ NpmGuard is an AI-powered npm supply chain security auditor with a 6-phase pipel
 Resolve → Inventory → Triage (LLM) → Investigation (agentic LLM) → Test Generation → Verification (Docker sandbox).
 
 **What works:** The core audit pipeline, streaming frontend, and Docker sandbox are functional.
-**What doesn't:** No CI/CD, no persistence, no auth (beyond defunct crypto payment gate), no structured logging, no production deployment story, inconsistent error handling, unbounded in-memory state, and dead crypto code still wired in.
+**What doesn't:** No CI/CD, no persistence, no auth, no structured logging, no production deployment story, inconsistent error handling, unbounded in-memory state.
 
-### Architecture After Cleanup
+### Architecture
 
 ```
 engine/          → Hono API server + 6-phase audit pipeline
 frontend/        → React + Vite streaming dashboard
+cli/             → TODO: API-based CLI (check, install commands)
 sandbox/         → Docker execution harness + test fixtures
 docs/            → Architecture, research, guides
 ```
 
-Everything else (contracts/, chainlink/, npmguard/, cli/) gets deleted.
-
----
-
-## Phase 0: Scorched Earth Cleanup
-
-**Goal:** Remove dead code, fix security emergencies, establish clean baseline.
-**Timeline:** Days 1–3
-**Blocks:** Everything else.
-
-### 0.1 Delete crypto subprojects
-
-| Delete       | Reason                                         |
-| ------------ | ---------------------------------------------- |
-| `contracts/` | Solidity payment contract (0G Galileo testnet) |
-| `chainlink/` | Chainlink CRE monitoring (depends on ENS)      |
-| `npmguard/`  | ENS/IPFS publisher, demo packages, sginstall   |
-| `cli/`       | ENS resolver + WalletConnect payment CLI       |
-
-### 0.2 Sever crypto from engine
-
-| File                    | What to remove                                                                                                                                                                                                                |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `engine/src/index.ts`   | `viem` import, `ogGalileo` chain definition (lines 7-18), `AUDIT_REQUEST_ABI` (25-36), `checkPaymentOnChain()` (38-58), contract payment gate in POST `/audit` (142-150), all `publishAuditResults()` calls (86-101, 201-224) |
-| `engine/src/publish.ts` | Delete entire file                                                                                                                                                                                                            |
-| `engine/package.json`   | Remove `viem`, `pinata`, `@ensdomains/content-hash` deps                                                                                                                                                                      |
-
-### 0.3 Fix the uuid dependency
-
-```diff
-- "uuid": "https://gateway.pinata.cloud/ipfs/bafkreia7..."
-+ "uuid": "^11.1.0"
-```
-
-Pinned to an IPFS gateway URL — will break when Pinata is down.
-
-### 0.5 Lock CORS
-
-```diff
-- app.use("/*", cors({ origin: "*" }));
-+ app.use("/*", cors({
-+   origin: process.env.NPMGUARD_CORS_ORIGIN ?? "http://localhost:5173",
-+   credentials: true,
-+ }));
-```
-
-**Reference:** Every production tool reviewed restricts CORS. None use `*`.
+> **Phase 0 (Scorched Earth Cleanup) — DONE.** Crypto subprojects deleted, engine severed from IPFS/ENS/viem, uuid dep fixed, CORS locked.
 
 ---
 
@@ -77,6 +32,8 @@ Pinned to an IPFS gateway URL — will break when Pinata is down.
 **Goal:** Safe enough that a real user's request won't crash the server or leak data.
 **Timeline:** Week 1
 **Blocks:** Phase 2 (can't deploy without this).
+
+> **Partial progress:** 1.1 (input validation), 1.3 (bounded queue), 1.4 (session limits + event buffer cap), 1.5 (typed error hierarchy), 1.6 (critical silent catches fixed). Frontend error resilience added: SSE auto-reconnect, AuditView stays mounted on error, inline error display. Remaining: 1.2 (rate limiting), 1.7 (graceful shutdown).
 
 ### 1.1 Input validation hardening
 
