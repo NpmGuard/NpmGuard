@@ -1,6 +1,6 @@
 # Production Security Scanner Architecture Research
 
-Research into Trivy, Grype, and GitHub CodeQL/Advanced Security patterns for informing SkillGuard Auditor's production architecture.
+Research into Trivy, Grype, and GitHub CodeQL/Advanced Security patterns for informing NpmGuard Auditor's production architecture.
 
 ---
 
@@ -15,6 +15,7 @@ Trivy implements a consistent three-phase workflow regardless of target type:
 3. **Report Phase** -- `report.Write()` dispatches to format-specific writers (JSON, SARIF, CycloneDX, SPDX, Table, or custom Go templates).
 
 Key packages:
+
 - `pkg/commands/` -- CLI orchestration via Cobra
 - `pkg/fanal/` -- Artifact analysis (layer processing, package extraction)
 - `pkg/fanal/analyzer/` -- `AnalyzerGroup` chains multiple analyzers per ecosystem
@@ -26,6 +27,7 @@ Key packages:
 - `pkg/db/` -- Database management
 
 Four independent scanner types can be enabled/disabled via `--scanners`:
+
 - `vuln` -- CVE detection in OS packages and app dependencies
 - `misconfig` -- IaC security issues
 - `secret` -- Hardcoded credentials/keys
@@ -46,6 +48,7 @@ Grype uses a sequential pipeline in `grype/lib.go`:
 9. **Output Generation** -- Format via selected presenter
 
 Key packages:
+
 - `grype/pkg/` -- Package discovery and synthesis
 - `grype/db/v6/` -- SQLite-backed vulnerability database
 - `grype/matcher/` -- Ecosystem-specific matchers (APK, RPM, DPKG, Java, Python, JS, Go, Ruby, Rust, etc.)
@@ -56,11 +59,13 @@ Key packages:
 The **Matcher interface**: `Match(vulnerability.Provider, *pkg.Package, *pkg.Collection) ([]match.Match, error)`
 
 Matcher hierarchy:
+
 1. **Ecosystem Matchers** -- Specialized (ApkMatcher, JavaMatcher, etc.)
 2. **Stock Matcher** -- CPE-based fallback
 3. **Language-Specific** -- Python, JS, Ruby with version constraint logic
 
 Three search dimensions:
+
 - **Ecosystem Search** -- Direct package name + ecosystem context
 - **Distribution Search** -- OS-specific vulnerability feeds (Alpine SecDB, RHEL advisories, Debian DSA)
 - **CPE Search** -- Broad CPE-based matching as fallback
@@ -92,6 +97,7 @@ Build modes: `none` (interpreted languages), `autobuild` (auto-detected build), 
 - **Layer Cache**: Intermediate analysis results in `~/.cache/trivy/fanal/`
 
 Databases distributed as OCI images:
+
 - `ghcr.io/aquasecurity/trivy-db:2` (vulnerability DB)
 - `ghcr.io/aquasecurity/trivy-java-db:1` (Java DB)
 - `ghcr.io/aquasecurity/trivy-checks:0` (policy bundle)
@@ -107,6 +113,7 @@ The v6 schema is a fundamental redesign:
 - **Separation**: Small indexed records point to blobs; full JSON loaded only on match
 
 Key design decisions:
+
 - Eliminated "namespaces" entirely; replaced with normalized lookup tables
 - JSON blobs inspired by OSV schema but tailored to Grype
 - Switched to zstandard compression (65MB vs 210MB downloads with gzip)
@@ -121,15 +128,15 @@ Dual-distribution approach for v5/v6 backward compatibility.
 
 Seven CRDs store scan results directly in the Kubernetes API:
 
-| CRD | Scope | Purpose |
-|-----|-------|---------|
-| `VulnerabilityReport` | Namespaced | Container image vulns |
-| `ConfigAuditReport` | Namespaced | Config compliance |
-| `ExposedSecretReport` | Namespaced | Secrets in images |
-| `SbomReport` | Namespaced | SBOM data |
-| `RbacAssessmentReport` | Namespaced | RBAC violations |
-| `InfraAssessmentReport` | Namespaced | Infrastructure findings |
-| `ClusterComplianceReport` | Cluster | Compliance benchmarks |
+| CRD                       | Scope      | Purpose                 |
+| ------------------------- | ---------- | ----------------------- |
+| `VulnerabilityReport`     | Namespaced | Container image vulns   |
+| `ConfigAuditReport`       | Namespaced | Config compliance       |
+| `ExposedSecretReport`     | Namespaced | Secrets in images       |
+| `SbomReport`              | Namespaced | SBOM data               |
+| `RbacAssessmentReport`    | Namespaced | RBAC violations         |
+| `InfraAssessmentReport`   | Namespaced | Infrastructure findings |
+| `ClusterComplianceReport` | Cluster    | Compliance benchmarks   |
 
 Two-tier storage: primary in K8s API (CRDs), alternative filesystem when API storage is constrained.
 
@@ -152,6 +159,7 @@ Two-tier storage: primary in K8s API (CRDs), alternative filesystem when API sto
 Two Twirp services mounted on an HTTP mux:
 
 **Scanner Service** (`/twirp/trivy.scanner.v1.Scanner/`):
+
 ```
 rpc Scan(ScanRequest) returns (ScanResponse)
 
@@ -160,6 +168,7 @@ ScanResponse: os, results[] (vulnerabilities, misconfigs, secrets, packages), la
 ```
 
 **Cache Service** (`/twirp/trivy.cache.v1.Cache/`):
+
 ```
 rpc PutArtifact(PutArtifactRequest) returns (Empty)
 rpc PutBlob(PutBlobRequest) returns (Empty)
@@ -168,6 +177,7 @@ rpc DeleteBlobs(DeleteBlobsRequest) returns (Empty)
 ```
 
 Additional HTTP endpoints:
+
 - `GET /healthz` -- returns `"ok"` plaintext
 - `GET /version` -- returns JSON version info
 
@@ -178,16 +188,19 @@ Token-based auth via custom header; empty token disables auth. Both services wra
 Comprehensive REST API with `application/vnd.github+json` content type:
 
 **Alert Management:**
+
 - `GET /repos/{owner}/{repo}/code-scanning/alerts` -- list, filter by tool/severity/state
 - `GET /repos/{owner}/{repo}/code-scanning/alerts/{number}` -- single alert
 - `PATCH /repos/{owner}/{repo}/code-scanning/alerts/{number}` -- update status (dismiss, reopen)
 - `GET /repos/{owner}/{repo}/code-scanning/alerts/{number}/instances` -- alert instances
 
 **SARIF Upload:**
+
 - `POST /repos/{owner}/{repo}/code-scanning/sarifs` -- upload (Base64-compressed SARIF, commit_sha, ref)
 - `GET /repos/{owner}/{repo}/code-scanning/sarifs/{id}` -- upload status
 
 **Analysis Management:**
+
 - `GET/DELETE /repos/{owner}/{repo}/code-scanning/analyses/{id}`
 
 Pagination: `page` (default 1), `per_page` (default 30, max 100), cursor-based with `before`/`after`.
@@ -245,7 +258,7 @@ Versioning via header: `X-GitHub-Api-Version: 2026-03-10`.
 
 ```yaml
 # Key configuration
-replicaCount: 1  # configurable for HA
+replicaCount: 1 # configurable for HA
 image: aquasec/trivy
 command: ["trivy", "server"]
 containerPort: 4954
@@ -275,18 +288,18 @@ livenessProbe:
   httpGet: { path: /healthz, port: 4954 }
   initialDelaySeconds: 5
   periodSeconds: 10
-  failureThreshold: 10  # generous for DB downloads
+  failureThreshold: 10 # generous for DB downloads
 readinessProbe:
   httpGet: { path: /healthz, port: 4954 }
   initialDelaySeconds: 5
   periodSeconds: 10
-  failureThreshold: 3   # quicker removal from Service
+  failureThreshold: 3 # quicker removal from Service
 
 # Service
 service:
   type: ClusterIP
   port: 4954
-  sessionAffinity: ClientIP  # cache efficiency
+  sessionAffinity: ClientIP # cache efficiency
 
 # RBAC
 automountServiceAccountToken: false
@@ -329,6 +342,7 @@ Production template: 3 replicas, 10Gi storage, Redis cache with 24h TTL, 2 CPU /
 ### General Pattern
 
 A production scanner should differentiate:
+
 - **Liveness**: "Is the process alive?" (basic HTTP response)
 - **Readiness**: "Can it serve traffic?" (DB loaded, dependencies reachable)
 - **Startup**: "Has initial setup completed?" (DB download, cache warm-up)
@@ -379,11 +393,13 @@ withWaitGroup := func(base http.Handler) http.Handler {
 ### Trivy: Three-Tier with Viper
 
 Precedence (highest to lowest):
+
 1. **CLI flags** -- `--severity CRITICAL`
 2. **Environment variables** -- `TRIVY_SEVERITY=CRITICAL` (prefix `TRIVY_`, uppercase, underscores)
 3. **Configuration file** -- `trivy.yaml` (default: current directory)
 
 Implementation:
+
 - Generic `Flag[T]` type: `Name`, `ConfigKey` (dot notation), `Default`, `Aliases`
 - Supports: `int`, `string`, `[]string`, `bool`, `time.Duration`, `float64`
 - `PersistentPreRunE` hook: `BindPFlag()` + `BindEnv()` + `ReadInConfig()` + `ToOptions()`
@@ -395,6 +411,7 @@ Config categories: Global, Database, Scanning, Reporting, Vulnerability, Misconf
 ### Grype: Viper-Based with XDG
 
 Config file search order:
+
 1. `./.grype.yaml`
 2. `./.grype/config.yaml`
 3. `~/.grype.yaml`
@@ -407,6 +424,7 @@ Rich configuration sections: `log`, `dev`, `output`, `search`, `match` (per-ecos
 ### CodeQL
 
 Configuration via:
+
 1. Workflow YAML (`.github/workflows/codeql.yml`)
 2. CodeQL configuration file (query suites, paths to include/exclude)
 3. Default setup (auto-configured via GitHub UI/API)
@@ -446,49 +464,61 @@ Configuration via:
 ### SARIF 2.1.0 (Industry Standard)
 
 Required structure:
+
 ```json
 {
   "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
   "version": "2.1.0",
-  "runs": [{
-    "tool": {
-      "driver": {
-        "name": "ToolName",
-        "rules": [{
-          "id": "RULE-001",
-          "shortDescription": { "text": "..." },
-          "fullDescription": { "text": "..." },
-          "help": { "text": "...", "markdown": "..." },
-          "defaultConfiguration": { "level": "error" },
-          "properties": {
-            "security-severity": "9.8",
-            "tags": ["security", "cwe-79"]
-          }
-        }]
-      }
-    },
-    "results": [{
-      "ruleId": "RULE-001",
-      "message": { "text": "..." },
-      "level": "error",
-      "locations": [{
-        "physicalLocation": {
-          "artifactLocation": { "uri": "src/index.js" },
-          "region": {
-            "startLine": 42, "startColumn": 5,
-            "endLine": 42, "endColumn": 30
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "ToolName",
+          "rules": [
+            {
+              "id": "RULE-001",
+              "shortDescription": { "text": "..." },
+              "fullDescription": { "text": "..." },
+              "help": { "text": "...", "markdown": "..." },
+              "defaultConfiguration": { "level": "error" },
+              "properties": {
+                "security-severity": "9.8",
+                "tags": ["security", "cwe-79"]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "RULE-001",
+          "message": { "text": "..." },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/index.js" },
+                "region": {
+                  "startLine": 42,
+                  "startColumn": 5,
+                  "endLine": 42,
+                  "endColumn": 30
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "abc123..."
           }
         }
-      }],
-      "partialFingerprints": {
-        "primaryLocationLineHash": "abc123..."
-      }
-    }]
-  }]
+      ]
+    }
+  ]
 }
 ```
 
 GitHub limits:
+
 - 10 MB per gzip-compressed SARIF file
 - 25,000 results per run (top 5,000 by severity kept)
 - 25,000 rules per run
@@ -506,6 +536,7 @@ VEX statuses: `not_affected`, `affected`, `under_investigation`, `fixed`.
 Strategy pattern: each format implements transformation independently.
 
 `Document` model feeds all presenters:
+
 - `matches[]` -- vulnerability match objects
 - `source` -- scanned target info
 - `distro` -- OS distribution
@@ -568,11 +599,13 @@ Payload includes: `alert.number`, `alert.state`, `alert.rule.severity`, `alert.h
 ### Trivy
 
 **Layer-level caching** (the primary performance optimization):
+
 - `MissingBlobs()` RPC checks which image layers are already cached
 - Only uncached layers go through analysis
 - Cache key: layer diff ID (content-addressable)
 
 **Three cache backends**:
+
 1. **Filesystem** (`~/.cache/trivy/`): Default, single-process only
 2. **Redis** (`--cache-backend redis://...`): Distributed, supports concurrent access, configurable TTL
 3. **Memory** (`--cache-backend memory`): Per-process, no persistence, concurrent-safe
@@ -619,6 +652,7 @@ Payload includes: `alert.number`, `alert.state`, `alert.rule.severity`, `alert.h
 ### General Pattern
 
 Neither Trivy nor Grype use traditional SQL migrations (ALTER TABLE, etc.). Instead:
+
 1. Database is treated as a **distributed artifact** (like a container image)
 2. New schema = new database version, distributed as a new archive
 3. Client validates schema version on startup
@@ -631,25 +665,25 @@ Neither Trivy nor Grype use traditional SQL migrations (ALTER TABLE, etc.). Inst
 
 ## Summary: Key Patterns for SkillGuard Production
 
-| Concern | Recommended Pattern | Source |
-|---------|-------------------|--------|
-| Pipeline | Phase separation (analyze > detect > report) with interfaces | Trivy, Grype |
-| API Protocol | Twirp/gRPC for internal scanner RPC + REST for external | Trivy |
-| Health | `/healthz` + `/readyz` with asymmetric failure thresholds | Trivy Helm |
-| Shutdown | `http.Server.Shutdown()` + dual WaitGroup (DB update + request drain) | Trivy server |
-| Config | Three-tier (CLI > env > file) via Viper with typed Flag[T] | Trivy |
-| Concurrency | Bounded worker pool + Redis-backed queue + per-namespace limits | Trivy Operator, Anchore |
-| Scan Cache | Content-addressable (artifact digest), Redis for distributed | Trivy |
-| Result DB | SQLite blob store (indexed handles + JSON blobs) | Grype v6 |
-| Output | SARIF 2.1.0 primary + JSON + custom templates via presenter pattern | Grype, GitHub |
-| Deployment | StatefulSet + PVC + Redis sidecar + pod anti-affinity | Trivy Helm |
-| Container | Alpine base, CGO_ENABLED=0, non-root, read-only rootfs | Trivy |
-| DB Migration | Immutable artifacts with schema version + atomic replacement | Grype v6 |
-| Multi-tenant | Tenant ID in JWT, tenant-scoped storage, namespace isolation | Anchore, GitHub |
-| Webhooks | `scan.started/completed/failed` events with HMAC signing | GitHub |
-| Auth | Token-based with configurable header, empty = disabled | Trivy server |
-| Timeouts | Per-scan context timeout (default 5-10m), separate DB timeout | Trivy, Grype |
-| Signing | Cosign keyless via OIDC + Fulcio + Rekor transparency log | Trivy |
+| Concern      | Recommended Pattern                                                   | Source                  |
+| ------------ | --------------------------------------------------------------------- | ----------------------- |
+| Pipeline     | Phase separation (analyze > detect > report) with interfaces          | Trivy, Grype            |
+| API Protocol | Twirp/gRPC for internal scanner RPC + REST for external               | Trivy                   |
+| Health       | `/healthz` + `/readyz` with asymmetric failure thresholds             | Trivy Helm              |
+| Shutdown     | `http.Server.Shutdown()` + dual WaitGroup (DB update + request drain) | Trivy server            |
+| Config       | Three-tier (CLI > env > file) via Viper with typed Flag[T]            | Trivy                   |
+| Concurrency  | Bounded worker pool + Redis-backed queue + per-namespace limits       | Trivy Operator, Anchore |
+| Scan Cache   | Content-addressable (artifact digest), Redis for distributed          | Trivy                   |
+| Result DB    | SQLite blob store (indexed handles + JSON blobs)                      | Grype v6                |
+| Output       | SARIF 2.1.0 primary + JSON + custom templates via presenter pattern   | Grype, GitHub           |
+| Deployment   | StatefulSet + PVC + Redis sidecar + pod anti-affinity                 | Trivy Helm              |
+| Container    | Alpine base, CGO_ENABLED=0, non-root, read-only rootfs                | Trivy                   |
+| DB Migration | Immutable artifacts with schema version + atomic replacement          | Grype v6                |
+| Multi-tenant | Tenant ID in JWT, tenant-scoped storage, namespace isolation          | Anchore, GitHub         |
+| Webhooks     | `scan.started/completed/failed` events with HMAC signing              | GitHub                  |
+| Auth         | Token-based with configurable header, empty = disabled                | Trivy server            |
+| Timeouts     | Per-scan context timeout (default 5-10m), separate DB timeout         | Trivy, Grype            |
+| Signing      | Cosign keyless via OIDC + Fulcio + Rekor transparency log             | Trivy                   |
 
 ---
 

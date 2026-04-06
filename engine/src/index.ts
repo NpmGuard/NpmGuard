@@ -9,7 +9,6 @@ import * as path from "node:path";
 
 import { config, PAYMENT_ENABLED } from "./config.js";
 import { runAudit } from "./pipeline.js";
-import { publishAuditResults } from "./publish.js";
 import { createSession, getSession, finalizeSession, createEmitFn, type AuditEvent } from "./events.js";
 import { cleanupPackage } from "./phases/resolve.js";
 import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } from "./stripe.js";
@@ -18,7 +17,10 @@ import { recordPayment, getPayment, cleanupOldPayments } from "./payment-map.js"
 const app = new Hono();
 
 // Enable CORS for frontend dev server
-app.use("/*", cors({ origin: "*" }));
+app.use("/*", cors({
+  origin: process.env.NPMGUARD_CORS_ORIGIN ?? "http://localhost:5173",
+  credentials: true,
+}));
 
 const AuditRequest = z.object({
   packageName: z.string().min(1),
@@ -40,25 +42,8 @@ async function processQueue() {
   console.log(`[queue] starting ${item.packageName} (${auditQueue.length} queued)`);
 
   try {
-    const { report, packagePath, cleanup } = await runAudit(item.packageName);
-
-    // Publish to IPFS + ENS for all verdicts
-    if (process.env.PINATA_JWT) {
-      // Try to read version from the audited package.json
-      let resolvedVersion = item.version || "latest";
-      try {
-        const pkgJson = JSON.parse(fs.readFileSync(path.join(packagePath, "package.json"), "utf-8"));
-        if (pkgJson.version) resolvedVersion = pkgJson.version;
-      } catch { /* use fallback */ }
-
-      publishAuditResults(item.packageName, resolvedVersion, report, packagePath)
-        .then((pub) => console.log(`[publish] done: report=${pub.reportCid} source=${pub.sourceCid} ens=${pub.ensName ?? "skipped"}`))
-        .catch((err) => console.error("[publish] failed:", err instanceof Error ? err.message : err))
-        .finally(cleanup);
-    } else {
-      cleanup();
-    }
-
+    const { report, cleanup } = await runAudit(item.packageName);
+    cleanup();
     item.resolve(report);
   } catch (err) {
     item.reject(err);
@@ -298,29 +283,9 @@ app.post("/audit/stream", async (c) => {
 
   // Run audit in background — don't await
   runAudit(packageName, emit, session.auditId)
-    .then(({ report, packagePath, cleanup }) => {
+    .then(({ report, cleanup }) => {
       finalizeSession(session.auditId, report);
-
-      if (process.env.PINATA_JWT) {
-        let resolvedVersion = version || "latest";
-        try {
-          const pkgJson = JSON.parse(fs.readFileSync(path.join(packagePath, "package.json"), "utf-8"));
-          if (pkgJson.version) resolvedVersion = pkgJson.version;
-        } catch { /* use fallback */ }
-
-        publishAuditResults(packageName, resolvedVersion, report, packagePath)
-          .then((pub) => {
-            console.log(`[publish] done: report=${pub.reportCid} source=${pub.sourceCid} ens=${pub.ensName ?? "skipped"}`);
-            emit("publish_complete", { reportCid: pub.reportCid, sourceCid: pub.sourceCid, ensName: pub.ensName });
-          })
-          .catch((err) => {
-            console.error("[publish] failed:", err instanceof Error ? err.message : err);
-            emit("publish_failed", { error: err instanceof Error ? err.message : "unknown" });
-          })
-          .finally(cleanup);
-      } else {
-        cleanup();
-      }
+      cleanup();
     })
     .catch((err) => {
       console.error("[api] streaming audit failed:", err);
