@@ -11,7 +11,7 @@ import { config, PAYMENT_ENABLED } from "./config.js";
 import { runAudit, type AuditResult } from "./pipeline.js";
 import type { AuditReport } from "./models.js";
 import { createSession, getSession, finalizeSession, createEmitFn, type AuditEvent } from "./events.js";
-import { cleanupPackage } from "./phases/resolve.js";
+import { cleanupPackage, resolveTarballUrl } from "./phases/resolve.js";
 import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } from "./stripe.js";
 import { recordPayment, getPayment, cleanupOldPayments } from "./payment-map.js";
 import { NpmGuardError, QueueFullError } from "./errors.js";
@@ -109,6 +109,16 @@ app.post("/checkout", async (c) => {
   }
 
   const version = parsed.data.version || "latest";
+
+  // Validate that the package+version actually exists on npm BEFORE charging
+  if (!parsed.data.packageName.startsWith("test-pkg-")) {
+    try {
+      await resolveTarballUrl(parsed.data.packageName, version);
+    } catch {
+      return c.json({ error: `Package ${parsed.data.packageName}@${version} not found on npm` }, 404);
+    }
+  }
+
   const origin = c.req.header("Origin")
     || c.req.header("Referer")?.replace(/\/+$/, "")
     || `http://localhost:${config.apiPort}`;

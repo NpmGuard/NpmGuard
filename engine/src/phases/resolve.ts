@@ -53,7 +53,7 @@ export function cleanupPackage(resolved: ResolvedPackage): void {
   }
 }
 
-async function resolveTarballUrl(
+export async function resolveTarballUrl(
   packageName: string,
   version = "latest",
 ): Promise<{ resolvedVersion: string; tarballUrl: string }> {
