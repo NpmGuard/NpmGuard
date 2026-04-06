@@ -336,12 +336,11 @@ export function ResultsPanel({
   const proofs = useAuditStore((s) => s.proofs);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
-  // Match each finding to a proof by fileLine (natural join key)
-  const proofByFileLine = Object.fromEntries(proofs.map((p) => [p.fileLine, p]));
+  // Proofs are 1:1 index-aligned with findings
 
   // Sort findings: verified threats first, then observed, unverified, static, flagged
   const sortedFindings = [...findings]
-    .map((f, i) => ({ finding: f, originalIndex: i, rank: verificationStatus(proofByFileLine[f.fileLine]).rank }))
+    .map((f, i) => ({ finding: f, originalIndex: i, rank: verificationStatus(proofs[i]).rank }))
     .sort((a, b) => a.rank - b.rank);
 
   return (
@@ -384,7 +383,7 @@ export function ResultsPanel({
           <FindingCard
             key={originalIndex}
             finding={f}
-            proof={proofByFileLine[f.fileLine]}
+            proof={proofs[originalIndex]}
             isExpanded={expandedIndex === originalIndex}
             onToggle={() =>
               setExpandedIndex(expandedIndex === originalIndex ? null : originalIndex)

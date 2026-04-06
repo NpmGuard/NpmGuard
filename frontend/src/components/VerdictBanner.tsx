@@ -29,9 +29,9 @@ export function VerdictBanner() {
   if (!verdict) return null;
 
   // Compute verification-aware presentation
-  const proofByFileLine = Object.fromEntries(proofs.map(p => [p.fileLine, p]));
-  const verified = findings.filter(f => proofByFileLine[f.fileLine]?.kind === "TEST_CONFIRMED").length;
-  const observed = findings.filter(f => proofByFileLine[f.fileLine]?.kind === "AI_DYNAMIC").length;
+  // Proofs are 1:1 index-aligned with findings
+  const verified = findings.filter((_, i) => proofs[i]?.kind === "TEST_CONFIRMED").length;
+  const observed = findings.filter((_, i) => proofs[i]?.kind === "AI_DYNAMIC").length;
   const rest = findings.length - verified - observed;
 
   // Derive display label + color from what was actually proven
