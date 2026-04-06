@@ -40,6 +40,7 @@ export async function createCheckoutSession(params: {
       packageName: params.packageName,
       version: params.version,
     },
+    allow_promotion_codes: true,
     ...(params.email && { customer_email: params.email }),
     success_url: `${params.origin}/audit?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: params.origin,
