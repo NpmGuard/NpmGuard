@@ -43,27 +43,10 @@ if $DEV; then
   ./frontend/run.sh &
   FRONTEND_PID=$!
 else
-  # ── Production mode: build + node ──
-  echo "[build] Installing dependencies..."
-  (cd engine && npm install --silent)
-  (cd frontend && npm install --silent)
+  # ── Production mode: build frontend, then start engine ──
+  ./frontend/run.sh --prod
 
-  echo "[build] Building frontend..."
-  (cd frontend && npx vite build)
-
-  echo "[build] Building engine..."
-  (cd engine && npx tsc)
-
-  # Ensure the Docker verify image exists
-  if ! docker image inspect npmguard-verify >/dev/null 2>&1; then
-    echo "[build] Building npmguard-verify Docker image..."
-    (cd engine && docker build -t npmguard-verify -f Dockerfile.verify .) || {
-      echo "[build] WARNING: Failed to build npmguard-verify image. Test verification will be skipped."
-    }
-  fi
-
-  echo "[prod] Starting engine (serves frontend from frontend/dist)..."
-  (cd engine && node dist/index.js) &
+  ./engine/run.sh --prod &
   ENGINE_PID=$!
 
   echo "Waiting for engine on :8000..."

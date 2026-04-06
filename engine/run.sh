@@ -3,6 +3,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+PROD=false
+if [[ "${1:-}" == "--prod" ]]; then
+  PROD=true
+fi
+
 npm install --silent
 
 # Ensure the Docker verify image exists (needed for test verification)
@@ -20,13 +25,19 @@ set -m
 
 cleanup() {
   echo -e "\nShutting down engine..."
-  # Kill the entire process group (npx -> tsx -> node)
   kill -- -"$PID" 2>/dev/null
   wait "$PID" 2>/dev/null
   echo "Done."
 }
 trap cleanup INT TERM EXIT
 
-npx tsx src/index.ts &
+if $PROD; then
+  echo "[engine] Building..."
+  npx tsc
+  echo "[engine] Starting production server..."
+  node dist/index.js &
+else
+  npx tsx src/index.ts &
+fi
 PID=$!
 wait "$PID"

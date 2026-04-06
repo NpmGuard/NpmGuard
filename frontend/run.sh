@@ -3,8 +3,21 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+PROD=false
+if [[ "${1:-}" == "--prod" ]]; then
+  PROD=true
+fi
+
 npm install --silent
 
+if $PROD; then
+  echo "[frontend] Building..."
+  npx vite build
+  echo "[frontend] Build complete (dist/)."
+  exit 0
+fi
+
+# Dev mode: run vite dev server
 set -m
 
 cleanup() {
