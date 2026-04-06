@@ -8,13 +8,13 @@ function DependencyList() {
 
   if (!deps) return null;
 
-  const prodCount = Object.keys(deps.prod ?? {}).length;
-  const devCount = Object.keys(deps.dev ?? {}).length;
-  if (prodCount + devCount === 0) return null;
+  const prodEntries = Object.entries(deps.prod ?? {});
+  const devEntries = Object.entries(deps.dev ?? {});
+  if (prodEntries.length + devEntries.length === 0) return null;
 
   const summary = [
-    prodCount > 0 ? `${prodCount} prod` : "",
-    devCount > 0 ? `${devCount} dev` : "",
+    prodEntries.length > 0 ? `${prodEntries.length} prod` : "",
+    devEntries.length > 0 ? `${devEntries.length} dev` : "",
   ].filter(Boolean).join(" · ");
 
   return (
@@ -43,9 +43,9 @@ function DependencyList() {
       </div>
       {expanded && (
         <div style={{ padding: "0 14px 8px" }}>
-          {prodCount > 0 && (
+          {prodEntries.length > 0 && (
             <>
-              {Object.entries(deps.prod).map(([name, ver]) => (
+              {prodEntries.map(([name, ver]) => (
                 <div
                   key={name}
                   style={{
@@ -63,20 +63,20 @@ function DependencyList() {
               ))}
             </>
           )}
-          {devCount > 0 && (
+          {devEntries.length > 0 && (
             <>
               <div style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: "0.55rem",
                 color: "var(--text-muted)",
-                marginTop: prodCount > 0 ? 6 : 0,
+                marginTop: prodEntries.length > 0 ? 6 : 0,
                 marginBottom: 2,
                 textTransform: "uppercase",
                 letterSpacing: "0.05em",
               }}>
                 dev
               </div>
-              {Object.entries(deps.dev).map(([name, ver]) => (
+              {devEntries.map(([name, ver]) => (
                 <div
                   key={name}
                   style={{

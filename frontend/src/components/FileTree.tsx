@@ -146,7 +146,7 @@ function TreeNodeComponent({ node, depth }: { node: TreeNode; depth: number }) {
               borderRadius: "50%",
               flexShrink: 0,
               background: effectiveStatus
-                ? STATUS_COLORS[effectiveStatus as FileStatus]
+                ? STATUS_COLORS[effectiveStatus]
                 : "var(--pending)",
             }}
           />

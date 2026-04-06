@@ -3,6 +3,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { EditorView } from "@codemirror/view";
 import { useAuditStore } from "../stores/auditStore";
+import { fileFromFileLine } from "../lib/types";
 import type { Finding, Proof } from "../lib/types";
 
 function verificationStatus(proof?: Proof) {
@@ -130,7 +131,7 @@ function FindingCard({
         <div
           onClick={(e) => {
             e.stopPropagation();
-            const file = finding.fileLine.split(":")[0];
+            const file = fileFromFileLine(finding.fileLine);
             if (file) {
               selectFile(file);
               onShowCode();
