@@ -69,8 +69,14 @@ step "[1/7] System packages"
 apt-get update -qq
 apt-get install -y -qq \
   curl nginx certbot python3-certbot-nginx \
-  fail2ban ufw docker.io \
+  fail2ban ufw \
   > /dev/null 2>&1
+
+# Docker — prefer docker-ce if already installed (e.g. from Docker's repo),
+# fall back to docker.io from Ubuntu
+if ! command -v docker &>/dev/null; then
+  apt-get install -y -qq docker.io > /dev/null 2>&1
+fi
 log_ok "Installed"
 
 # ── 2. Node.js 22 ────────────────────────────────────────────────────
