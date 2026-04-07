@@ -22,7 +22,7 @@ export function Header() {
     <header
       className="flex items-center gap-5 shrink-0"
       style={{
-        padding: "0 28px",
+        padding: "0 var(--header-px)",
         height: "var(--header-height)",
         borderBottom: "1px solid var(--border)",
       }}
@@ -55,6 +55,8 @@ export function Header() {
             padding: "4px 14px",
             fontFamily: "var(--font-mono)",
             fontSize: "0.8rem",
+            maxWidth: "30vw",
+            overflow: "hidden",
           }}
         >
           <div
@@ -63,9 +65,12 @@ export function Header() {
               height: 6,
               borderRadius: "50%",
               background: statusColor,
+              flexShrink: 0,
             }}
           />
-          {packageName}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {packageName}
+          </span>
         </div>
       )}
 

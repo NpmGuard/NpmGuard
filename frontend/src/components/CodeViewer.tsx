@@ -117,7 +117,7 @@ export function CodeViewer({
   const filesToggleBtn = (
     <button
       onClick={onToggleFiles}
-      className="btn-ghost"
+      className="code-files-btn btn-ghost"
       style={{
         borderColor: filesOpen ? "var(--accent)" : undefined,
         color: filesOpen ? "var(--accent)" : undefined,
@@ -209,7 +209,7 @@ export function CodeViewer({
       >
         {/* File selector */}
         <div
-          className="flex items-center gap-1.5"
+          className="code-file-path-wrap flex items-center gap-1.5"
           style={{
             background: "var(--bg-secondary)",
             border: "1px solid var(--border)",
@@ -217,6 +217,7 @@ export function CodeViewer({
             padding: "4px 10px",
             fontFamily: "var(--font-mono)",
             fontSize: "0.78rem",
+            overflow: "hidden",
           }}
         >
           <div
@@ -224,6 +225,7 @@ export function CodeViewer({
               width: 5,
               height: 5,
               borderRadius: "50%",
+              flexShrink: 0,
               background: fileVerdict
                 ? fileVerdict.riskContribution >= 5
                   ? "var(--danger)"
@@ -233,12 +235,14 @@ export function CodeViewer({
                 : "var(--pending)",
             }}
           />
-          {selectedFile}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {selectedFile}
+          </span>
         </div>
 
         {/* File tabs */}
         {recentFiles.length > 1 && (
-          <div className="flex gap-0.5 ml-2">
+          <div className="code-file-tabs flex gap-0.5 ml-2">
             {recentFiles.map((f) => (
               <button
                 key={f}
@@ -264,7 +268,7 @@ export function CodeViewer({
 
         {/* Capability tags */}
         {fileVerdict && fileVerdict.capabilities.length > 0 && (
-          <div className="ml-auto flex gap-1">
+          <div className="code-cap-tags ml-auto flex gap-1">
             {fileVerdict.capabilities.map((cap) => (
               <span
                 key={cap}
