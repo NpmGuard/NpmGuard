@@ -63,9 +63,9 @@ export function VerdictBanner() {
   return (
     <div
       role="alert"
-      className="animate-slide-down flex items-center gap-4 shrink-0"
+      className="verdict-banner animate-slide-down flex items-center gap-4 shrink-0"
       style={{
-        padding: "12px 28px",
+        padding: "12px var(--header-px)",
         borderTop: `2px solid ${displayColor}`,
         background: "var(--bg)",
       }}
@@ -103,7 +103,7 @@ export function VerdictBanner() {
 
       {/* Capability tags — neutral, not severity indicators */}
       {stage >= 3 && capabilities.length > 0 && (
-        <div className="ml-auto flex gap-1">
+        <div className="verdict-caps ml-auto flex gap-1">
           {capabilities.map((cap, i) => (
             <span
               key={cap}

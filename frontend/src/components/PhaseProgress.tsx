@@ -50,6 +50,7 @@ export function PhaseProgress() {
         ))}
       </div>
       <span
+        className="phase-progress-text"
         style={{
           fontFamily: "var(--font-mono)",
           fontSize: "0.7rem",

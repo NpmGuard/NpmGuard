@@ -16,7 +16,7 @@ const DEMOS = [
     label: "CRITICAL",
     name: "test-pkg-dom-inject",
     detail: ["DOM injection", "wallet drainer"],
-    sub: "Fake approval modal \u00b7 eth_sendTransaction",
+    sub: "Fake approval modal · eth_sendTransaction",
   },
   {
     pkg: "react",
@@ -30,7 +30,6 @@ const DEMOS = [
 
 export function Landing() {
   const [input, setInput] = useState("");
-  const [version, setVersion] = useState("");
   const [priceCents, setPriceCents] = useState<number | null>(null);
   const [paymentEnabled, setPaymentEnabled] = useState(false);
   const startCheckout = useAuditStore((s) => s.startCheckout);
@@ -52,13 +51,20 @@ export function Landing() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim()) startCheckout(input.trim(), version.trim() || undefined);
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    // Parse package@version — handle scoped packages (@scope/pkg@version)
+    const atIdx = trimmed.lastIndexOf("@");
+    const pkg = atIdx > 0 ? trimmed.slice(0, atIdx) : trimmed;
+    const ver = atIdx > 0 ? trimmed.slice(atIdx + 1) || undefined : undefined;
+    startCheckout(pkg, ver);
   };
 
   return (
-    <div className="flex-1 flex items-center justify-center">
+    <div className="landing-scroll-wrap flex-1 flex items-center justify-center">
       <div className="landing-page">
-        {/* Left: pitch + audit input */}
+
+        {/* Left / top: pitch + search */}
         <div className="landing-pitch">
           <h1>
             Know what
@@ -66,63 +72,46 @@ export function Landing() {
             you install
             <span className="dot">.</span>
           </h1>
-          <p className="subtitle">
-            AI-powered security audit for npm packages.
-          </p>
+          <p className="subtitle">AI-powered security audit for npm packages.</p>
 
-          <form onSubmit={handleSubmit} className="landing-search-bar">
+          <form onSubmit={handleSubmit} className="landing-single-bar">
             <label className="sr-only" htmlFor="pkg-input">
-              Package name
+              Package name or package@version
             </label>
             <input
               id="pkg-input"
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="package name"
+              placeholder="express@4.18.2"
               autoFocus
             />
-            <label className="sr-only" htmlFor="version-input">
-              Version
-            </label>
-            <input
-              id="version-input"
-              type="text"
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              placeholder="latest"
-              className="ver"
-            />
-            <button
-              type="submit"
-              disabled={!input.trim() || checkoutLoading}
-            >
+            <button type="submit" disabled={!input.trim() || checkoutLoading}>
               {checkoutLoading ? "..." : "Audit"}
             </button>
           </form>
 
+          <div className="landing-hint">
+            {paymentEnabled && priceCents != null
+              ? `$${(priceCents / 100).toFixed(2)} per audit · `
+              : ""}
+            package · package@version · package@latest
+          </div>
+
           {error && (
-            <p
-              style={{ color: "var(--danger)", fontSize: "0.8rem" }}
-              role="alert"
-            >
+            <p style={{ color: "var(--danger)", fontSize: "0.8rem" }} role="alert">
               {error}
             </p>
           )}
 
-          <div className="landing-search-meta">
-            {paymentEnabled && priceCents != null && (
-              <span>${(priceCents / 100).toFixed(2)} per audit</span>
-            )}
+          <div className="landing-chips">
             {["event-stream", "ua-parser-js", "colors"].map((pkg) => (
               <button
                 key={pkg}
                 type="button"
                 aria-label={`Try auditing ${pkg}`}
-                onClick={() => {
-                  setInput(pkg);
-                  setVersion("");
-                }}
+                className="landing-chip"
+                onClick={() => setInput(pkg)}
               >
                 {pkg}
               </button>
@@ -130,53 +119,36 @@ export function Landing() {
           </div>
         </div>
 
-        {/* Right: terminal preview */}
-        <div className="landing-terminal-wrap">
-          <span className="landing-terminal-label">See a demo</span>
-          <div className="landing-terminal">
-            <div className="landing-terminal-bar">
-              <div className="landing-terminal-dot r" />
-              <div className="landing-terminal-dot y" />
-              <div className="landing-terminal-dot g" />
-              <span className="landing-terminal-title">npmguard</span>
-            </div>
-            <div className="landing-terminal-body">
-              <div className="prompt">
-                $ <span className="cmd">npmguard scan --recent</span>
+        {/* Right / bottom: demo cards */}
+        <div className="landing-demo">
+          <div className="landing-demo-label">Recent scans</div>
+          {DEMOS.map((demo) => (
+            <button
+              key={demo.pkg}
+              type="button"
+              className={`landing-card ${demo.verdict}`}
+              onClick={() => startDemo(demo.pkg)}
+            >
+              <div className="landing-card-header">
+                <span className={`landing-card-badge ${demo.verdict}`}>
+                  {demo.label}
+                </span>
+                <span className="landing-card-name">{demo.name}</span>
               </div>
-
-              {DEMOS.map((demo) => (
-                <button
-                  key={demo.pkg}
-                  type="button"
-                  className="landing-scan-result"
-                  onClick={() => startDemo(demo.pkg)}
-                >
-                  <div className="landing-scan-header">
-                    <span
-                      className={`landing-scan-verdict ${demo.verdict}`}
-                    >
-                      {demo.label}
-                    </span>
-                    <span className="landing-scan-pkg">{demo.name}</span>
-                  </div>
-                  <div className="landing-scan-detail">
-                    <span className={demo.verdict === "crit" ? "hl" : "safe-hl"}>
-                      {demo.detail[0]}
-                    </span>
-                    {" \u00b7 "}
-                    {demo.detail[1]}
-                    <br />
-                    {demo.sub}
-                  </div>
-                  <div className="landing-scan-cta">
-                    view full audit &rarr;
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
+              <div className="landing-card-body">
+                <span className={demo.verdict === "crit" ? "hl" : "ok-hl"}>
+                  {demo.detail[0]}
+                </span>
+                {" · "}
+                {demo.detail[1]}
+                <br />
+                {demo.sub}
+              </div>
+              <div className="landing-card-cta">view full audit &rarr;</div>
+            </button>
+          ))}
         </div>
+
       </div>
     </div>
   );
