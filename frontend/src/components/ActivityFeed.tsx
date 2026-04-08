@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo } from "react";
 import { useAuditStore } from "../stores/auditStore";
 import { useTypewriter } from "../hooks/useTypewriter";
 import { useCountUp } from "../hooks/useCountUp";
-import { PHASE_WAIT_LABELS, readFileArg, fileFromFileLine, computeProofStats } from "../lib/types";
+import { PHASE_WAIT_LABELS, LIFECYCLE_SCRIPTS, readFileArg, fileFromFileLine, computeProofStats } from "../lib/types";
 import type { AgentStep, Finding, PipelineLogEntry } from "../lib/types";
 
 // ── Sub-components ──
@@ -43,7 +43,7 @@ function ToolCallItem({ step, isPending }: { step: AgentStep; isPending: boolean
   const filePath = step.tool === "readFile" ? readFileArg(step.args) : undefined;
 
   return (
-    <div className="feed-item" style={{ cursor: filePath ? "pointer" : undefined }}>
+    <div className="feed-item">
       <div className="feed-meta">
         <FeedTag type="tool">{step.tool || "tool"}</FeedTag>
         <span>step {step.step}</span>
@@ -67,15 +67,13 @@ function ToolCallItem({ step, isPending }: { step: AgentStep; isPending: boolean
         )}
       </div>
       {filePath && (
-        <div
+        <button
           className="feed-file-ref"
-          onClick={(e) => {
-            e.stopPropagation();
-            selectFile(filePath);
-          }}
+          onClick={() => selectFile(filePath)}
+          aria-label={`Open file ${filePath}`}
         >
           → {filePath}
-        </div>
+        </button>
       )}
     </div>
   );
@@ -206,15 +204,16 @@ function FindingItem({ finding }: { finding: Finding }) {
         </div>
       )}
       {finding.fileLine && (
-        <div
+        <button
           className="feed-file-ref"
           onClick={() => {
             const file = fileFromFileLine(finding.fileLine);
             if (file) selectFile(file);
           }}
+          aria-label={`Open ${finding.fileLine}`}
         >
           → {finding.fileLine}
-        </div>
+        </button>
       )}
     </div>
   );
@@ -302,9 +301,8 @@ function PipelineLogItem({ entry }: { entry: PipelineLogEntry }) {
       );
 
     case "scripts": {
-      const LIFECYCLE = ["preinstall", "install", "postinstall", "prepare", "prepack"];
       const scripts = entry.scripts ?? {};
-      const lifecycleEntries = Object.entries(scripts).filter(([k]) => LIFECYCLE.includes(k));
+      const lifecycleEntries = Object.entries(scripts).filter(([k]) => LIFECYCLE_SCRIPTS.includes(k));
       if (lifecycleEntries.length === 0) return null;
       return (
         <div
@@ -341,7 +339,15 @@ function PipelineLogItem({ entry }: { entry: PipelineLogEntry }) {
             borderLeft: `3px solid ${(entry.risk ?? 0) >= 5 ? "var(--danger)" : "var(--suspected)"}`,
             cursor: entry.file ? "pointer" : undefined,
           }}
+          role={entry.file ? "button" : undefined}
+          tabIndex={entry.file ? 0 : undefined}
           onClick={() => entry.file && selectFile(entry.file)}
+          onKeyDown={(e) => {
+            if (entry.file && (e.key === "Enter" || e.key === " ")) {
+              e.preventDefault();
+              selectFile(entry.file);
+            }
+          }}
         >
           <div className="feed-meta">
             <FeedTag type="triage">flagged</FeedTag>

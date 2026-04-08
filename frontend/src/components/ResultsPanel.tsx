@@ -43,7 +43,16 @@ function FindingCard({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      aria-expanded={isExpanded}
       style={{
         borderBottom: "1px solid var(--border)",
         borderLeft: `3px solid ${status.border}`,
@@ -128,7 +137,7 @@ function FindingCard({
           : finding.problem}
       </div>
       {finding.fileLine && (
-        <div
+        <button
           onClick={(e) => {
             e.stopPropagation();
             const file = fileFromFileLine(finding.fileLine);
@@ -137,6 +146,7 @@ function FindingCard({
               onShowCode();
             }
           }}
+          aria-label={`View source at ${finding.fileLine}`}
           style={{
             padding: "6px 20px 14px",
             fontFamily: "var(--font-mono)",
@@ -144,10 +154,12 @@ function FindingCard({
             color: "var(--accent-light)",
             cursor: "pointer",
             display: "inline-block",
+            background: "none",
+            border: "none",
           }}
         >
           → {finding.fileLine}
-        </div>
+        </button>
       )}
 
       {/* Expandable: proof box */}

@@ -227,6 +227,17 @@ export type SSEEvent =
 
 export const PHASE_ORDER = ["resolve", "inventory", "triage", "investigation", "test-gen", "verify"] as const;
 
+export const LIFECYCLE_SCRIPTS: string[] = ["preinstall", "install", "postinstall", "prepare", "prepack"];
+
+export const RISK_SUSPICIOUS_THRESHOLD = 3;
+export const RISK_DANGEROUS_THRESHOLD = 5;
+
+export function riskContributionToStatus(risk: number): FileStatus {
+  if (risk >= RISK_DANGEROUS_THRESHOLD) return "dangerous";
+  if (risk >= RISK_SUSPICIOUS_THRESHOLD) return "suspicious";
+  return "safe";
+}
+
 export const AUDIT_PATH_RE = /^\/audit\/([0-9a-f-]{36})$/;
 
 export const PHASE_LABELS: Record<string, string> = {

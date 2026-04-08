@@ -19,9 +19,10 @@ function DependencyList() {
 
   return (
     <div style={{ borderTop: "1px solid var(--border)" }}>
-      <div
+      <button
         className="section-header"
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         style={{
           padding: "8px 14px 6px",
           cursor: "pointer",
@@ -29,6 +30,10 @@ function DependencyList() {
           alignItems: "center",
           gap: 6,
           whiteSpace: "nowrap",
+          width: "100%",
+          background: "none",
+          border: "none",
+          textAlign: "left",
         }}
       >
         <span style={{
@@ -40,7 +45,7 @@ function DependencyList() {
         }}>&#9656;</span>
         Deps
         <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>{summary}</span>
-      </div>
+      </button>
       {expanded && (
         <div style={{ padding: "0 14px 8px" }}>
           {prodEntries.length > 0 && (
