@@ -6,6 +6,33 @@ import { VerdictBanner } from "./VerdictBanner";
 import { FileExplorer } from "./FileExplorer";
 import { ResultsPanel } from "./ResultsPanel";
 
+function StatusBanners({
+  reconnecting,
+  error,
+  isRunning,
+  verdict,
+}: {
+  reconnecting: boolean;
+  error: string | null;
+  isRunning: boolean;
+  verdict: string | null;
+}) {
+  return (
+    <>
+      {reconnecting && (
+        <div className="status-banner status-banner--warning" role="status">
+          Reconnecting to audit engine...
+        </div>
+      )}
+      {error && !isRunning && !verdict && (
+        <div className="status-banner status-banner--error" role="alert">
+          {error}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function AuditView() {
   const [fileExplorerOpen, setFileExplorerOpen] = useState(true);
   const [showResults, setShowResults] = useState(false);
@@ -52,16 +79,12 @@ export function AuditView() {
 
     return (
       <>
-        {reconnecting && (
-          <div style={{ background: "var(--warning, #b8860b)", color: "#fff", padding: "6px 16px", fontSize: "0.8rem", fontFamily: "var(--font-mono)", textAlign: "center" }}>
-            Reconnecting to audit engine...
-          </div>
-        )}
-        {error && !isRunning && !verdict && (
-          <div style={{ background: "var(--danger, #dc3545)", color: "#fff", padding: "8px 16px", fontSize: "0.85rem", fontFamily: "var(--font-mono)", display: "flex", alignItems: "center", justifyContent: "center", gap: "12px" }}>
-            <span>{error}</span>
-          </div>
-        )}
+        <StatusBanners
+          reconnecting={reconnecting}
+          error={error}
+          isRunning={isRunning}
+          verdict={verdict}
+        />
         <VerdictBanner />
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {activePanel}
@@ -86,37 +109,12 @@ export function AuditView() {
 
   return (
     <>
-      {reconnecting && (
-        <div
-          style={{
-            background: "var(--warning, #b8860b)",
-            color: "#fff",
-            padding: "6px 16px",
-            fontSize: "0.8rem",
-            fontFamily: "var(--font-mono)",
-            textAlign: "center",
-          }}
-        >
-          Reconnecting to audit engine...
-        </div>
-      )}
-      {error && !isRunning && !verdict && (
-        <div
-          style={{
-            background: "var(--danger, #dc3545)",
-            color: "#fff",
-            padding: "8px 16px",
-            fontSize: "0.85rem",
-            fontFamily: "var(--font-mono)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "12px",
-          }}
-        >
-          <span>{error}</span>
-        </div>
-      )}
+      <StatusBanners
+        reconnecting={reconnecting}
+        error={error}
+        isRunning={isRunning}
+        verdict={verdict}
+      />
       <VerdictBanner />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Activity Feed — left */}

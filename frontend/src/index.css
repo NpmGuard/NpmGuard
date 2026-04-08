@@ -23,6 +23,7 @@
   --suspected: #ca8a04;
   --suspected-bg: rgba(202, 138, 4, 0.08);
   --pending: #9e9787;
+  --warning: #ca8a04;
   --bg-dark: #1a1814;
   --bg-dark-secondary: #252118;
   --text-light: #d4c9b4;
@@ -64,6 +65,7 @@ html.urushi {
   --suspected: #fbbf24;
   --suspected-bg: rgba(251, 191, 36, 0.1);
   --pending: rgb(140, 125, 100);
+  --warning: #fbbf24;
   --bg-dark: #080604;
   --bg-dark-secondary: #0f0d0a;
   --text-light: #f0e8da;
@@ -155,6 +157,16 @@ body {
 }
 .animate-slide-down {
   animation: slide-down 0.5s ease-out;
+}
+
+/* ── Focus visible ── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+button:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* ── Screen-reader only ── */
@@ -378,6 +390,10 @@ body {
   color: var(--accent);
   cursor: pointer;
   margin-top: 4px;
+  /* Reset button defaults */
+  background: none;
+  border: none;
+  padding: 0;
 }
 .feed-file-ref:hover {
   text-decoration: underline;
@@ -392,6 +408,27 @@ body {
 }
 .proof-area.open {
   max-height: 1000px;
+}
+
+/* ── Status banners (reconnecting / error) ── */
+.status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+.status-banner--warning {
+  background: var(--warning);
+  font-size: 0.8rem;
+  padding: 6px 16px;
+}
+.status-banner--error {
+  background: var(--danger);
 }
 
 /* ── Landing input focus ── */

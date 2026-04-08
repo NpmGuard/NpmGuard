@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { EditorView, Decoration } from "@codemirror/view";
@@ -49,6 +49,14 @@ export function CodeViewer({
   const [showScanner, setShowScanner] = useState(false);
   const editorRef = useRef<ReactCodeMirrorRef>(null);
 
+  const scrollEditorToLine = useCallback((lineNum: number) => {
+    const view = editorRef.current?.view;
+    if (!view || lineNum > view.state.doc.lines) return;
+    view.dispatch({
+      effects: EditorView.scrollIntoView(view.state.doc.line(lineNum).from, { y: "center" }),
+    });
+  }, []);
+
   // Track recent files (adjust state during render)
   const [prevSelectedFile, setPrevSelectedFile] = useState(selectedFile);
   if (selectedFile && selectedFile !== prevSelectedFile) {
@@ -87,19 +95,12 @@ export function CodeViewer({
     if (!showScanner) return;
     const t = setTimeout(() => {
       setShowScanner(false);
-      if (suspiciousRanges.length > 0 && editorRef.current?.view) {
-        const view = editorRef.current.view;
-        const line = suspiciousRanges[0][0];
-        if (line <= view.state.doc.lines) {
-          const lineObj = view.state.doc.line(line);
-          view.dispatch({
-            effects: EditorView.scrollIntoView(lineObj.from, { y: "center" }),
-          });
-        }
+      if (suspiciousRanges.length > 0) {
+        scrollEditorToLine(suspiciousRanges[0][0]);
       }
     }, 2000);
     return () => clearTimeout(t);
-  }, [showScanner, suspiciousRanges]);
+  }, [showScanner, suspiciousRanges, scrollEditorToLine]);
 
   const resultsBtn = onShowResults ? (
     <button
@@ -349,17 +350,15 @@ export function CodeViewer({
             return (
               <div
                 key={i}
-                onClick={() => {
-                  if (lineNum && editorRef.current?.view) {
-                    const view = editorRef.current.view;
-                    if (lineNum <= view.state.doc.lines) {
-                      const lineObj = view.state.doc.line(lineNum);
-                      view.dispatch({
-                        effects: EditorView.scrollIntoView(lineObj.from, { y: "center" }),
-                      });
-                    }
+                onClick={lineNum ? () => scrollEditorToLine(lineNum) : undefined}
+                onKeyDown={lineNum ? (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    scrollEditorToLine(lineNum);
                   }
-                }}
+                } : undefined}
+                role={lineNum ? "button" : undefined}
+                tabIndex={lineNum ? 0 : undefined}
                 style={{
                   padding: "4px 16px",
                   fontSize: "0.72rem",

@@ -12,7 +12,7 @@ import type {
   PipelineLogEntry,
   InventoryMeta,
 } from "../lib/types";
-import { PHASE_ORDER, PHASE_LABELS, readFileArg } from "../lib/types";
+import { PHASE_ORDER, PHASE_LABELS, LIFECYCLE_SCRIPTS, RISK_SUSPICIOUS_THRESHOLD, riskContributionToStatus, readFileArg } from "../lib/types";
 
 const API_BASE = "/api";
 
@@ -458,10 +458,8 @@ export const useAuditStore = create<AuditState>((set, get) => ({
 
       case "file_verdict": {
         const { verdict } = event;
-        const status: FileStatus =
-          verdict.riskContribution >= 5 ? "dangerous" :
-            verdict.riskContribution >= 3 ? "suspicious" : "safe";
-        const pipelineLog = verdict.riskContribution >= 3
+        const status = riskContributionToStatus(verdict.riskContribution);
+        const pipelineLog = verdict.riskContribution >= RISK_SUSPICIOUS_THRESHOLD
           ? [...state.pipelineLog, {
             kind: "file-flag" as const,
             text: verdict.summary || `Risk ${verdict.riskContribution}/10`,
@@ -490,7 +488,6 @@ export const useAuditStore = create<AuditState>((set, get) => ({
           entryPoints: event.entryPoints,
           metadata: event.metadata,
         };
-        const LIFECYCLE_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "prepack"];
         const lifecycle = Object.entries(event.scripts)
           .filter(([k]) => LIFECYCLE_SCRIPTS.includes(k));
         const newEntries: typeof state.pipelineLog = [];
