@@ -3,11 +3,11 @@
 ## Architecture
 
 ```
-Internet (HTTPS :443)
+Internet (:80)
         │
       nginx            reverse proxy, SSL (certbot), rate limiting, security headers
         │
-        ├─ /deploy-webhook ──► webhook-server.js (:9000)  ← GitHub push events
+        ├─ /deploy-webhook ──► webhook-server.mjs (:9000)  ← GitHub push events
         │
         └─ everything else ──► node dist/index.js (:8000)  ← engine API + frontend static
                                       │
@@ -19,23 +19,28 @@ Internet (HTTPS :443)
 | Branch | Purpose |
 |--------|---------|
 | `main` | Production — push triggers auto-deploy to server |
+| `dev` | Development — work here, merge to `main` when ready to deploy |
+
+**Workflow:** develop on `dev` (or feature branches off `dev`), merge to `main` to deploy.
 
 ## Deploy flow
 
 ```
-git push origin prod
+git push origin main
         │
         ▼
-GitHub webhook POST ──► nginx /deploy-webhook ──► webhook-server.js (:9000)
+GitHub webhook POST ──► nginx /deploy-webhook ──► webhook-server.mjs (:9000)
                                                         │
                                                         ▼
                                                 pull-and-restart.sh
-                                                  1. git pull origin prod
+                                                  1. git pull origin main
                                                   2. npm install (engine + frontend)
                                                   3. npx tsc (engine build)
                                                   4. npx vite build (frontend build)
                                                   5. systemctl restart npmguard
 ```
+
+Deploy logs: `/var/log/npmguard-deploy.log`
 
 ## Services (systemd)
 
@@ -66,6 +71,17 @@ systemctl reload nginx
 
 # Manual deploy (if webhook is down)
 cd /root/NpmGuard && bash deploy/pull-and-restart.sh
+```
+
+## Server
+
+- **IP:** 209.38.42.28
+- **OS:** Ubuntu (DigitalOcean Droplet)
+- **Node:** v22
+- **Repo:** `/root/NpmGuard`
+
+```bash
+ssh root@209.38.42.28
 ```
 
 ## Initial server setup
@@ -109,11 +125,14 @@ nginx -t && systemctl reload nginx
 
 Go to **github.com/NpmGuard/NpmGuard → Settings → Webhooks → Add webhook**:
 
-- **Payload URL:** `https://npmguard.com/deploy-webhook`
+- **Payload URL:** `http://209.38.42.28/deploy-webhook`
 - **Content type:** `application/json`
 - **Secret:** the value from step 1
+- **SSL verification:** Disable (traffic goes directly to the server IP, not through a domain with SSL)
 - **Events:** Just the `push` event
 - **Active:** checked
+
+> **Note:** The domain `npmguard.com` goes through Cloudflare which causes 521 errors on webhooks. Use the IP directly. The HMAC secret secures the payload.
 
 ### 5. Test
 
@@ -132,7 +151,7 @@ UFW is configured to only allow:
 | Port | Protocol | Purpose |
 |------|----------|---------|
 | 22 | TCP (rate-limited) | SSH |
-| 80 | TCP | HTTP → HTTPS redirect |
+| 80 | TCP | HTTP (nginx) |
 | 443 | TCP | HTTPS (nginx) |
 
 Ports 8000 (engine) and 9000 (webhook) are **not exposed** — only accessible via nginx proxy.
@@ -152,23 +171,28 @@ certbot renew --force-renewal
 ## Troubleshooting
 
 **Deploy didn't trigger:**
+
 1. Check webhook delivery on GitHub (Settings → Webhooks → Recent Deliveries)
 2. Check webhook listener: `systemctl status npmguard-webhook`
 3. Check logs: `tail -20 /var/log/npmguard-webhook.log`
 
 **Deploy triggered but failed:**
+
 1. Check deploy log: `tail -50 /var/log/npmguard-deploy.log`
 2. Look for npm install or build errors
 3. Run manually: `cd /root/NpmGuard && bash deploy/pull-and-restart.sh`
 
 **Site is down after deploy:**
+
 1. Check engine: `systemctl status npmguard`
 2. Check logs: `tail -50 /var/log/npmguard.log`
 3. Check nginx: `nginx -t && systemctl status nginx`
 4. Rollback: `cd /root/NpmGuard && git checkout HEAD~1 && bash deploy/pull-and-restart.sh`
 
 **Concurrent deploy issue:**
+
 The deploy script uses a lock file (`/tmp/npmguard-deploy.lock`). If a deploy hangs:
+
 ```bash
 rm /tmp/npmguard-deploy.lock
 ```
