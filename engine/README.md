@@ -90,8 +90,8 @@ Settings are loaded from environment variables with the `NPMGUARD_` prefix (or a
 
 ```bash
 ssh root@<DROPLET_IP>
-git clone https://github.com/kryczkal/EthCannes2026.git
-cd EthCannes2026/engine
+git clone https://github.com/NpmGuard/NpmGuard.git
+cd NpmGuard/engine
 bash setup-droplet.sh
 ```
 
