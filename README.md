@@ -6,8 +6,6 @@ Users can pay for audits on-chain (0G Galileo Testnet) via the CLI — with a pr
 
 Any developer or AI agent can check `axios.npmguard.eth` before installing a package.
 
-> Built at [ETHGlobal Cannes 2026](https://ethglobal.com/events/cannes)
-
 ## How it works
 
 ```mermaid
@@ -204,5 +202,3 @@ The Dockerized OpenClaw verifier prototype, model-switching commands, and manual
 | Hosting | [DigitalOcean](https://www.digitalocean.com/) Droplet (Docker + Node.js) |
 
 ## Team
-
-Built at ETHGlobal Cannes 2026.
