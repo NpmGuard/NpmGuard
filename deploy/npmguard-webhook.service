@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/root/NpmGuard/deploy
-ExecStart=/usr/bin/node /root/NpmGuard/deploy/webhook-server.js
+ExecStart=/usr/bin/node /root/NpmGuard/deploy/webhook-server.mjs
 Environment=GITHUB_WEBHOOK_SECRET=REPLACE_ME
 Restart=always
 RestartSec=10
