@@ -30,6 +30,10 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     const body = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status}: ${body || res.statusText}`);
   }
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(`Expected JSON but got ${contentType || "unknown content type"}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -115,7 +119,7 @@ export async function getPackageReport(
   try {
     return await request<PackageReport>(url);
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith("HTTP 404")) {
+    if (err instanceof Error && (err.message.startsWith("HTTP 404") || err.message.startsWith("Expected JSON"))) {
       return null;
     }
     throw err;
