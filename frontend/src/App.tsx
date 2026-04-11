@@ -1,9 +1,16 @@
-import { useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuditStore } from "./stores/auditStore";
 import { AUDIT_PATH_RE } from "./lib/types";
 import { Header } from "./components/Header";
 import { Landing } from "./components/Landing";
 import { AuditView } from "./components/AuditView";
+import { PackageSearch } from "./components/PackageSearch";
+import { PackageLookup } from "./components/PackageLookup";
+import { Benchmark } from "./components/Benchmark";
+
+const PACKAGES_PATH_RE = /^\/packages\/?$/;
+const PACKAGE_PATH_RE_LOOKUP = /^\/package\/(.+)$/;
+const BENCHMARK_PATH_RE = /^\/benchmark\/?$/;
 
 function App() {
   const isRunning = useAuditStore((s) => s.isRunning);
@@ -14,6 +21,8 @@ function App() {
   const reset = useAuditStore((s) => s.reset);
   const hasStarted = useAuditStore((s) => s.hasStarted);
   const hasAudit = hasStarted || isRunning || !!verdict;
+
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
   // On mount: if returning from Stripe checkout with ?session_id, start audit
   useEffect(() => {
@@ -37,15 +46,19 @@ function App() {
   useEffect(() => {
     if (auditId && !window.location.pathname.includes(auditId)) {
       history.pushState(null, "", `/audit/${auditId}`);
+      setCurrentPath(`/audit/${auditId}`);
     }
   }, [auditId]);
 
   // Handle browser back/forward
   const onPopState = useCallback(() => {
-    const match = window.location.pathname.match(AUDIT_PATH_RE);
+    const path = window.location.pathname;
+    setCurrentPath(path);
+
+    const match = path.match(AUDIT_PATH_RE);
     if (match) {
       if (match[1] !== auditId) connectToSession(match[1]);
-    } else {
+    } else if (!PACKAGES_PATH_RE.test(path) && !PACKAGE_PATH_RE_LOOKUP.test(path) && !BENCHMARK_PATH_RE.test(path)) {
       reset();
     }
   }, [auditId, connectToSession, reset]);
@@ -55,6 +68,23 @@ function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, [onPopState]);
 
+  // Determine which view to render
+  let content: React.ReactNode;
+
+  const packageMatch = currentPath.match(PACKAGE_PATH_RE_LOOKUP);
+
+  if (PACKAGES_PATH_RE.test(currentPath)) {
+    content = <PackageSearch />;
+  } else if (packageMatch) {
+    content = <PackageLookup packageName={decodeURIComponent(packageMatch[1])} />;
+  } else if (BENCHMARK_PATH_RE.test(currentPath)) {
+    content = <Benchmark />;
+  } else if (hasAudit) {
+    content = <AuditView />;
+  } else {
+    content = <Landing />;
+  }
+
   return (
     <div
       className="h-screen flex flex-col"
@@ -62,7 +92,7 @@ function App() {
     >
       <Header />
       <main className="flex-1 flex flex-col min-h-0">
-        {hasAudit ? <AuditView /> : <Landing />}
+        {content}
       </main>
     </div>
   );

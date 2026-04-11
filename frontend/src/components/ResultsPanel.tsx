@@ -342,11 +342,17 @@ function FindingCard({
 
 export function ResultsPanel({
   onShowCode,
+  findings: propFindings,
+  proofs: propProofs,
 }: {
   onShowCode: () => void;
+  findings?: Finding[];
+  proofs?: Proof[];
 }) {
-  const findings = useAuditStore((s) => s.findings);
-  const proofs = useAuditStore((s) => s.proofs);
+  const storeFindings = useAuditStore((s) => s.findings);
+  const storeProofs = useAuditStore((s) => s.proofs);
+  const findings = propFindings ?? storeFindings;
+  const proofs = propProofs ?? storeProofs;
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
   // Proofs are 1:1 index-aligned with findings

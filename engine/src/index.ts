@@ -16,6 +16,7 @@ import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } f
 import { recordPayment, getPayment, cleanupOldPayments } from "./payment-map.js";
 import { NpmGuardError, QueueFullError } from "./errors.js";
 import { getAvailableDemos, startReplay } from "./demo.js";
+import { saveReport, loadReport, listReports } from "./report-store.js";
 
 const app = new Hono();
 
@@ -124,16 +125,38 @@ app.post("/checkout", async (c) => {
     || `http://localhost:${config.apiPort}`;
 
   try {
-    const { url } = await createCheckoutSession({
+    const { url, sessionId } = await createCheckoutSession({
       packageName: parsed.data.packageName,
       version,
       email: parsed.data.email,
       origin,
     });
-    return c.json({ url });
+    return c.json({ url, sessionId });
   } catch (err) {
     console.error("[checkout] Stripe session creation failed:", err);
     return c.json({ error: "Payment system error" }, 500);
+  }
+});
+
+app.get("/checkout/:sessionId/status", async (c) => {
+  if (!PAYMENT_ENABLED) {
+    return c.json({ error: "Payments not configured" }, 501);
+  }
+
+  const sessionId = c.req.param("sessionId");
+
+  // Check if webhook already started an audit for this session
+  const existing = getPayment(sessionId);
+  if (existing) {
+    return c.json({ paid: true, packageName: existing.packageName, version: existing.version, auditId: existing.auditId });
+  }
+
+  try {
+    const verification = await verifyCheckoutSession(sessionId);
+    return c.json({ paid: verification.paid, packageName: verification.packageName, version: verification.version });
+  } catch (err) {
+    console.error("[checkout-status] verification failed:", err);
+    return c.json({ error: "Invalid session" }, 400);
   }
 });
 
@@ -189,6 +212,7 @@ app.post("/webhooks/stripe", async (c) => {
         runAudit(packageName, emit, auditSession.auditId, version || undefined)
           .then(({ report, cleanup }) => {
             finalizeSession(auditSession.auditId, report);
+            saveReport(packageName, version || "latest", report);
             cleanup();
           })
           .catch((err) => {
@@ -384,6 +408,7 @@ app.post("/audit/stream", async (c) => {
   runAudit(packageName, emit, session.auditId, version)
     .then(({ report, cleanup }) => {
       finalizeSession(session.auditId, report);
+      saveReport(packageName, version || "latest", report);
       cleanup();
     })
     .catch((err) => {
@@ -522,6 +547,27 @@ app.get("/audit/:id/report", (c) => {
 });
 
 app.get("/health", (c) => c.json({ status: "ok" }));
+
+// ---------------------------------------------------------------------------
+// Package report endpoints — browse previously audited packages
+// ---------------------------------------------------------------------------
+
+app.get("/packages", (c) => {
+  return c.json({ packages: listReports() });
+});
+
+// Supports scoped packages: /package/@scope/name/report
+app.get("/package/:name{.+}/report", (c) => {
+  const packageName = c.req.param("name");
+  const version = c.req.query("version");
+
+  const result = loadReport(packageName, version || undefined);
+  if (!result) {
+    return c.json({ error: `No audit report found for ${packageName}${version ? `@${version}` : ""}` }, 404);
+  }
+
+  return c.json({ report: result.report, version: result.version, packageName });
+});
 
 // ---------------------------------------------------------------------------
 // /api/* mirror — so frontend can use /api prefix in both dev and production

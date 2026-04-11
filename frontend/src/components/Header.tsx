@@ -1,11 +1,31 @@
+import { useState, useEffect } from "react";
 import { useAuditStore } from "../stores/auditStore";
 import { PhaseProgress } from "./PhaseProgress";
+
+const NAV_LINKS = [
+  { href: "/", label: "Home" },
+  { href: "/packages", label: "Packages" },
+  { href: "/benchmark", label: "Benchmark" },
+];
+
+function navigate(href: string) {
+  history.pushState(null, "", href);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
 
 export function Header() {
   const isRunning = useAuditStore((s) => s.isRunning);
   const packageName = useAuditStore((s) => s.packageName);
   const verdict = useAuditStore((s) => s.verdict);
   const reset = useAuditStore((s) => s.reset);
+
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const onPopState = () => setCurrentPath(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const statusColor = verdict
     ? verdict === "DANGEROUS"
@@ -15,7 +35,7 @@ export function Header() {
 
   const goHome = () => {
     reset();
-    history.pushState(null, "", "/");
+    navigate("/");
   };
 
   return (
@@ -44,6 +64,39 @@ export function Header() {
       >
         npm<span style={{ color: "var(--accent)" }}>guard</span>
       </button>
+
+      <nav className="flex items-center gap-1" style={{ marginLeft: 8 }}>
+        {NAV_LINKS.map((link) => {
+          const isActive =
+            link.href === "/"
+              ? currentPath === "/"
+              : currentPath.startsWith(link.href);
+          return (
+            <a
+              key={link.href}
+              href={link.href}
+              onClick={(e) => {
+                e.preventDefault();
+                if (link.href === "/") reset();
+                navigate(link.href);
+              }}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.72rem",
+                padding: "4px 10px",
+                borderRadius: 4,
+                color: isActive ? "var(--accent-light)" : "var(--text-muted)",
+                background: isActive ? "var(--bg-secondary)" : "transparent",
+                textDecoration: "none",
+                cursor: "pointer",
+                transition: "color 0.15s, background 0.15s",
+              }}
+            >
+              {link.label}
+            </a>
+          );
+        })}
+      </nav>
 
       {(isRunning || verdict) && (
         <div
