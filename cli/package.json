@@ -1,10 +1,10 @@
 {
   "name": "npmguard-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
-  "private": true,
   "description": "NpmGuard CLI — check npm packages against NpmGuard security audits",
   "main": "dist/index.js",
+  "files": ["dist"],
   "bin": {
     "npmguard": "./dist/index.js"
   },

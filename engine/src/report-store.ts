@@ -38,7 +38,7 @@ export function loadReport(packageName: string, version?: string): { report: Aud
     .map((f) => ({ file: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
 
-  const latest = sorted[0];
+  const latest = sorted[0]!;
   const ver = latest.file.replace(/\.json$/, "");
   return { report: JSON.parse(fs.readFileSync(path.join(dir, latest.file), "utf-8")), version: ver };
 }
@@ -76,7 +76,7 @@ export function listReports(): PackageSummary[] {
             })
             .sort((a, b) => b.mtime - a.mtime);
 
-          const latest = sorted[0];
+          const latest = sorted[0]!;
           try {
             const report = JSON.parse(fs.readFileSync(path.join(pkgDir, latest.file), "utf-8"));
             results.push({
