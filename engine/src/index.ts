@@ -122,7 +122,7 @@ app.post("/checkout", async (c) => {
 
   const origin = c.req.header("Origin")
     || c.req.header("Referer")?.replace(/\/+$/, "")
-    || `http://localhost:${config.apiPort}`;
+    || "https://npmguard.com";
 
   try {
     const { url, sessionId } = await createCheckoutSession({
