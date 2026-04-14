@@ -1,12 +1,13 @@
 # Engine
 
-TypeScript audit pipeline — inventory, LLM static analysis, agentic investigation, and sandbox execution.
+TypeScript audit pipeline — inventory, LLM static analysis, agentic investigation, and sandbox execution. Also serves the `/audit/stream` endpoint that CLI users hit after paying via Stripe or WalletConnect (Base Sepolia).
 
 ## Prerequisites
 
 - Node.js 20+
 - Docker (for sandbox execution)
-- API key for Anthropic or OpenAI-compatible LLM provider
+- OpenAI-compatible LLM provider (OpenRouter by default)
+- Alchemy Base Sepolia key (for on-chain payment verification)
 
 ## Installation
 
@@ -21,34 +22,57 @@ npx tsx src/index.ts              # dev server on :8000
 npm run build && npm start        # production
 ```
 
-Trigger an audit:
+Trigger an audit directly:
 
 ```bash
 curl -X POST http://localhost:8000/audit \
-     -H "Content-Type: application/json" \
-     -d '{"packageName": "serialize-javascript"}'
+  -H 'Content-Type: application/json' \
+  -d '{"packageName":"serialize-javascript"}'
+```
+
+Trigger via the payment-gated streaming endpoint (what the CLI uses):
+
+```bash
+# Crypto path — engine verifies the tx receipt + AuditRequested event on-chain
+curl -X POST http://localhost:8000/audit/stream \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "packageName":"is-number",
+    "version":"7.0.0",
+    "txHash":"0x...",
+    "chain":"base-sepolia"
+  }'
+
+# Stripe path — engine verifies the checkout session
+curl -X POST http://localhost:8000/audit/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"stripeSessionId":"cs_test_..."}'
 ```
 
 Health check at `http://localhost:8000/health`.
 
-### Use 0G Compute
+## Payment verification
 
-```bash
-export NPMGUARD_LLM_BACKEND=openai_compatible
-export NPMGUARD_LLM_MODEL=qwen/qwen-2.5-7b-instruct
-export NPMGUARD_LLM_API_KEY=app-sk-...
-export NPMGUARD_LLM_BASE_URL=https://compute-network-6.integratenetwork.work/v1/proxy
-```
+The engine accepts two payment proofs on `/audit/stream`:
 
-Anthropic remains available with `NPMGUARD_LLM_BACKEND=anthropic` (default).
+1. **`stripeSessionId`** — looked up via the Stripe API, then cross-checked against the webhook-recorded session.
+2. **`txHash` + `chain`** — fetched via viem's `waitForTransactionReceipt` on an Alchemy Base Sepolia endpoint, then the `AuditRequested` event is decoded and the `(packageName, version)` args are matched against the request.
+
+Dedup:
+- Stripe: keyed on `stripeSessionId`
+- On-chain: keyed on `(chain, txHash)` — a single tx can only ever trigger one audit
+
+The chain verification lives in [`src/chain.ts`](src/chain.ts) and the in-memory dedup in [`src/chain-payment-map.ts`](src/chain-payment-map.ts).
 
 ## Analysis Pipeline
 
 See [`docs/architecture-v2.md`](../docs/architecture-v2.md) for the full pipeline design.
 
 ```
-npm package → Phase 0: Inventory → Phase 1a: Triage → Phase 1b: Investigation → Phase 1c: Test gen → Phase 2: Verify → AuditReport
+npm package → Phase 0: Inventory → Phase 1a: Triage → Phase 1b: Investigation → Phase 1c: Test gen → Phase 2: Sandbox → AuditReport
 ```
+
+Reports are persisted to `data/reports/<pkg>/<version>.json`, keyed by the real version extracted from the tarball's `package.json` (not the value the user requested).
 
 ## Configuration
 
@@ -73,57 +97,47 @@ Settings are loaded from environment variables with the `NPMGUARD_` prefix (or a
 | `NPMGUARD_SANDBOX_MEMORY_MB` | `512` | Sandbox memory limit |
 | `NPMGUARD_SANDBOX_CPUS` | `1` | Sandbox CPU quota |
 | `NPMGUARD_SANDBOX_NETWORK` | `none` | Sandbox network mode |
-| `NPMGUARD_CRE_API_KEY` | _(unset)_ | API key for Chainlink CRE (bypasses payment) |
-| `NPMGUARD_CONTRACT_ADDRESS` | _(unset)_ | NpmGuardAuditRequest contract address |
-| `NPMGUARD_OG_RPC_URL` | `https://evmrpc-testnet.0g.ai` | 0G Galileo Testnet RPC endpoint |
+| `NPMGUARD_STRIPE_SECRET_KEY` | _(unset)_ | Stripe secret key for checkout sessions |
+| `NPMGUARD_STRIPE_WEBHOOK_SECRET` | _(unset)_ | Stripe webhook signing secret |
+| `NPMGUARD_BASE_SEPOLIA_CONTRACT` | _(unset)_ | `NpmGuardAuditRequest` address on Base Sepolia |
+| `NPMGUARD_BASE_SEPOLIA_RPC_URL` | `https://sepolia.base.org` | RPC URL for Base Sepolia (Alchemy recommended) |
+| `NPMGUARD_BASE_CONTRACT` | _(unset)_ | `NpmGuardAuditRequest` address on Base mainnet |
+| `NPMGUARD_BASE_RPC_URL` | `https://mainnet.base.org` | RPC URL for Base mainnet |
+
+If neither `NPMGUARD_BASE_SEPOLIA_CONTRACT` nor `NPMGUARD_BASE_CONTRACT` is set, `/audit/stream` with `txHash` returns `501 "chain not configured"`. Stripe continues to work regardless.
 
 ## Deploy to DigitalOcean
 
-### 1. Create a Droplet
+Production runs on a DigitalOcean droplet behind nginx + Let's Encrypt, with a systemd-managed engine and a separate systemd-managed GitHub webhook listener. See [`../docs/DEPLOYMENT_PLAYBOOK.md`](../docs/DEPLOYMENT_PLAYBOOK.md) and [`../deploy/`](../deploy/) for the full setup.
 
-- Image: **Docker on Ubuntu** (Marketplace)
-- Size: **$16/mo** (2GB / 1 CPU) or higher
-- Region: **Amsterdam**
-- Auth: Password or SSH key
+High-level:
 
-### 2. Setup
+1. **Droplet** — Ubuntu 22+ with Docker installed. Size: 2 GB / 1 CPU minimum.
+2. **Initial setup** — run `bash ../deploy/setup-droplet.sh` to install Node, nginx, certbot, and register systemd units.
+3. **`.env`** — copy `.env.template` and fill in LLM, Stripe, and Alchemy keys. `NPMGUARD_BASE_SEPOLIA_CONTRACT` must be the address from the latest Foundry deploy (see [`../contracts/README.md`](../contracts/README.md)).
+4. **Auto-deploy** — pushes to `main` hit `/deploy-webhook` (raw IP, bypassing Cloudflare), which triggers `deploy/pull-and-restart.sh` → `git pull` → `npm install` → `tsc` → `systemctl restart npmguard`.
+
+### Manual deploy
 
 ```bash
-ssh root@<DROPLET_IP>
-git clone https://github.com/NpmGuard/NpmGuard.git
-cd NpmGuard/engine
-bash setup-droplet.sh
+cd /root/NpmGuard
+git pull origin main
+cd engine
+npm install
+npm run build
+systemctl restart npmguard
 ```
 
-### 3. Configure
+### Check health
 
 ```bash
-nano .env
-# Set ANTHROPIC_API_KEY=sk-ant-...
-```
-
-### 4. Run
-
-```bash
-npx tsx src/index.ts
-```
-
-### 5. Verify
-
-```bash
-curl http://<DROPLET_IP>:8000/health
+curl https://npmguard.com/health
 # {"status":"ok"}
 ```
 
-If the port is blocked:
-```bash
-ufw allow 8000
-```
-
-### Production (keep running after SSH disconnect)
+### Logs
 
 ```bash
-nohup npx tsx src/index.ts > engine.log 2>&1 &
+journalctl -u npmguard -f              # engine logs
+journalctl -u npmguard-webhook -f      # webhook listener logs
 ```
-
-Check logs: `tail -f engine.log`
