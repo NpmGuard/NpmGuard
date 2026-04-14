@@ -256,6 +256,11 @@ async function runCryptoAuditAndInstall(
     process.exit(1);
   }
 
+  console.log(
+    chalk.cyan(`  Watch live: ${apiUrl}/audit/${auditId}`),
+  );
+  console.log();
+
   // 4. Stream the audit we just paid for (do NOT call auditCommand — that
   //    would trigger a second, unpaid audit via /checkout).
   await streamAuditEvents(apiUrl, auditId);
