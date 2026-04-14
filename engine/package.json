@@ -19,6 +19,7 @@
     "stripe": "^22.0.0",
     "tar": "^7",
     "uuid": "^11.1.0",
+    "viem": "^2.47.17",
     "zod": "^3"
   },
   "devDependencies": {

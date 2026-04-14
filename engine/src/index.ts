@@ -14,6 +14,8 @@ import { createSession, getSession, finalizeSession, createEmitFn, type AuditEve
 import { cleanupPackage, resolveTarballUrl } from "./phases/resolve.js";
 import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } from "./stripe.js";
 import { recordPayment, getPayment, cleanupOldPayments } from "./payment-map.js";
+import { verifyAuditPayment, isChainConfigured, ChainVerificationError, type SupportedChain } from "./chain.js";
+import { getChainPayment, recordChainPayment } from "./chain-payment-map.js";
 import { NpmGuardError, QueueFullError } from "./errors.js";
 import { getAvailableDemos, startReplay } from "./demo.js";
 import { saveReport, loadReport, listReports } from "./report-store.js";
@@ -336,6 +338,8 @@ const StreamAuditRequest = z.object({
   packageName: PackageName.optional(),
   version: SemverVersion.optional(),
   stripeSessionId: z.string().optional(),
+  txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/, "Invalid txHash").optional(),
+  chain: z.enum(["base-sepolia", "base"]).optional(),
 });
 
 app.post("/audit/stream", async (c) => {
@@ -354,8 +358,54 @@ app.post("/audit/stream", async (c) => {
   // --- Payment gate ---
   let packageName: string;
   let version: string | undefined;
+  let chainRequester: string | undefined;
+  let resolvedChain: SupportedChain | undefined;
 
-  if (parsed.data.stripeSessionId) {
+  if (parsed.data.txHash) {
+    // On-chain payment verification (Base Sepolia / Base mainnet)
+    const chain: SupportedChain = parsed.data.chain ?? "base-sepolia";
+    resolvedChain = chain;
+    if (!isChainConfigured(chain)) {
+      return c.json({ error: `Chain ${chain} is not configured on this engine` }, 501);
+    }
+    if (!parsed.data.packageName || !parsed.data.version) {
+      return c.json(
+        { error: "packageName and version are required with txHash" },
+        400,
+      );
+    }
+
+    // Dedup — one txHash can only ever trigger one audit
+    const existing = getChainPayment(chain, parsed.data.txHash);
+    if (existing) {
+      return c.json({
+        auditId: existing.auditId,
+        packageName: existing.packageName,
+      });
+    }
+
+    try {
+      const verified = await verifyAuditPayment(
+        chain,
+        parsed.data.txHash as `0x${string}`,
+        parsed.data.packageName,
+        parsed.data.version,
+      );
+      packageName = verified.packageName;
+      version = verified.version;
+      chainRequester = verified.requester;
+      console.log(
+        `[chain] verified ${chain} tx ${parsed.data.txHash} from ${verified.requester} for ${packageName}@${version}`,
+      );
+    } catch (err) {
+      if (err instanceof ChainVerificationError) {
+        console.warn(`[chain] verification failed: ${err.message}`);
+        return c.json({ error: err.message }, 402);
+      }
+      console.error("[chain] unexpected error:", err);
+      return c.json({ error: "Chain verification failed" }, 500);
+    }
+  } else if (parsed.data.stripeSessionId) {
     if (!PAYMENT_ENABLED) {
       return c.json({ error: "Payments not configured" }, 501);
     }
@@ -402,6 +452,18 @@ app.post("/audit/stream", async (c) => {
   // Record payment for dedup (if Stripe-paid)
   if (parsed.data.stripeSessionId) {
     recordPayment(parsed.data.stripeSessionId, session.auditId, packageName, version || "latest");
+  }
+
+  // Record on-chain payment for dedup (txHash + chain).
+  // Must use the resolved chain (with default applied), not the raw input —
+  // otherwise a client omitting `chain` would bypass dedup and replay the tx.
+  if (parsed.data.txHash && resolvedChain) {
+    recordChainPayment(resolvedChain, parsed.data.txHash, {
+      auditId: session.auditId,
+      packageName,
+      version: version ?? "latest",
+      requester: chainRequester ?? "",
+    });
   }
 
   // Run audit in background — don't await

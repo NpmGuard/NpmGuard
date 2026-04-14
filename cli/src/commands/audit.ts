@@ -5,42 +5,18 @@ import EventSource from "eventsource";
 import * as api from "../api.js";
 import { renderVerdict, renderFinding, renderPhase } from "../render.js";
 import type { Finding } from "../render.js";
-
-function parsePackageArg(pkg: string): { name: string; version?: string } {
-  // Handle scoped packages: @scope/name@version
-  if (pkg.startsWith("@")) {
-    const slashIndex = pkg.indexOf("/");
-    if (slashIndex === -1) {
-      throw new Error(`Invalid scoped package name: ${pkg}`);
-    }
-    const rest = pkg.slice(slashIndex + 1);
-    const atIndex = rest.lastIndexOf("@");
-    if (atIndex > 0) {
-      return {
-        name: pkg.slice(0, slashIndex + 1 + atIndex),
-        version: rest.slice(atIndex + 1),
-      };
-    }
-    return { name: pkg };
-  }
-
-  // Handle unscoped packages: name@version
-  const atIndex = pkg.lastIndexOf("@");
-  if (atIndex > 0) {
-    return {
-      name: pkg.slice(0, atIndex),
-      version: pkg.slice(atIndex + 1),
-    };
-  }
-
-  return { name: pkg };
-}
+import { parsePackageArg } from "../utils.js";
 
 export async function auditCommand(
   pkg: string,
-  opts: { api: string },
+  opts: { api: string; exit?: boolean },
 ): Promise<void> {
   const apiUrl = opts.api;
+  const shouldExit = opts.exit !== false;
+  const done = (code: number): void => {
+    if (shouldExit) process.exit(code);
+    if (code !== 0) throw new Error(`Audit aborted (code ${code})`);
+  };
 
   // 1. Parse package name and version
   let parsed: { name: string; version?: string };
@@ -48,7 +24,7 @@ export async function auditCommand(
     parsed = parsePackageArg(pkg);
   } catch {
     console.error(chalk.red(`Invalid package: ${pkg}`));
-    process.exit(1);
+    return done(1);
   }
 
   console.log(
@@ -70,7 +46,7 @@ export async function auditCommand(
     );
     console.log();
     console.log(chalk.dim(`View full report: ${apiUrl}/package/${encodeURIComponent(parsed.name)}/report`));
-    process.exit(verdict === "SAFE" ? 0 : 1);
+    return done(verdict === "SAFE" ? 0 : 1);
   }
 
   // 2. Try checkout — if payments not configured (501), go straight to free audit
@@ -85,7 +61,7 @@ export async function auditCommand(
       "Failed to create checkout session: " +
         (err instanceof Error ? err.message : String(err)),
     );
-    process.exit(1);
+    return done(1);
   }
 
   if (checkoutResult.status === 501 || !checkoutResult.data) {
@@ -99,7 +75,7 @@ export async function auditCommand(
         "Failed to start audit: " +
           (err instanceof Error ? err.message : String(err)),
       );
-      process.exit(1);
+      return done(1);
     }
   } else {
     // Payment required — show URL + QR + poll
@@ -136,7 +112,7 @@ export async function auditCommand(
         "Payment polling failed: " +
           (err instanceof Error ? err.message : String(err)),
       );
-      process.exit(1);
+      return done(1);
     }
 
     spinner.text = "Payment confirmed. Starting audit...";
@@ -152,7 +128,7 @@ export async function auditCommand(
           "Failed to start audit: " +
             (err instanceof Error ? err.message : String(err)),
         );
-        process.exit(1);
+        return done(1);
       }
     }
   }
@@ -226,5 +202,5 @@ export async function auditCommand(
     };
   });
 
-  process.exit(exitCode);
+  return done(exitCode);
 }
