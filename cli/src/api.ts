@@ -72,6 +72,19 @@ export async function startAudit(
   });
 }
 
+export async function startAuditWithTxHash(
+  apiUrl: string,
+  packageName: string,
+  version: string,
+  txHash: string,
+): Promise<StartAuditResponse> {
+  return request<StartAuditResponse>(`${apiUrl}/audit/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ packageName, version, txHash, chain: "base-sepolia" }),
+  });
+}
+
 export async function startAuditFree(
   apiUrl: string,
   packageName: string,
