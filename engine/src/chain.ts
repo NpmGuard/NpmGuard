@@ -107,9 +107,19 @@ export async function verifyAuditPayment(
     );
   }
 
+  // Use waitForTransactionReceipt rather than getTransactionReceipt — the
+  // CLI's public RPC node confirms blocks fractionally before our Alchemy
+  // node sees them, so a bare getTransactionReceipt often returns
+  // "not found" on fresh transactions. Polling with a short timeout lets us
+  // catch up to the chain tip without rejecting legit payments.
   let receipt;
   try {
-    receipt = await cfg.client.getTransactionReceipt({ hash: txHash });
+    receipt = await cfg.client.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: 30_000,
+      pollingInterval: 2_000,
+      confirmations: 1,
+    });
   } catch (err) {
     throw new ChainVerificationError(
       `Could not fetch receipt for ${txHash}: ${
