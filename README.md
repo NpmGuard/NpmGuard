@@ -1,145 +1,160 @@
 # NpmGuard
 
-Autonomous npm supply chain security auditor. Monitors npm for new package releases, audits them through a multi-step security pipeline, and publishes verifiable results on-chain via ENS (Sepolia) + IPFS.
+Autonomous npm supply chain security auditor. Runs npm packages through a
+multi-step LLM + sandbox security pipeline and publishes verdicts via a
+public API — plus a CLI that gates `npm install` behind those verdicts.
 
-Users can pay for audits on-chain (0G Galileo Testnet) via the CLI — with a private key or by scanning a WalletConnect QR code from their mobile wallet.
-
-Any developer or AI agent can check `axios.npmguard.eth` before installing a package.
+Users install packages with `npx npmguard-cli install express`. If the
+package already has an audit → install happens immediately (or is blocked
+if DANGEROUS). If not → the user pays for an audit with a credit card
+(Stripe) or a mobile wallet (WalletConnect on Base Sepolia), the pipeline
+runs, and the verdict decides whether the install proceeds.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    subgraph USER["User / Developer"]
-        CLI[npmguard install express]
+    subgraph CLI["Developer"]
+        U[npmguard install express]
     end
 
-    subgraph FREE["Free — Monitored packages"]
-        CRON[Chainlink CRE<br/>Cron every 5 min] --> NPM[Fetch npm registry<br/>detect new versions]
-        NPM --> ENS_CHECK{Read ENS on-chain<br/>already audited?}
-        ENS_CHECK -->|yes| SKIP[Skip]
-        ENS_CHECK -->|no| ENGINE_API
+    subgraph LOOKUP["Lookup"]
+        GET[GET /package/express/report]
+        GET -->|SAFE| SAFE_INSTALL[npm install directly]
+        GET -->|DANGEROUS| WARN[Warn + prompt y/N]
+        GET -->|not found| PAY
     end
 
-    subgraph PAID["Paid — Any package"]
-        CLI --> ENS_READ{Check ENS<br/>audit exists?}
-        ENS_READ -->|yes| SHOW[Show verdict<br/>install from IPFS]
-        ENS_READ -->|no| PAY{Pay 0.01 0G?}
-        PAY -->|private key| TX[Send tx to<br/>smart contract<br/>0G Galileo]
-        PAY -->|WalletConnect| QR[Scan QR<br/>confirm in wallet]
-        TX --> ENGINE_API
-        QR --> ENGINE_API
+    subgraph PAY["Pay for audit"]
+        PAY[Stripe or WalletConnect?]
+        PAY -->|Stripe| STRIPE[Stripe Checkout<br/>card payment]
+        PAY -->|WalletConnect| WC[Scan QR with mobile wallet<br/>sign tx on Base Sepolia<br/>0.0001 ETH]
     end
 
-    subgraph SERVER["Engine Server — 209.38.42.28:8000"]
-        ENGINE_API[POST /audit] --> INVENTORY[Phase 0: Inventory<br/>structural triage]
-        INVENTORY --> TRIAGE[Phase 1a: Triage<br/>LLM risk scoring]
-        TRIAGE -->|low risk| SAFE_FAST[SAFE]
-        TRIAGE -->|high risk| INVESTIGATE[Phase 1b: Investigation<br/>agentic LLM analysis]
-        INVESTIGATE --> TESTGEN[Phase 1c: Test gen<br/>exploit code]
-        TESTGEN --> SANDBOX[Phase 2: Sandbox<br/>Docker execution]
-        SANDBOX --> VERDICT{Verdict}
+    subgraph VERIFY["Engine verification"]
+        STRIPE --> STRIPE_VERIFY[Verify Stripe session]
+        WC --> CHAIN_VERIFY[Verify tx receipt<br/>via Alchemy Base Sepolia]
+        STRIPE_VERIFY --> PIPELINE
+        CHAIN_VERIFY --> PIPELINE
     end
 
-    VERDICT -->|SAFE| PUBLISH[Publish to ENS + IPFS]
-    VERDICT -->|DANGEROUS| PUBLISH
-    PUBLISH --> ENS_STORE[(ENS on Sepolia<br/>verdict, score, CIDs)]
-    PUBLISH --> IPFS_STORE[(IPFS via Pinata<br/>source + report)]
+    subgraph PIPELINE["Audit pipeline"]
+        INVENTORY[Phase 0: Inventory<br/>tarball structural triage]
+        TRIAGE[Phase 1a: LLM risk scoring]
+        INVESTIGATE[Phase 1b: Agentic investigation]
+        TESTGEN[Phase 1c: Exploit test generation]
+        SANDBOX[Phase 2: Docker sandbox execution]
+        INVENTORY --> TRIAGE
+        TRIAGE -->|low risk| VERDICT
+        TRIAGE -->|high risk| INVESTIGATE --> TESTGEN --> SANDBOX --> VERDICT
+        VERDICT{Verdict}
+    end
 
-    style USER fill:#fff3cd,stroke:#ffc107,color:#000
-    style FREE fill:#d4edda,stroke:#28a745,color:#000
-    style PAID fill:#cce5ff,stroke:#0d6efd,color:#000
-    style SERVER fill:#e8daef,stroke:#8e44ad,color:#000
+    U --> GET
+    PIPELINE -->|persist| DB[(data/reports/<br/>pkg/version.json)]
+    VERDICT -->|SAFE| SAFE_INSTALL
+    VERDICT -->|DANGEROUS| WARN
+    WARN -->|force| SAFE_INSTALL
+
+    style CLI fill:#fff3cd,stroke:#ffc107,color:#000
+    style LOOKUP fill:#d4edda,stroke:#28a745,color:#000
+    style PAY fill:#cce5ff,stroke:#0d6efd,color:#000
+    style VERIFY fill:#fce5ff,stroke:#a855f7,color:#000
+    style PIPELINE fill:#e8daef,stroke:#8e44ad,color:#000
 ```
-
-## CLI Flow
-
-```mermaid
-flowchart LR
-    A[npmguard install axios] --> B{ENS audit<br/>exists?}
-    B -->|yes + SAFE| C[Install from<br/>verified IPFS]
-    B -->|yes + DANGEROUS| D[Block install]
-    B -->|no audit| E{Pay 0.01 0G?}
-    E -->|yes| F[On-chain tx<br/>0G Galileo] --> G[POST /audit<br/>209.38.42.28:8000] --> H[Show verdict]
-    E -->|no| I[Install from<br/>npm anyway]
-```
-
-## How audits are triggered
-
-| Trigger | Who | Cost | How |
-|---------|-----|------|-----|
-| **Chainlink CRE Cron** | Automated | Free | Monitors npm every 5 min, reads ENS on-chain, triggers audit for new versions |
-| **CLI + WalletConnect** | Developer | 0.01 0G | `npx npmguard-cli install <pkg>` → pays on 0G Galileo → triggers audit |
-
-Both paths end at the same engine (`POST /audit`), which runs the full pipeline and publishes results to IPFS + ENS.
-
-> **Note:** Chainlink CRE reads ENS using `LAST_FINALIZED_BLOCK_NUMBER`. On Sepolia, finality takes ~15 min, so newly published audit records won't be visible to the cron until the block is finalized.
 
 ## Live Services
 
 | Service | URL |
-|---------|-----|
-| Frontend Dashboard | [`http://209.38.42.28:3000`](http://209.38.42.28:3000) |
-| Audit Engine API | [`http://209.38.42.28:8000`](http://209.38.42.28:8000) |
-| CLI (npm) | [`npx npmguard-cli`](https://www.npmjs.com/package/npmguard-cli) |
-| 0G Contract | [`0x1201448ae5f00e1783036439569e71ab3757d0de`](https://chainscan-galileo.0g.ai/address/0x1201448ae5f00e1783036439569e71ab3757d0de) |
-| ENS Registry | [`npmguard.eth`](https://sepolia.app.ens.domains/npmguard.eth) |
+|---|---|
+| Frontend Dashboard | [https://npmguard.com](https://npmguard.com) |
+| Audit Engine API | [https://npmguard.com/health](https://npmguard.com/health) |
+| CLI on npm | [`npmguard-cli`](https://www.npmjs.com/package/npmguard-cli) |
+| Audit Contract (Base Sepolia) | [`0xBF56...B9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed) |
 
-## ENS Registry
+## Quick Start
 
+### Install a package with NpmGuard
+
+```bash
+npx npmguard-cli install express
 ```
-npmguard.eth
-  └── axios.npmguard.eth
-        └── 1-14-0.axios.npmguard.eth
-              ├── npmguard.verdict      → safe
-              ├── npmguard.score        → 92
-              ├── npmguard.capabilities → network
-              ├── npmguard.report_cid   → bafkrei...
-              └── npmguard.source_cid   → bafybei...
+
+- If an audit exists and the verdict is **SAFE**, it installs immediately
+- If **DANGEROUS**, it warns and asks before installing (or `--force`)
+- If there's no audit yet, you get a menu:
+  1. **Stripe** — pay by card in the browser
+  2. **WalletConnect** — scan a QR from your mobile wallet, sign a
+     `0.0001 ETH` transaction on **Base Sepolia**
+  3. Install without audit
+  4. Cancel
+
+After payment, the audit runs end-to-end and you see the events live in
+your terminal. Open `https://npmguard.com/audit/<auditId>` for the web
+dashboard view.
+
+See [cli/README.md](cli/README.md) for the full CLI reference.
+
+### Audit a project's dependencies
+
+```bash
+cd my-project
+npx npmguard-cli check
 ```
+
+Walks `package.json` and reports every dependency's audit status.
+
+### Query the API directly
+
+```bash
+curl https://npmguard.com/package/express/report
+```
+
+```bash
+curl -X POST https://npmguard.com/audit \
+  -H 'Content-Type: application/json' \
+  -d '{"packageName":"express","version":"5.2.1"}'
+```
+
+## Payment — Base Sepolia contract
+
+The audit engine is gated behind a small payment so that the LLM and
+sandbox compute is paid for. Two options are live:
+
+### Stripe
+Existing Stripe Checkout flow. The engine has a webhook that marks the
+session paid and triggers the audit.
+
+### WalletConnect (on Base Sepolia)
+Users sign a transaction to `NpmGuardAuditRequest.requestAudit(pkg, version)`
+which emits an `AuditRequested` event. The engine verifies the receipt via
+a dedicated Alchemy Base Sepolia RPC and decodes the event to match the
+requested `(packageName, version)` before running the audit.
+
+- **Fee**: `0.0001 ETH` (set in contract constructor, updatable by owner)
+- **Chain**: Base Sepolia (chain id 84532)
+- **Contract**: [`0xBF562626e4Afb883423Ec719e0270DB232bcB9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed)
+
+Anti-replay: the engine maintains a `(chain, txHash)` dedup map so a single
+payment can only launch one audit. The contract itself also prevents
+double-payment for the same `(pkg, version)` pair.
+
+See [contracts/README.md](contracts/README.md) for the contract source,
+tests, and deploy instructions (Foundry).
 
 ## Project Structure
 
 | Directory | Description |
-|-----------|-------------|
-| `frontend/` | React + Vite dashboard — live audit streaming with SSE |
-| `engine/` | TypeScript audit pipeline — inventory, static analysis, sandbox |
-| `cli/` | `npmguard-cli` — check/install packages with ENS audit + on-chain payment |
-| `contracts/` | Solidity smart contract + multi-chain deploy/verify scripts |
-| `chainlink/` | CRE workflow — monitors npm, reads ENS on-chain, triggers audits |
-| `npmguard/` | ENS/IPFS publisher, demo packages, `sginstall` |
+|---|---|
+| `cli/` | `npmguard-cli` — the user-facing CLI (`install`, `audit`, `check`) |
+| `engine/` | Audit pipeline — TypeScript + Hono, stores reports in `data/reports/` |
+| `frontend/` | React + Vite dashboard — live audit streaming via SSE |
+| `contracts/` | `NpmGuardAuditRequest.sol` + Foundry tests + deploy scripts |
 | `sandbox/` | Dynamic exploitation harness (Vitest) |
-| `ai-sdk/` | AI SDK-based vulnerability verifier prototype |
-| `openclaw/` | OpenClaw-based verifier prototype and Dockerized reasoning runtime |
+| `deploy/` | Systemd units, nginx config, webhook listener, deploy script |
 | `docs/` | Architecture docs, research notes, production guides |
 
-## Quick Start
-
-### CLI
-
-```bash
-# Install a package with on-chain audit (pays 0.01 0G via WalletConnect QR)
-npx npmguard-cli install express
-
-# Check all dependencies in a project
-npx npmguard-cli check --path /your/project
-```
-
-### Audit Engine API
-
-The engine is live at `http://209.38.42.28:8000`.
-
-```bash
-# Health check
-curl http://209.38.42.28:8000/health
-
-# Trigger an audit
-curl -X POST http://209.38.42.28:8000/audit \
-  -H 'Content-Type: application/json' \
-  -d '{"packageName": "express", "version": "5.2.1"}'
-```
-
-### Run locally (engine + frontend)
+## Run locally
 
 ```bash
 bash run.sh
@@ -153,52 +168,44 @@ cd engine && npm install && npx tsx src/index.ts   # API on :8000
 cd frontend && npm install && npm run dev           # UI on :3000
 ```
 
-### Deploy (DigitalOcean)
-
-See [engine/README.md](engine/README.md#deploy-to-digitalocean) for full instructions.
-
-### Chainlink CRE Workflow
-
-Decentralized npm monitoring via [Chainlink CRE](https://docs.chain.link/cre). Runs on the DON (Decentralized Oracle Network) — no single point of failure. Each trigger fetches npm, reads ENS on-chain (trustless via EVMClient), and triggers the audit engine if the package isn't yet audited.
+Testing the CLI against local engine:
 
 ```bash
-cd chainlink/npm-monitor && bun install
+cd cli && npm install && npm run build
+node dist/index.js --api http://localhost:8000 install is-number
 ```
 
-| Command | What it does |
-|---------|-------------|
-| `cre workflow simulate npm-monitor -T staging-settings --trigger-index 1 --non-interactive --limits limits.json` | **Cron** — checks all monitored packages every 5 min |
-| `cre workflow simulate npm-monitor -T staging-settings --trigger-index 0 --http-payload '{"package":"axios"}' --non-interactive --limits limits.json` | **HTTP trigger** — check a single package on demand |
+## Deploy
 
-### Deploy Contract
+Production runs on a single DigitalOcean droplet (209.38.42.28):
 
-```bash
-cd contracts && npm install && npm run compile
+- `npmguard.service` — the Hono engine on `:8000`
+- `npmguard-webhook.service` — GitHub push webhook listener on `127.0.0.1:9000`
+- nginx reverse proxy with Let's Encrypt (`npmguard.com`)
+- Cloudflare in front of `npmguard.com`; `/deploy-webhook` accessed via
+  raw IP to bypass Cloudflare (GitHub webhook only)
 
-# Deploy on 0G Galileo (default)
-DEPLOY_CHAIN=og npm run deploy
+The webhook receives pushes to `main`, validates the HMAC-SHA256
+signature, and spawns `deploy/pull-and-restart.sh` which pulls, runs
+`npm install && tsc`, and restarts systemd services.
 
-# Deploy on Sepolia or Base Sepolia
-DEPLOY_CHAIN=sepolia npm run deploy
-DEPLOY_CHAIN=base-sepolia npm run deploy
-```
-
-### OpenClaw Verifier
-
-The Dockerized OpenClaw verifier prototype, model-switching commands, and manual fixture commands are documented in [openclaw/README.md](openclaw/README.md).
+Full playbook: [docs/DEPLOYMENT_PLAYBOOK.md](docs/DEPLOYMENT_PLAYBOOK.md)
 
 ## Tech Stack
 
 | Component | Technology |
-|-----------|------------|
-| Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) + [Tailwind CSS](https://tailwindcss.com/) — real-time SSE audit dashboard |
-| Audit Pipeline | TypeScript + [Hono](https://hono.dev/) — inventory, LLM static analysis, Docker sandbox |
-| LLM | [Gemini 2.5 Flash](https://ai.google.dev/) via OpenAI-compatible API (switchable to Anthropic) |
-| Monitoring | [Chainlink CRE](https://docs.chain.link/cre) — Cron + HTTP + EVMClient |
-| Payment | Solidity smart contract on [0G Galileo Testnet](https://chainscan-galileo.0g.ai) + WalletConnect v2 |
-| On-chain Registry | [ENS](https://docs.ens.domains/) subnames on Sepolia |
-| Storage | [IPFS](https://pinata.cloud/) via Pinata |
-| CLI | TypeScript, published as [`npmguard-cli`](https://www.npmjs.com/package/npmguard-cli) on npm |
-| Hosting | [DigitalOcean](https://www.digitalocean.com/) Droplet (Docker + Node.js) |
+|---|---|
+| Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) + [Tailwind](https://tailwindcss.com/) — real-time SSE dashboard |
+| Audit pipeline | TypeScript + [Hono](https://hono.dev/) — inventory, LLM static analysis, Docker sandbox |
+| LLM | [Gemini 2.5 Flash](https://ai.google.dev/) via OpenRouter (OpenAI-compatible) |
+| Fiat payment | [Stripe](https://stripe.com/) checkout + webhook |
+| Crypto payment | Solidity contract on [Base Sepolia](https://docs.base.org/chain/base-contracts) + WalletConnect v2 |
+| Contract tooling | [Foundry](https://book.getfoundry.sh/) — compile, test (fuzz), deploy, Basescan verification |
+| Chain RPC | [Alchemy](https://alchemy.com/) Base Sepolia (+ public fallback) |
+| Storage | Local filesystem (`data/reports/<pkg>/<version>.json`) — no IPFS, no RPC writes |
+| CLI | TypeScript, zero blockchain deps in the binary — wallet signs, engine verifies |
+| Hosting | [DigitalOcean](https://www.digitalocean.com/) + nginx + Let's Encrypt |
 
 ## Team
+
+See the repo contributors.
