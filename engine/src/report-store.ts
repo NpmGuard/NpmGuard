@@ -12,35 +12,116 @@ function reportPath(packageName: string, version: string): string {
   return path.join(reportDir(packageName), `${version}.json`);
 }
 
-export function saveReport(packageName: string, version: string, report: AuditReport): void {
-  const dir = reportDir(packageName);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(reportPath(packageName, version), JSON.stringify(report, null, 2));
-  console.log(`[report-store] saved ${packageName}@${version}`);
+/**
+ * Extract the authoritative version from an audit report by digging into
+ * the inventory phase output, which reads it from the tarball's package.json.
+ * Returns null if the report has no inventory phase or no metadata version.
+ */
+function extractReportVersion(report: unknown): string | null {
+  if (!report || typeof report !== "object") return null;
+  const r = report as {
+    trace?: Array<{ phase?: string; output?: unknown }>;
+  };
+  const inventory = r.trace?.find((p) => p.phase === "inventory");
+  if (!inventory?.output || typeof inventory.output !== "object") return null;
+  const out = inventory.output as { metadata?: { version?: string | null } };
+  const ver = out.metadata?.version;
+  return typeof ver === "string" && ver.length > 0 ? ver : null;
 }
 
-export function loadReport(packageName: string, version?: string): { report: AuditReport; version: string } | null {
-  if (version) {
-    const p = reportPath(packageName, version);
-    if (!fs.existsSync(p)) return null;
-    return { report: JSON.parse(fs.readFileSync(p, "utf-8")), version };
-  }
+/**
+ * Save a report under the package's real version. Preference order:
+ *   1. Version extracted from report metadata (authoritative — read from tarball)
+ *   2. Requested version passed by caller (may be "latest" or semver)
+ *   3. "latest" as last resort
+ * This avoids the old bug where reports were stored as `latest.json` when the
+ * caller didn't pass a version, making version-specific lookups fail later.
+ */
+export function saveReport(
+  packageName: string,
+  requestedVersion: string,
+  report: AuditReport,
+): void {
+  const realVersion = extractReportVersion(report) ?? requestedVersion ?? "latest";
 
-  // No version specified — return most recently modified
+  const dir = reportDir(packageName);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(reportPath(packageName, realVersion), JSON.stringify(report, null, 2));
+  console.log(`[report-store] saved ${packageName}@${realVersion}`);
+
+  // Backward compat: if caller passed a different version than what the
+  // tarball actually contains, also clean up any stale file under the
+  // legacy name so we don't serve inconsistent data from two paths.
+  if (
+    requestedVersion &&
+    requestedVersion !== realVersion &&
+    requestedVersion !== "latest"
+  ) {
+    const legacy = reportPath(packageName, requestedVersion);
+    if (fs.existsSync(legacy)) {
+      try {
+        fs.unlinkSync(legacy);
+        console.log(`[report-store] cleaned legacy ${packageName}@${requestedVersion}`);
+      } catch {
+        // non-fatal
+      }
+    }
+  }
+}
+
+/**
+ * Load a report for (packageName, version). Strategy:
+ *   1. If version is provided and the exact file exists → return it
+ *   2. If version is provided but not found, scan sibling files and match by
+ *      metadata.version inside the report (handles legacy reports stored as
+ *      `latest.json` but actually containing a specific version)
+ *   3. If no version is provided, return the most recently modified report
+ */
+export function loadReport(
+  packageName: string,
+  version?: string,
+): { report: AuditReport; version: string } | null {
   const dir = reportDir(packageName);
   if (!fs.existsSync(dir)) return null;
 
+  if (version) {
+    // Fast path: exact file match
+    const p = reportPath(packageName, version);
+    if (fs.existsSync(p)) {
+      return { report: JSON.parse(fs.readFileSync(p, "utf-8")), version };
+    }
+
+    // Slow path: scan all reports in the dir, return one whose embedded
+    // metadata version matches the requested version. Useful for legacy
+    // reports saved under `latest.json` before saveReport was fixed.
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+    for (const file of files) {
+      try {
+        const report = JSON.parse(fs.readFileSync(path.join(dir, file), "utf-8"));
+        const embeddedVersion = extractReportVersion(report);
+        if (embeddedVersion === version) {
+          return { report, version };
+        }
+      } catch {
+        // Skip corrupted files
+      }
+    }
+    return null;
+  }
+
+  // No version specified — return the most recently modified report
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
   if (files.length === 0) return null;
 
-  // Sort by mtime descending
   const sorted = files
     .map((f) => ({ file: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
 
   const latest = sorted[0]!;
-  const ver = latest.file.replace(/\.json$/, "");
-  return { report: JSON.parse(fs.readFileSync(path.join(dir, latest.file), "utf-8")), version: ver };
+  const report = JSON.parse(fs.readFileSync(path.join(dir, latest.file), "utf-8"));
+  // Prefer embedded metadata version over filename (which may be "latest")
+  const ver = extractReportVersion(report) ?? latest.file.replace(/\.json$/, "");
+  return { report, version: ver };
 }
 
 export interface PackageSummary {
@@ -79,9 +160,10 @@ export function listReports(): PackageSummary[] {
           const latest = sorted[0]!;
           try {
             const report = JSON.parse(fs.readFileSync(path.join(pkgDir, latest.file), "utf-8"));
+            const embeddedVersion = extractReportVersion(report);
             results.push({
               packageName: name,
-              version: latest.file.replace(/\.json$/, ""),
+              version: embeddedVersion ?? latest.file.replace(/\.json$/, ""),
               verdict: report.verdict ?? "UNKNOWN",
               auditedAt: latest.iso,
             });
