@@ -14,7 +14,7 @@ import { createSession, getSession, finalizeSession, createEmitFn, type AuditEve
 import { cleanupPackage, resolveTarballUrl } from "./phases/resolve.js";
 import { createCheckoutSession, verifyCheckoutSession, constructWebhookEvent } from "./stripe.js";
 import { recordPayment, getPayment, cleanupOldPayments } from "./payment-map.js";
-import { verifyAuditPayment, isChainConfigured, ChainVerificationError, type SupportedChain } from "./chain.js";
+import { verifyAuditPayment, isChainConfigured, ChainVerificationError, readAuditFee, getChainContractAddress, type SupportedChain } from "./chain.js";
 import { getChainPayment, recordChainPayment } from "./chain-payment-map.js";
 import { NpmGuardError, QueueFullError } from "./errors.js";
 import { getAvailableDemos, startReplay } from "./demo.js";
@@ -238,12 +238,33 @@ app.post("/webhooks/stripe", async (c) => {
   return c.json({ received: true });
 });
 
-app.get("/config/public", (c) =>
-  c.json({
+app.get("/config/public", async (c) => {
+  const base = {
     paymentEnabled: PAYMENT_ENABLED,
     priceCents: config.auditPriceCents,
-  }),
-);
+  };
+
+  if (!isChainConfigured("base-sepolia")) {
+    return c.json({ ...base, crypto: null });
+  }
+
+  try {
+    const fee = await readAuditFee("base-sepolia");
+    const contract = getChainContractAddress("base-sepolia");
+    return c.json({
+      ...base,
+      crypto: {
+        chain: "base-sepolia",
+        chainId: 84532,
+        contract,
+        auditFeeWei: fee !== null ? fee.toString() : null,
+      },
+    });
+  } catch (err) {
+    console.warn("[config] failed to read auditFee:", err instanceof Error ? err.message : err);
+    return c.json({ ...base, crypto: null });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Demo replay endpoints

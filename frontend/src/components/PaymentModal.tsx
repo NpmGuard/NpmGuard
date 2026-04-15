@@ -5,7 +5,6 @@ import { useAuditStore } from "../stores/auditStore";
 import {
   hasInjectedWallet,
   payWithInjected,
-  readAuditFee,
   startWalletConnectPayment,
 } from "../lib/wallet";
 
@@ -13,33 +12,29 @@ interface Props {
   packageName: string;
   version: string;
   priceCents: number | null;
+  cryptoFeeWei: bigint | null;
   onClose: () => void;
 }
 
 type Mode = "choose" | "crypto-choose" | "wc-qr" | "working";
 
-export function PaymentModal({ packageName, version, priceCents, onClose }: Props) {
+export function PaymentModal({
+  packageName,
+  version,
+  priceCents,
+  cryptoFeeWei,
+  onClose,
+}: Props) {
   const startCheckout = useAuditStore((s) => s.startCheckout);
   const startAuditFromTx = useAuditStore((s) => s.startAuditFromTx);
 
   const [mode, setMode] = useState<Mode>("choose");
-  const [fee, setFee] = useState<bigint | null>(null);
-  const [feeLoading, setFeeLoading] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [wcCancel, setWcCancel] = useState<(() => void) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
   const injected = hasInjectedWallet();
-
-  useEffect(() => {
-    if (mode !== "crypto-choose" || fee !== null) return;
-    setFeeLoading(true);
-    readAuditFee()
-      .then((v) => setFee(v))
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to read fee"))
-      .finally(() => setFeeLoading(false));
-  }, [mode, fee]);
 
   useEffect(() => {
     return () => {
@@ -52,13 +47,13 @@ export function PaymentModal({ packageName, version, priceCents, onClose }: Prop
   };
 
   const handleMetaMask = async () => {
-    if (!fee) return;
+    if (!cryptoFeeWei) return;
     setError(null);
     setMode("working");
     setStatus("Waiting for wallet signature…");
     try {
-      const { txHash } = await payWithInjected(packageName, version, fee);
-      setStatus("Payment confirmed. Starting audit…");
+      const { txHash } = await payWithInjected(packageName, version, cryptoFeeWei);
+      setStatus("Transaction sent. Starting audit…");
       await startAuditFromTx(txHash, packageName, version);
       onClose();
     } catch (err: unknown) {
@@ -74,18 +69,18 @@ export function PaymentModal({ packageName, version, priceCents, onClose }: Prop
   };
 
   const handleWalletConnect = async () => {
-    if (!fee) return;
+    if (!cryptoFeeWei) return;
     setError(null);
     setMode("wc-qr");
     setStatus("Scan the QR with your mobile wallet");
     try {
-      const handle = await startWalletConnectPayment(packageName, version, fee);
+      const handle = await startWalletConnectPayment(packageName, version, cryptoFeeWei);
       setWcCancel(() => handle.cancel);
       const dataUrl = await QRCode.toDataURL(handle.uri, { width: 280, margin: 1 });
       setQrDataUrl(dataUrl);
 
       const { txHash } = await handle.result;
-      setStatus("Payment confirmed. Starting audit…");
+      setStatus("Transaction sent. Starting audit…");
       setMode("working");
       await startAuditFromTx(txHash, packageName, version);
       onClose();
@@ -131,9 +126,17 @@ export function PaymentModal({ packageName, version, priceCents, onClose }: Prop
                   <span style={subLabel}>${(priceCents / 100).toFixed(2)} · card</span>
                 )}
               </button>
-              <button style={primaryBtn} onClick={() => setMode("crypto-choose")}>
+              <button
+                style={primaryBtn}
+                onClick={() => setMode("crypto-choose")}
+                disabled={!cryptoFeeWei}
+              >
                 Pay with Crypto
-                <span style={subLabel}>Base Sepolia · ETH</span>
+                <span style={subLabel}>
+                  {cryptoFeeWei
+                    ? `${formatEther(cryptoFeeWei)} ETH · Base Sepolia`
+                    : "Unavailable"}
+                </span>
               </button>
             </div>
           </>
@@ -142,24 +145,22 @@ export function PaymentModal({ packageName, version, priceCents, onClose }: Prop
         {mode === "crypto-choose" && (
           <>
             <p style={{ color: "var(--text-dim)", fontSize: "0.9rem", marginTop: "0.5rem" }}>
-              {feeLoading
-                ? "Reading fee from contract…"
-                : fee
-                  ? `Fee: ${formatEther(fee)} ETH on Base Sepolia`
-                  : "—"}
+              {cryptoFeeWei
+                ? `Fee: ${formatEther(cryptoFeeWei)} ETH on Base Sepolia`
+                : "—"}
             </p>
             <div style={buttonCol}>
               <button
                 style={primaryBtn}
                 onClick={handleMetaMask}
-                disabled={!injected || !fee}
+                disabled={!injected || !cryptoFeeWei}
               >
                 MetaMask / Browser wallet
                 <span style={subLabel}>
                   {injected ? "Sign in your browser" : "No wallet detected"}
                 </span>
               </button>
-              <button style={primaryBtn} onClick={handleWalletConnect} disabled={!fee}>
+              <button style={primaryBtn} onClick={handleWalletConnect} disabled={!cryptoFeeWei}>
                 WalletConnect
                 <span style={subLabel}>Scan QR with mobile wallet</span>
               </button>
