@@ -1,12 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { formatEther } from "viem";
-import QRCode from "qrcode";
 import { useAuditStore } from "../stores/auditStore";
-import {
-  hasInjectedWallet,
-  payWithInjected,
-  startWalletConnectPayment,
-} from "../lib/wallet";
+import { hasInjectedWallet, payWithInjected } from "../lib/wallet";
 
 interface Props {
   packageName: string;
@@ -16,7 +11,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Mode = "choose" | "crypto-choose" | "wc-qr" | "working";
+type Mode = "choose" | "working";
 
 export function PaymentModal({
   packageName,
@@ -29,18 +24,10 @@ export function PaymentModal({
   const startAuditFromTx = useAuditStore((s) => s.startAuditFromTx);
 
   const [mode, setMode] = useState<Mode>("choose");
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [wcCancel, setWcCancel] = useState<(() => void) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
   const injected = hasInjectedWallet();
-
-  useEffect(() => {
-    return () => {
-      if (wcCancel) wcCancel();
-    };
-  }, [wcCancel]);
 
   const handleStripe = () => {
     startCheckout(packageName, version);
@@ -63,36 +50,7 @@ export function PaymentModal({
       } else {
         setError(msg);
       }
-      setMode("crypto-choose");
-      setStatus(null);
-    }
-  };
-
-  const handleWalletConnect = async () => {
-    if (!cryptoFeeWei) return;
-    setError(null);
-    setMode("wc-qr");
-    setStatus("Scan the QR with your mobile wallet");
-    try {
-      const handle = await startWalletConnectPayment(packageName, version, cryptoFeeWei);
-      setWcCancel(() => handle.cancel);
-      const dataUrl = await QRCode.toDataURL(handle.uri, { width: 280, margin: 1 });
-      setQrDataUrl(dataUrl);
-
-      const { txHash } = await handle.result;
-      setStatus("Transaction sent. Starting audit…");
-      setMode("working");
-      await startAuditFromTx(txHash, packageName, version);
-      onClose();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.toLowerCase().includes("reject") || msg.toLowerCase().includes("cancel")) {
-        setError("Payment cancelled");
-      } else {
-        setError(msg);
-      }
-      setMode("crypto-choose");
-      setQrDataUrl(null);
+      setMode("choose");
       setStatus(null);
     }
   };
@@ -128,70 +86,20 @@ export function PaymentModal({
               </button>
               <button
                 style={primaryBtn}
-                onClick={() => setMode("crypto-choose")}
-                disabled={!cryptoFeeWei}
-              >
-                Pay with Crypto
-                <span style={subLabel}>
-                  {cryptoFeeWei
-                    ? `${formatEther(cryptoFeeWei)} ETH · Base Sepolia`
-                    : "Unavailable"}
-                </span>
-              </button>
-            </div>
-          </>
-        )}
-
-        {mode === "crypto-choose" && (
-          <>
-            <p style={{ color: "var(--text-dim)", fontSize: "0.9rem", marginTop: "0.5rem" }}>
-              {cryptoFeeWei
-                ? `Fee: ${formatEther(cryptoFeeWei)} ETH on Base Sepolia`
-                : "—"}
-            </p>
-            <div style={buttonCol}>
-              <button
-                style={primaryBtn}
                 onClick={handleMetaMask}
                 disabled={!injected || !cryptoFeeWei}
               >
-                MetaMask / Browser wallet
+                Pay with Crypto
                 <span style={subLabel}>
-                  {injected ? "Sign in your browser" : "No wallet detected"}
+                  {!injected
+                    ? "No wallet detected"
+                    : cryptoFeeWei
+                      ? `${formatEther(cryptoFeeWei)} ETH · Base Sepolia`
+                      : "Unavailable"}
                 </span>
               </button>
-              <button style={primaryBtn} onClick={handleWalletConnect} disabled={!cryptoFeeWei}>
-                WalletConnect
-                <span style={subLabel}>Scan QR with mobile wallet</span>
-              </button>
             </div>
-            <button style={linkBtn} onClick={() => setMode("choose")}>
-              ← back
-            </button>
           </>
-        )}
-
-        {mode === "wc-qr" && (
-          <div style={{ textAlign: "center", marginTop: "1rem" }}>
-            {qrDataUrl ? (
-              <img src={qrDataUrl} alt="WalletConnect QR" style={{ width: 260, height: 260 }} />
-            ) : (
-              <p style={{ color: "var(--text-dim)" }}>Generating QR…</p>
-            )}
-            <p style={{ color: "var(--text-dim)", fontSize: "0.85rem", marginTop: "0.5rem" }}>
-              {status}
-            </p>
-            <button
-              style={linkBtn}
-              onClick={() => {
-                if (wcCancel) wcCancel();
-                setQrDataUrl(null);
-                setMode("crypto-choose");
-              }}
-            >
-              cancel
-            </button>
-          </div>
         )}
 
         {mode === "working" && (
@@ -267,14 +175,4 @@ const subLabel: React.CSSProperties = {
   fontSize: "0.75rem",
   color: "var(--text-dim)",
   fontWeight: "normal",
-};
-
-const linkBtn: React.CSSProperties = {
-  background: "transparent",
-  border: "none",
-  color: "var(--text-dim)",
-  cursor: "pointer",
-  fontSize: "0.85rem",
-  marginTop: "0.75rem",
-  padding: 0,
 };
