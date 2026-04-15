@@ -906,7 +906,7 @@
           "packageName": "test-pkg-dom-inject"
         },
         "output": {
-          "path": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-dom-inject",
+          "path": "/workspace/test-fixtures/test-pkg-dom-inject",
           "needsCleanup": false
         }
       },
@@ -914,7 +914,7 @@
         "phase": "inventory",
         "durationMs": 3,
         "input": {
-          "packagePath": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-dom-inject"
+          "packagePath": "/workspace/test-fixtures/test-pkg-dom-inject"
         },
         "output": {
           "fileCount": 4,
@@ -1050,7 +1050,7 @@
               "reason": "Initializes the Drainer system with a hardcoded Ethereum address ('0xDEADBEEF...') and hooks into window.ethereum, setting up the malicious provider interception in browser environments."
             }
           ],
-          "packagePath": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-dom-inject"
+          "packagePath": "/workspace/test-fixtures/test-pkg-dom-inject"
         },
         "output": {
           "capabilityCount": 1,

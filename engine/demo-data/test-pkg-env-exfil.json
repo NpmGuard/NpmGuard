@@ -705,7 +705,7 @@
           "packageName": "test-pkg-env-exfil"
         },
         "output": {
-          "path": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-env-exfil",
+          "path": "/workspace/test-fixtures/test-pkg-env-exfil",
           "needsCleanup": false
         }
       },
@@ -713,7 +713,7 @@
         "phase": "inventory",
         "durationMs": 4,
         "input": {
-          "packagePath": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-env-exfil"
+          "packagePath": "/workspace/test-fixtures/test-pkg-env-exfil"
         },
         "output": {
           "fileCount": 3,
@@ -827,7 +827,7 @@
               "reason": "Assembles the final stolen data payload (including host details) and triggers the exfiltration call. Confirms data packaging and transmission."
             }
           ],
-          "packagePath": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-env-exfil"
+          "packagePath": "/workspace/test-fixtures/test-pkg-env-exfil"
         },
         "output": {
           "capabilityCount": 2,

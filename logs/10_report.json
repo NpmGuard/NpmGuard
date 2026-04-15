@@ -48,7 +48,7 @@
         "packageName": "test-pkg-dos-loop"
       },
       "output": {
-        "path": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-dos-loop",
+        "path": "/workspace/test-fixtures/test-pkg-dos-loop",
         "needsCleanup": false
       }
     },
@@ -56,7 +56,7 @@
       "phase": "inventory",
       "durationMs": 0,
       "input": {
-        "packagePath": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-dos-loop"
+        "packagePath": "/workspace/test-fixtures/test-pkg-dos-loop"
       },
       "output": {
         "fileCount": 2,
@@ -133,7 +133,7 @@
             "reason": "Contains an infinite loop that continuously logs output, causing a denial of service."
           }
         ],
-        "packagePath": "/home/wookie/Projects/hackathons/EthCannes2026/sandbox/test-fixtures/test-pkg-dos-loop"
+        "packagePath": "/workspace/test-fixtures/test-pkg-dos-loop"
       },
       "output": {
         "capabilityCount": 0,

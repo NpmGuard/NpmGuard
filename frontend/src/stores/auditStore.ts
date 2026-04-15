@@ -74,6 +74,7 @@ interface AuditState {
   startDemo: (packageName: string) => Promise<void>;
   startCheckout: (packageName: string, version?: string, email?: string) => Promise<void>;
   startAuditFromCheckout: (sessionId: string) => Promise<void>;
+  startAuditFromTx: (txHash: string, packageName: string, version: string) => Promise<void>;
   connectToSession: (auditId: string) => Promise<void>;
   handleEvent: (event: SSEEvent) => void;
   selectFile: (path: string) => Promise<void>;
@@ -350,6 +351,41 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     }
 
     set({ auditId, ...(pkgName && { packageName: pkgName }) });
+    connectSSE(auditId, set, get);
+  },
+
+  startAuditFromTx: async (txHash: string, packageName: string, version: string) => {
+    get().reset();
+    set({ isRunning: true, hasStarted: true, packageName });
+
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/audit/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packageName, version, txHash, chain: "base-sepolia" }),
+      });
+    } catch {
+      set({ isRunning: false, error: "Failed to connect to audit engine" });
+      return;
+    }
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      set({ isRunning: false, error: body.error || `Engine returned ${res.status}` });
+      return;
+    }
+
+    let auditId: string;
+    try {
+      const body = await res.json();
+      auditId = body.auditId;
+    } catch {
+      set({ isRunning: false, error: "Invalid response from engine" });
+      return;
+    }
+
+    set({ auditId });
     connectSSE(auditId, set, get);
   },
 
