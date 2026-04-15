@@ -59,14 +59,39 @@ export function Landing() {
       .catch(() => {});
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [resolving, setResolving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = input.trim();
     if (!trimmed) return;
     // Parse package@version — handle scoped packages (@scope/pkg@version)
     const atIdx = trimmed.lastIndexOf("@");
     const pkg = atIdx > 0 ? trimmed.slice(0, atIdx) : trimmed;
-    const ver = atIdx > 0 ? trimmed.slice(atIdx + 1) || "latest" : "latest";
+    let ver = atIdx > 0 ? trimmed.slice(atIdx + 1) : "";
+    // Resolve "latest" or missing version to a concrete semver via npm registry
+    // (engine's zod schema rejects non-semver strings like "latest")
+    if (!ver || ver === "latest") {
+      setResolving(true);
+      try {
+        const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(pkg)}/latest`);
+        if (!res.ok) {
+          setResolving(false);
+          return;
+        }
+        const data = await res.json();
+        if (typeof data.version !== "string") {
+          setResolving(false);
+          return;
+        }
+        ver = data.version;
+      } catch {
+        setResolving(false);
+        return;
+      }
+      setResolving(false);
+    }
+
     if (paymentEnabled) {
       setPendingPayment({ pkg, ver });
     } else {
@@ -100,8 +125,8 @@ export function Landing() {
               placeholder="express@4.18.2"
               autoFocus
             />
-            <button type="submit" disabled={!input.trim() || checkoutLoading}>
-              {checkoutLoading ? "..." : "Audit"}
+            <button type="submit" disabled={!input.trim() || checkoutLoading || resolving}>
+              {checkoutLoading || resolving ? "..." : "Audit"}
             </button>
           </form>
 
