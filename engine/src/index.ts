@@ -631,6 +631,26 @@ app.get("/audit/:id/report", (c) => {
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 
+// Resolve "latest" (or a dist-tag) to a concrete semver — used by the
+// frontend which can't hit registry.npmjs.org directly due to CSP.
+app.get("/resolve/:name{.+}", async (c) => {
+  const name = c.req.param("name");
+  const version = c.req.query("version") || "latest";
+  const nameCheck = PackageName.safeParse(name);
+  if (!nameCheck.success) {
+    return c.json({ error: "Invalid package name" }, 400);
+  }
+  try {
+    const { resolvedVersion } = await resolveTarballUrl(name, version);
+    return c.json({ packageName: name, version: resolvedVersion });
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : "Resolution failed" },
+      404,
+    );
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Package report endpoints — browse previously audited packages
 // ---------------------------------------------------------------------------

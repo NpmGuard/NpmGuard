@@ -74,7 +74,7 @@ export function Landing() {
     if (!ver || ver === "latest") {
       setResolving(true);
       try {
-        const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(pkg)}/latest`);
+        const res = await fetch(`/api/resolve/${encodeURIComponent(pkg)}`);
         if (!res.ok) {
           setResolving(false);
           return;
