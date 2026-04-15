@@ -1,10 +1,8 @@
 import { SignClient } from "@walletconnect/sign-client";
 import {
-  createPublicClient,
   createWalletClient,
   custom,
   encodeFunctionData,
-  http,
   type Hex,
 } from "viem";
 import { baseSepolia } from "viem/chains";
@@ -20,22 +18,9 @@ const WALLETCONNECT_PROJECT_ID =
 
 const BASE_SEPOLIA_HEX = "0x14a34"; // 84532
 
-const publicClient = createPublicClient({
-  chain: baseSepolia,
-  transport: http(),
-});
-
 export interface PayResult {
   txHash: Hex;
   sender: string;
-}
-
-export async function readAuditFee(): Promise<bigint> {
-  return (await publicClient.readContract({
-    address: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
-    abi: AUDIT_REQUEST_ABI,
-    functionName: "auditFee",
-  })) as bigint;
 }
 
 export function hasInjectedWallet(): boolean {
@@ -108,9 +93,6 @@ export async function payWithInjected(
     args: [packageName, version],
     value: feeWei,
   });
-
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-  if (receipt.status !== "success") throw new Error("Transaction reverted");
 
   return { txHash, sender };
 }
@@ -191,9 +173,6 @@ export async function startWalletConnectPayment(
         ],
       },
     })) as Hex;
-
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-    if (receipt.status !== "success") throw new Error("Transaction reverted");
 
     return { txHash, sender };
   })();

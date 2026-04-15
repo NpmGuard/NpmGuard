@@ -33,6 +33,7 @@ export function Landing() {
   const [input, setInput] = useState("");
   const [priceCents, setPriceCents] = useState<number | null>(null);
   const [paymentEnabled, setPaymentEnabled] = useState(false);
+  const [cryptoFeeWei, setCryptoFeeWei] = useState<bigint | null>(null);
   const [pendingPayment, setPendingPayment] = useState<{ pkg: string; ver: string } | null>(null);
   const startAudit = useAuditStore((s) => s.startAudit);
   const startDemo = useAuditStore((s) => s.startDemo);
@@ -46,6 +47,13 @@ export function Landing() {
         if (data) {
           setPaymentEnabled(data.paymentEnabled);
           setPriceCents(data.priceCents);
+          if (data.crypto?.auditFeeWei) {
+            try {
+              setCryptoFeeWei(BigInt(data.crypto.auditFeeWei));
+            } catch {
+              /* ignore */
+            }
+          }
         }
       })
       .catch(() => {});
@@ -161,6 +169,7 @@ export function Landing() {
           packageName={pendingPayment.pkg}
           version={pendingPayment.ver}
           priceCents={priceCents}
+          cryptoFeeWei={cryptoFeeWei}
           onClose={() => setPendingPayment(null)}
         />
       )}

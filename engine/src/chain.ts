@@ -20,6 +20,13 @@ const AUDIT_REQUEST_ABI = [
     ],
     anonymous: false,
   },
+  {
+    type: "function",
+    name: "auditFee",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
 ] as const;
 
 export type SupportedChain = "base-sepolia" | "base";
@@ -193,4 +200,18 @@ export async function verifyAuditPayment(
 
 export function isChainConfigured(chain: SupportedChain): boolean {
   return getConfig()[chain] !== null;
+}
+
+export function getChainContractAddress(chain: SupportedChain): `0x${string}` | null {
+  return getConfig()[chain]?.contractAddress ?? null;
+}
+
+export async function readAuditFee(chain: SupportedChain): Promise<bigint | null> {
+  const cfg = getConfig()[chain];
+  if (!cfg) return null;
+  return (await cfg.client.readContract({
+    address: cfg.contractAddress,
+    abi: AUDIT_REQUEST_ABI,
+    functionName: "auditFee",
+  })) as bigint;
 }
