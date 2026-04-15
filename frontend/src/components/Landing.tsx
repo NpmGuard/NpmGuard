@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuditStore } from "../stores/auditStore";
+import { PaymentModal } from "./PaymentModal";
 
 const DEMOS = [
   {
@@ -32,7 +33,8 @@ export function Landing() {
   const [input, setInput] = useState("");
   const [priceCents, setPriceCents] = useState<number | null>(null);
   const [paymentEnabled, setPaymentEnabled] = useState(false);
-  const startCheckout = useAuditStore((s) => s.startCheckout);
+  const [pendingPayment, setPendingPayment] = useState<{ pkg: string; ver: string } | null>(null);
+  const startAudit = useAuditStore((s) => s.startAudit);
   const startDemo = useAuditStore((s) => s.startDemo);
   const checkoutLoading = useAuditStore((s) => s.checkoutLoading);
   const error = useAuditStore((s) => s.error);
@@ -56,8 +58,12 @@ export function Landing() {
     // Parse package@version — handle scoped packages (@scope/pkg@version)
     const atIdx = trimmed.lastIndexOf("@");
     const pkg = atIdx > 0 ? trimmed.slice(0, atIdx) : trimmed;
-    const ver = atIdx > 0 ? trimmed.slice(atIdx + 1) || undefined : undefined;
-    startCheckout(pkg, ver);
+    const ver = atIdx > 0 ? trimmed.slice(atIdx + 1) || "latest" : "latest";
+    if (paymentEnabled) {
+      setPendingPayment({ pkg, ver });
+    } else {
+      startAudit(pkg, ver);
+    }
   };
 
   return (
@@ -150,6 +156,14 @@ export function Landing() {
         </div>
 
       </div>
+      {pendingPayment && (
+        <PaymentModal
+          packageName={pendingPayment.pkg}
+          version={pendingPayment.ver}
+          priceCents={priceCents}
+          onClose={() => setPendingPayment(null)}
+        />
+      )}
     </div>
   );
 }
