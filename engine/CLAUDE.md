@@ -25,7 +25,19 @@ Anti-replay is tracked in `src/chain-payment-map.ts` (in-memory, keyed on `(chai
 When adding a new chain:
 1. Add env vars (`NPMGUARD_<CHAIN>_CONTRACT`, `NPMGUARD_<CHAIN>_RPC_URL`)
 2. Wire it into `chain.ts:makeConfig()`
-3. Extend the `SupportedChain` union and the zod enum in `index.ts:StreamAuditRequest`
+3. Extend the `SupportedChain` union in `chain.ts` and the `chain` zod enum in `routes/validation.ts:StreamAuditRequest`
+
+## Route layout
+
+`src/index.ts` is just the Hono app setup + CORS + subrouter mounts + `/api/*` mirror + static serving. Handlers live in `src/routes/`:
+
+- `audit.ts` — `/audit`, `/audit/stream` (payment gate is inline by design — it's a trust contract), `/audit/:id/{events,file,report}`, plus the in-memory audit queue for the CRE sync path
+- `payment.ts` — `/checkout`, `/checkout/:sessionId/status`, `/webhooks/stripe`, `/config/public`
+- `demo.ts` — `/demo/*`
+- `registry.ts` — `/packages`, `/package/:name/report`, `/resolve/:name`
+- `validation.ts` — shared zod schemas (`PackageName`, `SemverVersion`, `AuditRequest`, `CheckoutRequest`, `StreamAuditRequest`)
+
+Subrouters are mounted via `app.route("/", subrouter)`. Don't switch to prefix-mounting — the `/api/*` mirror rewrites by calling `app.fetch()`, which relies on everything being on one namespace.
 
 ## Test
 
