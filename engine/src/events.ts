@@ -1,55 +1,60 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import type { AuditReport, FileRecord, FileVerdict, Finding, TriageResult } from "./models.js";
+import type { AuditReport } from "./models.js";
 
-// ---------------------------------------------------------------------------
-// Event types
-// ---------------------------------------------------------------------------
+// Re-export shared event types — the authoritative definitions live in
+// @npmguard/shared. Legacy engine-side short names (AuditStarted,
+// FileList, …) are aliased to the new *Event names to avoid churn in
+// existing call sites under engine/src/**.
+export type {
+  BaseAuditEvent,
+  AuditStartedEvent,
+  PhaseStartedEvent,
+  PhaseCompletedEvent,
+  FileListEvent,
+  FileAnalyzingEvent,
+  FileVerdictEvent,
+  TriageCompleteEvent,
+  TriageProgressEvent,
+  AgentToolCallEvent,
+  AgentToolResultEvent,
+  AgentReasoningEvent,
+  AgentThinkingEvent,
+  FindingDiscoveredEvent,
+  VerdictReachedEvent,
+  InventoryMetaEvent,
+  VerifyStartedEvent,
+  VerifyTestResultEvent,
+  AuditErrorEvent,
+  AuditEventUnion,
+  AuditEventType,
+  EmitFn,
+} from "@npmguard/shared";
 
-export interface AuditEvent {
-  type: string;
-  auditId: string;
-  timestamp: string;
-  seq: number;          // buffer index — unique, stable, collision-proof
-  [key: string]: unknown;
-}
+export { EVENT_TYPES } from "@npmguard/shared";
 
-export interface AuditStarted extends AuditEvent { type: "audit_started"; packageName: string }
-export interface PhaseStarted extends AuditEvent { type: "phase_started"; phase: string }
-export interface PhaseCompleted extends AuditEvent { type: "phase_completed"; phase: string; durationMs: number }
-export interface FileList extends AuditEvent { type: "file_list"; files: FileRecord[] }
-export interface FileAnalyzing extends AuditEvent { type: "file_analyzing"; file: string }
-export interface FileVerdictEvent extends AuditEvent { type: "file_verdict"; verdict: FileVerdict }
-export interface TriageComplete extends AuditEvent { type: "triage_complete"; riskScore: number; riskSummary: string; focusAreas: TriageResult["focusAreas"] }
-export interface AgentToolCall extends AuditEvent { type: "agent_tool_call"; tool: string; args: Record<string, unknown>; step: number }
-export interface AgentToolResult extends AuditEvent { type: "agent_tool_result"; tool: string; resultPreview: string; step: number; injectionDetected: boolean }
-export interface AgentReasoning extends AuditEvent { type: "agent_reasoning"; text: string; step: number }
-export interface FindingDiscovered extends AuditEvent { type: "finding_discovered"; finding: Finding }
-export interface VerdictReached extends AuditEvent { type: "verdict_reached"; verdict: string; capabilities: string[]; proofCount: number }
-export interface AgentThinking extends AuditEvent { type: "agent_thinking"; step: number }
-export interface TriageProgress extends AuditEvent { type: "triage_progress"; current: number; total: number; file: string }
-export interface InventoryMeta extends AuditEvent {
-  type: "inventory_meta";
-  scripts: Record<string, string>;
-  dependencies: Record<string, Record<string, string>>;
-  entryPoints: { install: string[]; runtime: string[]; bin: string[] };
-  metadata: { name: string | null; version: string | null; description: string | null; license: string | null };
-}
-export interface AuditError extends AuditEvent { type: "audit_error"; error: string }
+import type { AuditEventUnion, EmitFn } from "@npmguard/shared";
 
-// ---------------------------------------------------------------------------
-// Emit helper — a simple callback the pipeline threads through phases
-// ---------------------------------------------------------------------------
-
-export type EmitFn = (type: string, payload: Record<string, unknown>) => void;
+/** Structural alias for any SSE event — accepts the typed union or a loose
+ *  ad-hoc event emitted via `EmitFn` for event types not yet in the shared
+ *  discriminated union (e.g., verify_attempt, verify_regenerating). */
+export type AuditEvent =
+  | AuditEventUnion
+  | {
+      type: string;
+      auditId: string;
+      timestamp: string;
+      seq: number;
+      [key: string]: unknown;
+    };
 
 export function createEmitFn(auditId: string, emitter: EventEmitter): EmitFn {
   return (type: string, payload: Record<string, unknown>) => {
-    const event: AuditEvent = {
+    const event = {
       type,
       auditId,
       timestamp: new Date().toISOString(),
-      seq: -1,           // will be overwritten when pushed into eventBuffer
+      seq: -1, // overwritten when pushed into eventBuffer
       ...payload,
     };
     emitter.emit("event", event);
@@ -62,7 +67,7 @@ export function setSessionPackagePath(auditId: string, packagePath: string): voi
 }
 
 // ---------------------------------------------------------------------------
-// Session store
+// Session store — engine-internal, tracks live audits and buffers SSE events
 // ---------------------------------------------------------------------------
 
 export interface AuditSession {
@@ -104,6 +109,7 @@ export function createSession(packageName: string): AuditSession {
     }
   }
 
+  void packageName;
   const auditId = randomUUID();
   const emitter = new EventEmitter();
   emitter.setMaxListeners(20);
@@ -121,7 +127,7 @@ export function createSession(packageName: string): AuditSession {
   // Buffer all events so late-connecting SSE clients can replay them
   emitter.on("event", (event: AuditEvent) => {
     if (session.eventBuffer.length < MAX_EVENT_BUFFER) {
-      event.seq = session.eventBuffer.length;   // stamp with stable buffer index
+      event.seq = session.eventBuffer.length; // stamp with stable buffer index
       session.eventBuffer.push(event);
     }
   });
