@@ -6,7 +6,9 @@
 const { fork } = require("child_process");
 const path = require("path");
 
-const PACKAGES_DIR = path.resolve(__dirname, "..", "test-fixtures");
+const PACKAGES_DIR = process.env.NPMGUARD_PACKAGES_DIR
+  ? path.resolve(process.env.NPMGUARD_PACKAGES_DIR)
+  : path.resolve(__dirname, "..", "test-fixtures");
 
 /**
  * Run a package entry point in a child process with a timeout.
