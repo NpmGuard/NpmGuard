@@ -7,5 +7,6 @@ dist
 build
 coverage
 .cache
+*.tsbuildinfo
 
 videos
