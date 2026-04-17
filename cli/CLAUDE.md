@@ -39,6 +39,7 @@ Published as [`npmguard-cli`](https://www.npmjs.com/package/npmguard-cli) on npm
 ## Gotchas
 
 - **ESM only** — the package.json has `"type": "module"`. Never use `require()` — it crashes at runtime. Use `import` everywhere.
+- **Do NOT depend on `@npmguard/shared`** — the CLI ships to npm with `"files": ["dist"]`, so it must be self-contained at publish time. A workspace dep would resolve locally but break when installed from the registry. Use inline event-narrowing here; the engine + frontend consume shared types, the CLI stays independent.
 - **Package manager verb** — `yarn install <pkg>` ignores the arg and reinstalls the whole tree. Use `yarn add` / `pnpm add` / `npm install` depending on `detectPackageManager`.
 - **Do not call `auditCommand` after `startAuditWithTxHash`** — `auditCommand` re-runs the full lookup + Stripe checkout flow, which would trigger a second unpaid audit and leak a Stripe session. Use `streamAuditEvents(auditId)` directly.
 - **No private key in CLI** — the wallet signs and broadcasts. The CLI only reads the contract fee, encodes calldata, and observes receipts. Never introduce `process.env.PRIVATE_KEY` usage in this package.
