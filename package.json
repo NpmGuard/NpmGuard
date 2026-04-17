@@ -6,8 +6,8 @@
     "dev": "./run.sh",
     "dev:engine": "cd engine && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --root sandbox",
+    "test:watch": "vitest --root sandbox"
   },
   "devDependencies": {
     "jsdom": "^26.0.0",
