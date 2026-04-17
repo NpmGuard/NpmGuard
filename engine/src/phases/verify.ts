@@ -33,90 +33,6 @@ module.exports = defineConfig({
 });
 `;
 
-function createSandboxRunner(packageDirName: string): string {
-  return `const path = require("path");
-
-const PACKAGES_DIR = path.resolve(__dirname, "..", "test-packages");
-
-async function runPackage(packageName, entryPoint) {
-  const packageDir = path.join(PACKAGES_DIR, packageName);
-  const entryPath = path.join(packageDir, entryPoint);
-
-  for (const key of Object.keys(require.cache)) {
-    if (key.startsWith(packageDir)) {
-      delete require.cache[key];
-    }
-  }
-
-  let exports;
-  try {
-    exports = require(entryPath);
-  } catch (e) {
-    exports = { __error: e };
-  }
-
-  return exports;
-}
-
-module.exports = { runPackage };
-`;
-}
-
-function createChildProcessRunner(): string {
-  return `const { fork } = require("child_process");
-const path = require("path");
-
-const PACKAGES_DIR = path.resolve(__dirname, "..", "test-packages");
-
-async function runInChildProcess(packageName, entryPoint, options = {}) {
-  const { timeout = 3000, maxOutput = 65536 } = options;
-  const entryPath = path.join(PACKAGES_DIR, packageName, entryPoint);
-
-  return new Promise((resolve) => {
-    const child = fork(entryPath, [], {
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-      silent: true,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    let killed = false;
-
-    child.stdout.on("data", (data) => {
-      if (stdout.length < maxOutput) {
-        stdout += data.toString().slice(0, maxOutput - stdout.length);
-      }
-    });
-
-    child.stderr.on("data", (data) => {
-      if (stderr.length < maxOutput) {
-        stderr += data.toString().slice(0, maxOutput - stderr.length);
-      }
-    });
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killed = true;
-      child.kill("SIGKILL");
-    }, timeout);
-
-    child.on("exit", (code) => {
-      clearTimeout(timer);
-      resolve({ timedOut, killed, stdout, stderr, exitCode: code });
-    });
-
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ timedOut, killed, stdout, stderr: stderr + err.message, exitCode: null });
-    });
-  });
-}
-
-module.exports = { runInChildProcess };
-`;
-}
-
 interface VitestResult {
   testResults?: Array<{
     name: string;
@@ -325,13 +241,12 @@ export async function verifyProofs(
   const packageSource = findings ? readPackageSource(packagePath) : "";
 
   try {
-    // Copy harness files
-    copyFileSync(join(HARNESS_DIR, "setup.js"), join(harnessDir, "setup.js"));
-    copyFileSync(join(HARNESS_DIR, "server.js"), join(harnessDir, "server.js"));
-
-    // Write custom sandbox-runner and child-process-runner
-    writeFileSync(join(harnessDir, "sandbox-runner.js"), createSandboxRunner(packageDirName), "utf-8");
-    writeFileSync(join(harnessDir, "child-process-runner.js"), createChildProcessRunner(), "utf-8");
+    // Copy all harness files verbatim — runners read PACKAGES_DIR from
+    // NPMGUARD_PACKAGES_DIR env var (set on the docker invocation below),
+    // so no per-audit code generation is needed.
+    for (const file of ["setup.js", "server.js", "sandbox-runner.js", "child-process-runner.js"]) {
+      copyFileSync(join(HARNESS_DIR, file), join(harnessDir, file));
+    }
 
     // Write vitest config
     writeFileSync(join(workDir, "vitest.config.js"), VITEST_CONFIG, "utf-8");
@@ -375,6 +290,7 @@ export async function verifyProofs(
       `--cpus=${config.sandboxCpus}`,
       "--user", `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
       "--pids-limit", "128",
+      "-e", "NPMGUARD_PACKAGES_DIR=/workspace/test-packages",
       "-v", `${workDir}:/workspace`,
       "-w", "/workspace",
       image,
