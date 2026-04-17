@@ -1,54 +1,44 @@
-// Mirror of engine event types and data structures
+// Cross-process audit types — single source of truth lives in @npmguard/shared.
+// Re-exported here so existing frontend imports from "./lib/types" keep working.
+export type {
+  FileRecord,
+  FileVerdict,
+  FocusArea,
+  Finding,
+  Proof,
+  TriageResult,
+  VerdictEnum,
+  CapabilityEnum,
+  Confidence,
+  ProofKind,
+  AttackPathway,
+  AuditEventUnion as SSEEvent,
+  EmitFn,
+  AuditStartedEvent,
+  PhaseStartedEvent,
+  PhaseCompletedEvent,
+  FileListEvent,
+  FileAnalyzingEvent,
+  FileVerdictEvent,
+  TriageCompleteEvent,
+  TriageProgressEvent,
+  AgentToolCallEvent,
+  AgentToolResultEvent,
+  AgentReasoningEvent,
+  AgentThinkingEvent,
+  FindingDiscoveredEvent,
+  VerdictReachedEvent,
+  InventoryMetaEvent,
+  VerifyStartedEvent,
+  VerifyTestResultEvent,
+  AuditErrorEvent,
+} from "@npmguard/shared";
 
-export interface FileRecord {
-  path: string;
-  fileType: string;
-  sizeBytes: number;
-  permissions: string;
-  isBinary: boolean;
-  binaryType: string | null;
-}
+import type { Finding, Proof } from "@npmguard/shared";
 
-export interface FileVerdict {
-  file: string;
-  capabilities: string[];
-  suspiciousPatterns: string[];
-  suspiciousLines: string | null;
-  summary: string;
-  riskContribution: number;
-}
-
-export interface FocusArea {
-  file: string;
-  lines: string | null;
-  reason: string;
-}
-
-export interface Finding {
-  capability: string;
-  confidence: "SUSPECTED" | "LIKELY" | "CONFIRMED";
-  fileLine: string;
-  problem: string;
-  evidence: string;
-  reproductionStrategy: string;
-}
-
-export interface Proof {
-  capability: string | null;
-  attackPathway: string;
-  confidence: "SUSPECTED" | "LIKELY" | "CONFIRMED";
-  fileLine: string;
-  problem: string;
-  evidence: string;
-  kind: "STRUCTURAL" | "AI_STATIC" | "AI_DYNAMIC" | "TEST_CONFIRMED" | "TEST_UNCONFIRMED";
-  reproducible: boolean;
-  reproductionCmd: string | null;
-  testFile: string | null;
-  testHash: string | null;
-  testCode: string | null;
-  verifyError: string | null;
-  reasoningHash: string | null;
-}
+// ---------------------------------------------------------------------------
+// Frontend-only UI state types
+// ---------------------------------------------------------------------------
 
 export type FileStatus = "pending" | "analyzing" | "safe" | "suspicious" | "dangerous";
 
@@ -80,6 +70,8 @@ export interface PipelineLogEntry {
   scripts?: Record<string, string>;
 }
 
+/** Inventory payload mirrored from the `inventory_meta` SSE event —
+ *  held in the audit store as a piece of state. */
 export interface InventoryMeta {
   scripts: Record<string, string>;
   dependencies: Record<string, Record<string, string>>;
@@ -87,143 +79,9 @@ export interface InventoryMeta {
   metadata: { name: string | null; version: string | null; description: string | null; license: string | null };
 }
 
-// SSE event payloads — discriminated union for type safety
-interface BaseEvent {
-  auditId: string;
-  timestamp: string;
-  seq?: number;
-}
-
-export interface AuditStartedEvent extends BaseEvent {
-  type: "audit_started";
-  packageName?: string;
-}
-
-export interface PhaseStartedEvent extends BaseEvent {
-  type: "phase_started";
-  phase: string;
-}
-
-export interface PhaseCompletedEvent extends BaseEvent {
-  type: "phase_completed";
-  phase: string;
-  durationMs: number;
-}
-
-export interface FileListEvent extends BaseEvent {
-  type: "file_list";
-  files: FileRecord[];
-}
-
-export interface FileAnalyzingEvent extends BaseEvent {
-  type: "file_analyzing";
-  file: string;
-}
-
-export interface FileVerdictEvent extends BaseEvent {
-  type: "file_verdict";
-  verdict: FileVerdict;
-}
-
-export interface TriageCompleteEvent extends BaseEvent {
-  type: "triage_complete";
-  riskScore: number;
-  riskSummary: string;
-  focusAreas: FocusArea[];
-}
-
-export interface AgentToolCallEvent extends BaseEvent {
-  type: "agent_tool_call";
-  tool: string;
-  args: Record<string, unknown>;
-  step: number;
-}
-
-export interface AgentToolResultEvent extends BaseEvent {
-  type: "agent_tool_result";
-  tool: string;
-  resultPreview: string;
-  step: number;
-  injectionDetected: boolean;
-}
-
-export interface AgentReasoningEvent extends BaseEvent {
-  type: "agent_reasoning";
-  text: string;
-  step: number;
-}
-
-export interface FindingDiscoveredEvent extends BaseEvent {
-  type: "finding_discovered";
-  finding: Finding;
-}
-
-export interface VerdictReachedEvent extends BaseEvent {
-  type: "verdict_reached";
-  verdict: "SAFE" | "DANGEROUS";
-  capabilities: string[];
-  proofCount: number;
-}
-
-export interface AgentThinkingEvent extends BaseEvent {
-  type: "agent_thinking";
-  step: number;
-}
-
-export interface TriageProgressEvent extends BaseEvent {
-  type: "triage_progress";
-  current: number;
-  total: number;
-  file: string;
-}
-
-export interface InventoryMetaEvent extends BaseEvent {
-  type: "inventory_meta";
-  scripts: Record<string, string>;
-  dependencies: Record<string, Record<string, string>>;
-  entryPoints: { install: string[]; runtime: string[]; bin: string[] };
-  metadata: { name: string | null; version: string | null; description: string | null; license: string | null };
-}
-
-export interface AuditErrorEvent extends BaseEvent {
-  type: "audit_error";
-  error?: string;
-  code?: string;
-  retryable?: boolean;
-}
-
-export interface VerifyStartedEvent extends BaseEvent {
-  type: "verify_started";
-  totalTests: number;
-}
-
-export interface VerifyTestResultEvent extends BaseEvent {
-  type: "verify_test_result";
-  proofIndex: number;
-  testFile: string;
-  status: "confirmed" | "unconfirmed" | "infra_error";
-  error?: string;
-}
-
-export type SSEEvent =
-  | AuditStartedEvent
-  | PhaseStartedEvent
-  | PhaseCompletedEvent
-  | FileListEvent
-  | FileAnalyzingEvent
-  | FileVerdictEvent
-  | TriageCompleteEvent
-  | AgentToolCallEvent
-  | AgentToolResultEvent
-  | AgentReasoningEvent
-  | FindingDiscoveredEvent
-  | VerdictReachedEvent
-  | AgentThinkingEvent
-  | TriageProgressEvent
-  | InventoryMetaEvent
-  | AuditErrorEvent
-  | VerifyStartedEvent
-  | VerifyTestResultEvent;
+// ---------------------------------------------------------------------------
+// Frontend-only constants and helpers
+// ---------------------------------------------------------------------------
 
 export const PHASE_ORDER = ["resolve", "inventory", "triage", "investigation", "test-gen", "verify"] as const;
 
