@@ -2,10 +2,16 @@
   "name": "npmguard-test-suite",
   "private": true,
   "type": "commonjs",
+  "workspaces": [
+    "shared",
+    "engine",
+    "frontend"
+  ],
   "scripts": {
     "dev": "./run.sh",
     "dev:engine": "cd engine && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
+    "build:shared": "npm -w @npmguard/shared run build",
     "test": "vitest run --root sandbox",
     "test:watch": "vitest --root sandbox"
   },

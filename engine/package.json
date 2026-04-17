@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@npmguard/shared": "*",
     "@ai-sdk/anthropic": "^3.0.66",
     "@ai-sdk/google": "^3.0.58",
     "@ai-sdk/openai": "^3.0.50",

@@ -3,6 +3,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# Build the @npmguard/shared workspace first — both engine and frontend
+# import from its compiled dist/.
+echo "Building @npmguard/shared..."
+(cd shared && npm run build)
+
 DEV=false
 if [[ "${1:-}" == "--dev" ]]; then
   DEV=true
