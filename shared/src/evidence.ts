@@ -179,6 +179,7 @@ export const RunArtifact = z.object({
   stderrHash: z.string().nullable().default(null),
   fsDiffHash: z.string().nullable().default(null),
   pcapHash: z.string().nullable().default(null),
+  straceLogHash: z.string().nullable().default(null),
   inspectorLogHash: z.string().nullable().default(null),
   eventSummary: EventSummary,
   error: RunError.nullable().default(null),

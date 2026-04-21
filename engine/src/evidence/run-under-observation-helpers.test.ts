@@ -148,6 +148,7 @@ describe("sealRunArtifact", () => {
       stderrHash: null,
       fsDiffHash: null,
       pcapHash: null,
+      straceLogHash: null,
       inspectorLogHash: null,
       eventSummary: { uniqueHosts: [], uniqueSyscalls: [], filesWritten: [], dnsQueries: [] },
       error: null,
