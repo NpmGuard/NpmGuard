@@ -31,6 +31,7 @@ import {
   snapshotPostAndDiff as fsDiffSnapshotPostAndDiff,
 } from "../sensors/fs-diff.js";
 import { parseStraceLog, wrapWithStrace } from "../sensors/strace.js";
+import { startPcapCapture, stopPcapCaptureAndParse } from "../sensors/pcap.js";
 
 /**
  * Input to `runUnderObservation`.
@@ -102,9 +103,20 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
       { path: "/home/node", options: "rw,size=64m,uid=1000,gid=1000,mode=0755" },
     ],
     workdir: "/pkg",
-    // Sensor-driven capabilities. L1 (Sprint 4b) will need SYS_PTRACE; wiring
-    // it in now so the Dockerfile and launch plumbing are ready.
-    capAdd: observe.kernel ? ["SYS_PTRACE"] : [],
+    // L2 pcap needs a real network interface. Bridge is the v1 choice — it
+    // means the sandbox can reach external hosts; we'll tighten with an
+    // internal-only Docker network or egress firewall before running against
+    // real malware (documented in ARCHITECT_REVIEW_ENGINE.md risks).
+    networkMode: observe.network ? "bridge" : "none",
+    capAdd: [
+      ...(observe.kernel ? ["SYS_PTRACE"] : []),
+      // tcpdump (launched as root in the exec, run with `-Z root`) needs:
+      //   NET_RAW            — open raw packet-capture sockets
+      //   SETUID + SETGID    — `-Z root` still calls setuid(0)/setgid(0)
+      // These caps apply to the container root; uid 1000 (the target package)
+      // does not auto-inherit them.
+      ...(observe.network ? ["NET_RAW", "SETUID", "SETGID"] : []),
+    ],
     ...req.containerSpec,
   });
 
@@ -123,6 +135,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   let stderrHash: string | null = null;
   let fsDiffHash: string | null = null;
   let straceLogHash: string | null = null;
+  let pcapHash: string | null = null;
 
   // Start the container.
   const startRes = await dockerExec(specToDockerArgs(spec, containerName), 30_000);
@@ -185,6 +198,20 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
     if (error === null && observe.fsDiff) {
       try {
         await fsDiffSnapshotPre(containerName, DEFAULT_WATCH_PATHS);
+      } catch (err) {
+        error = {
+          kind: "SensorError",
+          detail: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    // 4b. L2 pcap capture start (still before the trigger so we catch the
+    // trigger's network activity; after setup so our proxy setup traffic is
+    // isolated from the package's own traffic only by timestamp).
+    if (error === null && observe.network) {
+      try {
+        await startPcapCapture(containerName);
       } catch (err) {
         error = {
           kind: "SensorError",
@@ -273,6 +300,24 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
         }
       }
     }
+
+    // 7. L2 pcap stop + extract events.
+    if (observe.network && error?.kind !== "SetupError") {
+      try {
+        const pcap = await stopPcapCaptureAndParse(containerName);
+        events.push(...pcap.events);
+        if (pcap.rawPcap.length > 0) {
+          pcapHash = sha256Hex(pcap.rawPcap);
+        }
+      } catch (err) {
+        if (error === null) {
+          error = {
+            kind: "SensorError",
+            detail: `pcap stop/parse failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+      }
+    }
   } finally {
     await dockerExec(["rm", "-f", containerName], 10_000).catch(() => {});
   }
@@ -304,7 +349,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
     stdoutHash,
     stderrHash,
     fsDiffHash,
-    pcapHash: null,
+    pcapHash,
     straceLogHash,
     inspectorLogHash: null,
     eventSummary: computeEventSummary(events),
