@@ -5,6 +5,7 @@ import type {
   ObserveFlags,
   RunArtifact,
   RunError,
+  SetupApplied,
   Trigger,
 } from "@npmguard/shared";
 import { dockerExec } from "../sandbox/docker.js";
@@ -19,22 +20,24 @@ import { sha256Hex } from "./hashing.js";
 import {
   buildTriggerCommand,
   computeEventSummary,
-  emptySetupApplied,
   sealRunArtifact,
   truncationEvent,
 } from "./run-under-observation-helpers.js";
+import { applyManipulation } from "../manipulation/compose.js";
+import { mergeContainerSpec, type Manipulation, type SetupContext } from "../manipulation/types.js";
 
 /**
- * Input to `runUnderObservation`. Only the `packagePath` and `trigger` are
- * strictly required; everything else has sensible defaults.
+ * Input to `runUnderObservation`.
  *
- * Sprint 2 (walking skeleton): only `trigger.kind === "entrypoint" | "subpath"`
- * is supported, and no manipulation primitives are applied. Sprint 3 fills in
- * env/date/plantFiles/stubUrl/patchFile/preload; Sprint 4 fills in L1/L2/L3.
+ * Sprint 3 additions: `setup` accepts a list of manipulation primitives
+ * (setEnv, setDate, plantFiles, stubUrl, patchFile, preload) whose specs are
+ * composed into the container launch and whose postStart hooks run after
+ * boot. Sprint 4 will populate L1/L2/L3 streams; Sprint 5 wires V8 Inspector.
  */
 export interface RunRequest {
   packagePath: string;
   trigger: Trigger;
+  setup?: readonly Manipulation[];
   observe?: Partial<ObserveFlags>;
   budget?: Partial<Budget>;
   containerSpec?: Partial<ContainerSpec>;
@@ -65,37 +68,53 @@ export class RunUnderObservationError extends Error {
  * Run a package in a hardened Docker container and produce a sealed,
  * content-hashed RunArtifact describing what happened.
  *
- * Throws `RunUnderObservationError` when the container cannot be created at
- * all (Docker daemon down, image missing, etc.). Returns a RunArtifact with a
- * populated `error` field for in-run failures (Node crash, budget exceeded,
- * sensor failed to parse).
+ * Container layout:
+ *   /pkg-src  — read-only bind mount of the host package path
+ *   /pkg      — writable tmpfs, populated at boot via `cp -a /pkg-src/. /pkg/`
+ *   /tmp      — writable tmpfs (noexec)
+ *   workdir   — /pkg  (so `require("./...")` resolves inside the writable copy)
+ *
+ * Throws `RunUnderObservationError` only when the container can't be
+ * created. In-run failures (crash, timeout, sensor, setup) populate
+ * `RunArtifact.error`.
  */
 export async function runUnderObservation(req: RunRequest): Promise<RunArtifact> {
   const runId = `run_${randomUUID().replace(/-/g, "").slice(0, 26)}`;
   const observe: ObserveFlags = { ...DEFAULT_OBSERVE, ...req.observe };
   const budget: Budget = { ...DEFAULT_BUDGET, ...req.budget };
+  const primitives = req.setup ?? [];
 
-  const spec = defaultContainerSpec({
+  const baseSpec = defaultContainerSpec({
     volumes: [
-      { hostPath: req.packagePath, containerPath: "/pkg", readOnly: true },
+      { hostPath: req.packagePath, containerPath: "/pkg-src", readOnly: true },
     ],
+    tmpfs: [
+      { path: "/tmp", options: "rw,noexec,nosuid,size=64m" },
+      { path: "/pkg", options: "rw,size=256m,uid=1000,gid=1000,mode=0755" },
+      // /home/node is writable so plantFiles can seed ~/.npmrc / ~/.ssh/id_rsa /
+      // ~/.aws/credentials, and so Node itself can write its npm/cache files.
+      { path: "/home/node", options: "rw,size=64m,uid=1000,gid=1000,mode=0755" },
+    ],
+    workdir: "/pkg",
     ...req.containerSpec,
   });
+
+  const composed = applyManipulation(primitives);
+  const spec = mergeContainerSpec(baseSpec, composed.specPatch);
 
   const containerName = `npmguard-run-${runId.slice(4, 16)}`;
   const createdAt = new Date().toISOString();
   const startedAt = Date.now();
 
-  const events: Event[] = [];
+  const events: Event[] = [...composed.events];
   let error: RunError | null = null;
   let exitCode: number | null = null;
   let timedOut = false;
   let stdoutHash: string | null = null;
   let stderrHash: string | null = null;
 
-  // Start container
-  const runArgs = specToDockerArgs(spec, containerName);
-  const startRes = await dockerExec(runArgs, 30_000);
+  // Start the container.
+  const startRes = await dockerExec(specToDockerArgs(spec, containerName), 30_000);
   if (startRes.exitCode !== 0) {
     throw new RunUnderObservationError(
       "failed to start sandbox container",
@@ -103,9 +122,23 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
     );
   }
 
+  const ctx: SetupContext = { runId, containerName };
+
   try {
-    // Write L4 instrumentation if node observation is enabled
-    if (observe.node) {
+    // 1. Copy the package into the writable workdir.
+    const copyRes = await dockerExec(
+      ["exec", containerName, "sh", "-c", "cp -a /pkg-src/. /pkg/"],
+      30_000,
+    );
+    if (copyRes.exitCode !== 0) {
+      error = {
+        kind: "SetupError",
+        detail: `failed to copy /pkg-src to /pkg: ${copyRes.stderr.slice(0, 300)}`,
+      };
+    }
+
+    // 2. Write L4 instrumentation (if node observation enabled).
+    if (error === null && observe.node) {
       const writeRes = await dockerExec(
         [
           "exec", containerName, "sh", "-c",
@@ -121,51 +154,61 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
       }
     }
 
-    // Build trigger command
-    const cmd = buildTriggerCommand(req.trigger, observe.node);
-    if (cmd === null) {
-      error = {
-        kind: "SetupError",
-        detail: `trigger.kind='${req.trigger.kind}' not supported in walking skeleton (Sprint 2)`,
-      };
+    // 3. Run primitive postStart hooks in declaration order.
+    if (error === null) {
+      for (const hook of composed.postStarts) {
+        try {
+          await hook(ctx);
+        } catch (err) {
+          error = {
+            kind: "SetupError",
+            detail: err instanceof Error ? err.message : String(err),
+          };
+          break;
+        }
+      }
     }
 
-    // Execute trigger with budget
-    if (error === null && cmd !== null) {
-      const execArgs = ["exec", containerName, ...cmd];
-      const res = await dockerExec(execArgs, budget.wallMs);
-      exitCode = res.exitCode;
-      timedOut = res.timedOut;
-
-      if (res.stdout) stdoutHash = sha256Hex(res.stdout);
-      if (res.stderr) stderrHash = sha256Hex(res.stderr);
-
-      if (timedOut) {
+    // 4. Build and execute the trigger command.
+    if (error === null) {
+      const cmd = buildTriggerCommand(req.trigger, observe.node);
+      if (cmd === null) {
         error = {
-          kind: "TimeoutError",
-          detail: `wall-clock budget (${budget.wallMs}ms) exceeded; container killed`,
+          kind: "SetupError",
+          detail: `trigger.kind='${req.trigger.kind}' not supported in walking skeleton (Sprint 2)`,
         };
-        events.push(truncationEvent(`wall-clock budget (${budget.wallMs}ms) exceeded`));
-      } else if (exitCode !== 0) {
-        error = {
-          kind: "CrashError",
-          detail: `node exited ${exitCode}; stderr: ${res.stderr.slice(0, 500)}`,
-        };
-      }
+      } else {
+        const res = await dockerExec(["exec", containerName, ...cmd], budget.wallMs);
+        exitCode = res.exitCode;
+        timedOut = res.timedOut;
+        if (res.stdout) stdoutHash = sha256Hex(res.stdout);
+        if (res.stderr) stderrHash = sha256Hex(res.stderr);
 
-      // Parse L4 trace if observe.node and we got some stdout
-      if (observe.node) {
-        const l4 = parseL4Trace(res.stdout);
-        if (l4 === null) {
-          if (error === null) {
-            error = {
-              kind: "SensorError",
-              detail: "L4 trace markers absent from stdout (instrumentation may have been evaded or suppressed)",
-            };
+        if (timedOut) {
+          error = {
+            kind: "TimeoutError",
+            detail: `wall-clock budget (${budget.wallMs}ms) exceeded; container killed`,
+          };
+          events.push(truncationEvent(`wall-clock budget (${budget.wallMs}ms) exceeded`));
+        } else if (exitCode !== 0) {
+          error = {
+            kind: "CrashError",
+            detail: `node exited ${exitCode}; stderr: ${res.stderr.slice(0, 500)}`,
+          };
+        }
+
+        if (observe.node) {
+          const l4 = parseL4Trace(res.stdout);
+          if (l4 === null) {
+            if (error === null) {
+              error = {
+                kind: "SensorError",
+                detail: "L4 trace markers absent from stdout (instrumentation evaded or suppressed)",
+              };
+            }
+          } else {
+            events.push(...l4);
           }
-          // else: crash/timeout already explains missing trace
-        } else {
-          events.push(...l4);
         }
       }
     }
@@ -176,10 +219,21 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   const wallMs = Date.now() - startedAt;
   events.sort((a, b) => a.timestamp - b.timestamp);
 
+  const setupApplied: SetupApplied = {
+    env: composed.applied.env ?? {},
+    date: composed.applied.date ?? null,
+    plantFiles: composed.applied.plantFiles ?? [],
+    stubUrls: composed.applied.stubUrls ?? [],
+    hostname: composed.applied.hostname ?? null,
+    locale: composed.applied.locale ?? null,
+    patches: composed.applied.patches ?? [],
+    preloadHash: composed.applied.preloadHash ?? null,
+  };
+
   const draft: Omit<RunArtifact, "contentHash"> = {
     runId,
     triggerUsed: req.trigger,
-    setupApplied: emptySetupApplied(),
+    setupApplied,
     observe,
     budget,
     wallMs,

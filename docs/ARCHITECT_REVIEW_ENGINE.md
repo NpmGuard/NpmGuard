@@ -394,6 +394,7 @@ Can be scaffolded in parallel with A1 once the shape is locked.
 - `DifferentialArtifact` + differential runs (evasion detection beyond whitebox reading)
 - Composite hypothesis proposal + `drop-chain-experimenter` worker (chain attacks)
 - Headless browser sandbox (browser-targeted attacks: wallet drainers, DOM injection)
+- **HTTPS MitM for `stubUrl`** — CA cert generation, installation via `NODE_EXTRA_CA_CERTS`, TLS interception for HTTPS payload visibility. v1 captures HTTPS destinations only (hostname from proxy CONNECT + L2 pcap SNI).
 - Report signing with engine key
 - Runtime hash validation on read
 - Cross-audit memory / author priors
@@ -447,6 +448,7 @@ Concrete conditions under which v1 is considered complete.
    - No differential runs (v2; whitebox reading covers most needs)
    - No signing (v2)
    - No cross-audit memory (v2)
+   - `stubUrl` is HTTP-only — captures HTTPS destinations (via proxy CONNECT + L2 pcap SNI) but not HTTPS payload bodies. Full HTTPS MitM deferred to v2.
    - Attacks composed of individually-innocent steps across files can slip through — documented in verdict basis prose.
 7. **Clean break.** No backward compatibility for existing `data/reports/*`. Wipe on deploy; reports are regeneratable.
 

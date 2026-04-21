@@ -32,7 +32,7 @@ const ConfigSchema = z.object({
   testGenMode: z.enum(["openclaw", "direct"]).default("direct"),
   verifyTimeoutSec: z.coerce.number().int().min(10).max(300).default(60),
 
-  sandboxImage: z.string().default("node:22-slim"),
+  sandboxImage: z.string().default("npmguard-sandbox:v1"),
   sandboxMemoryMb: z.coerce.number().int().min(64).max(4096).default(512),
   sandboxCpus: z.coerce.number().positive().max(4).default(1),
   sandboxNetwork: z.string().default("none"),
