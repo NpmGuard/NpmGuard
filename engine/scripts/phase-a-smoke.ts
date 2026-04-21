@@ -58,6 +58,38 @@ const CASES: Case[] = [
     },
   },
 
+  // ── Sprint 4c: L2 pcap sensor ───────────────────────────────────────────
+  {
+    name: "sprint-4c: pcap captures DNS query",
+    sprint: 4,
+    req: {
+      fixture: "test-pkg-env-exfil",
+      trigger: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null },
+      budget: { wallMs: 10_000, maxSyscalls: null, maxBytesCapture: 2_000_000 },
+      observe: { node: true, kernel: false, network: true, fsDiff: false, inspector: false },
+      // Preload forces an HTTPS request + clean exit before the fixture's IMDS
+      // probe can hang (bridge networking routes 169.254.169.254 into a black
+      // hole). The request produces DNS lookup + TLS ClientHello on the wire,
+      // both of which tshark extracts.
+      setup: [
+        preload(
+          `require('https').get('https://example.com/', { timeout: 2000 }, (res) => {
+             res.destroy(); process.exit(0);
+           }).on('error', () => process.exit(0));
+           setTimeout(() => process.exit(0), 3000);`,
+        ),
+      ],
+    },
+    expect: (a) => {
+      const l2 = a.events.filter((e) => e.stream === "L2:pcap");
+      if (l2.length === 0) return { ok: false, why: "expected at least one L2:pcap event" };
+      const hasDns = l2.some((e) => e.kind === "dns_query");
+      if (!hasDns) return { ok: false, why: "expected a DNS query event in L2" };
+      if (!a.pcapHash) return { ok: false, why: "pcapHash should be set when observe.network=true" };
+      return { ok: true };
+    },
+  },
+
   // ── Sprint 4b: L1 strace sensor ─────────────────────────────────────────
   {
     name: "sprint-4b: kernel observation surfaces syscalls",
