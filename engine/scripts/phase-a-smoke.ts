@@ -58,6 +58,26 @@ const CASES: Case[] = [
     },
   },
 
+  // ── Sprint 4b: L1 strace sensor ─────────────────────────────────────────
+  {
+    name: "sprint-4b: kernel observation surfaces syscalls",
+    sprint: 4,
+    req: {
+      fixture: "test-pkg-env-exfil",
+      trigger: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null },
+      budget: { wallMs: 15_000, maxSyscalls: null, maxBytesCapture: 1_000_000 },
+      observe: { node: true, kernel: true, network: false, fsDiff: false, inspector: false },
+    },
+    expect: (a) => {
+      const l1 = a.events.filter((e) => e.stream === "L1:seccomp");
+      if (l1.length === 0) return { ok: false, why: "expected at least one L1:seccomp event" };
+      const hasOpenat = l1.some((e) => e.kind === "openat");
+      if (!hasOpenat) return { ok: false, why: "expected an openat syscall in L1" };
+      if (!a.straceLogHash) return { ok: false, why: "straceLogHash should be set when observe.kernel=true" };
+      return { ok: true };
+    },
+  },
+
   // ── Sprint 4a: L3 fs-diff sensor ────────────────────────────────────────
   {
     name: "sprint-4a: fsDiff observes files the trigger creates",

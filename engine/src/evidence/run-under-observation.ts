@@ -30,6 +30,7 @@ import {
   snapshotPre as fsDiffSnapshotPre,
   snapshotPostAndDiff as fsDiffSnapshotPostAndDiff,
 } from "../sensors/fs-diff.js";
+import { parseStraceLog, wrapWithStrace } from "../sensors/strace.js";
 
 /**
  * Input to `runUnderObservation`.
@@ -121,6 +122,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   let stdoutHash: string | null = null;
   let stderrHash: string | null = null;
   let fsDiffHash: string | null = null;
+  let straceLogHash: string | null = null;
 
   // Start the container.
   const startRes = await dockerExec(specToDockerArgs(spec, containerName), 30_000);
@@ -191,7 +193,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
       }
     }
 
-    // 5. Build and execute the trigger command.
+    // 5. Build and execute the trigger command (optionally wrapped under strace for L1).
     if (error === null) {
       const cmd = buildTriggerCommand(req.trigger, observe.node);
       if (cmd === null) {
@@ -200,7 +202,8 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
           detail: `trigger.kind='${req.trigger.kind}' not supported in walking skeleton (Sprint 2)`,
         };
       } else {
-        const res = await dockerExec(["exec", containerName, ...cmd], budget.wallMs);
+        const wrapped = observe.kernel ? wrapWithStrace(cmd) : cmd;
+        const res = await dockerExec(["exec", containerName, ...wrapped], budget.wallMs);
         exitCode = res.exitCode;
         timedOut = res.timedOut;
         if (res.stdout) stdoutHash = sha256Hex(res.stdout);
@@ -230,6 +233,23 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
             }
           } else {
             events.push(...l4);
+          }
+        }
+
+        if (observe.kernel) {
+          const logRes = await dockerExec(
+            ["exec", containerName, "cat", "/tmp/strace.log"],
+            10_000,
+          );
+          if (logRes.exitCode === 0 && logRes.stdout) {
+            const l1 = parseStraceLog(logRes.stdout, runStartSec);
+            events.push(...l1);
+            straceLogHash = sha256Hex(logRes.stdout);
+          } else if (error === null) {
+            error = {
+              kind: "SensorError",
+              detail: `strace log unreadable: ${logRes.stderr.slice(0, 300)}`,
+            };
           }
         }
       }
@@ -285,6 +305,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
     stderrHash,
     fsDiffHash,
     pcapHash: null,
+    straceLogHash,
     inspectorLogHash: null,
     eventSummary: computeEventSummary(events),
     error,

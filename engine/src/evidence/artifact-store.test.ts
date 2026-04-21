@@ -40,6 +40,7 @@ function baselineArtifact(): Omit<RunArtifact, "contentHash"> {
     stderrHash: null,
     fsDiffHash: null,
     pcapHash: null,
+    straceLogHash: null,
     inspectorLogHash: null,
     eventSummary: {
       uniqueHosts: [],
