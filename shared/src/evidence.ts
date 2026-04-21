@@ -89,16 +89,19 @@ export const PlantedFileRef = z.object({
   path: z.string(),
   contentHash: z.string(),
 });
+export type PlantedFileRef = z.infer<typeof PlantedFileRef>;
 
 export const StubUrlRef = z.object({
   pattern: z.string(),
   responseHash: z.string(),
 });
+export type StubUrlRef = z.infer<typeof StubUrlRef>;
 
 export const FilePatchRef = z.object({
   path: z.string(),
   patchHash: z.string(),
 });
+export type FilePatchRef = z.infer<typeof FilePatchRef>;
 
 export const SetupApplied = z.object({
   env: z.record(z.string()).default({}),

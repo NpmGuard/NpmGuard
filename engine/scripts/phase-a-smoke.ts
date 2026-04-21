@@ -4,48 +4,120 @@
  * Exercises `runUnderObservation` against known-bad fixtures from
  * `sandbox/test-fixtures/` and prints what came back. Expands sprint-by-sprint:
  *   - Sprint 2: entrypoint runs + L4 monkey-patch capture
- *   - Sprint 3: manipulation primitives (env, plantFiles, stubUrl, ...)
+ *   - Sprint 3: manipulation primitives (env, plantFiles, stubUrl, setDate, ...)
  *   - Sprint 4: L1/L2/L3 sensors
  *   - Sprint 5: V8 Inspector correlation
  *
- * Run with: `npx tsx engine/scripts/phase-a-smoke.ts [fixture-name]`
+ * Run with:
+ *   npx tsx engine/scripts/phase-a-smoke.ts             # run all cases
+ *   npx tsx engine/scripts/phase-a-smoke.ts <filter>    # subset by name/fixture
+ *
  * Requires Docker daemon running and the configured sandbox image available.
  */
 
 import * as path from "node:path";
+import type { RunArtifact } from "@npmguard/shared";
 import { runUnderObservation } from "../src/evidence/run-under-observation.js";
+import type { RunRequest } from "../src/evidence/run-under-observation.js";
+import {
+  setEnv,
+  setDate,
+  plantFiles,
+  stubUrl,
+} from "../src/manipulation/index.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 const FIXTURES_DIR = path.join(REPO_ROOT, "sandbox", "test-fixtures");
 
+type Expectation = (artifact: RunArtifact) => { ok: boolean; why?: string };
+
 interface Case {
   name: string;
-  fixture: string;
-  entrypoint: string;
-  expect: (events: unknown[]) => boolean;
+  sprint: number;
+  req: Omit<RunRequest, "packagePath"> & { fixture: string };
+  expect: Expectation;
 }
 
-const SPRINT_2_CASES: Case[] = [
+const CASES: Case[] = [
+  // ── Sprint 2 baseline ────────────────────────────────────────────────────
   {
-    name: "test-pkg-env-exfil via L4",
-    fixture: "test-pkg-env-exfil",
-    entrypoint: "setup.js",
-    expect: (events) => events.length > 0,
+    name: "sprint-2: test-pkg-env-exfil via L4 (no setup)",
+    sprint: 2,
+    req: {
+      fixture: "test-pkg-env-exfil",
+      trigger: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null },
+      budget: { wallMs: 15_000, maxSyscalls: null, maxBytesCapture: 1_000_000 },
+      observe: { node: true, kernel: false, network: false, fsDiff: false, inspector: false },
+    },
+    expect: (a) => {
+      const l4 = a.events.filter((e) => e.stream === "L4:monkey");
+      return l4.length > 0
+        ? { ok: true }
+        : { ok: false, why: "expected L4 events" };
+    },
+  },
+
+  // ── Sprint 3: all manipulation primitives together ──────────────────────
+  {
+    name: "sprint-3: env-exfil with setEnv + plantFiles + stubUrl + setDate",
+    sprint: 3,
+    req: {
+      fixture: "test-pkg-env-exfil",
+      trigger: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null },
+      budget: { wallMs: 15_000, maxSyscalls: null, maxBytesCapture: 1_000_000 },
+      observe: { node: true, kernel: false, network: false, fsDiff: false, inspector: false },
+      setup: [
+        setEnv({
+          NPM_TOKEN: "npm_FAKE_TOKEN_A1B2C3D4",
+          GITHUB_TOKEN: "ghp_FAKE_xyz",
+          AWS_ACCESS_KEY_ID: "AKIAFAKE",
+          CI: "true",
+        }),
+        setDate("2027-03-01T00:00:00Z"),
+        plantFiles([
+          { path: "/home/node/.npmrc", content: "//registry.npmjs.org/:_authToken=npm_FAKE\n" },
+          { path: "/home/node/.ssh/id_rsa", content: "-----BEGIN RSA PRIVATE KEY-----\nFAKE\n" },
+          { path: "/home/node/.aws/credentials", content: "[default]\naws_access_key_id=FAKE\n" },
+        ]),
+        stubUrl([
+          { pattern: "*localhost:9999/*", responseStatus: 200, responseBody: "ok" },
+        ]),
+      ],
+    },
+    expect: (a) => {
+      // Assert manipulation was recorded.
+      if (Object.keys(a.setupApplied.env).length !== 4) {
+        return { ok: false, why: `expected 4 env vars in setupApplied, got ${Object.keys(a.setupApplied.env).length}` };
+      }
+      if (a.setupApplied.plantFiles.length !== 3) {
+        return { ok: false, why: `expected 3 plantFiles, got ${a.setupApplied.plantFiles.length}` };
+      }
+      if (a.setupApplied.stubUrls.length !== 1) {
+        return { ok: false, why: "expected 1 stubUrl" };
+      }
+      if (a.setupApplied.date !== "2027-03-01T00:00:00Z") {
+        return { ok: false, why: `expected date=2027-03-01T00:00:00Z, got ${a.setupApplied.date}` };
+      }
+      // Assert L4 observed env access + network attempt.
+      const envEvents = a.events.filter((e) => e.kind === "env_access");
+      const netEvents = a.events.filter((e) => e.kind === "network");
+      if (envEvents.length === 0) return { ok: false, why: "expected env_access events" };
+      if (netEvents.length === 0) return { ok: false, why: "expected network events" };
+      return { ok: true };
+    },
   },
 ];
 
 async function runCase(c: Case): Promise<boolean> {
-  const packagePath = path.join(FIXTURES_DIR, c.fixture);
-  console.log(`\n=== ${c.name} ===`);
+  const packagePath = path.join(FIXTURES_DIR, c.req.fixture);
+  console.log(`\n=== [sprint ${c.sprint}] ${c.name} ===`);
   console.log(`  package: ${packagePath}`);
-  console.log(`  trigger: entrypoint -> ${c.entrypoint}`);
+  console.log(`  trigger: ${c.req.trigger.kind} -> ${c.req.trigger.target}`);
 
-  const artifact = await runUnderObservation({
-    packagePath,
-    trigger: { kind: "entrypoint", target: c.entrypoint, argv: [], stdin: null },
-    budget: { wallMs: 15_000, maxSyscalls: null, maxBytesCapture: 1_000_000 },
-    observe: { node: true, kernel: false, network: false, fsDiff: false, inspector: false },
-  });
+  const { fixture: _fixture, ...reqRest } = c.req;
+  void _fixture;
+
+  const artifact = await runUnderObservation({ ...reqRest, packagePath });
 
   console.log(`  runId:        ${artifact.runId}`);
   console.log(`  contentHash:  ${artifact.contentHash}`);
@@ -54,7 +126,7 @@ async function runCase(c: Case): Promise<boolean> {
   console.log(`  timedOut:     ${artifact.timedOut}`);
   console.log(`  error:        ${artifact.error ? `${artifact.error.kind} — ${artifact.error.detail.slice(0, 200)}` : "none"}`);
   console.log(`  events:       ${artifact.events.length}`);
-  console.log(`  summary:      hosts=[${artifact.eventSummary.uniqueHosts.join(",")}] syscalls=[${artifact.eventSummary.uniqueSyscalls.join(",")}] dns=[${artifact.eventSummary.dnsQueries.join(",")}]`);
+  console.log(`  summary:      hosts=[${artifact.eventSummary.uniqueHosts.join(",")}] dns=[${artifact.eventSummary.dnsQueries.join(",")}]`);
 
   const byKind = new Map<string, number>();
   for (const ev of artifact.events) {
@@ -62,16 +134,18 @@ async function runCase(c: Case): Promise<boolean> {
   }
   console.log(`  event kinds:  ${[...byKind.entries()].map(([k, n]) => `${k}=${n}`).join(", ")}`);
 
-  const ok = c.expect(artifact.events);
-  console.log(`  status:       ${ok ? "PASS" : "FAIL"}`);
-  return ok;
+  console.log(`  setupApplied: env=${Object.keys(artifact.setupApplied.env).length} plantFiles=${artifact.setupApplied.plantFiles.length} stubUrls=${artifact.setupApplied.stubUrls.length} patches=${artifact.setupApplied.patches.length} date=${artifact.setupApplied.date ?? "-"}`);
+
+  const result = c.expect(artifact);
+  console.log(`  status:       ${result.ok ? "PASS" : `FAIL — ${result.why ?? "unknown"}`}`);
+  return result.ok;
 }
 
 async function main(): Promise<void> {
   const filter = process.argv[2];
   const cases = filter
-    ? SPRINT_2_CASES.filter((c) => c.name.includes(filter) || c.fixture.includes(filter))
-    : SPRINT_2_CASES;
+    ? CASES.filter((c) => c.name.includes(filter) || c.req.fixture.includes(filter))
+    : CASES;
 
   if (cases.length === 0) {
     console.error(`no cases match "${filter}"`);
