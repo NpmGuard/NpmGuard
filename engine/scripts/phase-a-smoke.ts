@@ -24,6 +24,7 @@ import {
   setDate,
   plantFiles,
   stubUrl,
+  preload,
 } from "../src/manipulation/index.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
@@ -54,6 +55,35 @@ const CASES: Case[] = [
       return l4.length > 0
         ? { ok: true }
         : { ok: false, why: "expected L4 events" };
+    },
+  },
+
+  // ── Sprint 4a: L3 fs-diff sensor ────────────────────────────────────────
+  {
+    name: "sprint-4a: fsDiff observes files the trigger creates",
+    sprint: 4,
+    req: {
+      fixture: "test-pkg-env-exfil",
+      trigger: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null },
+      budget: { wallMs: 15_000, maxSyscalls: null, maxBytesCapture: 1_000_000 },
+      observe: { node: true, kernel: false, network: false, fsDiff: true, inspector: false },
+      // Preload writes a marker during the trigger — AFTER fs-diff pre-snapshot —
+      // so the sensor should report it as file_created.
+      setup: [
+        preload(
+          `require('fs').writeFileSync('/home/node/.npmguard-evidence-marker', 'created-during-trigger');`,
+        ),
+      ],
+    },
+    expect: (a) => {
+      const l3 = a.events.filter((e) => e.stream === "L3:fsDiff");
+      if (l3.length === 0) return { ok: false, why: "expected at least one L3:fsDiff event" };
+      const created = l3.find(
+        (e) => e.kind === "file_created" && e.normalized?.path === "/home/node/.npmguard-evidence-marker",
+      );
+      if (!created) return { ok: false, why: "expected file_created for the marker" };
+      if (!a.fsDiffHash) return { ok: false, why: "expected fsDiffHash to be set when there are changes" };
+      return { ok: true };
     },
   },
 

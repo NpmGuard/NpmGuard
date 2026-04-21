@@ -25,6 +25,11 @@ import {
 } from "./run-under-observation-helpers.js";
 import { applyManipulation } from "../manipulation/compose.js";
 import { mergeContainerSpec, type Manipulation, type SetupContext } from "../manipulation/types.js";
+import {
+  DEFAULT_WATCH_PATHS,
+  snapshotPre as fsDiffSnapshotPre,
+  snapshotPostAndDiff as fsDiffSnapshotPostAndDiff,
+} from "../sensors/fs-diff.js";
 
 /**
  * Input to `runUnderObservation`.
@@ -96,6 +101,9 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
       { path: "/home/node", options: "rw,size=64m,uid=1000,gid=1000,mode=0755" },
     ],
     workdir: "/pkg",
+    // Sensor-driven capabilities. L1 (Sprint 4b) will need SYS_PTRACE; wiring
+    // it in now so the Dockerfile and launch plumbing are ready.
+    capAdd: observe.kernel ? ["SYS_PTRACE"] : [],
     ...req.containerSpec,
   });
 
@@ -112,6 +120,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   let timedOut = false;
   let stdoutHash: string | null = null;
   let stderrHash: string | null = null;
+  let fsDiffHash: string | null = null;
 
   // Start the container.
   const startRes = await dockerExec(specToDockerArgs(spec, containerName), 30_000);
@@ -169,7 +178,20 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
       }
     }
 
-    // 4. Build and execute the trigger command.
+    // 4. L3 fs-diff pre-snapshot (after all setup so plantFiles don't show as changes).
+    const runStartSec = Date.now() / 1000;
+    if (error === null && observe.fsDiff) {
+      try {
+        await fsDiffSnapshotPre(containerName, DEFAULT_WATCH_PATHS);
+      } catch (err) {
+        error = {
+          kind: "SensorError",
+          detail: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    // 5. Build and execute the trigger command.
     if (error === null) {
       const cmd = buildTriggerCommand(req.trigger, observe.node);
       if (cmd === null) {
@@ -212,6 +234,25 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
         }
       }
     }
+
+    // 6. L3 fs-diff post-snapshot + compute diff.
+    if (observe.fsDiff && error?.kind !== "SetupError" && error?.kind !== "SensorError") {
+      try {
+        const diff = await fsDiffSnapshotPostAndDiff(containerName, runStartSec, DEFAULT_WATCH_PATHS);
+        events.push(...diff.events);
+        if (diff.rawDiff) {
+          fsDiffHash = sha256Hex(diff.rawDiff);
+        }
+      } catch (err) {
+        // Demote to a soft error — don't overwrite a harder error (Crash/Timeout).
+        if (error === null) {
+          error = {
+            kind: "SensorError",
+            detail: `fs-diff post-snapshot failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+      }
+    }
   } finally {
     await dockerExec(["rm", "-f", containerName], 10_000).catch(() => {});
   }
@@ -242,7 +283,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
     events,
     stdoutHash,
     stderrHash,
-    fsDiffHash: null,
+    fsDiffHash,
     pcapHash: null,
     inspectorLogHash: null,
     eventSummary: computeEventSummary(events),
