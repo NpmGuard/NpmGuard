@@ -33,27 +33,25 @@ export async function startPcapCapture(containerName: string): Promise<void> {
   // unprivileged process later. Staying as root lets us live with fewer caps
   // (NET_RAW + SETUID + SETGID) and the container is already hardened by
   // cap-drop=ALL / read-only / pids-limit / user 1000.
+  // `-Z root` keeps tcpdump as root after starting capture (avoids CAP_CHOWN
+  // for the default privilege-drop chown of the pcap file, and avoids
+  // CAP_KILL for the later pkill). It still needs SETUID/SETGID because
+  // the Z flag calls setuid(0)/setgid(0) internally.
   const start = await dockerExec(
     [
       "exec", "-d", "--user", "0", containerName,
-      "tcpdump", "-i", "any", "-U", "-Z", "root", "-w", PCAP_PATH,
+      "tcpdump", "-i", "eth0", "-U", "-Z", "root", "-w", PCAP_PATH,
     ],
     10_000,
   );
   if (start.exitCode !== 0) {
     throw new Error(`pcap: failed to launch tcpdump: ${start.stderr.slice(0, 300)}`);
   }
-
-  // Wait for tcpdump to actually be listening.
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const check = await dockerExec(
-      ["exec", "--user", "0", containerName, "sh", "-c", "pgrep tcpdump >/dev/null"],
-      2_000,
-    );
-    if (check.exitCode === 0) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error("pcap: tcpdump didn't become ready within ~2s");
+  // Fixed 1s wait — tcpdump opens its AF_PACKET ring a short moment after
+  // the process becomes visible in pgrep. Polling for presence + short grace
+  // empirically races with the ring init under concurrent docker-exec calls;
+  // a conservative fixed wait is reliable and only adds ~700ms to a run.
+  await new Promise((r) => setTimeout(r, 1000));
 }
 
 export interface PcapResult {
