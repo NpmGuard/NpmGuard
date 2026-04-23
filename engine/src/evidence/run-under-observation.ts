@@ -32,6 +32,7 @@ import {
 } from "../sensors/fs-diff.js";
 import { parseStraceLog, wrapWithStrace } from "../sensors/strace.js";
 import { startPcapCapture, stopPcapCaptureAndParse } from "../sensors/pcap.js";
+import { allocateHostPort, attachV8Inspector } from "../sensors/v8-inspector.js";
 
 /**
  * Input to `runUnderObservation`.
@@ -91,6 +92,13 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   const budget: Budget = { ...DEFAULT_BUDGET, ...req.budget };
   const primitives = req.setup ?? [];
 
+  // Inspector needs the host to reach the container's inspector port, which
+  // requires bridge networking (Docker's -p flag is a no-op on --network=none).
+  const needsBridge = observe.network || observe.inspector;
+  // Host port allocation for inspector — done before spec build so the
+  // publishPorts list includes the mapping.
+  const inspectorHostPort = observe.inspector ? await allocateHostPort("127.0.0.1") : null;
+
   const baseSpec = defaultContainerSpec({
     volumes: [
       { hostPath: req.packagePath, containerPath: "/pkg-src", readOnly: true },
@@ -103,20 +111,18 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
       { path: "/home/node", options: "rw,size=64m,uid=1000,gid=1000,mode=0755" },
     ],
     workdir: "/pkg",
-    // L2 pcap needs a real network interface. Bridge is the v1 choice — it
-    // means the sandbox can reach external hosts; we'll tighten with an
-    // internal-only Docker network or egress firewall before running against
-    // real malware (documented in ARCHITECT_REVIEW_ENGINE.md risks).
-    networkMode: observe.network ? "bridge" : "none",
+    networkMode: needsBridge ? "bridge" : "none",
     capAdd: [
       ...(observe.kernel ? ["SYS_PTRACE"] : []),
-      // tcpdump (launched as root in the exec, run with `-Z root`) needs:
-      //   NET_RAW            — open raw packet-capture sockets
-      //   SETUID + SETGID    — `-Z root` still calls setuid(0)/setgid(0)
-      // These caps apply to the container root; uid 1000 (the target package)
-      // does not auto-inherit them.
+      // tcpdump (launched as root in the exec, run with `-Z root`) needs
+      // NET_RAW (capture socket) + SETUID/SETGID (the no-op setuid(0) that
+      // `-Z root` still performs internally). Keeping tcpdump as root avoids
+      // CHOWN (no pcap chown) and KILL (root-to-root signal) caps.
       ...(observe.network ? ["NET_RAW", "SETUID", "SETGID"] : []),
     ],
+    publishPorts: inspectorHostPort !== null
+      ? [{ hostPort: inspectorHostPort, containerPort: 9229 }]
+      : [],
     ...req.containerSpec,
   });
 
@@ -136,9 +142,11 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   let fsDiffHash: string | null = null;
   let straceLogHash: string | null = null;
   let pcapHash: string | null = null;
+  let inspectorLogHash: string | null = null;
 
   // Start the container.
-  const startRes = await dockerExec(specToDockerArgs(spec, containerName), 30_000);
+  const runArgs = specToDockerArgs(spec, containerName);
+  const startRes = await dockerExec(runArgs, 30_000);
   if (startRes.exitCode !== 0) {
     throw new RunUnderObservationError(
       "failed to start sandbox container",
@@ -222,7 +230,10 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
 
     // 5. Build and execute the trigger command (optionally wrapped under strace for L1).
     if (error === null) {
-      const cmd = buildTriggerCommand(req.trigger, observe.node);
+      const cmd = buildTriggerCommand(req.trigger, {
+        l4: observe.node,
+        inspector: observe.inspector,
+      });
       if (cmd === null) {
         error = {
           kind: "SetupError",
@@ -230,7 +241,52 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
         };
       } else {
         const wrapped = observe.kernel ? wrapWithStrace(cmd) : cmd;
-        const res = await dockerExec(["exec", containerName, ...wrapped], budget.wallMs);
+
+        // When inspector is active, fire the trigger asynchronously and
+        // attach CDP in parallel. The trigger is paused at startup by
+        // --inspect-brk; attachV8Inspector's Runtime.runIfWaitingForDebugger
+        // releases it. budget.wallMs is the safety net that kills a paused
+        // Node if the host CDP attach fails.
+        const tTriggerStart = Date.now();
+        const triggerPromise = dockerExec(["exec", containerName, ...wrapped], budget.wallMs);
+
+        if (observe.inspector && inspectorHostPort !== null) {
+          try {
+            const inspectorHandle = await attachV8Inspector({
+              host: "127.0.0.1",
+              port: inspectorHostPort,
+            });
+
+            // Node with `--inspect` blocks exit on "Waiting for debugger to
+            // disconnect..." once CDP is attached. We wait for the V8 context
+            // to be destroyed (which happens on process.exit or event-loop
+            // drain) OR a budget-bounded timeout, then close CDP so Node can
+            // finish exiting. This keeps inspector runs fast instead of
+            // hanging until budget.wallMs.
+            const remainingBudget = Math.max(
+              500,
+              Math.min(budget.wallMs - (Date.now() - tTriggerStart), 10_000),
+            );
+            await inspectorHandle.waitForExit(remainingBudget);
+            events.push(...inspectorHandle.events);
+            const raw = inspectorHandle.rawLog();
+            if (raw) inspectorLogHash = sha256Hex(raw);
+            await inspectorHandle.close();
+          } catch (err) {
+            error = {
+              kind: "SensorError",
+              detail: `v8-inspector attach failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            };
+          }
+        }
+
+        const res = await triggerPromise;
+        if (observe.network) {
+          const nd = await dockerExec(["exec","--user","0",containerName,"cat","/proc/net/dev"], 5_000);
+          process.stderr.write(`[net-dev-debug]\n${nd.stdout}\n`);
+        }
         exitCode = res.exitCode;
         timedOut = res.timedOut;
         if (res.stdout) stdoutHash = sha256Hex(res.stdout);
@@ -351,7 +407,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
     fsDiffHash,
     pcapHash,
     straceLogHash,
-    inspectorLogHash: null,
+    inspectorLogHash,
     eventSummary: computeEventSummary(events),
     error,
     createdAt,

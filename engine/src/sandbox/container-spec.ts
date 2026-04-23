@@ -27,6 +27,13 @@ export interface ContainerSpec {
   ldPreload: string | null;   // LD_PRELOAD=<path>
   hostname: string | null;
   workdir: string;
+  publishPorts: PortMapping[];
+}
+
+export interface PortMapping {
+  hostPort: number;
+  containerPort: number;
+  hostAddress?: string; // defaults to 127.0.0.1
 }
 
 export interface VolumeMount {
@@ -59,6 +66,7 @@ export function defaultContainerSpec(partial: Partial<ContainerSpec> = {}): Cont
     ldPreload: null,
     hostname: null,
     workdir: "/pkg",
+    publishPorts: [],
     ...partial,
   };
 }
@@ -109,6 +117,11 @@ export function specToDockerArgs(spec: ContainerSpec, containerName: string): st
   for (const vol of spec.volumes) {
     const ro = vol.readOnly ? ":ro" : "";
     args.push("-v", `${vol.hostPath}:${vol.containerPath}${ro}`);
+  }
+
+  for (const port of spec.publishPorts) {
+    const host = port.hostAddress ?? "127.0.0.1";
+    args.push("-p", `${host}:${port.hostPort}:${port.containerPort}`);
   }
 
   args.push("-w", spec.workdir);

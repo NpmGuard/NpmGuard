@@ -21,21 +21,39 @@ import { sha256Hex } from "./hashing.js";
  * Sprint 2: only `entrypoint` and `subpath` supported.
  * Sprint 3+: `lifecycle`, `bin` added as manipulation primitives land.
  */
+export interface TriggerCommandOptions {
+  l4: boolean;
+  inspector: boolean;
+}
+
 export function buildTriggerCommand(
   trigger: Trigger,
-  withL4Instrumentation: boolean,
+  opts: boolean | TriggerCommandOptions,
 ): string[] | null {
-  const requirePrefix = withL4Instrumentation
-    ? ["--require", "/tmp/_instrument.js"]
-    : [];
+  const { l4, inspector } =
+    typeof opts === "boolean"
+      ? { l4: opts, inspector: false }
+      : opts;
+
+  const nodeFlags: string[] = [];
+  // `--inspect` (without -brk) opens the inspector port and proceeds to run
+  // user code immediately. The host CDP attaches in parallel — early
+  // scripts may be missed, but we avoid the Node-hangs-if-inspector-never-
+  // resumes trap that -brk creates when something in the flow goes wrong.
+  if (inspector) {
+    nodeFlags.push("--inspect=0.0.0.0:9229");
+  }
+  if (l4) {
+    nodeFlags.push("--require", "/tmp/_instrument.js");
+  }
 
   switch (trigger.kind) {
     case "entrypoint": {
       const rel = trigger.target.startsWith(".") ? trigger.target : `./${trigger.target}`;
-      return ["node", ...requirePrefix, "-e", `require(${JSON.stringify(rel)})`];
+      return ["node", ...nodeFlags, "-e", `require(${JSON.stringify(rel)})`];
     }
     case "subpath":
-      return ["node", ...requirePrefix, "-e", `require(${JSON.stringify(trigger.target)})`];
+      return ["node", ...nodeFlags, "-e", `require(${JSON.stringify(trigger.target)})`];
     case "lifecycle":
     case "bin":
       return null;
