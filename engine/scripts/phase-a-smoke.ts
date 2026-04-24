@@ -118,20 +118,23 @@ const CASES: Case[] = [
       ],
     },
     expect: (a) => {
-      // Environmental caveat: tcpdump launched via `docker exec -d` from
-      // Node's execFile chain occasionally misses the trigger's packets —
-      // the sensor still runs cleanly, pcapHash is set, and the parser is
-      // exercised by 13 unit tests against synthetic tshark JSON.
+      // v1 scope note: the L2 sensor is exercised by 13 unit tests in
+      // pcap.test.ts against synthetic tshark JSON. End-to-end packet
+      // capture via `docker exec -d tcpdump` has an environmental race
+      // (tcpdump's packet-ring init vs bridge-netns wiring vs intermediate
+      // docker exec calls) that needs a better launch mechanism
+      // (host-side nsenter, or seccomp-bpf audit) before it's reliable for
+      // real audits. Smoke requires: sensor ran cleanly, pcapHash set,
+      // and if events land they have the right shape.
       if (a.error) return { ok: false, why: `unexpected error: ${a.error.kind} — ${a.error.detail.slice(0, 200)}` };
       if (!a.pcapHash) return { ok: false, why: "pcapHash should be set when observe.network=true" };
       const l2 = a.events.filter((e) => e.stream === "L2:pcap");
-      // If L2 events did land, verify their shape. Zero L2 is tolerated.
       if (l2.length > 0) {
         const kinds = new Set(l2.map((e) => e.kind));
         const expected = new Set(["dns_query", "http_request", "tls_sni"]);
         let anyMatch = false;
         for (const k of kinds) if (expected.has(k)) { anyMatch = true; break; }
-        if (!anyMatch) return { ok: false, why: `L2 events don't match expected kinds: got ${[...kinds].join(",")}` };
+        if (!anyMatch) return { ok: false, why: `L2 events don't match expected kinds: ${[...kinds].join(",")}` };
       }
       return { ok: true };
     },
