@@ -157,16 +157,45 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   const ctx: SetupContext = { runId, containerName };
 
   try {
+    // 0. L2 pcap capture must start BEFORE any other `docker exec` against
+    //    the container AND after the bridge has a moment to settle.
+    //    Empirically, without these two constraints, `docker exec -d tcpdump`
+    //    opens the pcap file but silently fails to capture real traffic —
+    //    only ARP/ICMPv6 ever land in the dump. We've traced this to a race
+    //    between tcpdump's packet-ring init and the bridge-netns coming
+    //    online; a short settle delay + starting tcpdump first clears it.
+    //    The tshark DNS/HTTP/TLS filter at stop time drops the small amount
+    //    of container-boot traffic that leaks into the capture.
+    if (observe.network) {
+      // Short settle so the bridge netns has a beat to wire up before
+      // tcpdump attaches. Empirically < 300ms → ring init can race with
+      // route setup; ≥ 1500ms → bridge enters some "quieted" state where
+      // tcpdump misses the traffic entirely. 300ms is the sweet spot on
+      // this host; consistency is load-dependent (see full-smoke note in
+      // pcap.test.ts).
+      await new Promise((r) => setTimeout(r, 300));
+      try {
+        await startPcapCapture(containerName);
+      } catch (err) {
+        error = {
+          kind: "SensorError",
+          detail: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
     // 1. Copy the package into the writable workdir.
-    const copyRes = await dockerExec(
-      ["exec", containerName, "sh", "-c", "cp -a /pkg-src/. /pkg/"],
-      30_000,
-    );
-    if (copyRes.exitCode !== 0) {
-      error = {
-        kind: "SetupError",
-        detail: `failed to copy /pkg-src to /pkg: ${copyRes.stderr.slice(0, 300)}`,
-      };
+    if (error === null) {
+      const copyRes = await dockerExec(
+        ["exec", containerName, "sh", "-c", "cp -a /pkg-src/. /pkg/"],
+        30_000,
+      );
+      if (copyRes.exitCode !== 0) {
+        error = {
+          kind: "SetupError",
+          detail: `failed to copy /pkg-src to /pkg: ${copyRes.stderr.slice(0, 300)}`,
+        };
+      }
     }
 
     // 2. Write L4 instrumentation (if node observation enabled).
@@ -206,20 +235,6 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
     if (error === null && observe.fsDiff) {
       try {
         await fsDiffSnapshotPre(containerName, DEFAULT_WATCH_PATHS);
-      } catch (err) {
-        error = {
-          kind: "SensorError",
-          detail: err instanceof Error ? err.message : String(err),
-        };
-      }
-    }
-
-    // 4b. L2 pcap capture start (still before the trigger so we catch the
-    // trigger's network activity; after setup so our proxy setup traffic is
-    // isolated from the package's own traffic only by timestamp).
-    if (error === null && observe.network) {
-      try {
-        await startPcapCapture(containerName);
       } catch (err) {
         error = {
           kind: "SensorError",

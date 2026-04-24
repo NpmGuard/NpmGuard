@@ -40,18 +40,19 @@ export async function startPcapCapture(containerName: string): Promise<void> {
   const start = await dockerExec(
     [
       "exec", "-d", "--user", "0", containerName,
-      "tcpdump", "-i", "eth0", "-U", "-Z", "root", "-w", PCAP_PATH,
+      "tcpdump", "-i", "any", "-U", "-Z", "root", "-w", PCAP_PATH,
     ],
     10_000,
   );
   if (start.exitCode !== 0) {
     throw new Error(`pcap: failed to launch tcpdump: ${start.stderr.slice(0, 300)}`);
   }
-  // Fixed 1s wait — tcpdump opens its AF_PACKET ring a short moment after
-  // the process becomes visible in pgrep. Polling for presence + short grace
-  // empirically races with the ring init under concurrent docker-exec calls;
-  // a conservative fixed wait is reliable and only adds ~700ms to a run.
-  await new Promise((r) => setTimeout(r, 1000));
+  // Fixed 1.5s wait — tcpdump opens its AF_PACKET ring a short moment after
+  // the process spawns. Polling for pgrep presence races with ring init
+  // under concurrent docker-exec calls; the fixed wait is reliable and
+  // tcpdump needs this cushion before any other docker exec hits the
+  // container (see caller comment in run-under-observation.ts).
+  await new Promise((r) => setTimeout(r, 1500));
 }
 
 export interface PcapResult {
