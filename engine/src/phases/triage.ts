@@ -1,28 +1,136 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { z } from "zod";
 import { generateObject } from "ai";
 import { config, SOURCE_FILE_TYPES } from "../config.js";
 import { getModel } from "../llm.js";
-import { FileVerdict, TriageResult, type InventoryReport } from "../models.js";
-import { z } from "zod";
+import type { InventoryReport } from "../models.js";
+import {
+  ClaimKind,
+  GatingModifier,
+  HypothesisSeverity,
+  type Hypothesis,
+} from "@npmguard/shared";
 import type { EmitFn } from "../events.js";
+import type { PackageIntent } from "./intent-extraction.js";
 
 const MAX_FILE_SIZE = 500_000; // 500KB — files larger than this skip LLM
 
 // ---------------------------------------------------------------------------
-// Prompts
+// MAP output schema — what a per-file analysis emits
 // ---------------------------------------------------------------------------
 
-const MAP_SYSTEM = `You are a security analyst examining a single file from an npm package.
-Your job: report what this code DOES, not whether it's malicious.
-Line numbers are provided — reference them in your output.
+/**
+ * A hypothesis draft emitted by per-file MAP. Subset of full Hypothesis:
+ * the MAP cannot assign hypIds, timestamps, or graph-wide fields. The
+ * triage wrapper converts drafts into fully-formed Hypothesis nodes.
+ */
+const HypothesisDraft = z.object({
+  description: z
+    .string()
+    .describe(
+      "One-line description of the suspected behavior, e.g. 'reads ~/.npmrc and POSTs it to an obfuscated URL'. Used verbatim for dedup downstream.",
+    ),
+  claim: z.object({
+    kind: ClaimKind,
+    gating: GatingModifier.nullable().default(null),
+  }),
+  severity: HypothesisSeverity,
+  rangesInFile: z
+    .array(z.string())
+    .describe(
+      "Line ranges in the CURRENT file backing this hypothesis (e.g. '12-45' or '12-30,55-80'). At least one range.",
+    )
+    .min(1),
+});
+type HypothesisDraft = z.infer<typeof HypothesisDraft>;
 
-Report:
-- capabilities: Node.js APIs and capabilities used. Use these labels where applicable: NETWORK, FILESYSTEM, ENV_VARS, PROCESS_SPAWN, EVAL, CRYPTO, DNS, DOM_MANIPULATION, BINARY_DOWNLOAD, OBFUSCATION, LIFECYCLE_HOOK, CLIPBOARD, TELEMETRY. Add other labels as needed.
-- suspiciousPatterns: anything unusual — obfuscation, encoded strings, dynamic require, eval chains, string concatenation building URLs or shell commands, anti-debugging, hidden code after whitespace, minified code with suspicious logic. Include line numbers (e.g. "L42-67: obfuscated string building a URL").
-- suspiciousLines: line range(s) containing the most suspicious code, e.g. "12-45" or "12-30,55-80". Null if nothing suspicious.
-- summary: one sentence describing what the file does.
-- riskContribution: 0 (boring utility code) to 10 (clearly dangerous behavior). Most legitimate code scores 0-2.`;
+const FileAnalysisResponse = z.object({
+  summary: z
+    .string()
+    .describe("One sentence describing what this file does."),
+  capabilities: z
+    .array(z.string())
+    .default([])
+    .describe(
+      "Capability labels this file uses (subset of CapabilityEnum; extra labels acceptable). Used downstream as aggregate baseline.",
+    ),
+  hypotheses: z
+    .array(HypothesisDraft)
+    .default([])
+    .describe(
+      "Zero or more hypotheses. Emit one PER DISTINCT suspected behavior. Do NOT emit a hypothesis for expected capabilities listed in the intent — only for things that don't fit the stated purpose, or for independently-suspicious patterns (obfuscation, dynamic code eval, hidden URLs, etc.) regardless of whether the capability is expected.",
+    ),
+});
+type FileAnalysisResponse = z.infer<typeof FileAnalysisResponse>;
+
+// ---------------------------------------------------------------------------
+// Public return shape
+// ---------------------------------------------------------------------------
+
+export interface FileSummary {
+  file: string;
+  summary: string;
+  capabilities: string[];
+}
+
+export interface TriageOutput {
+  hypotheses: Hypothesis[];
+  fileSummaries: FileSummary[];
+}
+
+// ---------------------------------------------------------------------------
+// Prompt builders (pure)
+// ---------------------------------------------------------------------------
+
+export const MAP_SYSTEM = `You are a security analyst examining a single file from an npm package.
+You also know what the package CLAIMS to do — use that as the baseline for what behavior is "expected".
+
+Your job: emit hypotheses about behaviors that either (a) exceed the stated purpose, or (b) look intrinsically suspicious.
+
+For EACH hypothesis emitted:
+- description: one clear sentence about the suspected behavior. Reference concrete code details — don't be generic.
+- claim.kind: pick the best match from the ClaimKind enum. If nothing fits well, pick the nearest and explain in the description.
+- claim.gating: only set if the code obviously runs differently under a specific condition (CI env var, geo lookup, date check, inspector detection).
+- severity: low (cosmetic/unlikely), medium (plausibly harmful), high (clearly harmful if triggered), critical (unambiguous credential theft, remote exec, destructive op).
+- rangesInFile: line ranges in THIS FILE only, e.g. ["42-67"] or ["12-30", "55-80"]. At least one range.
+
+Emit a hypothesis when the file:
+- Uses a capability NOT in the intent's expectedCapabilities (capability mismatch).
+- Contains obfuscation, encoded/encrypted strings, dynamic require, eval chains, string-built URLs or shell commands, anti-debugging, minified-yet-logic-bearing code — regardless of whether the capability is "expected".
+- Accesses credentials, tokens, or filesystem paths outside the package directory.
+- Spawns processes, writes binaries, or modifies system state during install.
+
+Do NOT emit a hypothesis for straightforward, expected behavior. If a package is documented as an HTTP client, do not flag HTTP calls as mismatches — only flag HTTP to unexpected destinations or with suspicious shapes.
+
+Return zero hypotheses if the file is boring utility code.
+Emit an accurate capabilities list regardless — it becomes the baseline for the whole-package capability set.`;
+
+export function buildMapPrompt(args: {
+  fileName: string;
+  contents: string;
+  fileFlags: string[];
+  intent: PackageIntent;
+}): string {
+  const { fileName, contents, fileFlags, intent } = args;
+  const sections: string[] = [];
+
+  sections.push(
+    `## Package intent\n- statedPurpose: ${intent.statedPurpose}\n- expectedCapabilities: ${intent.expectedCapabilities.join(", ") || "(none — treat all capabilities as surprising)"}\n- rationale: ${intent.rationale}`,
+  );
+
+  sections.push(`## File: ${fileName}\n\n\`\`\`\n${numberLines(contents)}\n\`\`\``);
+
+  if (fileFlags.length > 0) {
+    sections.push(`## Structural flags for this file\n${fileFlags.join("\n")}`);
+  }
+
+  sections.push(
+    `## Task\nAnalyze the file. Populate summary, capabilities (list), and hypotheses (zero or more). Line numbers are shown as \`N: line\` — reference them in rangesInFile.`,
+  );
+
+  return sections.join("\n\n");
+}
 
 function numberLines(contents: string): string {
   return contents
@@ -31,187 +139,121 @@ function numberLines(contents: string): string {
     .join("\n");
 }
 
-function buildMapPrompt(
-  fileName: string,
-  contents: string,
-  fileFlags: string[],
-): string {
-  let prompt = `## File: ${fileName}\n\n\`\`\`\n${numberLines(contents)}\n\`\`\``;
-  if (fileFlags.length > 0) {
-    prompt += `\n\n## Structural flags for this file\n${fileFlags.join("\n")}`;
-  }
-  return prompt;
-}
+// ---------------------------------------------------------------------------
+// Draft → Hypothesis (pure)
+// ---------------------------------------------------------------------------
 
-const REDUCE_SYSTEM = `You are a security triage expert producing a final risk assessment for an npm package.
-
-You receive:
-- Package metadata (what it CLAIMS to be)
-- Per-file analysis results (what it ACTUALLY does)
-- Structural flags from automated scanning
-
-Your job:
-1. CAPABILITY MISMATCH: Flag capabilities that don't match the package's stated purpose. A color-formatting library shouldn't need NETWORK. A parser shouldn't touch ENV_VARS. A utility library shouldn't spawn processes.
-2. RISK SCORE: 0 = clearly benign, 10 = clearly malicious. Scores 3+ trigger expensive deep investigation. Most legitimate packages score 0-2. Be paranoid — false positives are acceptable, false negatives are not.
-3. FOCUS AREAS: Which specific files should deep investigation examine first and why. ALWAYS include the line range (e.g. "12-45") from the per-file analysis — investigation needs exact lines to examine.
-
-If any file was flagged as too large for analysis, treat that as suspicious and factor it into the score.`;
-
-function buildReducePrompt(
-  inventory: InventoryReport,
-  fileVerdicts: FileVerdict[],
-): string {
-  const meta = inventory.metadata;
-  const sections: string[] = [];
-
-  sections.push(`## Package metadata
-- name: ${meta.name ?? "unknown"}
-- version: ${meta.version ?? "unknown"}
-- description: ${meta.description ?? "(none)"}
-- license: ${meta.license ?? "unknown"}
-- homepage: ${meta.homepage ?? "(none)"}`);
-
-  if (Object.keys(inventory.scripts).length > 0) {
-    sections.push(
-      `## Lifecycle scripts\n${Object.entries(inventory.scripts)
-        .map(([k, v]) => `- ${k}: \`${v}\``)
-        .join("\n")}`,
-    );
-  }
-
-  const allCaps = new Set(fileVerdicts.flatMap((v) => v.capabilities));
-  sections.push(`## Aggregated capabilities across all files\n${[...allCaps].join(", ") || "(none)"}`);
-
-  sections.push(
-    `## Per-file analysis results\n${fileVerdicts
-      .map(
-        (v) =>
-          `### ${v.file} (risk: ${v.riskContribution}/10)\n` +
-          `Summary: ${v.summary}\n` +
-          `Capabilities: ${v.capabilities.join(", ") || "none"}\n` +
-          `Suspicious lines: ${v.suspiciousLines ?? "none"}\n` +
-          `Suspicious patterns: ${v.suspiciousPatterns.join("; ") || "none"}`,
-      )
-      .join("\n\n")}`,
-  );
-
-  if (inventory.flags.length > 0) {
-    sections.push(
-      `## Structural flags from automated scanning\n${inventory.flags
-        .map((f) => `- [${f.severity}] ${f.check}: ${f.detail}`)
-        .join("\n")}`,
-    );
-  }
-
-  return sections.join("\n\n");
+export function draftToHypothesis(args: {
+  draft: HypothesisDraft;
+  file: string;
+  hypId: string;
+  now: string;
+}): Hypothesis {
+  const { draft, file, hypId, now } = args;
+  return {
+    hypId,
+    description: draft.description,
+    claim: {
+      kind: draft.claim.kind,
+      gating: draft.claim.gating ?? null,
+    },
+    focusFiles: [file],
+    focusLines: draft.rangesInFile.map((range) => ({ file, range })),
+    severity: draft.severity,
+    parentHypId: null,
+    childHypIds: [],
+    state: "OPEN",
+    createdBy: "triage",
+    evidenceRefs: [],
+    createdAt: now,
+    resolvedAt: null,
+    resolution: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // MAP: per-file analysis
 // ---------------------------------------------------------------------------
 
-async function analyzeFile(
-  packagePath: string,
-  filePath: string,
-  fileFlags: string[],
-  emit?: EmitFn,
-): Promise<FileVerdict> {
-  const absPath = path.join(packagePath, filePath);
+async function analyzeFile(args: {
+  packagePath: string;
+  file: string;
+  fileFlags: string[];
+  intent: PackageIntent;
+  emit?: EmitFn;
+}): Promise<{ response: FileAnalysisResponse; skipped: boolean; reason?: string }> {
+  const { packagePath, file, fileFlags, intent, emit } = args;
+  const absPath = path.join(packagePath, file);
+
   let contents: string;
   try {
     contents = fs.readFileSync(absPath, "utf-8");
   } catch {
     return {
-      file: filePath,
-      capabilities: [],
-      suspiciousPatterns: ["file-unreadable"],
-      suspiciousLines: null,
-      summary: "Could not read file",
-      riskContribution: 3,
+      skipped: true,
+      reason: "file-unreadable",
+      response: { summary: "Could not read file", capabilities: [], hypotheses: [] },
     };
   }
 
-  // Too-large files: synthetic verdict, no LLM call
   if (contents.length > MAX_FILE_SIZE) {
     return {
-      file: filePath,
-      capabilities: [],
-      suspiciousPatterns: ["file-too-large-for-context"],
-      suspiciousLines: null,
-      summary: `File is ${Math.round(contents.length / 1024)}KB — too large for triage analysis`,
-      riskContribution: 7,
+      skipped: true,
+      reason: "file-too-large",
+      response: {
+        summary: `File is ${Math.round(contents.length / 1024)}KB — too large for triage analysis`,
+        capabilities: [],
+        hypotheses: [
+          {
+            description: `File ${file} is ${Math.round(contents.length / 1024)}KB — too large for LLM triage; manual or dynamic inspection required.`,
+            claim: { kind: "obfuscation", gating: null },
+            severity: "medium",
+            rangesInFile: ["1-1"],
+          },
+        ],
+      },
     };
   }
 
-  // Empty/trivial files: skip LLM
   if (contents.trim().length === 0) {
     return {
-      file: filePath,
-      capabilities: [],
-      suspiciousPatterns: [],
-      suspiciousLines: null,
-      summary: "Empty file",
-      riskContribution: 0,
+      skipped: true,
+      reason: "empty",
+      response: { summary: "Empty file", capabilities: [], hypotheses: [] },
     };
   }
 
-  emit?.("file_analyzing", { file: filePath });
+  emit?.("file_analyzing", { file });
 
   const model = getModel(config.triageModel);
   const result = await generateObject({
     model,
-    schema: FileVerdict,
+    schema: FileAnalysisResponse,
     system: MAP_SYSTEM,
-    prompt: buildMapPrompt(filePath, contents, fileFlags),
+    prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
   });
 
-  const verdict = { ...result.object, file: filePath };
-  console.log(`[triage:map] ${filePath} → risk=${verdict.riskContribution}/10 caps=[${verdict.capabilities.join(", ")}] suspicious=[${verdict.suspiciousPatterns.join("; ")}]`);
-  emit?.("file_verdict", { verdict });
-  return verdict;
-}
-
-// ---------------------------------------------------------------------------
-// REDUCE: synthesis + capability mismatch
-// ---------------------------------------------------------------------------
-
-async function synthesizeTriageResult(
-  inventory: InventoryReport,
-  fileVerdicts: FileVerdict[],
-): Promise<TriageResult> {
-  const model = getModel(config.triageModel);
-  const result = await generateObject({
-    model,
-    schema: TriageResult,
-    system: REDUCE_SYSTEM,
-    prompt: buildReducePrompt(inventory, fileVerdicts),
-  });
-  return result.object;
+  return { response: result.object, skipped: false };
 }
 
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
-export interface TriagePhaseOutput {
-  result: TriageResult;
-  fileVerdicts: FileVerdict[];
-}
-
 export async function runTriage(
   packagePath: string,
   inventory: InventoryReport,
+  intent: PackageIntent,
   emit?: EmitFn,
-): Promise<TriagePhaseOutput> {
+): Promise<TriageOutput> {
   const sourceFiles = inventory.files.filter(
     (f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary,
   );
 
   console.log(
-    `[triage] MAP phase: ${sourceFiles.length} source files for ${inventory.metadata.name ?? "unknown"}`,
+    `[triage] analyzing ${sourceFiles.length} source files for ${inventory.metadata.name ?? "unknown"} (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
   );
 
-  // Build per-file flag lookup
   const flagsByFile = new Map<string, string[]>();
   for (const flag of inventory.flags) {
     if (flag.file) {
@@ -221,41 +263,80 @@ export async function runTriage(
     }
   }
 
-  // MAP: analyze each file in parallel
   const total = sourceFiles.length;
   let completed = 0;
-  const fileVerdicts = await Promise.all(
+  const perFile = await Promise.all(
     sourceFiles.map(async (f) => {
       try {
-        const verdict = await analyzeFile(packagePath, f.path, flagsByFile.get(f.path) ?? [], emit);
+        const { response, skipped, reason } = await analyzeFile({
+          packagePath,
+          file: f.path,
+          fileFlags: flagsByFile.get(f.path) ?? [],
+          intent,
+          emit,
+        });
         completed++;
         emit?.("triage_progress", { current: completed, total, file: f.path });
-        return verdict;
+        if (!skipped) {
+          console.log(
+            `[triage:map] ${f.path} → caps=[${response.capabilities.join(", ") || "none"}] hyps=${response.hypotheses.length}`,
+          );
+        } else {
+          console.log(`[triage:map] ${f.path} → skipped (${reason})`);
+        }
+        return { file: f.path, response };
       } catch (err) {
         completed++;
-        console.error(`[triage:map] failed for ${f.path}: ${err instanceof Error ? err.message : err}`);
+        console.error(
+          `[triage:map] failed for ${f.path}: ${err instanceof Error ? err.message : err}`,
+        );
         return {
           file: f.path,
-          capabilities: [],
-          suspiciousPatterns: ["analysis-error"],
-          suspiciousLines: null,
-          summary: `Analysis failed: ${err instanceof Error ? err.message : "unknown error"}`,
-          riskContribution: 5,
-        } satisfies FileVerdict;
+          response: {
+            summary: `Analysis failed: ${err instanceof Error ? err.message : "unknown error"}`,
+            capabilities: [],
+            hypotheses: [
+              {
+                description: `Triage MAP failed on ${f.path}; file may contain material worth inspecting manually.`,
+                claim: { kind: "obfuscation" as const, gating: null },
+                severity: "medium" as const,
+                rangesInFile: ["1-1"],
+              },
+            ],
+          } satisfies FileAnalysisResponse,
+        };
       }
     }),
   );
 
+  const now = new Date().toISOString();
+  const hypotheses: Hypothesis[] = [];
+  const fileSummaries: FileSummary[] = [];
+  let counter = 0;
+
+  for (const { file, response } of perFile) {
+    fileSummaries.push({
+      file,
+      summary: response.summary,
+      capabilities: response.capabilities,
+    });
+    for (const draft of response.hypotheses) {
+      counter += 1;
+      const hypId = `trg-${counter.toString().padStart(4, "0")}`;
+      const hyp = draftToHypothesis({ draft, file, hypId, now });
+      hypotheses.push(hyp);
+      emit?.("hypothesis_emitted", {
+        hypId: hyp.hypId,
+        claim: hyp.claim.kind,
+        severity: hyp.severity,
+        file,
+      });
+    }
+  }
+
   console.log(
-    `[triage] REDUCE phase: synthesizing ${fileVerdicts.length} file verdicts`,
+    `[triage] emitted ${hypotheses.length} hypotheses across ${fileSummaries.length} files`,
   );
 
-  // REDUCE: synthesize into final triage result
-  const triageResult = await synthesizeTriageResult(inventory, fileVerdicts);
-
-  console.log(
-    `[triage] result: riskScore=${triageResult.riskScore}, focusAreas=${triageResult.focusAreas.length}`,
-  );
-
-  return { result: triageResult, fileVerdicts };
+  return { hypotheses, fileSummaries };
 }
