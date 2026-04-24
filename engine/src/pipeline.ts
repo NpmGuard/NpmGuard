@@ -5,6 +5,7 @@ import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
 import { extractIntent } from "./phases/intent-extraction.js";
 import { runTriage, type FileSummary } from "./phases/triage.js";
+import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { investigate } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
@@ -293,6 +294,23 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       riskScore: triage.riskScore,
       riskSummary: triage.riskSummary,
       focusAreas: triage.focusAreas,
+    });
+
+    // Phase 1c: Build hypothesis graph from triage output. Jaro-Winkler dedup
+    // folds near-duplicate hypotheses emitted across files into a single node.
+    // No workers yet — every node stays OPEN until Phase B orchestration.
+    const { graph, mergedCount, addedCount } = buildGraphFromHypotheses(
+      auditId ?? "audit_unknown",
+      triageOutput.hypotheses,
+    );
+    log.writeLog("graph.json", graph.serialize());
+    console.log(
+      `[pipeline] hypothesis graph: ${addedCount} unique node(s), ${mergedCount} merged`,
+    );
+    emit?.("graph_built", {
+      nodeCount: graph.size,
+      addedCount,
+      mergedCount,
     });
 
     if (triageOutput.hypotheses.length === 0) {
