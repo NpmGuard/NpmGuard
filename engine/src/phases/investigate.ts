@@ -1,10 +1,11 @@
 import { config } from "../config.js";
-import { CapabilityEnum, type FileVerdict, type Finding, type InvestigationInput, type InventoryReport, type Proof, type ToolCallRecord, type TriageResult } from "../models.js";
+import { CapabilityEnum, type Finding, type InvestigationInput, type InventoryReport, type Proof, type ToolCallRecord, type TriageResult } from "../models.js";
 import { DockerSandboxController } from "../sandbox/controller.js";
 import { runInvestigationAgent } from "../investigation/agent.js";
 import { LIFECYCLE_SCRIPTS } from "../inventory/parse-manifest.js";
 import type { EmitFn } from "../events.js";
 import type { AuditLogger } from "../audit-log.js";
+import type { FileSummary } from "./triage.js";
 
 export interface InvestigationResult {
   capabilities: CapabilityEnum[];
@@ -18,7 +19,7 @@ export async function investigate(
   packagePath: string,
   inventory: InventoryReport,
   triage: TriageResult,
-  fileVerdicts: FileVerdict[],
+  fileSummaries: FileSummary[],
   emit?: EmitFn,
   log?: AuditLogger,
 ): Promise<InvestigationResult> {
@@ -33,10 +34,10 @@ export async function investigate(
     if (LIFECYCLE_SCRIPTS.has(key)) lifecycleHooks[key] = value;
   }
 
-  // Collect capabilities and summaries from triage file verdicts
+  // Collect capabilities across all files from triage
   const allCaps = new Set<string>();
-  for (const fv of fileVerdicts) {
-    for (const cap of fv.capabilities) allCaps.add(cap);
+  for (const fs of fileSummaries) {
+    for (const cap of fs.capabilities) allCaps.add(cap);
   }
 
   const input: InvestigationInput = {

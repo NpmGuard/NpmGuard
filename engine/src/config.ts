@@ -19,7 +19,6 @@ const ConfigSchema = z.object({
   auditPriceCents: z.coerce.number().int().min(50).default(500),
 
   triageModel: z.string().default("claude-haiku-4-5-20251001"),
-  triageRiskThreshold: z.coerce.number().int().min(0).max(10).default(3),
 
   investigationModel: z.string().default("claude-sonnet-4-6"),
   maxAgentTurns: z.coerce.number().int().min(1).max(200).default(30),
@@ -62,7 +61,6 @@ function loadConfig() {
     stripeWebhookSecret: env.NPMGUARD_STRIPE_WEBHOOK_SECRET,
     auditPriceCents: env.NPMGUARD_AUDIT_PRICE_CENTS,
     triageModel: env.NPMGUARD_TRIAGE_MODEL,
-    triageRiskThreshold: env.NPMGUARD_TRIAGE_RISK_THRESHOLD,
     investigationModel: env.NPMGUARD_INVESTIGATION_MODEL,
     maxAgentTurns: env.NPMGUARD_MAX_AGENT_TURNS,
     investigationEnabled: env.NPMGUARD_INVESTIGATION_ENABLED,
