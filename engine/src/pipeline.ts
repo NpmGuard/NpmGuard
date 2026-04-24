@@ -6,6 +6,7 @@ import { analyzeInventory } from "./phases/inventory.js";
 import { extractIntent } from "./phases/intent-extraction.js";
 import { runTriage, type FileSummary } from "./phases/triage.js";
 import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
+import { deriveGraphVerdict } from "./orchestrator/verdict.js";
 import { investigate } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
@@ -394,6 +395,16 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
     const verdict = verifiedProofs.length > 0 ? "DANGEROUS" : "SAFE";
     console.log(`[pipeline] verdict: ${verdict} (${verifiedProofs.length} proofs)`);
+
+    // Graph-derived verdict is logged for observability; it will replace the
+    // 2-state AuditReport.verdict once worker dispatch lands and the graph
+    // actually contains terminal states (currently every node stays OPEN).
+    const graphVerdict = deriveGraphVerdict(graph);
+    console.log(
+      `[pipeline] graph verdict: ${graphVerdict.verdict} — ${graphVerdict.rationale}`,
+    );
+    log.writeLog("graph-verdict.json", graphVerdict);
+    emit?.("graph_verdict", { ...graphVerdict });
 
     const report: AuditReport = {
       verdict,
