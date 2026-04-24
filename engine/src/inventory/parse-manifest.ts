@@ -21,6 +21,11 @@ function asStringRecord(value: unknown): Record<string, string> {
   return result;
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === "string");
+}
+
 export function extractScriptFileRef(scriptValue: string): string | null {
   const parts = scriptValue.trim().split(/\s+/);
   if (!parts.length || parts[0] !== "node") return null;
@@ -64,6 +69,7 @@ export function parsePackageJson(
     description: asStringOrNull(pkg.description),
     license: asStringOrNull(pkg.license),
     homepage: asStringOrNull(pkg.homepage),
+    keywords: asStringArray(pkg.keywords),
     repository: pkg.repository ?? null,
   };
 

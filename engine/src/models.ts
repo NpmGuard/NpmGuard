@@ -185,6 +185,7 @@ export const PackageMetadata = z.object({
   description: z.string().nullable().default(null),
   license: z.string().nullable().default(null),
   homepage: z.string().nullable().default(null),
+  keywords: z.array(z.string()).default([]),
   repository: z.unknown().default(null),
 });
 export type PackageMetadata = z.infer<typeof PackageMetadata>;
