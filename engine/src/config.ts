@@ -30,6 +30,15 @@ const ConfigSchema = z.object({
 
   testGenModel: z.string().default("claude-sonnet-4-6"),
   testGenMode: z.enum(["openclaw", "direct"]).default("direct"),
+  /**
+   * Maximum number of findings for which test-gen attempts to generate a
+   * reproducer. 0 = unlimited (production default). Set a small cap (e.g. 2)
+   * in fixture / cost-constrained test runs via `NPMGUARD_MAX_FINDINGS_TO_PROVE`.
+   * Capability-based dedup has been removed — two findings with the same
+   * capability enum are tested independently. See ARCHITECT_REVIEW_ENGINE.md
+   * Finding 4 for why.
+   */
+  maxFindingsToProve: z.coerce.number().int().min(0).default(0),
   verifyTimeoutSec: z.coerce.number().int().min(10).max(300).default(60),
 
   sandboxImage: z.string().default("npmguard-sandbox:v1"),
@@ -59,6 +68,7 @@ function loadConfig() {
     investigationEnabled: env.NPMGUARD_INVESTIGATION_ENABLED,
     testGenModel: env.NPMGUARD_TEST_GEN_MODEL,
     testGenMode: env.NPMGUARD_TEST_GEN_MODE,
+    maxFindingsToProve: env.NPMGUARD_MAX_FINDINGS_TO_PROVE,
     verifyTimeoutSec: env.NPMGUARD_VERIFY_TIMEOUT_SEC,
     sandboxImage: env.NPMGUARD_SANDBOX_IMAGE,
     sandboxMemoryMb: env.NPMGUARD_SANDBOX_MEMORY_MB,

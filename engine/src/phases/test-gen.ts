@@ -245,24 +245,26 @@ export async function generateTests(
   const packageSource = readPackageSource(packagePath);
   const testDir = mkdtempSync(join(tmpdir(), "npmguard-tests-"));
 
-  // Limit to top 3 findings to stay within rate limits and time budget.
-  // Prefer CONFIRMED findings and deduplicate by capability.
-  const seen = new Set<string>();
-  const selectedFindings: Array<{ index: number; finding: Finding }> = [];
-  for (let i = 0; i < investigation.findings.length && selectedFindings.length < 3; i++) {
-    const finding = investigation.findings[i]!;
-    const cap = finding.capability;
-    if (seen.has(cap)) continue; // skip duplicate capabilities
-    seen.add(cap);
-    selectedFindings.push({ index: i, finding });
-  }
+  // Selection policy (Phase C — Finding 4):
+  // - No capability dedup. Two findings with the same capability enum are
+  //   distinct hypotheses (different sites, different trigger conditions)
+  //   and both deserve a reproducer.
+  // - `config.maxFindingsToProve` caps how many findings we actually
+  //   generate tests for. 0 = unlimited (production default). Tests /
+  //   cost-constrained runs can set e.g. NPMGUARD_MAX_FINDINGS_TO_PROVE=2.
+  const cap = config.maxFindingsToProve;
+  const selectedFindings: Array<{ index: number; finding: Finding }> =
+    investigation.findings.map((finding, index) => ({ index, finding }));
+  const limited = cap > 0 ? selectedFindings.slice(0, cap) : selectedFindings;
 
-  console.log(`[test-gen] generating tests for ${selectedFindings.length}/${investigation.findings.length} findings (deduplicated by capability)`);
+  console.log(
+    `[test-gen] generating tests for ${limited.length}/${investigation.findings.length} findings${cap > 0 ? ` (capped by NPMGUARD_MAX_FINDINGS_TO_PROVE=${cap})` : ""}`,
+  );
 
-  // Staggered parallel: launch one request per second, run concurrently
-  const testResultPromises = selectedFindings.map(({ index: i, finding }, j) =>
+  // Staggered parallel: launch one request per 2s, run concurrently.
+  const testResultPromises = limited.map(({ index: i, finding }, j) =>
     sleep(j * 2000).then(async () => {
-      console.log(`[test-gen] generating test ${j + 1}/${selectedFindings.length}: ${finding.capability} @ ${finding.fileLine}`);
+      console.log(`[test-gen] generating test ${j + 1}/${limited.length}: ${finding.capability} @ ${finding.fileLine}`);
       const testCode = await generateTestDirect(finding, packageName, packageSource);
       return { index: i, finding, testCode };
     }),
