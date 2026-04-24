@@ -216,3 +216,117 @@ describe("HypothesisGraph — filtering + persistence", () => {
     }
   });
 });
+
+describe("HypothesisGraph — addOrMerge", () => {
+  it("adds as new when graph is empty", () => {
+    const g = new HypothesisGraph("audit_001");
+    const { node, merged } = g.addOrMerge(baselineHypothesis());
+    expect(merged).toBe(false);
+    expect(node.hypId).toBe("hyp_001");
+    expect(g.size).toBe(1);
+  });
+
+  it("adds as new when no existing description is similar enough", () => {
+    const g = new HypothesisGraph("audit_001");
+    g.add(baselineHypothesis({ hypId: "hyp_001", description: "reads NPM_TOKEN and POSTs it" }));
+    const { merged } = g.addOrMerge(
+      baselineHypothesis({
+        hypId: "hyp_002",
+        description: "writes a new systemd unit for persistence",
+      }),
+    );
+    expect(merged).toBe(false);
+    expect(g.size).toBe(2);
+  });
+
+  it("merges into the existing node when descriptions are near-duplicates", () => {
+    const g = new HypothesisGraph("audit_001");
+    g.add(
+      baselineHypothesis({
+        hypId: "hyp_001",
+        description: "reads NPM_TOKEN from process env and POSTs it to attacker.com",
+        focusFiles: ["lib/init.js"],
+        focusLines: [{ file: "lib/init.js", range: "42-58" }],
+      }),
+    );
+    const { node, merged } = g.addOrMerge(
+      baselineHypothesis({
+        hypId: "hyp_002",
+        description: "reads NPM_TOKEN from process env and POSTs it to attacker.com",
+        focusFiles: ["setup.js"],
+        focusLines: [{ file: "setup.js", range: "10-12" }],
+      }),
+    );
+    expect(merged).toBe(true);
+    expect(node.hypId).toBe("hyp_001"); // original kept, not the candidate
+    expect(g.size).toBe(1);
+    expect(g.has("hyp_002")).toBe(false);
+    expect(node.focusFiles).toEqual(["lib/init.js", "setup.js"]);
+    expect(node.focusLines).toEqual([
+      { file: "lib/init.js", range: "42-58" },
+      { file: "setup.js", range: "10-12" },
+    ]);
+  });
+
+  it("preserves state + severity + evidenceRefs of the existing node on merge", () => {
+    const g = new HypothesisGraph("audit_001");
+    g.add(
+      baselineHypothesis({
+        hypId: "hyp_001",
+        description: "writes crontab entry for persistence",
+        severity: "critical",
+      }),
+    );
+    g.transition("hyp_001", { to: "IN_PROGRESS", by: "orchestrator" });
+    const { node, merged } = g.addOrMerge(
+      baselineHypothesis({
+        hypId: "hyp_002",
+        description: "writes crontab entry for persistence",
+        severity: "low", // should NOT override
+      }),
+    );
+    expect(merged).toBe(true);
+    expect(node.severity).toBe("critical");
+    expect(node.state).toBe("IN_PROGRESS");
+  });
+
+  it("deduplicates identical focusLines on merge (no duplicates in output)", () => {
+    const g = new HypothesisGraph("audit_001");
+    g.add(
+      baselineHypothesis({
+        hypId: "hyp_001",
+        description: "reads .npmrc and exfiltrates via HTTP POST",
+        focusFiles: ["lib/a.js"],
+        focusLines: [{ file: "lib/a.js", range: "1-10" }],
+      }),
+    );
+    const { node } = g.addOrMerge(
+      baselineHypothesis({
+        hypId: "hyp_002",
+        description: "reads .npmrc and exfiltrates via HTTP POST",
+        focusFiles: ["lib/a.js"],
+        focusLines: [{ file: "lib/a.js", range: "1-10" }], // same range + file
+      }),
+    );
+    expect(node.focusLines).toEqual([{ file: "lib/a.js", range: "1-10" }]);
+    expect(node.focusFiles).toEqual(["lib/a.js"]);
+  });
+
+  it("respects a custom threshold", () => {
+    const g = new HypothesisGraph("audit_001");
+    g.add(baselineHypothesis({ description: "reads .npmrc" }));
+    // With default 0.88 these would likely not merge, but at 0.5 they should
+    const { merged: withDefault } = g.addOrMerge(
+      baselineHypothesis({ hypId: "hyp_002", description: "pngreads c" }),
+    );
+    expect(withDefault).toBe(false);
+
+    const g2 = new HypothesisGraph("audit_002");
+    g2.add(baselineHypothesis({ description: "abcdef" }));
+    const { merged: lowThr } = g2.addOrMerge(
+      baselineHypothesis({ hypId: "hyp_002", description: "abcxyz" }),
+      0.3,
+    );
+    expect(lowThr).toBe(true);
+  });
+});

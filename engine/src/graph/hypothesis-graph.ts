@@ -9,8 +9,10 @@ import type {
   HypothesisGraphSnapshot as HypothesisGraphSnapshotType,
   HypothesisState as HypothesisStateType,
   EvidenceRef as EvidenceRefType,
+  FocusRange as FocusRangeType,
   HypothesisResolution as HypothesisResolutionType,
 } from "@npmguard/shared";
+import { findDuplicate, DEFAULT_MERGE_THRESHOLD } from "./merge.js";
 
 /**
  * In-memory hypothesis graph with state-machine transitions, persistence, and
@@ -115,6 +117,45 @@ export class HypothesisGraph {
 
   filterByState(state: HypothesisStateType): HypothesisType[] {
     return this.all().filter((h) => h.state === state);
+  }
+
+  /**
+   * Add a hypothesis, or merge it into an existing near-duplicate (by
+   * Jaro-Winkler similarity on `description`). Returns the resulting node
+   * plus a flag indicating whether a merge occurred. When merging, only
+   * focusFiles and focusLines are unioned into the existing node — state,
+   * severity, claim, and evidenceRefs on the existing node are preserved.
+   */
+  addOrMerge(
+    h: HypothesisType,
+    threshold: number = DEFAULT_MERGE_THRESHOLD,
+  ): { node: HypothesisType; merged: boolean } {
+    const parsed = Hypothesis.parse(h);
+    const match = findDuplicate(parsed, this.all(), threshold);
+    if (!match) {
+      return { node: this.add(parsed), merged: false };
+    }
+
+    const focusFiles = Array.from(new Set([...match.focusFiles, ...parsed.focusFiles]));
+    const rangeKey = (fr: FocusRangeType) => `${fr.file}|${fr.range}`;
+    const seen = new Set(match.focusLines.map(rangeKey));
+    const merged: FocusRangeType[] = [...match.focusLines];
+    for (const fl of parsed.focusLines) {
+      if (!seen.has(rangeKey(fl))) {
+        merged.push(fl);
+        seen.add(rangeKey(fl));
+      }
+    }
+
+    const updated: HypothesisType = {
+      ...match,
+      focusFiles,
+      focusLines: merged,
+    };
+    const validated = Hypothesis.parse(updated);
+    this.nodes.set(match.hypId, validated);
+    this.updatedAt = this.nowFn();
+    return { node: validated, merged: true };
   }
 
   /** Append evidence refs to a hypothesis without changing its state. */
