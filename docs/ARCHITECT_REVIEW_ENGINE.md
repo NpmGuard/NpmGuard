@@ -449,6 +449,7 @@ Concrete conditions under which v1 is considered complete.
    - No signing (v2)
    - No cross-audit memory (v2)
    - `stubUrl` is HTTP-only — captures HTTPS destinations (via proxy CONNECT + L2 pcap SNI) but not HTTPS payload bodies. Full HTTPS MitM deferred to v2.
+   - **L2 pcap via `docker exec -d tcpdump` is environmentally flaky.** The sensor opens the pcap file and tcpdump runs, but packet capture succeeds only when tcpdump is the *first* `docker exec` on a fresh container AND the bridge has a short settle window; subsequent execs sometimes break the AF_PACKET ring. The parser is unit-tested (13 tests against synthetic tshark JSON), so L2 Events are shaped correctly when they do arrive. A reliable backend (host-side `nsenter` into the container's netns, or seccomp-bpf audit at L1) needs to replace the current launch pattern before running against real malware.
    - Attacks composed of individually-innocent steps across files can slip through — documented in verdict basis prose.
 7. **Clean break.** No backward compatibility for existing `data/reports/*`. Wipe on deploy; reports are regeneratable.
 
