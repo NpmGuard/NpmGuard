@@ -6,6 +6,7 @@ import { runTriage } from "./phases/triage.js";
 import { investigate } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
+import { aggregateFromResultPreviews } from "./sandbox/parse-trace.js";
 import { startAuditLog, type AuditLogger } from "./audit-log.js";
 import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
@@ -141,6 +142,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
         triage: null,
         findings: [],
         trace,
+        runtimeEvidence: null,
       };
       emit?.("verdict_reached", { verdict: report.verdict, capabilities: [], proofCount: report.proofs.length });
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
@@ -186,6 +188,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
         triage,
         findings: [],
         trace,
+        runtimeEvidence: null,
       };
       emit?.("verdict_reached", { verdict: "SAFE", capabilities: [], proofCount: 0 });
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
@@ -258,6 +261,13 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const verdict = verifiedProofs.length > 0 ? "DANGEROUS" : "SAFE";
     console.log(`[pipeline] verdict: ${verdict} (${verifiedProofs.length} proofs)`);
 
+    // Aggregate runtime evidence captured by the agent's sandbox tools
+    // (requireAndTrace / runLifecycleHook / fastForwardTimers). These emit
+    // INSTRUMENTATION_JS traces that land in each toolCall's resultPreview.
+    const runtimeEvidence = aggregateFromResultPreviews(
+      investigationResult.toolCalls.map((tc) => tc.resultPreview),
+    );
+
     const report: AuditReport = {
       verdict,
       capabilities: investigationResult.capabilities,
@@ -265,6 +275,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       triage,
       findings: investigationResult.findings,
       trace,
+      runtimeEvidence,
     };
     log.writeLog("report.json", report);
     console.log(`[pipeline] full logs saved to ${log.runDir}`);
