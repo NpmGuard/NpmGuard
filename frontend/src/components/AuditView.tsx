@@ -53,6 +53,7 @@ export function AuditView() {
   const proofs = useAuditStore((s) => s.proofs);
   const capabilities = useAuditStore((s) => s.capabilities);
   const phases = useAuditStore((s) => s.phases);
+  const runtimeEvidence = useAuditStore((s) => s.runtimeEvidence);
 
   const fetchSource = useCallback(
     async (path: string): Promise<string | null> => {
@@ -77,6 +78,7 @@ export function AuditView() {
       proofs={proofs}
       trail={trailFromPhases(phases)}
       fetchSource={fetchSource}
+      runtimeEvidence={runtimeEvidence}
     />
   );
 

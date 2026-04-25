@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Finding, Proof } from "../lib/types";
+import type { Finding, Proof, InstrumentationLog } from "../lib/types";
 import { computeProofStats } from "../lib/types";
 import { FindingsList } from "./FindingsList";
 import { ProofDetail } from "./ProofDetail";
@@ -20,6 +20,8 @@ export interface ReportViewProps {
   fetchSource?: (path: string) => Promise<string | null>;
   /** Payment proof — if omitted, the badge auto-reads URL params. */
   paymentProof?: PaymentProofBadgeProps;
+  /** Aggregated runtime evidence for the audit (report-level). */
+  runtimeEvidence?: InstrumentationLog | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +79,7 @@ export function ReportView({
   trail,
   fetchSource,
   paymentProof,
+  runtimeEvidence,
 }: ReportViewProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(
     findings.length > 0 ? 0 : null,
@@ -241,6 +244,7 @@ export function ReportView({
             finding={safeIndex !== null ? findings[safeIndex] : null}
             proof={safeIndex !== null ? proofs[safeIndex] : undefined}
             fetchSource={fetchSource}
+            runtimeEvidence={runtimeEvidence}
           />
         </div>
       </div>

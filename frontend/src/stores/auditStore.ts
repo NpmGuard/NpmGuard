@@ -11,6 +11,7 @@ import type {
   SSEEvent,
   PipelineLogEntry,
   InventoryMeta,
+  InstrumentationLog,
 } from "../lib/types";
 import { PHASE_ORDER, PHASE_LABELS, LIFECYCLE_SCRIPTS, RISK_SUSPICIOUS_THRESHOLD, riskContributionToStatus, readFileArg } from "../lib/types";
 
@@ -50,6 +51,7 @@ interface AuditState {
   capabilities: string[];
   proofCount: number;
   proofs: Proof[];
+  runtimeEvidence: InstrumentationLog | null;
 
   // Inventory metadata
   inventoryMeta: InventoryMeta | null;
@@ -102,6 +104,7 @@ const initialState = {
   capabilities: [],
   proofCount: 0,
   proofs: [],
+  runtimeEvidence: null,
   inventoryMeta: null,
   selectedFile: null,
   selectedFileContent: null,
@@ -654,7 +657,11 @@ export const useAuditStore = create<AuditState>((set, get) => ({
           fetch(`${API_BASE}/audit/${auditId}/report`)
             .then((r) => (r.ok ? r.json() : null))
             .then((report) => {
-              if (report?.proofs) set({ proofs: report.proofs });
+              if (!report) return;
+              const update: Partial<AuditState> = {};
+              if (report.proofs) update.proofs = report.proofs;
+              if ("runtimeEvidence" in report) update.runtimeEvidence = report.runtimeEvidence;
+              set(update);
             })
             .catch(() => { });
         }

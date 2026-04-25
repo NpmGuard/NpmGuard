@@ -140,3 +140,59 @@ export const FileRecord = z.object({
   binaryType: z.string().nullable().default(null),
 });
 export type FileRecord = z.infer<typeof FileRecord>;
+
+// ---------------------------------------------------------------------------
+// Instrumentation — runtime observations captured during sandbox execution.
+// Aggregated and exposed at AuditReport level so UI consumers can render
+// "what the package actually did" alongside static findings.
+// ---------------------------------------------------------------------------
+
+export const NetworkCall = z.object({
+  method: z.string(),
+  url: z.string(),
+  bodyPreview: z.string().default(""),
+});
+export type NetworkCall = z.infer<typeof NetworkCall>;
+
+export const FsOperation = z.object({
+  op: z.string(),
+  path: z.string(),
+  preview: z.string().default(""),
+});
+export type FsOperation = z.infer<typeof FsOperation>;
+
+export const ProcessSpawn = z.object({
+  cmd: z.string(),
+  args: z.array(z.string()).default([]),
+});
+export type ProcessSpawn = z.infer<typeof ProcessSpawn>;
+
+export const EvalCall = z.object({
+  code: z.string(),
+});
+export type EvalCall = z.infer<typeof EvalCall>;
+
+export const CryptoOp = z.object({
+  method: z.string(),
+  algo: z.string(),
+});
+export type CryptoOp = z.infer<typeof CryptoOp>;
+
+export const TimerRecord = z.object({
+  type: z.string(),
+  ms: z.number(),
+  source: z.string().default(""),
+});
+export type TimerRecord = z.infer<typeof TimerRecord>;
+
+export const InstrumentationLog = z.object({
+  modulesLoaded: z.array(z.string()).default([]),
+  networkCalls: z.array(NetworkCall).default([]),
+  fsOperations: z.array(FsOperation).default([]),
+  envAccess: z.array(z.string()).default([]),
+  processSpawns: z.array(ProcessSpawn).default([]),
+  evalCalls: z.array(EvalCall).default([]),
+  cryptoOps: z.array(CryptoOp).default([]),
+  timers: z.array(TimerRecord).default([]),
+});
+export type InstrumentationLog = z.infer<typeof InstrumentationLog>;
