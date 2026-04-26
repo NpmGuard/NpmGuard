@@ -2,7 +2,28 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { SKIP_DIRS } from "../config.js";
 
-const MAX_FILE_READ = 100_000; // 100 KB
+// ---------------------------------------------------------------------------
+// Bounded tool output — these caps protect the LLM context from exploding
+// on packages that ship as a single 10MB+ obfuscated minified line (common
+// in real malicious packages: see Datadog corpus
+// react-keycloak-context@1.0.8 and similar wallet drainers).
+// ---------------------------------------------------------------------------
+
+/** Hard cap on the total bytes returned by any single tool call. Beyond
+ *  this we truncate and append a marker. Keep well below the LLM context
+ *  budget per turn. */
+const MAX_TOOL_OUTPUT_BYTES = 32 * 1024;
+
+/** Cap on individual lines included in search snippets. Long lines are
+ *  the signature of obfuscated/minified payloads — we keep enough to
+ *  show the pattern and hint at the size, then cut. */
+const MAX_LINE_LENGTH = 500;
+
+/** Soft cap for readFile output. Files above this are truncated with a
+ *  marker; the agent should switch to grep/regex strategies. We trim to
+ *  the same per-tool ceiling above. */
+const READ_FILE_TRUNCATION = MAX_TOOL_OUTPUT_BYTES;
+
 const MAX_SEARCH_RESULTS = 50;
 const CONTEXT_LINES = 3;
 const TEXT_EXTS = new Set([".js", ".mjs", ".cjs", ".ts", ".mts", ".json", ".md", ".txt", ".yml", ".yaml"]);
@@ -12,6 +33,16 @@ function safePath(packagePath: string, relPath: string): string | null {
   const base = path.normalize(packagePath);
   if (!abs.startsWith(base + path.sep) && abs !== base) return null;
   return abs;
+}
+
+function clipLine(line: string): string {
+  if (line.length <= MAX_LINE_LENGTH) return line;
+  return `${line.slice(0, MAX_LINE_LENGTH)}… [line truncated, ${line.length} chars total — likely minified/obfuscated]`;
+}
+
+function clipOutput(text: string, totalBytes: number = MAX_TOOL_OUTPUT_BYTES): string {
+  if (text.length <= totalBytes) return text;
+  return `${text.slice(0, totalBytes)}\n\n... [output truncated at ${totalBytes} bytes, ${text.length} bytes total]`;
 }
 
 export function readFileImpl(packagePath: string, relPath: string): string {
@@ -25,13 +56,18 @@ export function readFileImpl(packagePath: string, relPath: string): string {
     return `ERROR: file not found: ${relPath}`;
   }
   if (!stat.isFile()) return `ERROR: not a file: ${relPath}`;
-  if (stat.size > MAX_FILE_READ) return `ERROR: file too large (${stat.size} bytes, max ${MAX_FILE_READ})`;
 
+  let content: string;
   try {
-    return fs.readFileSync(abs, "utf-8");
+    content = fs.readFileSync(abs, "utf-8");
   } catch (err) {
     return `ERROR: ${err instanceof Error ? err.message : String(err)}`;
   }
+
+  if (content.length > READ_FILE_TRUNCATION) {
+    return `${content.slice(0, READ_FILE_TRUNCATION)}\n\n... [file truncated at ${READ_FILE_TRUNCATION} bytes, ${stat.size} bytes total — file is likely minified or obfuscated; use searchFiles or grep on a known pattern instead]`;
+  }
+  return content;
 }
 
 export function listFilesImpl(packagePath: string): string {
@@ -59,7 +95,7 @@ export function listFilesImpl(packagePath: string): string {
   }
 
   walk(packagePath);
-  return JSON.stringify(entries, null, 2);
+  return clipOutput(JSON.stringify(entries, null, 2));
 }
 
 export function searchFilesImpl(packagePath: string, pattern: string): string {
@@ -103,7 +139,9 @@ export function searchFilesImpl(packagePath: string, pattern: string): string {
           const end = Math.min(lines.length, i + CONTEXT_LINES + 1);
           const snippet = lines
             .slice(start, end)
-            .map((l, j) => `  ${j + start === i ? ">" : " "} ${j + start + 1}: ${l}`)
+            // Clip per line — obfuscated files put 10MB on one line; without
+            // this the snippet (and the LLM context) blows up.
+            .map((l, j) => `  ${j + start === i ? ">" : " "} ${j + start + 1}: ${clipLine(l ?? "")}`)
             .join("\n");
           results.push(`[${rel}:${i + 1}]\n${snippet}`);
 
@@ -117,5 +155,6 @@ export function searchFilesImpl(packagePath: string, pattern: string): string {
   }
 
   walk(packagePath);
-  return results.length ? results.join("\n") : `No matches for pattern: ${pattern}`;
+  const out = results.length ? results.join("\n") : `No matches for pattern: ${pattern}`;
+  return clipOutput(out);
 }
