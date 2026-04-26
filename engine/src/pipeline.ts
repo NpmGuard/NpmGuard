@@ -149,10 +149,15 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     }
 
     // Phase 1a: Triage
+    // Base timeout = 5 min so that an unusually slow LLM provider (rate
+    // limit, model cold start, transient OpenRouter latency spike) doesn't
+    // kill an audit that would otherwise complete. The map step runs all
+    // source files in parallel, so the wall-clock cost grows with the
+    // slowest single LLM call, not with the file count.
     const { result: triageOutput, log: triageLog } = await timedPhase(
       "triage",
       () => runTriage(resolved.path, inventory, emit),
-      2 * 60_000 * timeoutScale,
+      5 * 60_000 * timeoutScale,
       {
         sourceFiles: inventory.files
           .filter((f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary)
