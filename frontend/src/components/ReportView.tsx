@@ -6,6 +6,10 @@ import { ProofDetail } from "./ProofDetail";
 import { AuditTrail } from "./AuditTrail";
 import type { TrailEntry } from "../lib/report-helpers";
 import { PaymentProofBadge, type PaymentProofBadgeProps } from "./PaymentProofBadge";
+import { DownloadButton } from "./DownloadButton";
+import { CertificateFooter } from "./CertificateFooter";
+import { PrintableReport } from "./PrintableReport";
+import type { ExportableReport } from "../lib/report-export";
 
 export interface ReportViewProps {
   packageName: string;
@@ -99,8 +103,21 @@ export function ReportView({
     return Array.from(set);
   }, [capabilities, capCounts]);
 
+  const exportable: ExportableReport = {
+    packageName,
+    version,
+    verdict,
+    capabilities,
+    findings,
+    proofs,
+    runtimeEvidence: runtimeEvidence ?? null,
+  };
+
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 report-view-screen">
+      {/* Print-only flat rendering — hidden on screen, revealed by @media print */}
+      <PrintableReport report={exportable} />
+
       {/* Header */}
       <div
         className="shrink-0"
@@ -141,6 +158,7 @@ export function ReportView({
             }}
           >
             <PaymentProofBadge {...(paymentProof ?? {})} />
+            <DownloadButton report={exportable} />
           </span>
         </div>
 
@@ -251,6 +269,9 @@ export function ReportView({
 
       {/* Audit trail */}
       <AuditTrail entries={trail} />
+
+      {/* Audit certificate strip — visible on screen + included in print */}
+      <CertificateFooter report={exportable} />
     </div>
   );
 }
