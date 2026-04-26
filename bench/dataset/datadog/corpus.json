@@ -1,0 +1,412 @@
+{
+  "datasetCommitSha": "c610d05da23d21a29f7313c0389250c909975c92",
+  "selectedAt": "2026-04-26T18:02:23.334Z",
+  "seed": 42,
+  "totalSamplesInDataset": 12898,
+  "sampledPerClass": {
+    "compromised_lib": 25,
+    "malicious_intent": 25
+  },
+  "samples": [
+    {
+      "packageName": "react-keycloak-context",
+      "version": "1.0.8",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-react-keycloak-context-v1.0.8.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/react-keycloak-context/1.0.8/2025-11-24-react-keycloak-context-v1.0.8.zip"
+    },
+    {
+      "packageName": "backslash",
+      "version": "0.2.1",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-08",
+      "zipFilename": "2025-09-08-backslash-v0.2.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/backslash/0.2.1/2025-09-08-backslash-v0.2.1.zip"
+    },
+    {
+      "packageName": "swc-plugin-component-annotate",
+      "version": "1.9.2",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-15",
+      "zipFilename": "2025-09-15-swc-plugin-component-annotate-v1.9.2.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/swc-plugin-component-annotate/1.9.2/2025-09-15-swc-plugin-component-annotate-v1.9.2.zip"
+    },
+    {
+      "packageName": "itobuz-angular",
+      "version": "0.0.1",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-itobuz-angular-v0.0.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/itobuz-angular/0.0.1/2025-11-24-itobuz-angular-v0.0.1.zip"
+    },
+    {
+      "packageName": "posthog-js",
+      "version": "1.297.3",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-posthog-js-v1.297.3.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/posthog-js/1.297.3/2025-11-24-posthog-js-v1.297.3.zip"
+    },
+    {
+      "packageName": "create-hardhat3-app",
+      "version": "1.1.2",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-create-hardhat3-app-v1.1.2.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/create-hardhat3-app/1.1.2/2025-11-24-create-hardhat3-app-v1.1.2.zip"
+    },
+    {
+      "packageName": "vant",
+      "version": "2.13.3",
+      "className": "compromised_lib",
+      "discoveryDate": "2024-12-20",
+      "zipFilename": "2024-12-20-vant-v2.13.3.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/vant/2.13.3/2024-12-20-vant-v2.13.3.zip"
+    },
+    {
+      "packageName": "swc-plugin-component-annotate",
+      "version": "1.9.1",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-15",
+      "zipFilename": "2025-09-15-swc-plugin-component-annotate-v1.9.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/swc-plugin-component-annotate/1.9.1/2025-09-15-swc-plugin-component-annotate-v1.9.1.zip"
+    },
+    {
+      "packageName": "cordova-plugin-voxeet2",
+      "version": "1.0.24",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-15",
+      "zipFilename": "2025-09-15-cordova-plugin-voxeet2-v1.0.24.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/cordova-plugin-voxeet2/1.0.24/2025-09-15-cordova-plugin-voxeet2-v1.0.24.zip"
+    },
+    {
+      "packageName": "automation_model",
+      "version": "1.0.491",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-automation_model-v1.0.491.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/automation_model/1.0.491/2025-11-24-automation_model-v1.0.491.zip"
+    },
+    {
+      "packageName": "capacitor-plugin-ihealth",
+      "version": "1.1.9",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-16",
+      "zipFilename": "2025-09-16-capacitor-plugin-ihealth-v1.1.9.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/capacitor-plugin-ihealth/1.1.9/2025-09-16-capacitor-plugin-ihealth-v1.1.9.zip"
+    },
+    {
+      "packageName": "ember-headless-table",
+      "version": "2.1.6",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-16",
+      "zipFilename": "2025-09-16-ember-headless-table-v2.1.6.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/ember-headless-table/2.1.6/2025-09-16-ember-headless-table-v2.1.6.zip"
+    },
+    {
+      "packageName": "airchief",
+      "version": "0.3.1",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-14",
+      "zipFilename": "2025-09-14-airchief-v0.3.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/airchief/0.3.1/2025-09-14-airchief-v0.3.1.zip"
+    },
+    {
+      "packageName": "pm2-gelf-json",
+      "version": "1.0.4",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-15",
+      "zipFilename": "2025-09-15-pm2-gelf-json-v1.0.4.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/pm2-gelf-json/1.0.4/2025-09-15-pm2-gelf-json-v1.0.4.zip"
+    },
+    {
+      "packageName": "react-jam-icons",
+      "version": "1.0.2",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-react-jam-icons-v1.0.2.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/react-jam-icons/1.0.2/2025-11-24-react-jam-icons-v1.0.2.zip"
+    },
+    {
+      "packageName": "ngx-trend",
+      "version": "8.0.1",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-15",
+      "zipFilename": "2025-09-15-ngx-trend-v8.0.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/ngx-trend/8.0.1/2025-09-15-ngx-trend-v8.0.1.zip"
+    },
+    {
+      "packageName": "discord-bot-server",
+      "version": "0.1.2",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-discord-bot-server-v0.1.2.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/discord-bot-server/0.1.2/2025-11-24-discord-bot-server-v0.1.2.zip"
+    },
+    {
+      "packageName": "is",
+      "version": "5.0.0",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-07-19",
+      "zipFilename": "2025-07-19-is-v5.0.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/is/5.0.0/2025-07-19-is-v5.0.0.zip"
+    },
+    {
+      "packageName": "mcp-use",
+      "version": "1.4.2",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-mcp-use-v1.4.2.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/mcp-use/1.4.2/2025-11-24-mcp-use-v1.4.2.zip"
+    },
+    {
+      "packageName": "ember-velcro",
+      "version": "2.2.1",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-16",
+      "zipFilename": "2025-09-16-ember-velcro-v2.2.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/ember-velcro/2.2.1/2025-09-16-ember-velcro-v2.2.1.zip"
+    },
+    {
+      "packageName": "zapier-platform-cli",
+      "version": "18.0.3",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-zapier-platform-cli-v18.0.3.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/zapier-platform-cli/18.0.3/2025-11-24-zapier-platform-cli-v18.0.3.zip"
+    },
+    {
+      "packageName": "zapier-platform-core",
+      "version": "18.0.3",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-zapier-platform-core-v18.0.3.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/zapier-platform-core/18.0.3/2025-11-24-zapier-platform-core-v18.0.3.zip"
+    },
+    {
+      "packageName": "calc-loan-interest",
+      "version": "1.0.4",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-calc-loan-interest-v1.0.4.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/calc-loan-interest/1.0.4/2025-11-24-calc-loan-interest-v1.0.4.zip"
+    },
+    {
+      "packageName": "kill-port",
+      "version": "2.0.3",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-11-24",
+      "zipFilename": "2025-11-24-kill-port-v2.0.3.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/kill-port/2.0.3/2025-11-24-kill-port-v2.0.3.zip"
+    },
+    {
+      "packageName": "ngx-bootstrap",
+      "version": "20.0.6",
+      "className": "compromised_lib",
+      "discoveryDate": "2025-09-15",
+      "zipFilename": "2025-09-15-ngx-bootstrap-v20.0.6.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/compromised_lib/ngx-bootstrap/20.0.6/2025-09-15-ngx-bootstrap-v20.0.6.zip"
+    },
+    {
+      "packageName": "iceberg-api",
+      "version": "1.0.0",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-05-25",
+      "zipFilename": "2025-05-25-iceberg-api-v1.0.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/iceberg-api/1.0.0/2025-05-25-iceberg-api-v1.0.0.zip"
+    },
+    {
+      "packageName": "erwin-lapis87-miaww",
+      "version": "3.2.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-05-12",
+      "zipFilename": "2024-05-12-erwin-lapis87-miaww-v3.2.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/erwin-lapis87-miaww/3.2.1/2024-05-12-erwin-lapis87-miaww-v3.2.1.zip"
+    },
+    {
+      "packageName": "item-card-config",
+      "version": "6.5.8",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-11-14",
+      "zipFilename": "2024-11-14-item-card-config-v6.5.8.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/item-card-config/6.5.8/2024-11-14-item-card-config-v6.5.8.zip"
+    },
+    {
+      "packageName": "flat_wren_z3n",
+      "version": "1.1.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-07-06",
+      "zipFilename": "2024-07-06-flat_wren_z3n-v1.1.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/flat_wren_z3n/1.1.1/2024-07-06-flat_wren_z3n-v1.1.1.zip"
+    },
+    {
+      "packageName": "badgekit-api-client",
+      "version": "9.9.0",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-09-13",
+      "zipFilename": "2025-09-13-badgekit-api-client-v9.9.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/badgekit-api-client/9.9.0/2025-09-13-badgekit-api-client-v9.9.0.zip"
+    },
+    {
+      "packageName": "parse-session",
+      "version": "2.4.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-11-10",
+      "zipFilename": "2025-11-10-parse-session-v2.4.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/parse-session/2.4.1/2025-11-10-parse-session-v2.4.1.zip"
+    },
+    {
+      "packageName": "bc-nuxt-vue-starter",
+      "version": "1.0.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-01-19",
+      "zipFilename": "2025-01-19-bc-nuxt-vue-starter-v1.0.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/bc-nuxt-vue-starter/1.0.1/2025-01-19-bc-nuxt-vue-starter-v1.0.1.zip"
+    },
+    {
+      "packageName": "pcl-build-docroot",
+      "version": "99.9.9",
+      "className": "malicious_intent",
+      "discoveryDate": "2026-02-24",
+      "zipFilename": "2026-02-24-pcl-build-docroot-v99.9.9.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/pcl-build-docroot/99.9.9/2026-02-24-pcl-build-docroot-v99.9.9.zip"
+    },
+    {
+      "packageName": "nina-botok22-breki",
+      "version": "4.3.3",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-05-20",
+      "zipFilename": "2024-05-20-nina-botok22-breki-v4.3.3.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/nina-botok22-breki/4.3.3/2024-05-20-nina-botok22-breki-v4.3.3.zip"
+    },
+    {
+      "packageName": "pbr-client",
+      "version": "99.99.2",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-07-07",
+      "zipFilename": "2025-07-07-pbr-client-v99.99.2.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/pbr-client/99.99.2/2025-07-07-pbr-client-v99.99.2.zip"
+    },
+    {
+      "packageName": "perfect_toucan_z3n",
+      "version": "3.1.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-07-11",
+      "zipFilename": "2024-07-11-perfect_toucan_z3n-v3.1.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/perfect_toucan_z3n/3.1.1/2024-07-11-perfect_toucan_z3n-v3.1.1.zip"
+    },
+    {
+      "packageName": "fantastic_goose_z3n",
+      "version": "2.2.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-07-08",
+      "zipFilename": "2024-07-08-fantastic_goose_z3n-v2.2.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/fantastic_goose_z3n/2.2.1/2024-07-08-fantastic_goose_z3n-v2.2.1.zip"
+    },
+    {
+      "packageName": "botframework-webchat-react-valibot",
+      "version": "9.9.9",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-07-27",
+      "zipFilename": "2025-07-27-botframework-webchat-react-valibot-v9.9.9.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/botframework-webchat-react-valibot/9.9.9/2025-07-27-botframework-webchat-react-valibot-v9.9.9.zip"
+    },
+    {
+      "packageName": "shopify-css-import",
+      "version": "1.0.0",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-07-21",
+      "zipFilename": "2025-07-21-shopify-css-import-v1.0.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/shopify-css-import/1.0.0/2025-07-21-shopify-css-import-v1.0.0.zip"
+    },
+    {
+      "packageName": "ultimatepower",
+      "version": "10.9.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-05-13",
+      "zipFilename": "2025-05-13-ultimatepower-v10.9.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/ultimatepower/10.9.1/2025-05-13-ultimatepower-v10.9.1.zip"
+    },
+    {
+      "packageName": "node-calculator-feea",
+      "version": "1.0.0",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-11-17",
+      "zipFilename": "2025-11-17-node-calculator-feea-v1.0.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/node-calculator-feea/1.0.0/2025-11-17-node-calculator-feea-v1.0.0.zip"
+    },
+    {
+      "packageName": "tsign-uix",
+      "version": "17.1.0",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-01-31",
+      "zipFilename": "2025-01-31-tsign-uix-v17.1.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/tsign-uix/17.1.0/2025-01-31-tsign-uix-v17.1.0.zip"
+    },
+    {
+      "packageName": "guppy-dev",
+      "version": "2.0.0",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-08-14",
+      "zipFilename": "2025-08-14-guppy-dev-v2.0.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/guppy-dev/2.0.0/2025-08-14-guppy-dev-v2.0.0.zip"
+    },
+    {
+      "packageName": "zul-lapis79-riris",
+      "version": "4.2.2",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-05-13",
+      "zipFilename": "2024-05-13-zul-lapis79-riris-v4.2.2.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/zul-lapis79-riris/4.2.2/2024-05-13-zul-lapis79-riris-v4.2.2.zip"
+    },
+    {
+      "packageName": "frequent_galliform_z3n",
+      "version": "3.3.2",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-07-08",
+      "zipFilename": "2024-07-08-frequent_galliform_z3n-v3.3.2.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/frequent_galliform_z3n/3.3.2/2024-07-08-frequent_galliform_z3n-v3.3.2.zip"
+    },
+    {
+      "packageName": "open-banking-reference-application-australia-region",
+      "version": "1.0.0",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-01-31",
+      "zipFilename": "2025-01-31-open-banking-reference-application-australia-region-v1.0.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/open-banking-reference-application-australia-region/1.0.0/2025-01-31-open-banking-reference-application-australia-region-v1.0.0.zip"
+    },
+    {
+      "packageName": "verbal_bird_z3n",
+      "version": "1.1.4",
+      "className": "malicious_intent",
+      "discoveryDate": "2024-07-10",
+      "zipFilename": "2024-07-10-verbal_bird_z3n-v1.1.4.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/verbal_bird_z3n/1.1.4/2024-07-10-verbal_bird_z3n-v1.1.4.zip"
+    },
+    {
+      "packageName": "gh-node-module-generatebom",
+      "version": "1.0.0",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-02-20",
+      "zipFilename": "2025-02-20-gh-node-module-generatebom-v1.0.0.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/gh-node-module-generatebom/1.0.0/2025-02-20-gh-node-module-generatebom-v1.0.0.zip"
+    },
+    {
+      "packageName": "node-tailwind",
+      "version": "0.0.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-10-24",
+      "zipFilename": "2025-10-24-node-tailwind-v0.0.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/node-tailwind/0.0.1/2025-10-24-node-tailwind-v0.0.1.zip"
+    },
+    {
+      "packageName": "megaexploitvorkemol1",
+      "version": "0.30.1",
+      "className": "malicious_intent",
+      "discoveryDate": "2025-11-06",
+      "zipFilename": "2025-11-06-megaexploitvorkemol1-v0.30.1.zip",
+      "zipUrl": "https://raw.githubusercontent.com/DataDog/malicious-software-packages-dataset/main/samples/npm/malicious_intent/megaexploitvorkemol1/0.30.1/2025-11-06-megaexploitvorkemol1-v0.30.1.zip"
+    }
+  ]
+}
