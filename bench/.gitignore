@@ -1,0 +1,6 @@
+dataset/tarballs/
+dataset/seeds/
+dataset/mutations/
+results/
+dist/
+*.tsbuildinfo

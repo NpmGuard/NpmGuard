@@ -1,0 +1,23 @@
+{
+  "name": "@npmguard/bench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Security mutation testing benchmark for the NpmGuard auditor.",
+  "scripts": {
+    "lock": "tsx src/seeds/lock.ts",
+    "fetch": "tsx src/seeds/fetch.ts",
+    "verify-loads": "tsx src/seeds/verify-loads.ts",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@npmguard/shared": "*",
+    "tar": "^7.4.3",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3"
+  }
+}
