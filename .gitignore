@@ -10,3 +10,11 @@ coverage
 *.tsbuildinfo
 
 videos
+
+# Bench malware fixtures — actively malicious npm packages extracted from the
+# Datadog corpus. Regenerable via `npm run -w @npmguard/bench datadog:fetch`.
+# NEVER commit these to git — they would re-host live malware in this repo.
+sandbox/test-fixtures/test-pkg-bench-dd-*/
+
+# Bench runner manifest is regenerable from bench/dataset/datadog/corpus.json.
+bench/dataset/manifest.json

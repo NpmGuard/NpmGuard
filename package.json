@@ -5,7 +5,8 @@
   "workspaces": [
     "shared",
     "engine",
-    "frontend"
+    "frontend",
+    "bench"
   ],
   "scripts": {
     "dev": "./run.sh",

@@ -1,0 +1,9 @@
+dataset/tarballs/
+dataset/seeds/
+dataset/mutations/
+dataset/datadog/zips/
+dataset/datadog/extracted/
+.datadog-mirror/
+results/
+dist/
+*.tsbuildinfo
