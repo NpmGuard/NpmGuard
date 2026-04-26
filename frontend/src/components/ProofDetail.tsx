@@ -3,7 +3,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { EditorView, Decoration } from "@codemirror/view";
 import { RangeSetBuilder } from "@codemirror/state";
-import type { Finding, Proof } from "../lib/types";
+import type { Finding, Proof, InstrumentationLog } from "../lib/types";
 import { fileFromFileLine, parseLineRanges } from "../lib/types";
 
 type Tab = "source" | "proof" | "runtime" | "why";
@@ -16,6 +16,12 @@ export interface ProofDetailProps {
    * when not available (e.g. cached package report after tarball cleanup).
    */
   fetchSource?: (path: string) => Promise<string | null>;
+  /**
+   * Aggregated runtime evidence for the audit. Comes from the report level —
+   * the same data is shown regardless of which proof is selected because the
+   * agent's instrumentation traces aren't attributable to specific findings.
+   */
+  runtimeEvidence?: InstrumentationLog | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,11 +44,17 @@ function createHighlightExtension(ranges: Array<[number, number]>) {
 }
 
 // "lib/index.js:42-67" → ["lib/index.js", [[42, 67]]]
+// Composite fileLines like "a.js:10-16, b.js:22-43" → keep only the first
+// file's ranges; the secondary file would need its own viewer pass.
 function splitFileLine(fileLine: string): { file: string | undefined; ranges: Array<[number, number]> } {
   const file = fileFromFileLine(fileLine);
   const colonIdx = fileLine.indexOf(":");
-  const lineSpec = colonIdx >= 0 ? fileLine.slice(colonIdx + 1) : null;
-  return { file, ranges: parseLineRanges(lineSpec) };
+  if (colonIdx < 0) return { file, ranges: [] };
+  // Drop anything after the first comma that looks like another "file:lines" pair.
+  const lineSpec = fileLine.slice(colonIdx + 1).split(/,\s*[^\d-]/)[0] ?? null;
+  // Filter out any malformed range that produced NaN.
+  const ranges = parseLineRanges(lineSpec).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b));
+  return { file, ranges };
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +413,258 @@ function ProofTab({ proof }: { proof: Proof | undefined }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Runtime evidence tab — table-style render of the InstrumentationLog
+// ---------------------------------------------------------------------------
+
+function isLogEmpty(log: InstrumentationLog): boolean {
+  return (
+    log.modulesLoaded.length === 0 &&
+    log.networkCalls.length === 0 &&
+    log.fsOperations.length === 0 &&
+    log.envAccess.length === 0 &&
+    log.processSpawns.length === 0 &&
+    log.evalCalls.length === 0 &&
+    log.cryptoOps.length === 0 &&
+    log.timers.length === 0
+  );
+}
+
+function RuntimeSection({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  if (count === 0) return null;
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 8,
+          marginBottom: 6,
+          paddingBottom: 4,
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.6rem",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+            color: "var(--text)",
+          }}
+        >
+          {title}
+        </span>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.6rem",
+            color: "var(--text-muted)",
+          }}
+        >
+          {count}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function MonoRow({ method, body, danger = false }: { method?: string; body: string; danger?: boolean }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        padding: "5px 8px",
+        fontFamily: "var(--font-mono)",
+        fontSize: "0.7rem",
+        color: danger ? "var(--danger)" : "var(--text-dim)",
+        borderBottom: "1px solid var(--border)",
+        alignItems: "baseline",
+      }}
+    >
+      {method && (
+        <span
+          style={{
+            fontWeight: 700,
+            color: danger ? "var(--danger)" : "var(--accent-light)",
+            minWidth: 50,
+            textTransform: "uppercase",
+            fontSize: "0.6rem",
+          }}
+        >
+          {method}
+        </span>
+      )}
+      <span style={{ wordBreak: "break-all", flex: 1 }}>{body}</span>
+    </div>
+  );
+}
+
+function ChipList({ items }: { items: string[] }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+      {items.map((item, i) => (
+        <span
+          key={i}
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.65rem",
+            padding: "2px 7px",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--bg-tertiary)",
+            border: "1px solid var(--border)",
+            color: "var(--text-dim)",
+          }}
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// Heuristics — these env keys typically signal credential exfil. Used to
+// flag rows in red when the package read them at runtime.
+const SENSITIVE_ENV_PATTERNS = /(token|secret|key|password|auth|credential|aws_|github|npm_|gh_|gitlab)/i;
+function isSensitiveEnv(key: string): boolean {
+  return SENSITIVE_ENV_PATTERNS.test(key);
+}
+
+function RuntimeTab({ runtimeEvidence }: { runtimeEvidence: InstrumentationLog | null | undefined }) {
+  if (!runtimeEvidence) {
+    return (
+      <EmptyState message="No sandbox runtime evidence captured for this audit. The package didn't trigger the agent's dynamic-analysis tools, or the audit pre-dates Wave 2." />
+    );
+  }
+  if (isLogEmpty(runtimeEvidence)) {
+    return (
+      <EmptyState message="The agent ran the package in a sandbox but observed no runtime side effects." />
+    );
+  }
+
+  const { networkCalls, fsOperations, envAccess, processSpawns, evalCalls, cryptoOps, timers, modulesLoaded } = runtimeEvidence;
+  const sensitiveEnv = envAccess.filter(isSensitiveEnv);
+
+  return (
+    <div className="flex-1 overflow-auto" style={{ padding: "16px 18px" }}>
+      <div
+        style={{
+          marginBottom: 16,
+          padding: "10px 12px",
+          background: "var(--bg-secondary)",
+          border: "1px solid var(--border)",
+          borderLeft: "3px solid var(--accent)",
+          borderRadius: "var(--radius-sm)",
+          fontSize: "0.78rem",
+          color: "var(--text-dim)",
+          lineHeight: 1.5,
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginRight: 6 }}>
+          What happened in the sandbox
+        </span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>
+          {networkCalls.length > 0 && `${networkCalls.length} network call${networkCalls.length === 1 ? "" : "s"}`}
+          {networkCalls.length > 0 && (envAccess.length > 0 || fsOperations.length > 0 || processSpawns.length > 0) && " · "}
+          {envAccess.length > 0 && `${envAccess.length} env var${envAccess.length === 1 ? "" : "s"} read${sensitiveEnv.length > 0 ? ` (${sensitiveEnv.length} sensitive)` : ""}`}
+          {envAccess.length > 0 && (fsOperations.length > 0 || processSpawns.length > 0) && " · "}
+          {fsOperations.length > 0 && `${fsOperations.length} fs op${fsOperations.length === 1 ? "" : "s"}`}
+          {fsOperations.length > 0 && processSpawns.length > 0 && " · "}
+          {processSpawns.length > 0 && `${processSpawns.length} process spawn${processSpawns.length === 1 ? "" : "s"}`}
+        </span>
+      </div>
+
+      <RuntimeSection title="Network calls" count={networkCalls.length}>
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+          {networkCalls.map((call, i) => (
+            <MonoRow key={i} method={call.method} body={call.url} danger />
+          ))}
+        </div>
+      </RuntimeSection>
+
+      <RuntimeSection title="Environment variables read" count={envAccess.length}>
+        <ChipList items={envAccess} />
+        {sensitiveEnv.length > 0 && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: "6px 10px",
+              background: "var(--danger-bg)",
+              border: "1px solid var(--danger)",
+              borderRadius: "var(--radius-sm)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.65rem",
+              color: "var(--danger)",
+            }}
+          >
+            ⚠ {sensitiveEnv.length} sensitive key{sensitiveEnv.length === 1 ? "" : "s"} touched: {sensitiveEnv.slice(0, 6).join(", ")}{sensitiveEnv.length > 6 ? "…" : ""}
+          </div>
+        )}
+      </RuntimeSection>
+
+      <RuntimeSection title="Filesystem operations" count={fsOperations.length}>
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+          {fsOperations.map((op, i) => (
+            <MonoRow key={i} method={op.op} body={op.path} />
+          ))}
+        </div>
+      </RuntimeSection>
+
+      <RuntimeSection title="Process spawns" count={processSpawns.length}>
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+          {processSpawns.map((spawn, i) => (
+            <MonoRow key={i} method="$" body={`${spawn.cmd}${spawn.args.length ? " " + spawn.args.join(" ") : ""}`} danger />
+          ))}
+        </div>
+      </RuntimeSection>
+
+      <RuntimeSection title="Eval / dynamic code" count={evalCalls.length}>
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+          {evalCalls.map((call, i) => (
+            <MonoRow key={i} method="eval" body={call.code} danger />
+          ))}
+        </div>
+      </RuntimeSection>
+
+      <RuntimeSection title="Crypto operations" count={cryptoOps.length}>
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+          {cryptoOps.map((op, i) => (
+            <MonoRow key={i} method={op.method} body={op.algo} />
+          ))}
+        </div>
+      </RuntimeSection>
+
+      <RuntimeSection title="Timers" count={timers.length}>
+        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+          {timers.map((t, i) => (
+            <MonoRow key={i} method={t.type} body={`${t.ms}ms`} />
+          ))}
+        </div>
+      </RuntimeSection>
+
+      <RuntimeSection title="Modules loaded" count={modulesLoaded.length}>
+        <ChipList items={modulesLoaded.slice(0, 60)} />
+        {modulesLoaded.length > 60 && (
+          <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: "var(--text-muted)" }}>
+            +{modulesLoaded.length - 60} more
+          </div>
+        )}
+      </RuntimeSection>
+    </div>
+  );
+}
+
 function WhyTab({ finding, proof }: { finding: Finding; proof: Proof | undefined }) {
   return (
     <div
@@ -495,7 +759,7 @@ function WhyTab({ finding, proof }: { finding: Finding; proof: Proof | undefined
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ProofDetail({ finding, proof, fetchSource }: ProofDetailProps) {
+export function ProofDetail({ finding, proof, fetchSource, runtimeEvidence }: ProofDetailProps) {
   const [tab, setTab] = useState<Tab>("source");
   // Reset to Source tab whenever a new finding is selected — adjust state
   // during render so we avoid the cascading-render warning.
@@ -522,6 +786,7 @@ export function ProofDetail({ finding, proof, fetchSource }: ProofDetailProps) {
   }
 
   const hasTest = !!proof?.testCode;
+  const runtimeAvailable = !!runtimeEvidence && !isLogEmpty(runtimeEvidence);
 
   return (
     <div className="flex-1 flex flex-col min-h-0" style={{ background: "var(--bg)" }}>
@@ -535,7 +800,13 @@ export function ProofDetail({ finding, proof, fetchSource }: ProofDetailProps) {
       >
         <TabButton label="Source" active={tab === "source"} onClick={() => setTab("source")} />
         <TabButton label="Proof" active={tab === "proof"} onClick={() => setTab("proof")} badge={hasTest ? undefined : "—"} />
-        <TabButton label="Runtime" active={tab === "runtime"} onClick={() => setTab("runtime")} disabled badge="soon" />
+        <TabButton
+          label="Runtime"
+          active={tab === "runtime"}
+          onClick={() => setTab("runtime")}
+          disabled={!runtimeAvailable}
+          badge={runtimeAvailable ? "live" : "—"}
+        />
         <TabButton label="Why" active={tab === "why"} onClick={() => setTab("why")} />
       </div>
 
@@ -545,9 +816,7 @@ export function ProofDetail({ finding, proof, fetchSource }: ProofDetailProps) {
           <SourceTab finding={finding} proof={proof} fetchSource={fetchSource} />
         )}
         {tab === "proof" && <ProofTab proof={proof} />}
-        {tab === "runtime" && (
-          <EmptyState message="Sandbox runtime evidence (network calls, fs ops, env access) will land here in Wave 2." />
-        )}
+        {tab === "runtime" && <RuntimeTab runtimeEvidence={runtimeEvidence} />}
         {tab === "why" && <WhyTab finding={finding} proof={proof} />}
       </div>
     </div>
