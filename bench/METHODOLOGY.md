@@ -1,18 +1,26 @@
 # NpmGuard Benchmark — Methodology
 
-_Version 1.0 · 2026-04-26_
+_Version 1.1 · 2026-04-26_
 
 This document describes the methodology used to measure the detection accuracy
 of NpmGuard, the npm supply-chain auditor. It is written so that an
 independent researcher can reproduce, criticize, and extend the results.
 
-The approach is what we call **Security Mutation Testing** — a mutation-based
-evaluation pattern adapted from the established mutation-testing methodology
-in software-quality research (Stryker, PIT, Mutmut, Major). Where classical
-mutation testing measures the quality of a *test suite* by injecting bugs,
-Security Mutation Testing measures the quality of a *security tool* by
-injecting canonical malicious behaviours into real, working npm packages and
-measuring what fraction the tool detects.
+The benchmark is layered. **The primary method is Temporal Retroactive
+Testing** against the
+[Datadog Malicious Software Packages Dataset](https://github.com/DataDog/malicious-software-packages-dataset):
+~26 000 real, human-vetted malicious npm packages discovered in the wild
+since 2023. NpmGuard is run against a stratified sample of this corpus,
+producing the headline number — *"of N real-world npm malware events,
+NpmGuard would have flagged K of them"*.
+
+A secondary method, **Security Mutation Testing**, ships in a later
+revision: synthetic mutations of benign packages let us probe specific
+attack classes and adversarial sophistication tiers in a way Datadog's
+unstructured corpus cannot. Mutation testing is described in §13 and
+deferred to v2 of the methodology — Datadog replay is sufficient for v1
+because it answers the question a CISO actually asks: *"would this tool
+have caught the attacks of the past two years?"*.
 
 
 ## 1. Problem statement
@@ -32,85 +40,106 @@ uncertainty, (d) report what the tool *fails* to catch as prominently as
 what it catches.
 
 
-## 2. Why mutation, not curated malware
+## 2. Why Datadog replay first, mutation later
 
-Three corpora are commonly used:
+The conventional benchmark options are:
 
 1. **Hand-crafted minimal samples.** A `test-pkg-env-exfil` containing 30
    lines of hostile code. Useful as unit tests; useless as a benchmark
    because the signal-to-noise ratio is artificially favourable to the
-   auditor and any pattern-matcher can find the malicious code.
-2. **Real published malware.** The
-   [Datadog Malicious Software Packages dataset](https://github.com/DataDog/malicious-software-packages-dataset)
-   and the [SAP Risk Explorer](https://github.com/SAP/risk-explorer-for-software-supply-chains)
-   collect thousands of real-world npm malware events. This corpus is the
-   gold standard for *temporal retroactive testing* (cf. §11), but it is
-   biased toward what other auditors have already learned to detect, and
-   provides limited control over which attack classes are represented.
-3. **Mutated real packages** — this benchmark.
+   auditor.
+2. **Mutated real packages.** Inject canonical malicious snippets into
+   benign packages. Gives full coverage control, fully reproducible, but
+   subject to the *"your mutations are not realistic"* critique that no
+   adversarial reviewer ever finds answerable.
+3. **Real published malware** — Datadog's dataset of ~26 000 npm packages
+   that were *actually deployed in attacks against real developers and
+   pulled from the registry by Datadog's GuardDog tooling*. Each sample
+   has been manually triaged. This is what we use.
 
-   Take a real, popular npm package (e.g. `axios@1.7.2`). Inject a single,
-   canonical malicious snippet representative of a known attack class (e.g.
-   `process.env` exfiltration over HTTPS). The result is a package that is
-   structurally identical to its real ancestor but contains a known,
-   localised malicious behaviour. The auditor receives the noise of a real
-   package and a ground-truth label.
+Real malware solves four problems at once that the alternatives do not:
 
-Mutation gives us four properties no other corpus provides simultaneously:
+- **Credibility.** A CISO does not want to know whether NpmGuard flags
+  *"a pretend env-exfil snippet we wrote ourselves"*. They want to know
+  whether it would have flagged `ua-parser-js@0.7.29`, `event-stream@3.3.6`,
+  the 2024 Lottiefiles incident. Datadog has those packages.
+- **No mutator-design bias.** Mutations encode the benchmark author's
+  imagination of what attackers do. Real malware encodes what attackers
+  actually did. The first is bounded by us; the second by the world.
+- **Free competitive comparison.** Snyk, Socket, Phylum and `npm audit`
+  can each be wrapped to ingest exactly the same Datadog corpus, giving
+  an apples-to-apples comparison without us writing wrappers that "happen
+  to favour" our own malicious patterns.
+- **Continually-updated dataset.** Datadog adds new samples as new
+  attacks happen. A bench that re-runs against the dataset stays current
+  for free, while a hand-crafted one needs continuous editorial work to
+  keep up.
 
-- **Realism.** The host package contains genuine code structure, real
-  dependencies, real conditional exports.
-- **Ground truth.** We know exactly what should be flagged because we
-  injected it.
-- **Coverage control.** We choose which attack classes are represented and
-  in what proportion.
-- **Anti-gaming.** No two mutations produce byte-identical files; hash-match
-  detection is impossible.
+The trade-offs are real and we name them:
 
-The trade-off is that a mutation may fail to "fit" its host (e.g. the
-injected `require()` breaks a CommonJS-only loader). This is addressed in
-§7 (post-mutation load verification).
+- **Selection bias.** The Datadog corpus is what GuardDog (Datadog's own
+  auditor) flagged. Attacks GuardDog missed are absent. If a competitor
+  has trained on this same public dataset, they have a head-start. v1
+  measures *"can NpmGuard match what's already known"*; v2 (mutation
+  testing, §13) measures *"can NpmGuard find what no one trained on yet"*.
+- **Limited per-class control.** The dataset is not tagged by attack
+  class — Datadog has an internal clustering algorithm but does not
+  publish it. We can stratify by `compromised_lib` (existing benign
+  package, malicious release pushed by attacker) versus `malicious_intent`
+  (package whose entire purpose is to deliver malware), but finer-grained
+  taxonomy must be inferred from sample inspection. Recent samples
+  dominate the dataset; older incidents may not be present.
+- **Ethics of execution.** The dataset contains live malware. The bench
+  never runs the package — only reads the source from inside a sandbox.
+  The Datadog `infected` zip password is not a security control, it is a
+  speed-bump that prevents accidental execution by file-management
+  utilities.
+
+Mutation testing (§13) earns its keep in v2 once the v1 Datadog replay is
+in place: it adds the per-class breakdown and the adversarial-sophistication
+tiers that the unstructured corpus does not provide.
 
 
-## 3. Attack taxonomy
+## 3. Stratification of the Datadog corpus
 
-The taxonomy is derived from the Datadog dataset's category labels,
-cross-referenced with the
-[OWASP Top 10 for npm](https://github.com/OWASP/threat-model-cookbook) and
-the MITRE ATT&CK Software Supply Chain Compromise (T1195) sub-techniques.
+The dataset's only built-in stratification is the
+`compromised_lib` / `malicious_intent` split:
 
-| Class | Datadog label | Real-world frequency¹ | Severity |
-|---|---|---|---|
-| `CREDENTIAL_EXFIL`        | `secrets-exfiltration`         | ~31% | critical |
-| `LIFECYCLE_HOOK_ABUSE`    | `lifecycle-hook-abuse`         | ~17% | high     |
-| `CODE_EXECUTION`          | `code-execution`               | ~14% | critical |
-| `NETWORK_EXFIL`           | `c2-and-exfil`                 | ~11% | high     |
-| `WALLET_DRAINER`          | `cryptocurrency-theft`         |  ~8% | critical |
-| `BUILD_PLUGIN_EXFIL`      | `build-time-exfil`             |  ~5% | high     |
-| `DATA_DESTRUCTION`        | `wiper`                        |  ~3% | critical |
-| `DNS_TUNNEL`              | `covert-channel-dns`           |  ~2% | high     |
-| `ANTI_ANALYSIS`           | `evasion-techniques`           |  ~6% | varies   |
-| `OTHER`                   | (uncategorized)                |  ~3% | varies   |
+- **`malicious_intent`** — packages whose entire purpose is to deliver
+  malware. Typically published under typosquat names (e.g. `react-native-aria`
+  vs the legitimate `react-aria`), short-lived, and with minimal cover. These
+  are the **easier** detection target: there is no benign behaviour to hide
+  the payload.
+- **`compromised_lib`** — historically benign packages that received a
+  release containing attacker-introduced code. The malicious code lives
+  inside a working library with thousands of legitimate lines. These are
+  the **harder** target: noise-to-signal ratio is high, and a static
+  scanner that flags every `process.env` access as suspicious will produce
+  false positives the user dismisses.
 
-¹ Approximate proportions inferred from a count of category tags in the
-public Datadog dataset (Q1 2026 snapshot). They are reported here only to
-weight aggregate recall figures (§9) — they are not used to gate
-inclusion of attack classes.
+A v1 benchmark run reports:
 
-For each class, a benchmark run includes ≥3 mutator variants — different
-implementation styles of the same class. For example, `CREDENTIAL_EXFIL`
-includes:
+- **Overall recall** — fraction of all sampled packages flagged DANGEROUS.
+- **Recall on `malicious_intent`** — the easy mode.
+- **Recall on `compromised_lib`** — the realistic mode (what most CISOs
+  actually fear).
+- **Recall on a temporal slice** — packages whose discovery date is
+  within the last six months at run time. This isolates the auditor's
+  performance on attacks too recent for any tool to have memorised.
 
-- `env-direct`: synchronous HTTPS POST of `process.env` at module load
-- `env-deferred`: same payload behind `setTimeout`
-- `env-dns-channel`: env vars base64-encoded into DNS lookups
-- `ssh-key-read`: `fs.readFileSync('~/.ssh/id_rsa')` then exfil
-- `aws-creds-read`: read `~/.aws/credentials` then exfil
-- `npmrc-token-read`: read `~/.npmrc` for `_authToken`
+A v2 benchmark adds per-attack-class recall by feeding each sample
+through a classifier (either a heuristic over the source code, or an
+LLM-as-judge step). The classifier output is treated as an additional
+metadata column; runs do not change shape.
 
-Variants exist because a tool that detects only the trivial direct-POST
-pattern but misses the DNS-channel variant has not "solved" credential
-exfiltration; it has memorised one signature.
+Note on selection bias: the corpus over-represents the attack patterns
+that the Datadog GuardDog ruleset was designed to catch. A tool that
+shares heuristics with GuardDog will appear strong; a tool that diverges
+will appear weak even when correct. We address this two ways: (a) by
+publishing the manifest hash of the exact dataset commit used for each
+run so re-checks against future dataset versions are possible, (b) by
+adding the v2 mutation methodology specifically because it does not
+share Datadog's biases.
 
 
 ## 4. Seed corpus
@@ -283,19 +312,18 @@ auditor.
 
 ## 11. Out of scope (for v1)
 
-- **Temporal retroactive testing.** Replaying past npm malware events
-  through the auditor and checking detection latency vs. public disclosure
-  date is informative but requires historical access to malicious package
-  versions which are typically unpublished from the registry. Planned
-  for v2 using the Datadog corpus.
 - **Comparative testing of every auditor in the market.** v1 ships
   comparison wrappers for `npm audit` and Snyk only. Adding Socket,
-  Phylum, OSSF Scorecard, and others is mechanical work that is queued
-  for subsequent dataset versions.
-- **Adversarial AI red-teaming.** The mutators in §3 are *known* attack
-  patterns. Generating *novel* attacks adversarially against the auditor
-  (e.g. via genetic algorithms over a mutator search space) is research
-  out of scope for an evaluation benchmark.
+  Phylum, OSSF Scorecard, and others is mechanical work queued for
+  subsequent dataset versions.
+- **Mutation-based testing.** The v2 framework (§13) probes the
+  auditor's response to controlled, synthetic attacks at chosen
+  sophistication tiers — useful as a complement to the real-world
+  Datadog replay but not the headline number for v1.
+- **Adversarial AI red-teaming.** Generating *novel* attacks
+  adversarially against the auditor (e.g. via LLM-driven mutator search)
+  is research out of scope for an evaluation benchmark and depends on
+  v2 being in place first.
 
 
 ## 12. Limitations
@@ -334,14 +362,49 @@ auditor.
   https://attack.mitre.org/techniques/T1195/.
 
 
+## 13. v2 mutation methodology — preview
+
+Once v1 Datadog replay is in production, mutation testing is added on
+top to address what Datadog cannot: per-attack-class recall, controlled
+sophistication tiers, and adversarial novelty.
+
+The mutation framework will use a stratified design:
+
+1. **Five attack classes** (`CREDENTIAL_EXFIL`, `LIFECYCLE_HOOK_ABUSE`,
+   `CODE_EXECUTION`, `NETWORK_EXFIL`, `ANTI_ANALYSIS`).
+2. **Four sophistication tiers per class**:
+   - **T1 — blatant**: top-of-file injection, plain JavaScript.
+   - **T2 — function-wrapper**: replace an exported function with a
+     transparent interceptor (mimics the `event-stream` archetype).
+   - **T3 — obfuscated**: payload encoded (base64, charcode, dynamic
+     property access) and `eval`'d at runtime.
+   - **T4 — evasive**: payload guarded by sandbox detection, time bomb
+     or geo-gate; runs only under specific conditions.
+3. **Three negative controls** (innocuous comment, console.log, version
+   bump) to measure false-positive rate.
+
+Aggregate recall in v2 is computed both unweighted and weighted by
+real-world tier frequencies derived from sample inspection of the
+Datadog corpus (approximately 0.45 / 0.30 / 0.15 / 0.10 from T1 to T4
+in the absence of an authoritative source). Per-tier recall is published
+alongside the aggregate so a reader can see exactly where the auditor
+strengths and blind spots sit.
+
+The seed corpus already shipped with v1 (Phase 1 of the bench code,
+under `bench/src/seeds/`) is the substrate v2 mutates over. Switching
+to v2 requires no changes to the v1 runner or analyzer; it only adds a
+new manifest-source category and a directory of generated mutations.
+
+
 ## 14. Changelog
 
-- **v1.0** (2026-04-26): initial methodology; tier-1 seed catalogue, 5
-  base mutators across 3 classes, negative controls, NpmGuard runner,
-  Wilson-CI aggregation, frontend dashboard.
-- _(planned)_ **v1.1**: 5 additional mutators (NETWORK_EXFIL,
-  WALLET_DRAINER, BUILD_PLUGIN_EXFIL, DATA_DESTRUCTION, DNS_TUNNEL).
-- _(planned)_ **v1.2**: adversarial mutators (sandbox-detect, time-bomb,
-  geo-gate, anti-AI prompt injection).
-- _(planned)_ **v2.0**: temporal retroactive testing on Datadog corpus,
-  comparative wrappers for Socket/Phylum/Scorecard.
+- **v1.0** (2026-04-26): initial methodology centred on Security Mutation
+  Testing.
+- **v1.1** (2026-04-26): pivoted to **Datadog replay as the primary v1
+  method**. Mutation testing moved to v2 (§13). Negative controls and
+  post-mutation load verification (§§6–7) preserved verbatim because
+  they describe the v2 framework that the v1 runner will reuse.
+- _(planned)_ **v1.2**: comparative wrappers for `npm audit` and Snyk
+  CLI; same Datadog corpus, side-by-side detection table.
+- _(planned)_ **v2.0**: stratified mutation testing per §13.
+- _(planned)_ **v2.1**: adversarial / LLM-driven mutator search.

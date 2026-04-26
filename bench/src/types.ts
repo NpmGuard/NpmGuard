@@ -138,18 +138,41 @@ export interface ControlVariant {
 // must produce statistically equivalent results.
 // ---------------------------------------------------------------------------
 
+/** The provenance of a manifest entry. v1 of the benchmark ships
+ *  `datadog-compromised` and `datadog-malicious-intent`; v2 adds
+ *  `mutated`, `control`, `baseline` per METHODOLOGY.md §13. */
+export const EntryCategory = z.union([
+  z.literal("datadog-compromised"),
+  z.literal("datadog-malicious-intent"),
+  AttackClass, // mutated entry tagged by attack class
+  z.literal("control"),
+  z.literal("baseline"),
+]);
+export type EntryCategory = z.infer<typeof EntryCategory>;
+
 export const ManifestEntry = z.object({
-  /** test-pkg-bench-<seed>-<mutator-id> — the name passed to NpmGuard's
+  /** test-pkg-bench-<source>-<...> — the name passed to NpmGuard's
    *  resolvePackage(), which finds the directory under sandbox/test-fixtures. */
   fixtureName: z.string(),
-  seed: z.object({ name: z.string(), version: z.string() }),
-  /** "control" for negative controls, otherwise the mutator variant id. */
-  mutatorId: z.string(),
-  /** Either an attack-class label or "control" / "baseline". */
-  category: z.union([AttackClass, z.literal("control"), z.literal("baseline")]),
+  /** The original npm package name + version this entry derives from.
+   *  For Datadog entries, this is the malicious package as published.
+   *  For mutated entries, this is the benign seed before mutation. */
+  pkg: z.object({ name: z.string(), version: z.string() }),
+  /** Identifier of the source: a Datadog discovery filename, a mutator
+   *  variant id, or "baseline". Used to attribute results back to source. */
+  sourceId: z.string(),
+  category: EntryCategory,
+  /** Only set for mutated entries. Null for Datadog and baseline. */
   difficulty: Difficulty.nullable(),
   expected: ExpectedOutcome,
   rationale: z.string(),
+  /** Optional Datadog-specific metadata: discovery date, ZIP filename. */
+  datadog: z
+    .object({
+      discoveryDate: z.string(), // YYYY-MM-DD
+      zipFilename: z.string(),
+    })
+    .optional(),
 });
 export type ManifestEntry = z.infer<typeof ManifestEntry>;
 
