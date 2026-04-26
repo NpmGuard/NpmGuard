@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { ReportView } from "./ReportView";
 import { trailFromTrace } from "../lib/report-helpers";
-import type { Finding, Proof } from "../lib/types";
+import type { Finding, Proof, InstrumentationLog } from "../lib/types";
 
 function navigate(href: string) {
   history.pushState(null, "", href);
@@ -22,6 +22,7 @@ interface ReportData {
       input?: Record<string, unknown>;
       output?: Record<string, unknown>;
     }>;
+    runtimeEvidence?: InstrumentationLog | null;
   };
 }
 
@@ -116,6 +117,7 @@ export function PackageLookup({ packageName }: { packageName: string }) {
       findings={report.findings}
       proofs={report.proofs}
       trail={trail}
+      runtimeEvidence={report.runtimeEvidence ?? null}
     />
   );
 }

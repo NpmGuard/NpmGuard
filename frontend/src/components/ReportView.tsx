@@ -1,11 +1,15 @@
 import { useMemo, useState } from "react";
-import type { Finding, Proof } from "../lib/types";
+import type { Finding, Proof, InstrumentationLog } from "../lib/types";
 import { computeProofStats } from "../lib/types";
 import { FindingsList } from "./FindingsList";
 import { ProofDetail } from "./ProofDetail";
 import { AuditTrail } from "./AuditTrail";
 import type { TrailEntry } from "../lib/report-helpers";
 import { PaymentProofBadge, type PaymentProofBadgeProps } from "./PaymentProofBadge";
+import { DownloadButton } from "./DownloadButton";
+import { CertificateFooter } from "./CertificateFooter";
+import { PrintableReport } from "./PrintableReport";
+import type { ExportableReport } from "../lib/report-export";
 
 export interface ReportViewProps {
   packageName: string;
@@ -20,6 +24,8 @@ export interface ReportViewProps {
   fetchSource?: (path: string) => Promise<string | null>;
   /** Payment proof — if omitted, the badge auto-reads URL params. */
   paymentProof?: PaymentProofBadgeProps;
+  /** Aggregated runtime evidence for the audit (report-level). */
+  runtimeEvidence?: InstrumentationLog | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +83,7 @@ export function ReportView({
   trail,
   fetchSource,
   paymentProof,
+  runtimeEvidence,
 }: ReportViewProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(
     findings.length > 0 ? 0 : null,
@@ -96,8 +103,21 @@ export function ReportView({
     return Array.from(set);
   }, [capabilities, capCounts]);
 
+  const exportable: ExportableReport = {
+    packageName,
+    version,
+    verdict,
+    capabilities,
+    findings,
+    proofs,
+    runtimeEvidence: runtimeEvidence ?? null,
+  };
+
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 report-view-screen">
+      {/* Print-only flat rendering — hidden on screen, revealed by @media print */}
+      <PrintableReport report={exportable} />
+
       {/* Header */}
       <div
         className="shrink-0"
@@ -138,6 +158,7 @@ export function ReportView({
             }}
           >
             <PaymentProofBadge {...(paymentProof ?? {})} />
+            <DownloadButton report={exportable} />
           </span>
         </div>
 
@@ -241,12 +262,16 @@ export function ReportView({
             finding={safeIndex !== null ? findings[safeIndex] : null}
             proof={safeIndex !== null ? proofs[safeIndex] : undefined}
             fetchSource={fetchSource}
+            runtimeEvidence={runtimeEvidence}
           />
         </div>
       </div>
 
       {/* Audit trail */}
       <AuditTrail entries={trail} />
+
+      {/* Audit certificate strip — visible on screen + included in print */}
+      <CertificateFooter report={exportable} />
     </div>
   );
 }
