@@ -11,6 +11,8 @@
     "datadog:select": "tsx src/datadog/select.ts",
     "datadog:fetch": "tsx src/datadog/fetch.ts",
     "datadog:manifest": "tsx src/datadog/manifest.ts",
+    "run": "tsx src/runner/audit-all.ts",
+    "analyze": "tsx src/runner/analyze.ts",
     "build": "tsc --noEmit"
   },
   "dependencies": {
