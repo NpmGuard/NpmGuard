@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -128,6 +128,90 @@ async function checkEngineHealth(api: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// CRE fire-and-forget helpers — delete the prior report so polling can
+// detect when a fresh one is written, and parse the eventual report into
+// the same SingleAuditResult shape the sync path produces.
+// ---------------------------------------------------------------------------
+
+const REPORTS_DIR = join(REPO_ROOT, "data", "reports");
+
+function deleteExistingReport(fixtureName: string): void {
+  const dir = join(REPORTS_DIR, fixtureName);
+  if (!existsSync(dir)) return;
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* best-effort cleanup */
+  }
+}
+
+const POLL_INTERVAL_MS = 30_000;
+
+async function pollForReport(
+  args: CliArgs,
+  entry: ManifestEntry,
+  start: number,
+): Promise<SingleAuditResult> {
+  const deadline = start + args.timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    let resp: Response;
+    try {
+      resp = await fetch(
+        `${args.api}/package/${encodeURIComponent(entry.fixtureName)}/report`,
+        { signal: AbortSignal.timeout(15_000) },
+      );
+    } catch {
+      continue; // transient error, keep polling
+    }
+    if (resp.status === 404) continue; // not yet written
+    if (!resp.ok) continue;
+    let body: { report?: AuditReportShape };
+    try {
+      body = (await resp.json()) as { report?: AuditReportShape };
+    } catch {
+      continue;
+    }
+    if (body.report) {
+      return reportToResult(body.report, Date.now() - start);
+    }
+  }
+  return {
+    durationMs: Date.now() - start,
+    verdict: null,
+    capabilities: [],
+    proofKinds: [],
+    verifiedCapabilities: [],
+    llmTokens: null,
+    auditId: null,
+    error: `polling timed out after ${args.timeoutMs}ms`,
+  };
+}
+
+function reportToResult(
+  report: AuditReportShape,
+  durationMs: number,
+): SingleAuditResult {
+  const proofs = report.proofs ?? [];
+  const proofKinds = proofs
+    .map((p) => p.kind)
+    .filter((k): k is string => typeof k === "string");
+  const verifiedCapabilities = proofs
+    .filter((p) => p.kind === "TEST_CONFIRMED" && p.capability)
+    .map((p) => p.capability as string);
+  return {
+    durationMs,
+    verdict: report.verdict,
+    capabilities: (report.capabilities ?? []) as SingleAuditResult["capabilities"],
+    proofKinds: proofKinds as SingleAuditResult["proofKinds"],
+    verifiedCapabilities: verifiedCapabilities as SingleAuditResult["verifiedCapabilities"],
+    llmTokens: null,
+    auditId: null,
+    error: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Single audit — POST /audit, parse the report into SingleAuditResult
 // ---------------------------------------------------------------------------
 
@@ -144,6 +228,14 @@ async function runSingleAudit(
   args: CliArgs,
   entry: ManifestEntry,
 ): Promise<SingleAuditResult> {
+  // CRE auth (X-API-Key) returns 202 Accepted and runs the audit
+  // fire-and-forget. We then poll the report endpoint until a fresh
+  // report appears. To distinguish "fresh" from "previous-run report",
+  // we delete the existing report file before submitting.
+  if (args.apiKey) {
+    deleteExistingReport(entry.fixtureName);
+  }
+
   const start = Date.now();
   let resp: Response;
   try {
@@ -167,6 +259,11 @@ async function runSingleAudit(
       auditId: null,
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+
+  // CRE fire-and-forget path
+  if (resp.status === 202) {
+    return pollForReport(args, entry, start);
   }
 
   const durationMs = Date.now() - start;
@@ -201,24 +298,7 @@ async function runSingleAudit(
     };
   }
 
-  const proofs = report.proofs ?? [];
-  const proofKinds = proofs
-    .map((p) => p.kind)
-    .filter((k): k is string => typeof k === "string");
-  const verifiedCapabilities = proofs
-    .filter((p) => p.kind === "TEST_CONFIRMED" && p.capability)
-    .map((p) => p.capability as string);
-
-  return {
-    durationMs,
-    verdict: report.verdict,
-    capabilities: (report.capabilities ?? []) as SingleAuditResult["capabilities"],
-    proofKinds: proofKinds as SingleAuditResult["proofKinds"],
-    verifiedCapabilities: verifiedCapabilities as SingleAuditResult["verifiedCapabilities"],
-    llmTokens: null, // engine doesn't expose this yet
-    auditId: null, // sync /audit doesn't return one
-    error: null,
-  };
+  return reportToResult(report, durationMs);
 }
 
 // ---------------------------------------------------------------------------
