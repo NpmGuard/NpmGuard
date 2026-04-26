@@ -682,3 +682,76 @@ input:focus {
     max-width: 100%;
   }
 }
+
+/* ── Print stylesheet (PDF download via Cmd+P → Save as PDF) ── */
+.print-only-root {
+  display: none;
+}
+
+@media print {
+  /* Force light theme for printing — readable on paper, smaller ink usage */
+  :root, html.urushi {
+    --bg: #ffffff;
+    --bg-secondary: #f7f5ef;
+    --bg-tertiary: #efece4;
+    --bg-code: #f6f3ec;
+    --text: #000000;
+    --text-dim: #333333;
+    --text-muted: #666666;
+    --border: #cccccc;
+    --border-strong: #888888;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 10pt;
+  }
+
+  /* Page is the print canvas — neutralize the SPA's full-viewport overflow lock */
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Hide everything by default — the print-only-root tree is what shows */
+  body * {
+    visibility: hidden;
+  }
+  .print-only-root,
+  .print-only-root * {
+    visibility: visible;
+  }
+  .print-only-root {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 18mm 16mm 16mm;
+    background: #ffffff;
+    color: #000000;
+  }
+
+  /* Explicit no-print escape hatch (download button, theme toggle, etc.) */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Page break safety — try not to split a finding mid-block */
+  .print-finding {
+    page-break-inside: avoid;
+  }
+
+  /* Print-friendly link styling: black + underline, never blue */
+  a, a:visited {
+    color: #000000 !important;
+    text-decoration: underline;
+  }
+
+  /* @page margins — let the browser drive defaults but cap them sensibly */
+  @page {
+    margin: 12mm;
+    size: A4;
+  }
+}

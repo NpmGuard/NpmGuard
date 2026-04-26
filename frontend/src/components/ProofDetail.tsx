@@ -44,11 +44,17 @@ function createHighlightExtension(ranges: Array<[number, number]>) {
 }
 
 // "lib/index.js:42-67" → ["lib/index.js", [[42, 67]]]
+// Composite fileLines like "a.js:10-16, b.js:22-43" → keep only the first
+// file's ranges; the secondary file would need its own viewer pass.
 function splitFileLine(fileLine: string): { file: string | undefined; ranges: Array<[number, number]> } {
   const file = fileFromFileLine(fileLine);
   const colonIdx = fileLine.indexOf(":");
-  const lineSpec = colonIdx >= 0 ? fileLine.slice(colonIdx + 1) : null;
-  return { file, ranges: parseLineRanges(lineSpec) };
+  if (colonIdx < 0) return { file, ranges: [] };
+  // Drop anything after the first comma that looks like another "file:lines" pair.
+  const lineSpec = fileLine.slice(colonIdx + 1).split(/,\s*[^\d-]/)[0] ?? null;
+  // Filter out any malformed range that produced NaN.
+  const ranges = parseLineRanges(lineSpec).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b));
+  return { file, ranges };
 }
 
 // ---------------------------------------------------------------------------
