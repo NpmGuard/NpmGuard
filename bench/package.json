@@ -8,6 +8,9 @@
     "lock": "tsx src/seeds/lock.ts",
     "fetch": "tsx src/seeds/fetch.ts",
     "verify-loads": "tsx src/seeds/verify-loads.ts",
+    "datadog:select": "tsx src/datadog/select.ts",
+    "datadog:fetch": "tsx src/datadog/fetch.ts",
+    "datadog:manifest": "tsx src/datadog/manifest.ts",
     "build": "tsc --noEmit"
   },
   "dependencies": {
