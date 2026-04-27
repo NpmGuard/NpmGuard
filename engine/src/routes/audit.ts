@@ -51,6 +51,7 @@ async function processQueue(): Promise<void> {
 
   try {
     const { report, cleanup } = await runAudit(item.packageName, undefined, undefined, item.version);
+    saveReport(item.packageName, item.version || "latest", report);
     cleanup();
     item.resolve(report);
   } catch (err) {
