@@ -23,6 +23,10 @@ async function runPackage(packageName, entryPoint) {
   try {
     exports = require(entryPath);
   } catch (e) {
+    // Surface require failures so a test author can see why the malware
+    // never ran. Without this, tests assert on observations (HTTP captures,
+    // fs spies) that never happen, with no clue why.
+    console.error(`[sandbox-runner] require("${entryPath}") threw: ${e instanceof Error ? e.message : e}`);
     exports = { __error: e };
   }
 
