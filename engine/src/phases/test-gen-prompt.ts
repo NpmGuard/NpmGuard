@@ -144,7 +144,13 @@ describe("test-pkg-dos-loop (colors.js pattern)", () => {
 2. Always fall back to the original when mocking fs/crypto/etc:
    \`const orig = fs.readFileSync; vi.spyOn(fs, "readFileSync").mockImplementation((p, ...a) => { if (...) return fake; return orig(p, ...a); });\`
 3. Use MSW wildcard patterns: \`http.post("*/exfil", handler)\` not \`http.post("http://localhost:9999/exfil", handler)\`.
-4. Add \`await new Promise(r => setTimeout(r, 300))\` after runPackage() for async operations to complete.`;
+4. **Wait LONG enough for async network/IO**: \`await new Promise(r => setTimeout(r, 1500))\` after runPackage(). Network requests + IMDS probes are slow — 300ms is often too short and the test fails before exfil completes.
+5. **Use SOFT assertions, NOT strict equals.** The malware's exact body shape (\`exfilBody.env\` vs \`exfilBody.envVars\` vs \`exfilBody.data\`) is unknown — test for EXISTENCE, not structure.
+   - GOOD: \`expect(exfilBody).toBeDefined()\`, \`expect(JSON.stringify(exfilBody)).toContain("NPM_TOKEN")\`, \`expect(fsSpy).toHaveBeenCalled()\`
+   - BAD: \`expect(exfilBody).toEqual({ env: { NPM_TOKEN: "..." }, files: [...] })\` — too brittle
+6. **Stub 3-5 sensitive env vars max**, not 20. The malware regex-matches \`token|secret|key|password|auth|credential\` so any one of these is enough proof. Less code = fewer brittle assertions.
+7. **One \`it()\` per test file with ONE main assertion**. Don't pile 5 expects — if any one is too strict, the whole test fails. Pick the most observable behavior (a network call, an fs read, a stubbed env var leaking) and assert on it loosely.
+8. **Wrap runPackage in try/catch** if the malware might throw (real samples sometimes do): \`try { await runPackage(...); } catch { /* fine, the spies recorded the calls before throwing */ }\`. Spies record calls regardless of subsequent errors.`;
 
 /** Map capabilities to the most relevant example test patterns. */
 export const CAPABILITY_EXAMPLES: Record<string, string> = {

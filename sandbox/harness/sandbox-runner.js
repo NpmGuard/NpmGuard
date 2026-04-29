@@ -20,9 +20,12 @@ async function runPackage(packageName, entryPoint) {
   }
 
   let exports;
+  console.error(`[sandbox-runner] require start: ${entryPath} (HOME=${process.env.HOME ?? "<unset>"} cwd=${process.cwd()})`);
   try {
     exports = require(entryPath);
+    console.error(`[sandbox-runner] require ok: keys=${Object.keys(exports || {}).join(",")}`);
   } catch (e) {
+    console.error(`[sandbox-runner] require("${entryPath}") threw: ${e instanceof Error ? e.stack : e}`);
     exports = { __error: e };
   }
 

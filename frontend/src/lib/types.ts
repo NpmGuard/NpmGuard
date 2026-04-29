@@ -145,7 +145,7 @@ export function computeProofStats(findings: Finding[], proofs: Proof[]) {
   return { verified, observed, rest: findings.length - verified - observed, dealbreaker };
 }
 
-export function parseLineRanges(spec: string | null): Array<[number, number]> {
+export function parseLineRanges(spec: string | null | undefined): Array<[number, number]> {
   if (!spec) return [];
   return spec.split(",").map((range) => {
     const parts = range.trim().split("-").map(Number);
