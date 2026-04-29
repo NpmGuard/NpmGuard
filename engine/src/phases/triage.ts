@@ -125,7 +125,6 @@ async function analyzeFile(
       file: filePath,
       capabilities: [],
       suspiciousPatterns: ["file-unreadable"],
-      suspiciousLines: null,
       summary: "Could not read file",
       riskContribution: 3,
     };
@@ -137,7 +136,6 @@ async function analyzeFile(
       file: filePath,
       capabilities: [],
       suspiciousPatterns: ["file-too-large-for-context"],
-      suspiciousLines: null,
       summary: `File is ${Math.round(contents.length / 1024)}KB — too large for triage analysis`,
       riskContribution: 7,
     };
@@ -149,7 +147,6 @@ async function analyzeFile(
       file: filePath,
       capabilities: [],
       suspiciousPatterns: [],
-      suspiciousLines: null,
       summary: "Empty file",
       riskContribution: 0,
     };
@@ -238,8 +235,7 @@ export async function runTriage(
           file: f.path,
           capabilities: [],
           suspiciousPatterns: ["analysis-error"],
-          suspiciousLines: null,
-          summary: `Analysis failed: ${err instanceof Error ? err.message : "unknown error"}`,
+              summary: `Analysis failed: ${err instanceof Error ? err.message : "unknown error"}`,
           riskContribution: 5,
         } satisfies FileVerdict;
       }

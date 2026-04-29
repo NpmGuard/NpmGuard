@@ -52,7 +52,7 @@ function parseCli(): CliArgs {
       limit: { type: "string" },
       out: { type: "string" },
       "api-key": { type: "string" },
-      timeout: { type: "string", default: "900000" }, // 15 min
+      timeout: { type: "string", default: "1800000" }, // 30 min — Shai-Hulud worm fixtures with 9.9MB obfuscated code can exceed 15 min
     },
     strict: true,
   });
