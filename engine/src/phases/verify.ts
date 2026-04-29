@@ -192,14 +192,15 @@ async function runVitest(
 
   console.log(`[verify] vitest exited with code ${vitestResult.exitCode}`);
   if (vitestResult.stdout) {
-    // Filter to lines containing keywords useful for debugging test failures.
+    // On failure, surface lines that point at the actual cause (sandbox-runner
+    // require errors, assertion failures, thrown errors). Helps a test author
+    // see WHY a test failed without parsing the full vitest output.
     const dbg = vitestResult.stdout
       .split("\n")
       .filter((l) => /sandbox-runner|FAIL|AssertionError|Error:|throw/i.test(l))
       .slice(0, 30)
       .join("\n");
     if (dbg) console.log(`[verify] vitest dbg lines:\n${dbg}`);
-    console.log(`[verify] vitest stdout (last 1500): ${vitestResult.stdout.slice(-1500)}`);
   }
 
   let parsed: VitestResult | null = null;

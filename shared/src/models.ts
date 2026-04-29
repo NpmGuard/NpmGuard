@@ -100,11 +100,14 @@ export const FileVerdict = z.object({
 export type FileVerdict = z.infer<typeof FileVerdict>;
 
 export const Finding = z.object({
-  capability: z.string().describe("CapabilityEnum value, e.g. 'NETWORK'"),
-  confidence: Confidence,
-  fileLine: z.string().describe("e.g. 'lib/index.js:42-67'"),
-  problem: z.string().describe("Human-readable description of the threat"),
-  evidence: z.string().describe("Concrete data or observation"),
+  // Defaults are friendly to non-deterministic LLM outputs (MiniMax sometimes
+  // omits a field). The triage/investigation outputs are still meaningful even
+  // when one descriptive field is empty — better than failing the whole audit.
+  capability: z.string().default("UNKNOWN").describe("CapabilityEnum value, e.g. 'NETWORK'"),
+  confidence: Confidence.default("SUSPECTED"),
+  fileLine: z.string().default("").describe("e.g. 'lib/index.js:42-67'"),
+  problem: z.string().default("").describe("Human-readable description of the threat"),
+  evidence: z.string().default("").describe("Concrete data or observation"),
   reproductionStrategy: z.string().default("").describe("How to prove this in a reproducible test"),
 });
 export type Finding = z.infer<typeof Finding>;

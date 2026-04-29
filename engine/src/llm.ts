@@ -85,17 +85,17 @@ const minimaxFetch: typeof fetch = async (input, init) => {
       const tc = json?.choices?.[0]?.message?.tool_calls?.[0];
       if (tc?.function?.arguments && typeof tc.function.arguments === "string") {
         json.choices[0].message.content = tc.function.arguments;
-        console.log(`[minimax-fetch] translated tool_call to content (${tc.function.arguments.length} chars)`);
         return new Response(JSON.stringify(json), {
           status: resp.status,
           statusText: resp.statusText,
           headers: resp.headers,
         });
       }
-      console.log(`[minimax-fetch] expected tool_call but got: finish=${json?.choices?.[0]?.finish_reason} content-len=${(json?.choices?.[0]?.message?.content ?? "").length}`);
-      console.log(`[minimax-fetch] raw response head: ${text.slice(0, 600)}`);
+      // No tool_call in the response despite tool_choice required — log so we
+      // can debug. Common causes: provider safety filter, malformed schema.
+      console.warn(`[minimax-fetch] expected tool_call missing: finish=${json?.choices?.[0]?.finish_reason}`);
     } catch (err) {
-      console.log(`[minimax-fetch] response parse failed: ${err}`);
+      console.warn(`[minimax-fetch] response parse failed: ${err}`);
     }
   }
 
