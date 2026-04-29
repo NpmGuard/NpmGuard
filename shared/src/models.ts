@@ -74,7 +74,9 @@ export type Severity = z.infer<typeof Severity>;
 
 export const FocusArea = z.object({
   file: z.string(),
-  lines: z.string().nullable().default(null),
+  // .optional() (not .nullable) so the JSON Schema sent to LLMs is `type: "string"`
+  // instead of `type: ["string","null"]` — MiniMax rejects union types.
+  lines: z.string().optional(),
   reason: z.string(),
 });
 export type FocusArea = z.infer<typeof FocusArea>;
@@ -90,7 +92,8 @@ export const FileVerdict = z.object({
   file: z.string(),
   capabilities: z.array(z.string()).default([]),
   suspiciousPatterns: z.array(z.string()).default([]),
-  suspiciousLines: z.string().nullable().default(null),
+  // .optional() (not .nullable) — MiniMax rejects union types like ["string","null"].
+  suspiciousLines: z.string().optional(),
   summary: z.string(),
   riskContribution: z.number().int().min(0).max(10),
 });
