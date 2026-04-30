@@ -18,3 +18,12 @@ sandbox/test-fixtures/test-pkg-bench-dd-*/
 
 # Bench runner manifest is regenerable from bench/dataset/datadog/corpus.json.
 bench/dataset/manifest.json
+
+# Audit reports — generated outputs, persisted per-environment (prod droplet has
+# its own data/ dir). Don't commit local test runs; they conflict with prod.
+data/reports/
+
+# Sandbox runtime deps installed at bench time.
+sandbox/package.json
+sandbox/package-lock.json
+sandbox/node_modules/

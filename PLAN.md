@@ -29,7 +29,13 @@ up in 60 seconds.
 
 ### 1. Run the full Datadog benchmark (1 night of compute)
 
-50 fixtures × 3 runs = 150 audits, ~12-17h serial, ~$10-20 OpenRouter.
+50 fixtures × 1 run = 50 audits, ~4-6h serial, ~$3-7 OpenRouter. We're
+intentionally doing a single run for now — the detection algo is still
+going to iterate (prompts, tool budgets, sandbox checks), so paying 3×
+compute to lock in numbers that will move next week is wasteful. Bump
+back to `--runs 3` once the algo is frozen for a publishable v1 number
+with stable Wilson CI.
+
 Procedure in `bench/README.md` and `~/.claude/projects/.../memory/bench-runbook.md`:
 
 ```bash
@@ -50,11 +56,11 @@ CRE_KEY=$(grep '^NPMGUARD_CRE_API_KEY=' /root/NpmGuard/engine/.env | cut -d= -f2
 nohup npm run -w @npmguard/bench run -- \
   --api http://localhost:8000 \
   --api-key "$CRE_KEY" \
-  --runs 3 \
+  --runs 1 \
   > /tmp/bench-run.log 2>&1 &
 echo $! > /tmp/bench-run.pid
 
-# 12-17h later: analyze
+# 4-6h later: analyze
 RESULTS=$(ls -t /root/NpmGuard/bench/results/*.json | head -1)
 npm run -w @npmguard/bench analyze -- --results "$RESULTS"
 cat "${RESULTS%.json}-summary.md"
@@ -145,7 +151,7 @@ side-by-side detection table. Free comparative marketing.
 - **Engine logs go to `/var/log/npmguard.log`**, not `journalctl -u
   npmguard.service`. The systemd unit has `StandardOutput=append:`.
 - **Bench audits run on the prod engine** (port 8000) via the CRE
-  fire-and-forget bypass + the runner's poll loop. During a 12-17h bench
+  fire-and-forget bypass + the runner's poll loop. During a 4-6h bench
   run, real users' /audit calls queue behind the bench. Acceptable while
   user volume is low; if it grows, spin up a 2nd engine instance.
 
