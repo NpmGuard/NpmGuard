@@ -249,6 +249,14 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       emit,
     );
     trace.push(testGenLog);
+    log.writeLog("test_gen.json", proofs.map((p) => ({
+      capability: p.capability,
+      fileLine: p.fileLine,
+      problem: p.problem,
+      kind: p.kind,
+      testFile: p.testFile,
+      testCode: p.testCode,
+    })));
 
     // Phase 2: Proof verification (with retry loop — up to 3 attempts per failed test)
     const { result: verifiedProofs, log: verifyLog } = await timedPhase(
@@ -264,6 +272,15 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       emit,
     );
     trace.push(verifyLog);
+    log.writeLog("verify.json", verifiedProofs.map((p) => ({
+      capability: p.capability,
+      fileLine: p.fileLine,
+      problem: p.problem,
+      kind: p.kind,
+      testFile: p.testFile,
+      testCode: p.testCode,
+      verifyError: p.verifyError,
+    })));
 
     const verdict = verifiedProofs.length > 0 ? "DANGEROUS" : "SAFE";
     console.log(`[pipeline] verdict: ${verdict} (${verifiedProofs.length} proofs)`);
