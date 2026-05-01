@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, unlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { generateText } from "ai";
@@ -15,9 +14,6 @@ import {
 } from "./test-gen-prompt.js";
 import { readPackageSource, readExampleTest } from "./test-gen-helpers.js";
 
-const EXPLOITS_DIR = resolve(import.meta.dirname, "../../../sandbox/exploits");
-const SANDBOX_DIR = resolve(import.meta.dirname, "../../../sandbox");
-
 const MAX_RETRIES = 3;
 
 // ---------------------------------------------------------------------------
@@ -26,118 +22,6 @@ const MAX_RETRIES = 3;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// ---------------------------------------------------------------------------
-// Vitest validation — run the generated test on the host to catch runtime errors
-// ---------------------------------------------------------------------------
-
-interface ValidationResult {
-  valid: boolean;
-  errorType: "runtime" | "assertion" | "timeout" | null;
-  errorMessage: string | null;
-}
-
-const RUNTIME_ERROR_PATTERNS = [
-  "TypeError",
-  "ReferenceError",
-  "is not a function",
-  "is not defined",
-  "Cannot find module",
-  "Cannot read propert",
-  "is not a constructor",
-  "SyntaxError",
-];
-
-function classifyFailureMessages(messages: string[]): "runtime" | "assertion" {
-  const joined = messages.join("\n");
-  for (const pattern of RUNTIME_ERROR_PATTERNS) {
-    if (joined.includes(pattern)) return "runtime";
-  }
-  return "assertion";
-}
-
-function validateTestWithVitest(testCode: string): ValidationResult {
-  const tmpName = `_validation_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.test.ts`;
-  const tmpPath = join(EXPLOITS_DIR, tmpName);
-
-  try {
-    writeFileSync(tmpPath, testCode, "utf-8");
-
-    let stdout = "";
-    let stderr = "";
-    let exitCode = 0;
-
-    try {
-      stdout = execFileSync(
-        "npx",
-        ["vitest", "run", tmpPath, "--reporter=json", "--config", join(SANDBOX_DIR, "vitest.config.js")],
-        { cwd: SANDBOX_DIR, timeout: 25_000, encoding: "utf-8", stdio: "pipe" },
-      );
-    } catch (err: unknown) {
-      const e = err as { stdout?: string; stderr?: string; status?: number; killed?: boolean };
-      stdout = e.stdout ?? "";
-      stderr = e.stderr ?? "";
-      exitCode = e.status ?? 1;
-
-      if (e.killed) {
-        return { valid: false, errorType: "timeout", errorMessage: "Test execution timed out (25s)" };
-      }
-    }
-
-    // Parse vitest JSON output
-    const jsonStart = stdout.lastIndexOf('{"numTotalTestSuites"');
-    if (jsonStart === -1) {
-      // Could not parse — check stderr for compilation errors
-      const combined = stdout + stderr;
-      const isRuntime = RUNTIME_ERROR_PATTERNS.some((p) => combined.includes(p));
-      if (isRuntime) {
-        const errorLine = combined.split("\n").find((l) => RUNTIME_ERROR_PATTERNS.some((p) => l.includes(p))) ?? combined.slice(0, 300);
-        return { valid: false, errorType: "runtime", errorMessage: errorLine.slice(0, 500) };
-      }
-      return { valid: false, errorType: "runtime", errorMessage: `Could not parse vitest output. stderr: ${stderr.slice(0, 300)}` };
-    }
-
-    let parsed: {
-      numPassedTests: number;
-      numFailedTests: number;
-      testResults?: Array<{
-        assertionResults?: Array<{
-          status: string;
-          failureMessages?: string[];
-        }>;
-      }>;
-    };
-
-    try {
-      parsed = JSON.parse(stdout.slice(jsonStart));
-    } catch {
-      return { valid: false, errorType: "runtime", errorMessage: "Failed to parse vitest JSON" };
-    }
-
-    // All tests passed
-    if (parsed.numFailedTests === 0 && parsed.numPassedTests > 0) {
-      return { valid: true, errorType: null, errorMessage: null };
-    }
-
-    // Some tests failed — classify the failures
-    const allFailureMessages = parsed.testResults
-      ?.flatMap((r) => r.assertionResults ?? [])
-      ?.filter((a) => a.status === "failed")
-      ?.flatMap((a) => a.failureMessages ?? []) ?? [];
-
-    const errorType = classifyFailureMessages(allFailureMessages);
-    const errorMessage = allFailureMessages.join("\n").slice(0, 500);
-
-    if (errorType === "assertion") {
-      // Assertion failure = structurally correct test, keep it
-      return { valid: true, errorType: "assertion", errorMessage };
-    }
-
-    return { valid: false, errorType: "runtime", errorMessage };
-  } finally {
-    try { unlinkSync(tmpPath); } catch { /* best effort */ }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,33 +74,13 @@ async function generateTestDirect(
         continue;
       }
 
-      // For test fixtures, validate on the host; for real packages skip
-      // (the Docker verify phase with retry handles real packages)
-      const isTestFixture = packageName.startsWith("test-pkg-");
-      if (isTestFixture) {
-        console.log(`[test-gen] attempt ${attempt + 1}: validating with vitest (test fixture)...`);
-        const validation = validateTestWithVitest(code);
-
-        if (validation.valid) {
-          if (validation.errorType === "assertion") {
-            console.log(`[test-gen] attempt ${attempt + 1}: VALID (assertion failure — structurally correct, keeping)`);
-          } else {
-            console.log(`[test-gen] attempt ${attempt + 1}: VALID (tests passed)`);
-          }
-          return code;
-        }
-
-        lastError = validation.errorMessage?.slice(0, 500) ?? "Unknown runtime error";
-        console.log(`[test-gen] attempt ${attempt + 1}: ${validation.errorType} error, retrying — ${lastError.slice(0, 200)}`);
-
-        if (attempt < MAX_RETRIES - 1) {
-          await sleep(1000);
-        }
-      } else {
-        // Real npm package — accept the test, Docker verify will validate it
-        console.log(`[test-gen] attempt ${attempt + 1}: ACCEPTED (real package, Docker verify will validate)`);
-        return code;
-      }
+      // CRITICAL: do NOT run vitest on the host to validate the test. The test
+      // calls `runPackage(...)` which does `require(<entryPath>)` on the package,
+      // EXECUTING its top-level code outside Docker — including any malware. This
+      // is how the Shai-Hulud worm escaped on 2026-04-30, harvesting host creds.
+      // Docker verify phase (with retry) is the single execution path.
+      console.log(`[test-gen] attempt ${attempt + 1}: ACCEPTED (Docker verify will validate)`);
+      return code;
     } catch (err) {
       console.error(`[test-gen] attempt ${attempt + 1}: LLM call failed for ${finding.fileLine}: ${err}`);
       lastError = `LLM call failed: ${err instanceof Error ? err.message : String(err)}`;
