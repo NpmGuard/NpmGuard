@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { generateText } from "ai";
@@ -70,17 +70,14 @@ function parseVitestOutput(stdout: string): VitestResult | null {
 // ---------------------------------------------------------------------------
 
 function isValidSyntax(code: string): boolean {
-  const tmpFile = join(tmpdir(), `npmguard-syntax-check-${Date.now()}.ts`);
-  try {
-    writeFileSync(tmpFile, code, "utf-8");
-    execFileSync("npx", ["tsx", "--eval", `import(${JSON.stringify(tmpFile)})`], { timeout: 10_000, stdio: "pipe" });
-    return true;
-  } catch {
-    // Fall back to basic structural checks — the Docker verify phase will catch real errors
-    return code.includes("describe(") && (code.includes("runPackage(") || code.includes("runInChildProcess("));
-  } finally {
-    try { unlinkSync(tmpFile); } catch { /* ignore */ }
-  }
+  // CRITICAL: never use `tsx --eval import(...)` here — `import()` is a dynamic
+  // import that EXECUTES module top-level code on the host. LLM-generated tests
+  // can include `import "<malware-path>"` which would run the malware OUTSIDE
+  // the Docker sandbox, with full host credentials. (Confirmed exfil incident:
+  // Shai-Hulud worm escaped via this path on 2026-04-30.)
+  //
+  // Structural checks only — the Docker verify phase catches real errors.
+  return code.includes("describe(") && (code.includes("runPackage(") || code.includes("runInChildProcess("));
 }
 
 async function regenerateTestWithError(

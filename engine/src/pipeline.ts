@@ -200,10 +200,12 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     }
 
     // Phase 1b: Investigation
+    // 15 min so MiniMax (slower, more thorough — typically 25-30 agent steps)
+    // can complete on heavily-obfuscated targets like Shai-Hulud worm samples.
     const { result: investigationResult, log: investigateLog } = await timedPhase(
       "investigation",
       () => investigate(resolved.path, inventory, triage, triageOutput.fileVerdicts, emit, log),
-      5 * 60_000 * timeoutScale,
+      15 * 60_000 * timeoutScale,
       {
         riskScore: triage.riskScore,
         focusAreas: triage.focusAreas,
