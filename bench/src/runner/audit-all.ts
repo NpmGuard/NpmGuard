@@ -52,7 +52,7 @@ function parseCli(): CliArgs {
       limit: { type: "string" },
       out: { type: "string" },
       "api-key": { type: "string" },
-      timeout: { type: "string", default: "1800000" }, // 30 min — Shai-Hulud worm fixtures with 9.9MB obfuscated code can exceed 15 min
+      timeout: { type: "string", default: "3600000" }, // 60 min — heavy fixtures (Shai-Hulud worm, 10MB+ obfuscated code) can take ~30-40 min total (triage 5 + investigation 15 + test-gen 5 + verify 8 + retries)
     },
     strict: true,
   });

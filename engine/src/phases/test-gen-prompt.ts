@@ -150,7 +150,27 @@ describe("test-pkg-dos-loop (colors.js pattern)", () => {
    - BAD: \`expect(exfilBody).toEqual({ env: { NPM_TOKEN: "..." }, files: [...] })\` — too brittle
 6. **Stub 3-5 sensitive env vars max**, not 20. The malware regex-matches \`token|secret|key|password|auth|credential\` so any one of these is enough proof. Less code = fewer brittle assertions.
 7. **One \`it()\` per test file with ONE main assertion**. Don't pile 5 expects — if any one is too strict, the whole test fails. Pick the most observable behavior (a network call, an fs read, a stubbed env var leaking) and assert on it loosely.
-8. **Wrap runPackage in try/catch** if the malware might throw (real samples sometimes do): \`try { await runPackage(...); } catch { /* fine, the spies recorded the calls before throwing */ }\`. Spies record calls regardless of subsequent errors.`;
+8. **Wrap runPackage in try/catch** if the malware might throw (real samples sometimes do): \`try { await runPackage(...); } catch { /* fine, the spies recorded the calls before throwing */ }\`. Spies record calls regardless of subsequent errors.
+9. **MULTI-STAGE PAYLOADS** (Shai-Hulud worm: lifecycle hook → installer → second stage). Don't try to chain through real installers — \`curl ... | bash\` is mocked, \`bun\` isn't installed, so stage 2 never runs. Test the FINAL STAGE DIRECTLY:
+   - If the finding evidence mentions a second-stage file (e.g. \`bun_environment.js\`, \`payload.js\`, \`obfuscated.js\`), call \`runPackage(pkg, "<second_stage>.js")\` directly.
+   - The second stage is plain Node-compatible JS — \`require()\` will execute its top-level code.
+   - Stub \`process.env\` (GITHUB_TOKEN, GITHUB_ACTIONS, AWS_ACCESS_KEY_ID, etc.) BEFORE runPackage so the malware's CI/cred check passes.
+   - Don't waste assertions on stage 1 (\`setup_bun.js\` etc.) — it's just a launcher. Assert on stage 2 behavior.
+10. **BROWSER-CONTEXT MALWARE** (crypto drainers, wallet stealers, DOM injectors). The malware's IIFE registers hooks on \`window\`/\`document\`/\`fetch\`. In Node these are undefined → hooks never fire → tests fail.
+    - Set up \`global.window\`, \`global.window.ethereum\`, \`global.document\` BEFORE runPackage.
+    - Spy on \`global.window.ethereum.request\` (or whatever surface the malware hooks).
+    - After runPackage, MANUALLY trigger a probe (e.g. \`global.window.ethereum.request({method: "eth_accounts"})\`) so the registered hook fires.
+    - Assert the spy was called.
+    - Skeleton:
+      \`\`\`
+      global.window = global.window || {};
+      global.window.ethereum = { isMetaMask: true, request: vi.fn(async () => ["0xVICTIM"]), on: () => {} };
+      global.ethereum = global.window.ethereum;
+      try { await runPackage(pkg, "index.js"); } catch {}
+      try { await global.window.ethereum.request({ method: "eth_accounts" }); } catch {}
+      await new Promise(r => setTimeout(r, 1000));
+      expect(global.window.ethereum.request).toHaveBeenCalled();
+      \`\`\``;
 
 /** Map capabilities to the most relevant example test patterns. */
 export const CAPABILITY_EXAMPLES: Record<string, string> = {
