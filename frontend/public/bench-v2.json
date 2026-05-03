@@ -1,0 +1,1121 @@
+{
+  "datasetVersion": "0.2.0-datadog",
+  "engineSha": "826a22cf5b0c0a9e541abf06cd2bee11024accd4",
+  "modelId": "unknown",
+  "sandboxImageDigest": null,
+  "runsPerMutation": 1,
+  "startedAt": "2026-05-02T20:33:14.445Z",
+  "completedAt": "2026-05-03T16:21:25.218Z",
+  "results": [
+    {
+      "fixtureName": "test-pkg-bench-dd-c-react-keycloak-context-v1.0.8",
+      "runs": [
+        {
+          "durationMs": 390280,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-backslash-v0.2.1",
+      "runs": [
+        {
+          "durationMs": 360218,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_STATIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-swc-plugin-component-annotate-v1.9.2",
+      "runs": [
+        {
+          "durationMs": 270215,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-itobuz-angular-v0.0.1",
+      "runs": [
+        {
+          "durationMs": 3602008,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-posthog-js-v1.297.3",
+      "runs": [
+        {
+          "durationMs": 3602292,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-create-hardhat3-app-v1.1.2",
+      "runs": [
+        {
+          "durationMs": 480324,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "OBFUSCATION",
+            "CREDENTIAL_THEFT",
+            "ENV_VARS",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-vant-v2.13.3",
+      "runs": [
+        {
+          "durationMs": 30031,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "STRUCTURAL"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-swc-plugin-component-annotate-v1.9.1",
+      "runs": [
+        {
+          "durationMs": 3602017,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-cordova-plugin-voxeet2-v1.0.24",
+      "runs": [
+        {
+          "durationMs": 420279,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-automation_model-v1.0.491",
+      "runs": [
+        {
+          "durationMs": 600403,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "NETWORK",
+            "EVAL",
+            "ENV_VARS"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_STATIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-capacitor-plugin-ihealth-v1.1.9",
+      "runs": [
+        {
+          "durationMs": 420776,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ember-headless-table-v2.1.6",
+      "runs": [
+        {
+          "durationMs": 3601997,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-airchief-v0.3.1",
+      "runs": [
+        {
+          "durationMs": 30015,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "STRUCTURAL"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-pm2-gelf-json-v1.0.4",
+      "runs": [
+        {
+          "durationMs": 360230,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-react-jam-icons-v1.0.2",
+      "runs": [
+        {
+          "durationMs": 3601907,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ngx-trend-v8.0.1",
+      "runs": [
+        {
+          "durationMs": 630346,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-discord-bot-server-v0.1.2",
+      "runs": [
+        {
+          "durationMs": 720449,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "PROCESS_SPAWN",
+            "OBFUSCATION",
+            "CREDENTIAL_THEFT",
+            "FILESYSTEM",
+            "ENV_VARS"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK",
+            "PROCESS_SPAWN"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-is-v5.0.0",
+      "runs": [
+        {
+          "durationMs": 840484,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "FILESYSTEM",
+            "NETWORK",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "FILESYSTEM"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-mcp-use-v1.4.2",
+      "runs": [
+        {
+          "durationMs": 3602043,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ember-velcro-v2.2.1",
+      "runs": [
+        {
+          "durationMs": 540326,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-zapier-platform-cli-v18.0.3",
+      "runs": [
+        {
+          "durationMs": 3602019,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-zapier-platform-core-v18.0.3",
+      "runs": [
+        {
+          "durationMs": 3602044,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-calc-loan-interest-v1.0.4",
+      "runs": [
+        {
+          "durationMs": 3602010,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-kill-port-v2.0.3",
+      "runs": [
+        {
+          "durationMs": 810492,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "OBFUSCATION",
+            "CREDENTIAL_THEFT",
+            "FILESYSTEM",
+            "ENV_VARS",
+            "PROCESS_SPAWN"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK",
+            "CREDENTIAL_THEFT"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ngx-bootstrap-v20.0.6",
+      "runs": [
+        {
+          "durationMs": 3602056,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-iceberg-api-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 420238,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION",
+            "PROCESS_SPAWN"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_STATIC"
+          ],
+          "verifiedCapabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-erwin-lapis87-miaww-v3.2.1",
+      "runs": [
+        {
+          "durationMs": 480279,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "OBFUSCATION"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-item-card-config-v6.5.8",
+      "runs": [
+        {
+          "durationMs": 180097,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-flat_wren_z3n-v1.1.1",
+      "runs": [
+        {
+          "durationMs": 570298,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "CREDENTIAL_THEFT"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-badgekit-api-client-v9.9.0",
+      "runs": [
+        {
+          "durationMs": 420215,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "EVAL"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-parse-session-v2.4.1",
+      "runs": [
+        {
+          "durationMs": 660382,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-bc-nuxt-vue-starter-v1.0.1",
+      "runs": [
+        {
+          "durationMs": 240146,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-pcl-build-docroot-v99.9.9",
+      "runs": [
+        {
+          "durationMs": 120071,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "ENV_VARS"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_STATIC"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK",
+            "ENV_VARS"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-nina-botok22-breki-v4.3.3",
+      "runs": [
+        {
+          "durationMs": 690360,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "EVAL"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-pbr-client-v99.99.2",
+      "runs": [
+        {
+          "durationMs": 390207,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-perfect_toucan_z3n-v3.1.1",
+      "runs": [
+        {
+          "durationMs": 570306,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_STATIC"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-fantastic_goose_z3n-v2.2.1",
+      "runs": [
+        {
+          "durationMs": 390228,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_STATIC"
+          ],
+          "verifiedCapabilities": [
+            "FILESYSTEM"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-botframework-webchat-react-valibot-v9.9.9",
+      "runs": [
+        {
+          "durationMs": 30023,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "STRUCTURAL"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-shopify-css-import-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 120048,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "ENV_VARS"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK",
+            "ENV_VARS"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-ultimatepower-v10.9.1",
+      "runs": [
+        {
+          "durationMs": 3601900,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-node-calculator-feea-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 3601959,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-tsign-uix-v17.1.0",
+      "runs": [
+        {
+          "durationMs": 210112,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "CREDENTIAL_THEFT",
+            "LIFECYCLE_HOOK",
+            "ENV_VARS",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK",
+            "CREDENTIAL_THEFT",
+            "LIFECYCLE_HOOK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-guppy-dev-v2.0.0",
+      "runs": [
+        {
+          "durationMs": 3601920,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-zul-lapis79-riris-v4.2.2",
+      "runs": [
+        {
+          "durationMs": 570312,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-frequent_galliform_z3n-v3.3.2",
+      "runs": [
+        {
+          "durationMs": 3601913,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-open-banking-reference-application-australia-region-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 150089,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "FILESYSTEM",
+            "CREDENTIAL_THEFT",
+            "NETWORK",
+            "LIFECYCLE_HOOK",
+            "ENV_VARS",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "FILESYSTEM",
+            "CREDENTIAL_THEFT"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-verbal_bird_z3n-v1.1.4",
+      "runs": [
+        {
+          "durationMs": 510281,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_STATIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-gh-node-module-generatebom-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 3601937,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-node-tailwind-v0.0.1",
+      "runs": [
+        {
+          "durationMs": 3601978,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 3600000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-megaexploitvorkemol1-v0.30.1",
+      "runs": [
+        {
+          "durationMs": 30021,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "STRUCTURAL"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    }
+  ]
+}
