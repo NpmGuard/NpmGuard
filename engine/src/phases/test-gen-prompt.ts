@@ -140,6 +140,7 @@ describe("test-pkg-dos-loop (colors.js pattern)", () => {
 \`\`\`
 
 ## Rules
+0. **Declare every module you use at the TOP.** \`ReferenceError: fs is not defined\` is the single most common test failure: the test references \`fs.readFileSync\` but never \`require()\`d \`fs\`. Before you finish, scan your code: every identifier in \`fs.\`, \`path.\`, \`os.\`, \`child_process.\`, \`crypto.\`, \`http.\`, \`https.\` MUST have a matching \`const xxx = require("xxx")\` line at the top. Same for \`http\` and \`HttpResponse\` from \`msw\`, \`server\` from \`../harness/server\`, \`runPackage\` from \`../harness/sandbox-runner\`.
 1. Output ONLY TypeScript code. No markdown fences, no explanation, no prose.
 2. Always fall back to the original when mocking fs/crypto/etc:
    \`const orig = fs.readFileSync; vi.spyOn(fs, "readFileSync").mockImplementation((p, ...a) => { if (...) return fake; return orig(p, ...a); });\`
@@ -161,6 +162,7 @@ describe("test-pkg-dos-loop (colors.js pattern)", () => {
    - The second stage is plain Node-compatible JS — \`require()\` will execute its top-level code.
    - Stub \`process.env\` (GITHUB_TOKEN, GITHUB_ACTIONS, AWS_ACCESS_KEY_ID, etc.) BEFORE runPackage so the malware's CI/cred check passes.
    - Don't waste assertions on stage 1 (\`setup_bun.js\` etc.) — it's just a launcher. Assert on stage 2 behavior.
+   - **CRITICAL — match the entry point to the assertion.** If you call \`runPackage(pkg, "setup_bun.js")\` (stage 1), do NOT assert on \`fs.readFileSync\` of \`bun_environment.js\` (stage 2 file) — stage 2 hasn't run, so the read never happens. Either: (a) call the stage-2 entry directly, or (b) assert on stage-1 observables (network to bun.sh, spawn of bun). Pick one stage and stay in it.
 10. **BROWSER-CONTEXT MALWARE** (crypto drainers, wallet stealers, DOM injectors). The malware's IIFE registers hooks on \`window\`/\`document\`/\`fetch\`. In Node these are undefined → hooks never fire → tests fail.
     - Set up \`global.window\`, \`global.window.ethereum\`, \`global.document\` BEFORE runPackage.
     - Spy on \`global.window.ethereum.request\` (or whatever surface the malware hooks).

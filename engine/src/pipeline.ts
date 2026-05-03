@@ -262,7 +262,9 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const { result: verifiedProofs, log: verifyLog } = await timedPhase(
       "verify",
       () => verifyProofs(proofs, resolved.path, emit, investigationResult.findings),
-      8 * 60_000 * timeoutScale,
+      // 15 min so 3 retries × N findings can complete. v2 logs showed we hit
+      // 480000ms with 4 findings + 3 retries each (a 2-stage worm).
+      15 * 60_000 * timeoutScale,
       { proofCount: proofs.length, withTests: proofs.filter((x) => x.testFile).length },
       (p) => ({
         verifiedCount: p.length,
