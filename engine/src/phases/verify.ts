@@ -433,12 +433,21 @@ export async function verifyProofs(
           break;
         }
 
+        // Preserve last-attempt failure message so audit-logs explain WHY a
+        // test ended UNCONFIRMED. Without this we operate blind when iterating
+        // on the test-gen prompt.
+        const errorByIndex = new Map(failedTests.map((f) => [f.proofIndex, f.errorMsg]));
+
         if (attempt >= MAX_RETRY_ATTEMPTS - 1) {
           console.log(`[verify] max retries reached, marking remaining as TEST_UNCONFIRMED`);
           currentProofs = currentProofs.map((proof, i) => {
             if (proof.testFile && proof.kind !== "TEST_CONFIRMED") {
               emit?.("verify_test_result", { proofIndex: i, testFile: `finding-${i}.test.ts`, status: "unconfirmed" });
-              return { ...proof, kind: "TEST_UNCONFIRMED" as const };
+              return {
+                ...proof,
+                kind: "TEST_UNCONFIRMED" as const,
+                verifyError: errorByIndex.get(i) ?? proof.verifyError ?? "max_retries_reached",
+              };
             }
             return proof;
           });
@@ -451,7 +460,11 @@ export async function verifyProofs(
           currentProofs = currentProofs.map((proof, i) => {
             if (proof.testFile && proof.kind !== "TEST_CONFIRMED") {
               emit?.("verify_test_result", { proofIndex: i, testFile: `finding-${i}.test.ts`, status: "unconfirmed" });
-              return { ...proof, kind: "TEST_UNCONFIRMED" as const };
+              return {
+                ...proof,
+                kind: "TEST_UNCONFIRMED" as const,
+                verifyError: errorByIndex.get(i) ?? "no_findings_for_retry",
+              };
             }
             return proof;
           });

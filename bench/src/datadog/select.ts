@@ -29,10 +29,11 @@ const DATASET_REPO = "malicious-software-packages-dataset";
 const DATASET_BRANCH = "main";
 const DATASET_GIT_URL = `https://github.com/${DATASET_OWNER}/${DATASET_REPO}.git`;
 
-/** Sampling targets — kept small for v1 so the first run is affordable. */
+/** Sampling targets — 50 per class = 100 fixtures total. v1 used 25 each
+ *  but 50 gives stronger statistical signal on TEST_CONFIRMED rate. */
 const SAMPLES_PER_CLASS: Record<DatadogClass, number> = {
-  compromised_lib: 25,
-  malicious_intent: 25,
+  compromised_lib: 50,
+  malicious_intent: 50,
 };
 
 const RNG_SEED = 42;

@@ -52,7 +52,7 @@ function parseCli(): CliArgs {
       limit: { type: "string" },
       out: { type: "string" },
       "api-key": { type: "string" },
-      timeout: { type: "string", default: "3600000" }, // 60 min — heavy fixtures (Shai-Hulud worm, 10MB+ obfuscated code) can take ~30-40 min total (triage 5 + investigation 15 + test-gen 5 + verify 8 + retries)
+      timeout: { type: "string", default: "5400000" }, // 90 min — v2 hit 60min ceiling on 16/50 fixtures. Pipeline budget: triage 5 + investigation 15 + test-gen 5 + verify 15 + retries with timeoutScale.
     },
     strict: true,
   });
