@@ -109,11 +109,14 @@ export async function generateTests(
   const packageSource = readPackageSource(packagePath);
   const testDir = mkdtempSync(join(tmpdir(), "npmguard-tests-"));
 
-  // Limit to top 3 findings to stay within rate limits and time budget.
-  // Prefer CONFIRMED findings and deduplicate by capability.
+  // Limit to top 5 findings to stay within rate limits and time budget.
+  // 5 (was 3) lets multi-stage worms get tests on BOTH stages — e.g. Shai-Hulud
+  // hits LIFECYCLE_HOOK/PROCESS_SPAWN/NETWORK on stage 1 (setup_bun.js) AND
+  // CREDENTIAL_THEFT/ENV_VARS on stage 2 (bun_environment.js). Cap of 3 used to
+  // dedup stage 2 out entirely.
   const seen = new Set<string>();
   const selectedFindings: Array<{ index: number; finding: Finding }> = [];
-  for (let i = 0; i < investigation.findings.length && selectedFindings.length < 3; i++) {
+  for (let i = 0; i < investigation.findings.length && selectedFindings.length < 5; i++) {
     const finding = investigation.findings[i]!;
     const cap = finding.capability;
     if (seen.has(cap)) continue; // skip duplicate capabilities

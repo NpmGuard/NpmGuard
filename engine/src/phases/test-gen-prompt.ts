@@ -150,7 +150,12 @@ describe("test-pkg-dos-loop (colors.js pattern)", () => {
    - BAD: \`expect(exfilBody).toEqual({ env: { NPM_TOKEN: "..." }, files: [...] })\` — too brittle
 6. **Stub 3-5 sensitive env vars max**, not 20. The malware regex-matches \`token|secret|key|password|auth|credential\` so any one of these is enough proof. Less code = fewer brittle assertions.
 7. **One \`it()\` per test file with ONE main assertion**. Don't pile 5 expects — if any one is too strict, the whole test fails. Pick the most observable behavior (a network call, an fs read, a stubbed env var leaking) and assert on it loosely.
+   - **Especially do NOT chain assertions across malware stages.** \`expect(downloadHappened && spawnHappened)\` is two assertions: if the download mock throws, spawn never happens, the test fails on a strict check that wasn't the point. Pick ONE: download OR spawn, not both.
 8. **Wrap runPackage in try/catch** if the malware might throw (real samples sometimes do): \`try { await runPackage(...); } catch { /* fine, the spies recorded the calls before throwing */ }\`. Spies record calls regardless of subsequent errors.
+8b. **NEVER \`throw\` from inside mock implementations.** Return safe defaults (\`Buffer.from("")\`, \`undefined\`, fake stdout) so the malware proceeds through ALL stages. If your mock throws (e.g. \`if (cmd.includes("bun.sh")) throw new Error("blocked")\`), the malware halts at that point and any later spies (spawn, fs.write, exfil) never see the calls you wanted to assert on.
+   - GOOD: \`vi.spyOn(child_process, "execSync").mockImplementation((cmd) => { capturedCmds.push(cmd); return Buffer.from(""); })\`
+   - BAD: \`vi.spyOn(...).mockImplementation((cmd) => { if (cmd.includes("bun.sh")) throw new Error("blocked"); ... })\` — kills downstream observations
+   - For \`existsSync\`/\`statSync\` mocks: return \`true\` for paths the malware checks for (the bun binary, the second-stage payload), so it doesn't bail.
 9. **MULTI-STAGE PAYLOADS** (Shai-Hulud worm: lifecycle hook → installer → second stage). Don't try to chain through real installers — \`curl ... | bash\` is mocked, \`bun\` isn't installed, so stage 2 never runs. Test the FINAL STAGE DIRECTLY:
    - If the finding evidence mentions a second-stage file (e.g. \`bun_environment.js\`, \`payload.js\`, \`obfuscated.js\`), call \`runPackage(pkg, "<second_stage>.js")\` directly.
    - The second stage is plain Node-compatible JS — \`require()\` will execute its top-level code.
