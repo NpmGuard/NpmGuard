@@ -7,6 +7,7 @@ import { extractIntent } from "./phases/intent-extraction.js";
 import { runTriage, type FileSummary } from "./phases/triage.js";
 import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { deriveGraphVerdict } from "./orchestrator/verdict.js";
+import { correlateAfterInvestigation, correlateAfterVerify } from "./orchestrator/correlate.js";
 import { investigate } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
@@ -364,7 +365,14 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     trace.push(investigateLog);
     log.writeLog("investigation.json", investigationResult);
 
-    // Phase 1c: Test generation
+    // Correlate investigation findings → hypothesis graph transitions
+    const invCorrelation = correlateAfterInvestigation(graph, investigationResult);
+    log.writeLog("correlation-investigate.json", invCorrelation);
+    console.log(
+      `[pipeline] investigation→graph: ${invCorrelation.matched.length} matched, ${invCorrelation.unmatched.length} unmatched findings`,
+    );
+
+    // Phase 1d: Test generation
     const { result: proofs, log: testGenLog } = await timedPhase(
       "test-gen",
       () => generateTests(investigationResult, resolved.path),
@@ -393,15 +401,27 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     );
     trace.push(verifyLog);
 
-    const verdict = verifiedProofs.length > 0 ? "DANGEROUS" : "SAFE";
-    console.log(`[pipeline] verdict: ${verdict} (${verifiedProofs.length} proofs)`);
-
-    // Graph-derived verdict is logged for observability; it will replace the
-    // 2-state AuditReport.verdict once worker dispatch lands and the graph
-    // actually contains terminal states (currently every node stays OPEN).
-    const graphVerdict = deriveGraphVerdict(graph);
+    // Correlate verified proofs → hypothesis graph terminal transitions
+    const verifyCorrelation = correlateAfterVerify(
+      graph,
+      verifiedProofs,
+      investigationResult.findings,
+    );
+    log.writeLog("correlation-verify.json", verifyCorrelation);
     console.log(
-      `[pipeline] graph verdict: ${graphVerdict.verdict} — ${graphVerdict.rationale}`,
+      `[pipeline] verify→graph: ${verifyCorrelation.confirmed.length} confirmed, ${verifyCorrelation.inconclusive.length} inconclusive`,
+    );
+
+    // Persist final graph state
+    log.writeLog("graph-final.json", graph.serialize());
+
+    // Graph-derived verdict is now authoritative. DANGEROUS requires at
+    // least one CONFIRMED hypothesis with evidence. SUSPECT / UNKNOWN /
+    // SAFE map to the 2-state SAFE|DANGEROUS for the AuditReport.
+    const graphVerdict = deriveGraphVerdict(graph);
+    const verdict = graphVerdict.verdict === "DANGEROUS" ? "DANGEROUS" : "SAFE";
+    console.log(
+      `[pipeline] graph verdict: ${graphVerdict.verdict} → report verdict: ${verdict} — ${graphVerdict.rationale}`,
     );
     log.writeLog("graph-verdict.json", graphVerdict);
     emit?.("graph_verdict", { ...graphVerdict });
