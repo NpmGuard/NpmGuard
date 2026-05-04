@@ -96,6 +96,24 @@ export function eventsContainDnsWithPayload(events: readonly Event[]): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Pick the best trigger target for this hypothesis. If any focusFile is a
+ * known install-time entry point (lifecycle hook target), use it — the
+ * malicious code runs at install, not at runtime require().
+ */
+export function pickTriggerTarget(
+  hypothesis: Hypothesis,
+  runtimeEntry: string,
+  installEntries: readonly string[],
+): { target: string; kind: "entrypoint" | "lifecycle" } {
+  for (const focus of hypothesis.focusFiles) {
+    if (installEntries.includes(focus)) {
+      return { target: focus, kind: "entrypoint" };
+    }
+  }
+  return { target: runtimeEntry, kind: "entrypoint" };
+}
+
+/**
  * Build an experiment strategy for the given claim kind. Uses the hypothesis's
  * focusFiles to select the right trigger target (main entry point or lifecycle
  * hook). Returns null for claim kinds with no automated experiment yet.
@@ -104,12 +122,14 @@ export function strategyForClaim(
   claim: ClaimKind,
   hypothesis: Hypothesis,
   entryTarget: string,
+  installEntries: readonly string[] = [],
 ): ExperimentStrategy | null {
+  const { target, kind } = pickTriggerTarget(hypothesis, entryTarget, installEntries);
   switch (claim) {
     case "env_exfil":
     case "cred_theft":
       return {
-        trigger: { kind: "entrypoint", target: entryTarget, argv: [], stdin: null },
+        trigger: { kind, target, argv: [], stdin: null },
         setup: [
           setEnv({
             NPM_TOKEN: PLANTED_TOKEN,
@@ -138,7 +158,7 @@ export function strategyForClaim(
 
     case "binary_drop":
       return {
-        trigger: { kind: "entrypoint", target: entryTarget, argv: [], stdin: null },
+        trigger: { kind, target, argv: [], stdin: null },
         setup: [],
         observe: { kernel: true, network: true, node: true, fsDiff: true, inspector: false },
         budget: { wallMs: 20_000 },
@@ -155,7 +175,7 @@ export function strategyForClaim(
 
     case "dos_loop":
       return {
-        trigger: { kind: "entrypoint", target: entryTarget, argv: [], stdin: null },
+        trigger: { kind, target, argv: [], stdin: null },
         setup: [],
         observe: { kernel: true, node: true, fsDiff: false, network: false, inspector: false },
         budget: { wallMs: 5_000 },
@@ -169,7 +189,7 @@ export function strategyForClaim(
 
     case "obfuscation":
       return {
-        trigger: { kind: "entrypoint", target: entryTarget, argv: [], stdin: null },
+        trigger: { kind, target, argv: [], stdin: null },
         setup: [],
         observe: { kernel: false, network: false, node: true, fsDiff: false, inspector: true },
         budget: { wallMs: 15_000 },
@@ -183,7 +203,7 @@ export function strategyForClaim(
 
     case "persistence":
       return {
-        trigger: { kind: "entrypoint", target: entryTarget, argv: [], stdin: null },
+        trigger: { kind, target, argv: [], stdin: null },
         setup: [],
         observe: { kernel: true, node: true, fsDiff: true, network: false, inspector: false },
         budget: { wallMs: 15_000 },
@@ -197,7 +217,7 @@ export function strategyForClaim(
 
     case "dns_exfil":
       return {
-        trigger: { kind: "entrypoint", target: entryTarget, argv: [], stdin: null },
+        trigger: { kind, target, argv: [], stdin: null },
         setup: [
           setEnv({
             NPM_TOKEN: PLANTED_TOKEN,
@@ -244,8 +264,9 @@ export async function runExperiment(
   hypothesis: Hypothesis,
   packagePath: string,
   entryTarget: string,
+  installEntries: readonly string[] = [],
 ): Promise<ExperimentResult | null> {
-  const strategy = strategyForClaim(hypothesis.claim.kind, hypothesis, entryTarget);
+  const strategy = strategyForClaim(hypothesis.claim.kind, hypothesis, entryTarget, installEntries);
   if (!strategy) {
     console.log(
       `[experimenter] no strategy for claim ${hypothesis.claim.kind} (${hypothesis.hypId})`,

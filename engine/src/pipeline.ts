@@ -386,7 +386,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
       for (const h of inProgressHyps) {
         try {
-          const result = await runExperiment(h, resolved.path, mainEntry);
+          const result = await runExperiment(h, resolved.path, mainEntry, inventory.entryPoints.install);
           if (result) {
             if (result.confirmed) {
               graph.addEvidence(h.hypId, [result.evidenceRef]);

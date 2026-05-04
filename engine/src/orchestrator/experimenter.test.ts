@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Hypothesis, RunArtifact, Event } from "@npmguard/shared";
 import {
   strategyForClaim,
+  pickTriggerTarget,
   eventsContainDnsWithPayload,
 } from "./experimenter.js";
 
@@ -9,7 +10,7 @@ function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
   return {
     hypId: "h1",
     description: "test",
-    claim: overrides.claim ?? { kind: "env_exfil", gating: null },
+    claim: { kind: "env_exfil", gating: null },
     focusFiles: ["setup.js"],
     focusLines: [{ file: "setup.js", range: "1-10" }],
     severity: "high",
@@ -21,6 +22,7 @@ function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
     createdAt: "2026-04-24T12:00:00.000Z",
     resolvedAt: null,
     resolution: null,
+    ...overrides,
   };
 }
 
@@ -73,11 +75,32 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
 // strategyForClaim
 // ---------------------------------------------------------------------------
 
+describe("pickTriggerTarget", () => {
+  it("prefers a focusFile that is an install entry point", () => {
+    const h = hyp({ focusFiles: ["setup.js", "index.js"] });
+    const result = pickTriggerTarget(h, "index.js", ["setup.js"]);
+    expect(result.target).toBe("setup.js");
+  });
+
+  it("falls back to runtimeEntry when no focusFile is an install entry", () => {
+    const h = hyp({ focusFiles: ["lib/util.js"] });
+    const result = pickTriggerTarget(h, "index.js", ["setup.js"]);
+    expect(result.target).toBe("index.js");
+  });
+
+  it("falls back to runtimeEntry when installEntries is empty", () => {
+    const h = hyp({ focusFiles: ["setup.js"] });
+    const result = pickTriggerTarget(h, "index.js", []);
+    expect(result.target).toBe("index.js");
+  });
+});
+
 describe("strategyForClaim", () => {
-  it("returns a strategy for env_exfil", () => {
-    const s = strategyForClaim("env_exfil", hyp(), "index.js");
+  it("returns a strategy for env_exfil targeting lifecycle file when available", () => {
+    const h = hyp({ focusFiles: ["setup.js"] });
+    const s = strategyForClaim("env_exfil", h, "index.js", ["setup.js"]);
     expect(s).not.toBeNull();
-    expect(s!.trigger.kind).toBe("entrypoint");
+    expect(s!.trigger.target).toBe("setup.js");
     expect(s!.setup.length).toBeGreaterThan(0);
   });
 
