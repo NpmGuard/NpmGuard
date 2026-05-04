@@ -8,6 +8,7 @@ import { runTriage, type FileSummary } from "./phases/triage.js";
 import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { deriveGraphVerdict } from "./orchestrator/verdict.js";
 import { correlateAfterInvestigation, correlateAfterVerify } from "./orchestrator/correlate.js";
+import { runExperiment } from "./orchestrator/experimenter.js";
 import { investigate } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
@@ -372,7 +373,53 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       `[pipeline] investigation→graph: ${invCorrelation.matched.length} matched, ${invCorrelation.unmatched.length} unmatched findings`,
     );
 
-    // Phase 1d: Test generation
+    // Phase 1d: Experimenter — run dynamic observation for IN_PROGRESS hypotheses.
+    // This is the first use of Phase A's runUnderObservation in the live pipeline.
+    const inProgressHyps = graph.filterByState("IN_PROGRESS");
+    if (inProgressHyps.length > 0) {
+      const mainEntry = inventory.entryPoints.runtime[0] ?? "index.js";
+      console.log(
+        `[pipeline] experimenter: running dynamic observation for ${inProgressHyps.length} IN_PROGRESS hypothes${inProgressHyps.length === 1 ? "is" : "es"}`,
+      );
+      emit?.("phase_started", { phase: "experimenter" });
+      const expStart = Date.now();
+
+      for (const h of inProgressHyps) {
+        try {
+          const result = await runExperiment(h, resolved.path, mainEntry);
+          if (result) {
+            if (result.confirmed) {
+              graph.addEvidence(h.hypId, [result.evidenceRef]);
+              graph.transition(h.hypId, {
+                to: "CONFIRMED",
+                by: "worker:experimenter",
+                evidenceRefs: [result.evidenceRef],
+              });
+              emit?.("experiment_confirmed", { hypId: h.hypId, reason: result.reason });
+            }
+            log.writeLog(`experiment-${h.hypId}.json`, {
+              hypId: h.hypId,
+              confirmed: result.confirmed,
+              reason: result.reason,
+              runId: result.artifact.runId,
+              wallMs: result.artifact.wallMs,
+              eventCount: result.artifact.events.length,
+            });
+          }
+        } catch (err) {
+          console.error(
+            `[experimenter] ${h.hypId} failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
+      const expDuration = Date.now() - expStart;
+      console.log(`[pipeline] experimenter completed in ${expDuration}ms`);
+      emit?.("phase_completed", { phase: "experimenter", durationMs: expDuration });
+      trace.push({ phase: "experimenter", durationMs: expDuration, input: { hypotheses: inProgressHyps.length }, output: {} });
+    }
+
+    // Phase 1e: Test generation
     const { result: proofs, log: testGenLog } = await timedPhase(
       "test-gen",
       () => generateTests(investigationResult, resolved.path),
