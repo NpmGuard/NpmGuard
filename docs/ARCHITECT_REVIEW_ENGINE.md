@@ -1,8 +1,54 @@
 # Architecture Review: NpmGuard Engine (Audit Pipeline)
 
-**Date:** 2026-04-18
+**Date:** 2026-04-18 (direction agreed) · Updated 2026-05-05 (implementation status)
 **Scope:** The audit pipeline in `engine/` — how a package is turned into a verdict. Deliberately excludes the CLI, frontend, payment flow, and contracts except where they consume the pipeline's output.
-**Status:** Direction agreed. Supersedes the prior `architecture-v2.md`. Implementation pending.
+**Status:** Phase A + Phase B implemented and browser-tested on `main`. See implementation status below.
+
+---
+
+## Implementation Status (2026-05-05)
+
+### Pipeline today (`engine/src/pipeline.ts`)
+
+```
+resolve → inventory → intent-extraction → triage (→ Hypothesis[]) →
+  buildGraph (Jaro-Winkler dedup) →
+  investigate → correlateAfterInvestigation (→ IN_PROGRESS) →
+  experimenter (runUnderObservation per hypothesis → CONFIRMED) →
+  test-gen → verify → correlateAfterVerify (→ CONFIRMED/INCONCLUSIVE) →
+  deriveGraphVerdict (authoritative) → AuditReport
+```
+
+### What shipped
+
+| Component | Location | Status |
+|---|---|---|
+| Evidence schemas (Event, RunArtifact, EvidenceRef) | `shared/src/evidence.ts` | Done |
+| Hypothesis graph (DAG, state machine, persistence) | `shared/src/graph.ts`, `engine/src/graph/` | Done |
+| Canonical JSON + SHA-256 hashing + Merkle root | `engine/src/evidence/` | Done |
+| `runUnderObservation` atomic primitive | `engine/src/evidence/run-under-observation.ts` | Done |
+| L1 strace sensor | `engine/src/sensors/strace.ts` | Done |
+| L2 pcap sensor (tcpdump + tshark) | `engine/src/sensors/pcap.ts` | Done (flaky in CI) |
+| L3 fs-diff sensor | `engine/src/sensors/fs-diff.ts` | Done |
+| L4 V8 Inspector (scriptParsed) | `engine/src/sensors/v8-inspector.ts` | Done |
+| 6 manipulation primitives | `engine/src/manipulation/` | Done |
+| Sandbox Dockerfile (strace, tcpdump, libfaketime) | `sandbox/docker/Dockerfile.sandbox` | Done |
+| Intent extraction (Haiku/Sonnet over README+deps) | `engine/src/phases/intent-extraction.ts` | Done |
+| Triage → Hypothesis[] (no REDUCE, intent-aware MAP) | `engine/src/phases/triage.ts` | Done |
+| Graph builder with Jaro-Winkler dedup | `engine/src/orchestrator/build-graph.ts` | Done |
+| Finding→hypothesis correlation (2-stage) | `engine/src/orchestrator/correlate.ts` | Done |
+| Experimenter worker (6 claim strategies) | `engine/src/orchestrator/experimenter.ts` | Done |
+| Graph-derived verdict (SAFE/SUSPECT/DANGEROUS/UNKNOWN) | `engine/src/orchestrator/verdict.ts` | Done |
+| Model name auto-prefix for OpenRouter | `engine/src/llm.ts` | Done |
+| MiniMax structured-output compatibility | `engine/src/llm.ts` | Done |
+
+### What's next
+
+1. **4-state verdict in AuditReport** — internal `GraphVerdict` exists but AuditReport still uses 2-state SAFE|DANGEROUS. Needs shared schema → CLI → frontend cascade.
+2. **Frontend hypothesis graph UI** — SSE events fire (`hypothesis_emitted`, `experiment_confirmed`, `graph_verdict`) but frontend ignores them. Add timeline + state indicators.
+3. **Remaining experimenter strategies** — 6/13 claim kinds implemented. dom_inject, clipboard_hijack, telemetry, propagation, destructive, build_plugin_exfil return null.
+4. **Report bundle layout** — flat JSON → `report.json + artifacts/<hash>/` with content-addressed blobs.
+5. **Real npm package testing** — only verified on local test fixtures. Real packages exercise download + larger file counts.
 
 ---
 
