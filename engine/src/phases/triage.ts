@@ -263,10 +263,24 @@ export async function runTriage(
     }
   }
 
+  // Bounded concurrency. Unbounded Promise.all hammered MiniMax's Token
+  // Plan rate limit on packages with 100+ files (every triage call would
+  // 429 + retry × 3 → fail, surfacing as "polling timed out" in bench v3).
+  // 8 in flight fits the Token Plan; override via NPMGUARD_TRIAGE_CONCURRENCY
+  // for pay-as-you-go tiers.
   const total = sourceFiles.length;
+  const concurrency = Math.max(
+    1,
+    Number(process.env.NPMGUARD_TRIAGE_CONCURRENCY ?? 8),
+  );
   let completed = 0;
-  const perFile = await Promise.all(
-    sourceFiles.map(async (f) => {
+  const perFile: Array<{ file: string; response: FileAnalysisResponse }> = new Array(sourceFiles.length);
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= sourceFiles.length) return;
+      const f = sourceFiles[i]!;
       try {
         const { response, skipped, reason } = await analyzeFile({
           packagePath,
@@ -275,8 +289,6 @@ export async function runTriage(
           intent,
           emit,
         });
-        completed++;
-        emit?.("triage_progress", { current: completed, total, file: f.path });
         if (!skipped) {
           console.log(
             `[triage:map] ${f.path} → caps=[${response.capabilities.join(", ") || "none"}] hyps=${response.hypotheses.length}`,
@@ -284,13 +296,12 @@ export async function runTriage(
         } else {
           console.log(`[triage:map] ${f.path} → skipped (${reason})`);
         }
-        return { file: f.path, response };
+        perFile[i] = { file: f.path, response };
       } catch (err) {
-        completed++;
         console.error(
           `[triage:map] failed for ${f.path}: ${err instanceof Error ? err.message : err}`,
         );
-        return {
+        perFile[i] = {
           file: f.path,
           response: {
             summary: `Analysis failed: ${err instanceof Error ? err.message : "unknown error"}`,
@@ -306,8 +317,11 @@ export async function runTriage(
           } satisfies FileAnalysisResponse,
         };
       }
-    }),
-  );
+      completed++;
+      emit?.("triage_progress", { current: completed, total, file: f.path });
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, sourceFiles.length) }, () => worker()));
 
   const now = new Date().toISOString();
   const hypotheses: Hypothesis[] = [];
