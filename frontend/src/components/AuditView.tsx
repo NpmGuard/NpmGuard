@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuditStore } from "../stores/auditStore";
 import { ActivityFeed } from "./ActivityFeed";
 import { CodeViewer } from "./CodeViewer";
 import { VerdictBanner } from "./VerdictBanner";
 import { FileExplorer } from "./FileExplorer";
 import { ResultsPanel } from "./ResultsPanel";
+import { ReportView } from "./ReportView";
+import { trailFromPhases } from "../lib/report-helpers";
 
 function StatusBanners({
   reconnecting,
@@ -45,6 +47,40 @@ export function AuditView() {
   const error = useAuditStore((s) => s.error);
   const isRunning = useAuditStore((s) => s.isRunning);
   const reconnecting = useAuditStore((s) => s.reconnecting);
+  const auditId = useAuditStore((s) => s.auditId);
+  const packageName = useAuditStore((s) => s.packageName);
+  const findings = useAuditStore((s) => s.findings);
+  const proofs = useAuditStore((s) => s.proofs);
+  const capabilities = useAuditStore((s) => s.capabilities);
+  const phases = useAuditStore((s) => s.phases);
+  const runtimeEvidence = useAuditStore((s) => s.runtimeEvidence);
+
+  const fetchSource = useCallback(
+    async (path: string): Promise<string | null> => {
+      if (!auditId) return null;
+      try {
+        const res = await fetch(`/api/audit/${auditId}/file/${path}`);
+        if (!res.ok) return null;
+        return await res.text();
+      } catch {
+        return null;
+      }
+    },
+    [auditId],
+  );
+
+  const reportElement = (
+    <ReportView
+      packageName={packageName}
+      verdict={verdict}
+      capabilities={capabilities}
+      findings={findings}
+      proofs={proofs}
+      trail={trailFromPhases(phases)}
+      fetchSource={fetchSource}
+      runtimeEvidence={runtimeEvidence}
+    />
+  );
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -107,6 +143,11 @@ export function AuditView() {
     );
   }
 
+  // Once a verdict has been reached, the polished ReportView takes over the
+  // full content area (it has its own header — duplicating the thin VerdictBanner
+  // strip would feel redundant).
+  const showReport = showResults && verdict;
+
   return (
     <>
       <StatusBanners
@@ -115,43 +156,39 @@ export function AuditView() {
         isRunning={isRunning}
         verdict={verdict}
       />
-      <VerdictBanner />
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Activity Feed — left */}
-        <div
-          className="flex flex-col shrink-0 overflow-hidden"
-          style={{
-            width: "var(--sidebar-width)",
-            minWidth: "var(--sidebar-width)",
-            borderRight: "1px solid var(--border)",
-          }}
-        >
-          <ActivityFeed />
-        </div>
+      {!showReport && <VerdictBanner />}
+      {showReport ? (
+        <div className="flex flex-1 min-h-0 overflow-hidden">{reportElement}</div>
+      ) : (
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Activity Feed — left */}
+          <div
+            className="flex flex-col shrink-0 overflow-hidden"
+            style={{
+              width: "var(--sidebar-width)",
+              minWidth: "var(--sidebar-width)",
+              borderRight: "1px solid var(--border)",
+            }}
+          >
+            <ActivityFeed />
+          </div>
 
-        {/* Right panel — results or code viewer */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {showResults && verdict ? (
-            <ResultsPanel
-              onShowCode={() => setShowResults(false)}
-            />
-          ) : (
+          {/* Right panel — code viewer */}
+          <div className="flex-1 flex flex-col min-w-0">
             <CodeViewer
               onToggleFiles={() => setFileExplorerOpen((o) => !o)}
               filesOpen={fileExplorerOpen}
               onShowResults={verdict ? () => setShowResults(true) : undefined}
             />
-          )}
-        </div>
+          </div>
 
-        {/* File Explorer — right, collapsible */}
-        {!showResults && (
+          {/* File Explorer — right, collapsible */}
           <FileExplorer
             open={fileExplorerOpen}
             onClose={() => setFileExplorerOpen(false)}
           />
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
 }

@@ -1,0 +1,3347 @@
+ ▐▛███▜▌   Claude Code v2.1.116
+▝▜█████▛▘  Opus 4.7 (1M context) · Claude Max
+  ▘▘ ▝▝    ~/Projects/npmguard
+
+✻ Conversation compacted (ctrl+o for history)
+
+  ⎿  Read engine/src/phases/test-gen.ts (298 lines)
+  ⎿  Read engine/src/config.ts (106 lines)
+  ⎿  Read shared/src/evidence.ts (190 lines)
+  ⎿  Read shared/src/graph.ts (100 lines)
+  ⎿  Read shared/src/index.ts (5 lines)
+  ⎿  Plan file referenced (~/.claude/plans/let-s-make-a-plan-playful-lagoon.md)
+
+  Searched for 4 patterns, read 6 files (ctrl+o to expand)
+  ⎿  Loaded engine/CLAUDE.md
+
+  Searched for 2 patterns, read 2 files, listed 1 directory (ctrl+o to expand)
+
+● Starting with the shared metadata — adding keywords so intent extraction can
+  see them.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/models.ts)
+  ⎿  Added 1 line
+      185    description: z.string().nullable().default(null),
+      186    license: z.string().nullable().default(null),
+      187    homepage: z.string().nullable().default(null),
+      188 +  keywords: z.array(z.string()).default([]),                  
+      189    repository: z.unknown().default(null),
+      190  });
+      191  export type PackageMetadata = z.infer<typeof PackageMetadata>;
+
+● Update(engine/src/inventory/parse-manifest.ts)
+  ⎿  Added 5 lines
+      21    return result;
+      22  }
+      23  
+      24 +function asStringArray(value: unknown): string[] {             
+      25 +  if (!Array.isArray(value)) return [];                        
+      26 +  return value.filter((v): v is string => typeof v === "string"
+         +);                                                             
+      27 +}                                                              
+      28 +                                                               
+      29  export function extractScriptFileRef(scriptValue: string): stri
+          ng | null {
+      30    const parts = scriptValue.trim().split(/\s+/);
+      31    if (!parts.length || parts[0] !== "node") return null;
+● Update(engine/src/inventory/parse-manifest.ts)
+  ⎿  Added 1 line
+      69      description: asStringOrNull(pkg.description),
+      70      license: asStringOrNull(pkg.license),
+      71      homepage: asStringOrNull(pkg.homepage),
+      72 +    keywords: asStringArray(pkg.keywords),                     
+      73      repository: pkg.repository ?? null,
+      74    };
+      75  
+
+● Now the intent-extraction module itself.
+
+● Write(engine/src/phases/intent-extraction.ts)
+  ⎿  Wrote 176 lines to engine/src/phases/intent-extraction.ts
+       2 import * as path from "node:path";
+       3 import { z } from "zod";
+       4 import { generateObject } from "ai";
+       5 import { CapabilityEnum, type InventoryReport } from "../models.
+         js";
+       7 import { getModel } from "../llm.js";;
+       8 
+       9 // -------------------------------------------------------------
+         --------------
+      10 // Schema
+     … +209 lines (ctrl+o to expand)
+
+● Now the tests — pure parts (prompt builder, readme finder, schema, fallback).
+  No LLM calls.
+
+● Write(engine/src/phases/intent-extraction.test.ts)
+  ⎿  Wrote 273 lines to engine/src/phases/intent-extraction.test.ts
+         est";t { describe, it, expect, beforeEach, afterEach } from "vit
+       2 import * as fs from "node:fs";
+       3 import * as os from "node:os";
+       4 import * as path from "node:path";
+       5 import {
+       6   PackageIntent,
+       7   buildIntentPrompt,
+       8   fallbackIntent,
+       9   findReadme,
+      10 } from "./intent-extraction.js";
+     … +289 lines (ctrl+o to expand)
+
+● Now running the tests to verify.
+
+● Bash(cd /home/wookie/Projects/npmguard/engine && npx vitest run
+      src/phases/intent-extraction.test.ts 2>&1 | tail -80)
+  ⎿   RUN  v3.2.4 /home/wookie/Projects/npmguard/engine
+
+      ✓ src/phases/intent-extraction.test.ts (21 tests) 8ms
+     … +6 lines (ctrl+o to expand)
+
+● All 21 tests pass. Let me confirm nothing broke elsewhere.
+
+● Bash(npx vitest run 2>&1 | tail -30)
+  ⎿   RUN  v3.2.4 /home/wookie/Projects/npmguard/engine
+
+      ✓ src/manipulation/compose.test.ts (13 tests) 11ms
+     … +16 lines (ctrl+o to expand)
+
+● 208 tests green. Type-check.
+
+● Bash(npm run build 2>&1 | tail -30)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+
+● Bash(git -C /home/wookie/Projects/npmguard status --short)
+  ⎿   M engine/src/inventory/parse-manifest.ts
+      M engine/src/models.ts
+     ?? engine/src/phases/intent-extraction.test.ts
+     ?? engine/src/phases/intent-extraction.ts
+
+● Bash(git -C /home/wookie/Projects/npmguard log --oneline -6)
+  ⎿  6c4f879 feat: phase-c — drop test-gen dedup-by-capability, make cap co
+     nfig-driven
+     76bb41e docs: note L2 pcap environmental flakiness as v1 scope limit
+     … +5 lines (ctrl+o to expand)
+
+● Bash(git -C /home/wookie/Projects/npmguard branch --show-current && git -C
+      /home/wookie/Projects/npmguard log --oneline origin/dev..HEAD 2>&1 | head
+      -10)
+  ⎿  dev
+     6c4f879 feat: phase-c — drop test-gen dedup-by-capability, make cap co
+     nfig-driven
+
+● Bash(git -C /home/wookie/Projects/npmguard add
+      engine/src/phases/intent-extraction.ts
+      engine/src/phases/intent-extraction.test.ts engine/src/models.ts
+      engine/src/inv…)
+  ⎿  [dev ae8cdbb] feat: phase-b — intent-extraction module
+      4 files changed, 456 insertions(+)
+      create mode 100644 engine/src/phases/intent-extraction.test.ts
+      create mode 100644 engine/src/phases/intent-extraction.ts
+
+● Bash(git -C /home/wookie/Projects/npmguard push origin dev 2>&1 | tail -8)
+  ⎿  To github.com:NpmGuard/NpmGuard.git
+        76bb41e..ae8cdbb  dev -> dev
+
+  Searched for 2 patterns, read 3 files (ctrl+o to expand)
+● Now the triage rewrite. I'll start with a clear plan: per-file MAP emits
+  Hypothesis[], no REDUCE, intent threaded through. The pipeline gets a minimal
+  adapter since investigate still uses the old shape.
+
+  Read 1 file (ctrl+o to expand)
+
+● Write(engine/src/phases/triage.ts)
+  ⎿  Added 233 lines, removed 152 lines
+        1  import * as fs from "node:fs";
+        2  import * as path from "node:path";
+        3 +import { z } from "zod";                                      
+        4  import { generateObject } from "ai";
+        5  import { config, SOURCE_FILE_TYPES } from "../config.js";
+        6  import { getModel } from "../llm.js";
+        6 -import { FileVerdict, TriageResult, type InventoryReport } fro
+          -m "../models.js";                                             
+        7 -import { z } from "zod";                                      
+        7 +import type { InventoryReport } from "../models.js";          
+        8 +import {                                                      
+        9 +  ClaimKind,                                                  
+       10 +  GatingModifier,                                             
+       11 +  HypothesisSeverity,                                         
+       12 +  type Hypothesis,                                            
+       13 +} from "@npmguard/shared";                                    
+       14  import type { EmitFn } from "../events.js";
+       15 +import type { PackageIntent } from "./intent-extraction.js";  
+       16  
+       17  const MAX_FILE_SIZE = 500_000; // 500KB — files larger than th
+           is skip LLM
+       18  
+       19  // -----------------------------------------------------------
+           ----------------
+       13 -// Prompts                                                    
+       20 +// MAP output schema — what a per-file analysis emits         
+       21  // -----------------------------------------------------------
+           ----------------
+       22  
+       16 -const MAP_SYSTEM = `You are a security analyst examining a sin
+          -gle file from an npm package.                                 
+       17 -Your job: report what this code DOES, not whether it's malicio
+          -us.                                                           
+       18 -Line numbers are provided — reference them in your output.    
+       23 +/**                                                           
+       24 + * A hypothesis draft emitted by per-file MAP. Subset of full 
+          +Hypothesis:                                                   
+       25 + * the MAP cannot assign hypIds, timestamps, or graph-wide fie
+          +lds. The                                                      
+       26 + * triage wrapper converts drafts into fully-formed Hypothesis
+          + nodes.                                                       
+       27 + */                                                           
+       28 +const HypothesisDraft = z.object({                            
+       29 +  description: z                                              
+       30 +    .string()                                                 
+       31 +    .describe(                                                
+       32 +      "One-line description of the suspected behavior, e.g. 'r
+          +eads ~/.npmrc and POSTs it to an obfuscated URL'. Used verbati
+          +m for dedup downstream.",                                     
+       33 +    ),                                                        
+       34 +  claim: z.object({                                           
+       35 +    kind: ClaimKind,                                          
+       36 +    gating: GatingModifier.nullable().default(null),          
+       37 +  }),                                                         
+       38 +  severity: HypothesisSeverity,                               
+       39 +  rangesInFile: z                                             
+       40 +    .array(z.string())                                        
+       41 +    .describe(                                                
+       42 +      "Line ranges in the CURRENT file backing this hypothesis
+          + (e.g. '12-45' or '12-30,55-80'). At least one range.",       
+       43 +    )                                                         
+       44 +    .min(1),                                                  
+       45 +});                                                           
+       46 +type HypothesisDraft = z.infer<typeof HypothesisDraft>;       
+       47  
+       20 -Report:                                                       
+       21 -- capabilities: Node.js APIs and capabilities used. Use these 
+          -labels where applicable: NETWORK, FILESYSTEM, ENV_VARS, PROCES
+          -S_SPAWN, EVAL, CRYPTO, DNS, DOM_MANIPULATION, BINARY_DOWNLOAD,
+          - OBFUSCATION, LIFECYCLE_HOOK, CLIPBOARD, TELEMETRY. Add other 
+          -labels as needed.                                             
+       22 -- suspiciousPatterns: anything unusual — obfuscation, encoded 
+          -strings, dynamic require, eval chains, string concatenation bu
+          -ilding URLs or shell commands, anti-debugging, hidden code aft
+          -er whitespace, minified code with suspicious logic. Include li
+          -ne numbers (e.g. "L42-67: obfuscated string building a URL"). 
+       23 -- suspiciousLines: line range(s) containing the most suspiciou
+          -s code, e.g. "12-45" or "12-30,55-80". Null if nothing suspici
+          -ous.                                                          
+       24 -- summary: one sentence describing what the file does.        
+       25 -- riskContribution: 0 (boring utility code) to 10 (clearly dan
+          -gerous behavior). Most legitimate code scores 0-2.`;          
+       48 +const FileAnalysisResponse = z.object({                       
+       49 +  summary: z                                                  
+       50 +    .string()                                                 
+       51 +    .describe("One sentence describing what this file does."),
+       52 +  capabilities: z                                             
+       53 +    .array(z.string())                                        
+       54 +    .default([])                                              
+       55 +    .describe(                                                
+       56 +      "Capability labels this file uses (subset of CapabilityE
+          +num; extra labels acceptable). Used downstream as aggregate ba
+          +seline.",                                                     
+       57 +    ),                                                        
+       58 +  hypotheses: z                                               
+       59 +    .array(HypothesisDraft)                                   
+       60 +    .default([])                                              
+       61 +    .describe(                                                
+       62 +      "Zero or more hypotheses. Emit one PER DISTINCT suspecte
+          +d behavior. Do NOT emit a hypothesis for expected capabilities
+          + listed in the intent — only for things that don't fit the sta
+          +ted purpose, or for independently-suspicious patterns (obfusca
+          +tion, dynamic code eval, hidden URLs, etc.) regardless of whet
+          +her the capability is expected.",                             
+       63 +    ),                                                        
+       64 +});                                                           
+       65 +type FileAnalysisResponse = z.infer<typeof FileAnalysisRespons
+          +e>;                                                           
+       66  
+       27 -function numberLines(contents: string): string {              
+       28 -  return contents                                             
+       29 -    .split("\n")                                              
+       30 -    .map((line, i) => `${i + 1}: ${line}`)                    
+       31 -    .join("\n");                                              
+       67 +// -----------------------------------------------------------
+          +----------------                                              
+       68 +// Public return shape                                        
+       69 +// -----------------------------------------------------------
+          +----------------                                              
+       70 +                                                              
+       71 +export interface FileSummary {                                
+       72 +  file: string;                                               
+       73 +  summary: string;                                            
+       74 +  capabilities: string[];                                     
+       75  }
+       76  
+       34 -function buildMapPrompt(                                      
+       35 -  fileName: string,                                           
+       36 -  contents: string,                                           
+       37 -  fileFlags: string[],                                        
+       38 -): string {                                                   
+       39 -  let prompt = `## File: ${fileName}\n\n\`\`\`\n${numberLines(
+          -contents)}\n\`\`\``;                                          
+       40 -  if (fileFlags.length > 0) {                                 
+       41 -    prompt += `\n\n## Structural flags for this file\n${fileFl
+          -ags.join("\n")}`;                                             
+       42 -  }                                                           
+       43 -  return prompt;                                              
+       77 +export interface TriageOutput {                               
+       78 +  hypotheses: Hypothesis[];                                   
+       79 +  fileSummaries: FileSummary[];                               
+       80  }
+       81  
+       46 -const REDUCE_SYSTEM = `You are a security triage expert produc
+          -ing a final risk assessment for an npm package.               
+       82 +// -----------------------------------------------------------
+          +----------------                                              
+       83 +// Prompt builders (pure)                                     
+       84 +// -----------------------------------------------------------
+          +----------------                                              
+       85  
+       48 -You receive:                                                  
+       49 -- Package metadata (what it CLAIMS to be)                     
+       50 -- Per-file analysis results (what it ACTUALLY does)           
+       51 -- Structural flags from automated scanning                    
+       86 +export const MAP_SYSTEM = `You are a security analyst examinin
+          +g a single file from an npm package.                          
+       87 +You also know what the package CLAIMS to do — use that as the 
+          +baseline for what behavior is "expected".                     
+       88  
+       53 -Your job:                                                     
+       54 -1. CAPABILITY MISMATCH: Flag capabilities that don't match the
+          - package's stated purpose. A color-formatting library shouldn'
+          -t need NETWORK. A parser shouldn't touch ENV_VARS. A utility l
+          -ibrary shouldn't spawn processes.                             
+       55 -2. RISK SCORE: 0 = clearly benign, 10 = clearly malicious. Sco
+          -res 3+ trigger expensive deep investigation. Most legitimate p
+          -ackages score 0-2. Be paranoid — false positives are acceptabl
+          -e, false negatives are not.                                   
+       56 -3. FOCUS AREAS: Which specific files should deep investigation
+          - examine first and why. ALWAYS include the line range (e.g. "1
+          -2-45") from the per-file analysis — investigation needs exact 
+          -lines to examine.                                             
+       89 +Your job: emit hypotheses about behaviors that either (a) exce
+          +ed the stated purpose, or (b) look intrinsically suspicious.  
+       90  
+       58 -If any file was flagged as too large for analysis, treat that 
+          -as suspicious and factor it into the score.`;                 
+       91 +For EACH hypothesis emitted:                                  
+       92 +- description: one clear sentence about the suspected behavior
+          +. Reference concrete code details — don't be generic.         
+       93 +- claim.kind: pick the best match from the ClaimKind enum. If 
+          +nothing fits well, pick the nearest and explain in the descrip
+          +tion.                                                         
+       94 +- claim.gating: only set if the code obviously runs differentl
+          +y under a specific condition (CI env var, geo lookup, date che
+          +ck, inspector detection).                                     
+       95 +- severity: low (cosmetic/unlikely), medium (plausibly harmful
+          +), high (clearly harmful if triggered), critical (unambiguous 
+          +credential theft, remote exec, destructive op).               
+       96 +- rangesInFile: line ranges in THIS FILE only, e.g. ["42-67"] 
+          +or ["12-30", "55-80"]. At least one range.                    
+       97  
+       60 -function buildReducePrompt(                                   
+       61 -  inventory: InventoryReport,                                 
+       62 -  fileVerdicts: FileVerdict[],                                
+       63 -): string {                                                   
+       64 -  const meta = inventory.metadata;                            
+       65 -  const sections: string[] = [];                              
+       98 +Emit a hypothesis when the file:                              
+       99 +- Uses a capability NOT in the intent's expectedCapabilities (
+          +capability mismatch).                                         
+      100 +- Contains obfuscation, encoded/encrypted strings, dynamic req
+          +uire, eval chains, string-built URLs or shell commands, anti-d
+          +ebugging, minified-yet-logic-bearing code — regardless of whet
+          +her the capability is "expected".                             
+      101 +- Accesses credentials, tokens, or filesystem paths outside th
+          +e package directory.                                          
+      102 +- Spawns processes, writes binaries, or modifies system state 
+          +during install.                                               
+      103  
+       67 -  sections.push(`## Package metadata                          
+       68 -- name: ${meta.name ?? "unknown"}                             
+       69 -- version: ${meta.version ?? "unknown"}                       
+       70 -- description: ${meta.description ?? "(none)"}                
+       71 -- license: ${meta.license ?? "unknown"}                       
+       72 -- homepage: ${meta.homepage ?? "(none)"}`);                   
+      104 +Do NOT emit a hypothesis for straightforward, expected behavio
+          +r. If a package is documented as an HTTP client, do not flag H
+          +TTP calls as mismatches — only flag HTTP to unexpected destina
+          +tions or with suspicious shapes.                              
+      105  
+       74 -  if (Object.keys(inventory.scripts).length > 0) {            
+       75 -    sections.push(                                            
+       76 -      `## Lifecycle scripts\n${Object.entries(inventory.script
+          -s)                                                            
+       77 -        .map(([k, v]) => `- ${k}: \`${v}\``)                  
+       78 -        .join("\n")}`,                                        
+       79 -    );                                                        
+       80 -  }                                                           
+      106 +Return zero hypotheses if the file is boring utility code.    
+      107 +Emit an accurate capabilities list regardless — it becomes the
+          + baseline for the whole-package capability set.`;             
+      108  
+       82 -  const allCaps = new Set(fileVerdicts.flatMap((v) => v.capabi
+          -lities));                                                     
+       83 -  sections.push(`## Aggregated capabilities across all files\n
+          -${[...allCaps].join(", ") || "(none)"}`);                     
+      109 +export function buildMapPrompt(args: {                        
+      110 +  fileName: string;                                           
+      111 +  contents: string;                                           
+      112 +  fileFlags: string[];                                        
+      113 +  intent: PackageIntent;                                      
+      114 +}): string {                                                  
+      115 +  const { fileName, contents, fileFlags, intent } = args;     
+      116 +  const sections: string[] = [];                              
+      117  
+      118    sections.push(
+       86 -    `## Per-file analysis results\n${fileVerdicts             
+       87 -      .map(                                                   
+       88 -        (v) =>                                                
+       89 -          `### ${v.file} (risk: ${v.riskContribution}/10)\n` +
+       90 -          `Summary: ${v.summary}\n` +                         
+       91 -          `Capabilities: ${v.capabilities.join(", ") || "none"
+          -}\n` +                                                        
+       92 -          `Suspicious lines: ${v.suspiciousLines ?? "none"}\n`
+          - +                                                            
+       93 -          `Suspicious patterns: ${v.suspiciousPatterns.join(";
+          - ") || "none"}`,                                              
+       94 -      )                                                       
+       95 -      .join("\n\n")}`,                                        
+      119 +    `## Package intent\n- statedPurpose: ${intent.statedPurpos
+          +e}\n- expectedCapabilities: ${intent.expectedCapabilities.join
+          +(", ") || "(none — treat all capabilities as surprising)"}\n- 
+          +rationale: ${intent.rationale}`,                              
+      120    );
+      121  
+       98 -  if (inventory.flags.length > 0) {                           
+       99 -    sections.push(                                            
+      100 -      `## Structural flags from automated scanning\n${inventor
+          -y.flags                                                       
+      101 -        .map((f) => `- [${f.severity}] ${f.check}: ${f.detail}
+          -`)                                                            
+      102 -        .join("\n")}`,                                        
+      103 -    );                                                        
+      122 +  sections.push(`## File: ${fileName}\n\n\`\`\`\n${numberLines
+          +(contents)}\n\`\`\``);                                        
+      123 +                                                              
+      124 +  if (fileFlags.length > 0) {                                 
+      125 +    sections.push(`## Structural flags for this file\n${fileFl
+          +ags.join("\n")}`);                                            
+      126    }
+      127  
+      128 +  sections.push(                                              
+      129 +    `## Task\nAnalyze the file. Populate summary, capabilities
+          + (list), and hypotheses (zero or more). Line numbers are shown
+          + as \`N: line\` — reference them in rangesInFile.`,           
+      130 +  );                                                          
+      131 +                                                              
+      132    return sections.join("\n\n");
+      133  }
+      134  
+      135 +function numberLines(contents: string): string {              
+      136 +  return contents                                             
+      137 +    .split("\n")                                              
+      138 +    .map((line, i) => `${i + 1}: ${line}`)                    
+      139 +    .join("\n");                                              
+      140 +}                                                             
+      141 +                                                              
+      142  // -----------------------------------------------------------
+           ----------------
+      143 +// Draft → Hypothesis (pure)                                  
+      144 +// -----------------------------------------------------------
+          +----------------                                              
+      145 +                                                              
+      146 +export function draftToHypothesis(args: {                     
+      147 +  draft: HypothesisDraft;                                     
+      148 +  file: string;                                               
+      149 +  hypId: string;                                              
+      150 +  now: string;                                                
+      151 +}): Hypothesis {                                              
+      152 +  const { draft, file, hypId, now } = args;                   
+      153 +  return {                                                    
+      154 +    hypId,                                                    
+      155 +    description: draft.description,                           
+      156 +    claim: {                                                  
+      157 +      kind: draft.claim.kind,                                 
+      158 +      gating: draft.claim.gating ?? null,                     
+      159 +    },                                                        
+      160 +    focusFiles: [file],                                       
+      161 +    focusLines: draft.rangesInFile.map((range) => ({ file, ran
+          +ge })),                                                       
+      162 +    severity: draft.severity,                                 
+      163 +    parentHypId: null,                                        
+      164 +    childHypIds: [],                                          
+      165 +    state: "OPEN",                                            
+      166 +    createdBy: "triage",                                      
+      167 +    evidenceRefs: [],                                         
+      168 +    createdAt: now,                                           
+      169 +    resolvedAt: null,                                         
+      170 +    resolution: null,                                         
+      171 +  };                                                          
+      172 +}                                                             
+      173 +                                                              
+      174 +// -----------------------------------------------------------
+          +----------------                                              
+      175  // MAP: per-file analysis
+      176  // -----------------------------------------------------------
+           ----------------
+      177  
+      113 -async function analyzeFile(                                   
+      114 -  packagePath: string,                                        
+      115 -  filePath: string,                                           
+      116 -  fileFlags: string[],                                        
+      117 -  emit?: EmitFn,                                              
+      118 -): Promise<FileVerdict> {                                     
+      119 -  const absPath = path.join(packagePath, filePath);           
+      178 +async function analyzeFile(args: {                            
+      179 +  packagePath: string;                                        
+      180 +  file: string;                                               
+      181 +  fileFlags: string[];                                        
+      182 +  intent: PackageIntent;                                      
+      183 +  emit?: EmitFn;                                              
+      184 +}): Promise<{ response: FileAnalysisResponse; skipped: boolean
+          +; reason?: string }> {                                        
+      185 +  const { packagePath, file, fileFlags, intent, emit } = args;
+      186 +  const absPath = path.join(packagePath, file);               
+      187 +                                                              
+      188    let contents: string;
+      189    try {
+      190      contents = fs.readFileSync(absPath, "utf-8");
+      191    } catch {
+      192      return {
+      125 -      file: filePath,                                         
+      126 -      capabilities: [],                                       
+      127 -      suspiciousPatterns: ["file-unreadable"],                
+      128 -      suspiciousLines: null,                                  
+      129 -      summary: "Could not read file",                         
+      130 -      riskContribution: 3,                                    
+      193 +      skipped: true,                                          
+      194 +      reason: "file-unreadable",                              
+      195 +      response: { summary: "Could not read file", capabilities
+          +: [], hypotheses: [] },                                       
+      196      };
+      197    }
+      198  
+      134 -  // Too-large files: synthetic verdict, no LLM call          
+      199    if (contents.length > MAX_FILE_SIZE) {
+      200      return {
+      137 -      file: filePath,                                         
+      138 -      capabilities: [],                                       
+      139 -      suspiciousPatterns: ["file-too-large-for-context"],     
+      140 -      suspiciousLines: null,                                  
+      141 -      summary: `File is ${Math.round(contents.length / 1024)}K
+          -B — too large for triage analysis`,                           
+      142 -      riskContribution: 7,                                    
+      201 +      skipped: true,                                          
+      202 +      reason: "file-too-large",                               
+      203 +      response: {                                             
+      204 +        summary: `File is ${Math.round(contents.length / 1024)
+          +}KB — too large for triage analysis`,                         
+      205 +        capabilities: [],                                     
+      206 +        hypotheses: [                                         
+      207 +          {                                                   
+      208 +            description: `File ${file} is ${Math.round(content
+          +s.length / 1024)}KB — too large for LLM triage; manual or dyna
+          +mic inspection required.`,                                    
+      209 +            claim: { kind: "obfuscation", gating: null },     
+      210 +            severity: "medium",                               
+      211 +            rangesInFile: ["1-1"],                            
+      212 +          },                                                  
+      213 +        ],                                                    
+      214 +      },                                                      
+      215      };
+      216    }
+      217  
+      146 -  // Empty/trivial files: skip LLM                            
+      218    if (contents.trim().length === 0) {
+      219      return {
+      149 -      file: filePath,                                         
+      150 -      capabilities: [],                                       
+      151 -      suspiciousPatterns: [],                                 
+      152 -      suspiciousLines: null,                                  
+      153 -      summary: "Empty file",                                  
+      154 -      riskContribution: 0,                                    
+      220 +      skipped: true,                                          
+      221 +      reason: "empty",                                        
+      222 +      response: { summary: "Empty file", capabilities: [], hyp
+          +otheses: [] },                                                
+      223      };
+      224    }
+      225  
+      158 -  emit?.("file_analyzing", { file: filePath });               
+      226 +  emit?.("file_analyzing", { file });                         
+      227  
+      228    const model = getModel(config.triageModel);
+      229    const result = await generateObject({
+      230      model,
+      163 -    schema: FileVerdict,                                      
+      231 +    schema: FileAnalysisResponse,                             
+      232      system: MAP_SYSTEM,
+      165 -    prompt: buildMapPrompt(filePath, contents, fileFlags),    
+      233 +    prompt: buildMapPrompt({ fileName: file, contents, fileFla
+          +gs, intent }),                                                
+      234    });
+      235  
+      168 -  const verdict = { ...result.object, file: filePath };       
+      169 -  console.log(`[triage:map] ${filePath} → risk=${verdict.riskC
+          -ontribution}/10 caps=[${verdict.capabilities.join(", ")}] susp
+          -icious=[${verdict.suspiciousPatterns.join("; ")}]`);          
+      170 -  emit?.("file_verdict", { verdict });                        
+      171 -  return verdict;                                             
+      236 +  return { response: result.object, skipped: false };         
+      237  }
+      238  
+      239  // -----------------------------------------------------------
+           ----------------
+      175 -// REDUCE: synthesis + capability mismatch                    
+      176 -// -----------------------------------------------------------
+          -----------------                                              
+      177 -                                                              
+      178 -async function synthesizeTriageResult(                        
+      179 -  inventory: InventoryReport,                                 
+      180 -  fileVerdicts: FileVerdict[],                                
+      181 -): Promise<TriageResult> {                                    
+      182 -  const model = getModel(config.triageModel);                 
+      183 -  const result = await generateObject({                       
+      184 -    model,                                                    
+      185 -    schema: TriageResult,                                     
+      186 -    system: REDUCE_SYSTEM,                                    
+      187 -    prompt: buildReducePrompt(inventory, fileVerdicts),       
+      188 -  });                                                         
+      189 -  return result.object;                                       
+      190 -}                                                             
+      191 -                                                              
+      192 -// -----------------------------------------------------------
+          -----------------                                              
+      240  // Entry point
+      241  // -----------------------------------------------------------
+           ----------------
+      242  
+      196 -export interface TriagePhaseOutput {                          
+      197 -  result: TriageResult;                                       
+      198 -  fileVerdicts: FileVerdict[];                                
+      199 -}                                                             
+      200 -                                                              
+      243  export async function runTriage(
+      244    packagePath: string,
+      245    inventory: InventoryReport,
+      246 +  intent: PackageIntent,                                      
+      247    emit?: EmitFn,
+      205 -): Promise<TriagePhaseOutput> {                               
+      248 +): Promise<TriageOutput> {                                    
+      249    const sourceFiles = inventory.files.filter(
+      250      (f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary,
+      251    );
+      252  
+      253    console.log(
+      211 -    `[triage] MAP phase: ${sourceFiles.length} source files fo
+          -r ${inventory.metadata.name ?? "unknown"}`,                   
+      254 +    `[triage] analyzing ${sourceFiles.length} source files for
+          + ${inventory.metadata.name ?? "unknown"} (intent: "${intent.st
+          +atedPurpose.slice(0, 60)}…")`,                                
+      255    );
+      256  
+      214 -  // Build per-file flag lookup                               
+      257    const flagsByFile = new Map<string, string[]>();
+      258    for (const flag of inventory.flags) {
+      259      if (flag.file) {
+     ...
+      263      }
+      264    }
+      265  
+      224 -  // MAP: analyze each file in parallel                       
+      266    const total = sourceFiles.length;
+      267    let completed = 0;
+      227 -  const fileVerdicts = await Promise.all(                     
+      268 +  const perFile = await Promise.all(                          
+      269      sourceFiles.map(async (f) => {
+      270        try {
+      230 -        const verdict = await analyzeFile(packagePath, f.path,
+          - flagsByFile.get(f.path) ?? [], emit);                        
+      271 +        const { response, skipped, reason } = await analyzeFil
+          +e({                                                           
+      272 +          packagePath,                                        
+      273 +          file: f.path,                                       
+      274 +          fileFlags: flagsByFile.get(f.path) ?? [],           
+      275 +          intent,                                             
+      276 +          emit,                                               
+      277 +        });                                                   
+      278          completed++;
+      279          emit?.("triage_progress", { current: completed, total,
+            file: f.path });
+      233 -        return verdict;                                       
+      280 +        if (!skipped) {                                       
+      281 +          console.log(                                        
+      282 +            `[triage:map] ${f.path} → caps=[${response.capabil
+          +ities.join(", ") || "none"}] hyps=${response.hypotheses.length
+          +}`,                                                           
+      283 +          );                                                  
+      284 +        } else {                                              
+      285 +          console.log(`[triage:map] ${f.path} → skipped (${rea
+          +son})`);                                                      
+      286 +        }                                                     
+      287 +        return { file: f.path, response };                    
+      288        } catch (err) {
+      289          completed++;
+      236 -        console.error(`[triage:map] failed for ${f.path}: ${er
+          -r instanceof Error ? err.message : err}`);                    
+      290 +        console.error(                                        
+      291 +          `[triage:map] failed for ${f.path}: ${err instanceof
+          + Error ? err.message : err}`,                                 
+      292 +        );                                                    
+      293          return {
+      294            file: f.path,
+      239 -          capabilities: [],                                   
+      240 -          suspiciousPatterns: ["analysis-error"],             
+      241 -          suspiciousLines: null,                              
+      242 -          summary: `Analysis failed: ${err instanceof Error ? 
+          -err.message : "unknown error"}`,                              
+      243 -          riskContribution: 5,                                
+      244 -        } satisfies FileVerdict;                              
+      295 +          response: {                                         
+      296 +            summary: `Analysis failed: ${err instanceof Error 
+          +? err.message : "unknown error"}`,                            
+      297 +            capabilities: [],                                 
+      298 +            hypotheses: [                                     
+      299 +              {                                               
+      300 +                description: `Triage MAP failed on ${f.path}; 
+          +file may contain material worth inspecting manually.`,        
+      301 +                claim: { kind: "obfuscation" as const, gating:
+          + null },                                                      
+      302 +                severity: "medium" as const,                  
+      303 +                rangesInFile: ["1-1"],                        
+      304 +              },                                              
+      305 +            ],                                                
+      306 +          } satisfies FileAnalysisResponse,                   
+      307 +        };                                                    
+      308        }
+      309      }),
+      310    );
+      311  
+      249 -  console.log(                                                
+      250 -    `[triage] REDUCE phase: synthesizing ${fileVerdicts.length
+          -} file verdicts`,                                             
+      251 -  );                                                          
+      312 +  const now = new Date().toISOString();                       
+      313 +  const hypotheses: Hypothesis[] = [];                        
+      314 +  const fileSummaries: FileSummary[] = [];                    
+      315 +  let counter = 0;                                            
+      316  
+      253 -  // REDUCE: synthesize into final triage result              
+      254 -  const triageResult = await synthesizeTriageResult(inventory,
+          - fileVerdicts);                                               
+      317 +  for (const { file, response } of perFile) {                 
+      318 +    fileSummaries.push({                                      
+      319 +      file,                                                   
+      320 +      summary: response.summary,                              
+      321 +      capabilities: response.capabilities,                    
+      322 +    });                                                       
+      323 +    for (const draft of response.hypotheses) {                
+      324 +      counter += 1;                                           
+      325 +      const hypId = `trg-${counter.toString().padStart(4, "0")
+          +}`;                                                           
+      326 +      const hyp = draftToHypothesis({ draft, file, hypId, now 
+          +});                                                           
+      327 +      hypotheses.push(hyp);                                   
+      328 +      emit?.("hypothesis_emitted", {                          
+      329 +        hypId: hyp.hypId,                                     
+      330 +        claim: hyp.claim.kind,                                
+      331 +        severity: hyp.severity,                               
+      332 +        file,                                                 
+      333 +      });                                                     
+      334 +    }                                                         
+      335 +  }                                                           
+      336  
+      337    console.log(
+      257 -    `[triage] result: riskScore=${triageResult.riskScore}, foc
+          -usAreas=${triageResult.focusAreas.length}`,                   
+      338 +    `[triage] emitted ${hypotheses.length} hypotheses across $
+          +{fileSummaries.length} files`,                                
+      339    );
+      340  
+      260 -  return { result: triageResult, fileVerdicts };              
+      341 +  return { hypotheses, fileSummaries };                       
+      342  }
+
+● Now tests for the pure parts.
+
+● Write(engine/src/phases/triage.test.ts)
+  ⎿  Wrote 166 lines to engine/src/phases/triage.test.ts
+       2 import { Hypothesis } from "@npmguard/shared";
+       3 import { buildMapPrompt, draftToHypothesis, MAP_SYSTEM } from ".
+         /triage.js";
+       4 import type { PackageIntent } from "./intent-extraction.js";
+       5 
+       7   statedPurpose: "Parses CSV files into JSON.",
+       8   expectedCapabilities: ["FILESYSTEM"],
+       9   rationale: "CSV parsing reads files; no network or env access 
+         is necessary.",
+      10 };
+     … +167 lines (ctrl+o to expand)
+
+● Bash(npx vitest run src/phases/triage.test.ts 2>&1 | tail -30)
+  ⎿   RUN  v3.2.4 /home/wookie/Projects/npmguard/engine
+
+      ✓ src/phases/triage.test.ts (11 tests) 6ms
+     … +6 lines (ctrl+o to expand)
+
+  Searched for 5 patterns (ctrl+o to expand)
+
+● Update(engine/src/phases/investigate.ts)
+  ⎿  Added 6 lines, removed 5 lines
+       1  import { config } from "../config.js";
+       2 -import { CapabilityEnum, type FileVerdict, type Finding, type I
+         -nvestigationInput, type InventoryReport, type Proof, type ToolC
+         -allRecord, type TriageResult } from "../models.js";            
+       2 +import { CapabilityEnum, type Finding, type InvestigationInput,
+         + type InventoryReport, type Proof, type ToolCallRecord, type Tr
+         +iageResult } from "../models.js";                              
+       3  import { DockerSandboxController } from "../sandbox/controller.
+          js";
+       4  import { runInvestigationAgent } from "../investigation/agent.j
+          s";
+       5  import { LIFECYCLE_SCRIPTS } from "../inventory/parse-manifest.
+          js";
+       6  import type { EmitFn } from "../events.js";
+       7  import type { AuditLogger } from "../audit-log.js";
+       8 +import type { FileSummary } from "./triage.js";                
+       9  
+      10  export interface InvestigationResult {
+      11    capabilities: CapabilityEnum[];
+     ...
+      19    packagePath: string,
+      20    inventory: InventoryReport,
+      21    triage: TriageResult,
+      21 -  fileVerdicts: FileVerdict[],                                 
+      22 +  fileSummaries: FileSummary[],                                
+      23    emit?: EmitFn,
+      24    log?: AuditLogger,
+      25  ): Promise<InvestigationResult> {
+     ...
+      34      if (LIFECYCLE_SCRIPTS.has(key)) lifecycleHooks[key] = value
+          ;
+      35    }
+      36  
+      36 -  // Collect capabilities and summaries from triage file verdic
+         -ts                                                             
+      37 +  // Collect capabilities across all files from triage         
+      38    const allCaps = new Set<string>();
+      38 -  for (const fv of fileVerdicts) {                             
+      39 -    for (const cap of fv.capabilities) allCaps.add(cap);       
+      39 +  for (const fs of fileSummaries) {                            
+      40 +    for (const cap of fs.capabilities) allCaps.add(cap);       
+      41    }
+      42  
+      43    const input: InvestigationInput = {
+
+  Read 1 file (ctrl+o to expand)
+
+● Now rewire the pipeline.
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 91 lines, removed 3 lines
+       1 -import { config, SOURCE_FILE_TYPES } from "./config.js";       
+       2 -import { Proof, type AuditReport, type PhaseLog } from "./model
+         -s.js";                                                         
+       1 +import { SOURCE_FILE_TYPES } from "./config.js";               
+       2 +import { Proof, type AuditReport, type FileVerdict, type PhaseL
+         +og, type TriageResult } from "./models.js";                    
+       3 +import type { Hypothesis, HypothesisSeverity } from "@npmguard/
+         +shared";                                                       
+       4  import { resolvePackage, cleanupPackage } from "./phases/resolv
+          e.js";
+       5  import { analyzeInventory } from "./phases/inventory.js";
+       5 -import { runTriage } from "./phases/triage.js";                
+       6 +import { extractIntent } from "./phases/intent-extraction.js"; 
+       7 +import { runTriage, type FileSummary } from "./phases/triage.js
+         +";                                                             
+       8  import { investigate } from "./phases/investigate.js";
+       9  import { generateTests } from "./phases/test-gen.js";
+      10  import { verifyProofs } from "./phases/verify.js";
+     ...
+       12  import type { EmitFn } from "./events.js";
+       13  import { setSessionPackagePath, setSessionCleanup } from "./ev
+           ents.js";
+       14  
+       15 +// -----------------------------------------------------------
+          +----------------                                              
+       16 +// Legacy-shape adapters (transitional — Phase B orchestrator 
+          +will replace)                                                 
+       17 +// -----------------------------------------------------------
+          +----------------                                              
+       18 +                                                              
+       19 +const SEVERITY_TO_SCORE: Record<HypothesisSeverity, number> = 
+          +{                                                             
+       20 +  low: 3,                                                     
+       21 +  medium: 6,                                                  
+       22 +  high: 8,                                                    
+       23 +  critical: 10,                                               
+       24 +};                                                            
+       25 +                                                              
+       26 +/**                                                           
+       27 + * The old pipeline gates investigation on a 0-10 riskScore. T
+          +he new triage                                                 
+       28 + * emits Hypothesis[] directly. For the interim, collapse the 
+          +hypothesis                                                    
+       29 + * list into a synthetic TriageResult so investigate/test-gen/
+          +verify can                                                    
+       30 + * keep running. This adapter goes away when the orchestrator 
+          +lands.                                                        
+       31 + */                                                           
+       32 +function synthesizeTriageResult(hypotheses: Hypothesis[]): Tri
+          +ageResult {                                                   
+       33 +  if (hypotheses.length === 0) {                              
+       34 +    return { riskScore: 0, riskSummary: "No hypotheses emitted
+          + during triage.", focusAreas: [] };                           
+       35 +  }                                                           
+       36 +                                                              
+       37 +  const maxScore = hypotheses.reduce(                         
+       38 +    (m, h) => Math.max(m, SEVERITY_TO_SCORE[h.severity]),     
+       39 +    0,                                                        
+       40 +  );                                                          
+       41 +                                                              
+       42 +  const top = hypotheses.slice(0, 3).map((h) => h.description)
+          +.join(" | ");                                                 
+       43 +  const riskSummary = `${hypotheses.length} hypothes${hypothes
+          +es.length === 1 ? "is" : "es"} from triage: ${top}`;          
+       44 +                                                              
+       45 +  const focusAreas = hypotheses.flatMap((h) =>                
+       46 +    h.focusLines.map((fl) => ({                               
+       47 +      file: fl.file,                                          
+       48 +      lines: fl.range,                                        
+       49 +      reason: h.description,                                  
+       50 +    })),                                                      
+       51 +  );                                                          
+       52 +                                                              
+       53 +  return { riskScore: maxScore, riskSummary, focusAreas };    
+       54 +}                                                             
+       55 +                                                              
+       56 +/**                                                           
+       57 + * Reconstruct per-file FileVerdict records from the new triag
+          +e output so                                                   
+       58 + * the existing `file_verdict` SSE event and frontend code-vie
+          +wer continue                                                  
+       59 + * to work. Phase B will replace the SSE vocabulary with hypot
+          +hesis events.                                                 
+       60 + */                                                           
+       61 +function emitLegacyFileVerdicts(                              
+       62 +  fileSummaries: FileSummary[],                               
+       63 +  hypotheses: Hypothesis[],                                   
+       64 +  emit?: EmitFn,                                              
+       65 +): FileVerdict[] {                                            
+       66 +  const hypsByFile = new Map<string, Hypothesis[]>();         
+       67 +  for (const h of hypotheses) {                               
+       68 +    for (const f of h.focusFiles) {                           
+       69 +      const bucket = hypsByFile.get(f) ?? [];                 
+       70 +      bucket.push(h);                                         
+       71 +      hypsByFile.set(f, bucket);                              
+       72 +    }                                                         
+       73 +  }                                                           
+       74 +                                                              
+       75 +  const verdicts: FileVerdict[] = [];                         
+       76 +  for (const fs of fileSummaries) {                           
+       77 +    const hyps = hypsByFile.get(fs.file) ?? [];               
+       78 +    const maxSeverity = hyps.reduce<HypothesisSeverity>(      
+       79 +      (m, h) => (SEVERITY_TO_SCORE[h.severity] > SEVERITY_TO_S
+          +CORE[m] ? h.severity : m),                                    
+       80 +      "low",                                                  
+       81 +    );                                                        
+       82 +    const riskContribution = hyps.length === 0 ? 0 : SEVERITY_
+          +TO_SCORE[maxSeverity];                                        
+       83 +    const suspiciousPatterns = hyps.map((h) => h.description);
+       84 +    const suspiciousLines =                                   
+       85 +      hyps.flatMap((h) => h.focusLines.filter((fl) => fl.file 
+          +=== fs.file).map((fl) => fl.range)).join(",") || null;        
+       86 +                                                              
+       87 +    const verdict: FileVerdict = {                            
+       88 +      file: fs.file,                                          
+       89 +      capabilities: fs.capabilities,                          
+       90 +      suspiciousPatterns,                                     
+       91 +      suspiciousLines,                                        
+       92 +      summary: fs.summary,                                    
+       93 +      riskContribution,                                       
+       94 +    };                                                        
+       95 +    verdicts.push(verdict);                                   
+       96 +    emit?.("file_verdict", { verdict });                      
+       97 +  }                                                           
+       98 +  return verdicts;                                            
+       99 +}                                                             
+      100 +                                                              
+      101  function withTimeout<T>(promise: Promise<T>, ms: number, label
+           : string): Promise<T> {
+      102    let timer: ReturnType<typeof setTimeout> | undefined;
+      103    const timeout = new Promise<never>((_, reject) => {
+
+● Now the main pipeline flow — adding intent-extraction, wiring the new triage,
+  dropping the old riskScore gate for a hypothesis-count gate.
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 44 lines, removed 12 lines
+      234        return { report, packagePath: resolved.path, cleanup: ()
+            => cleanupPackage(resolved) };
+      235      }
+      236  
+      237 -    // Phase 1a: Triage                                       
+      237 +    // Phase 1a: Intent extraction — derives the stated-purpos
+          +e baseline                                                    
+      238 +    // that MAP uses to reason about capability mismatch.     
+      239 +    const { result: intent, log: intentLog } = await timedPhas
+          +e(                                                            
+      240 +      "intent-extraction",                                    
+      241 +      () => extractIntent(resolved.path, inventory),          
+      242 +      60_000,                                                 
+      243 +      { packageName: inventory.metadata.name, description: inv
+          +entory.metadata.description },                                
+      244 +      (i) => ({                                               
+      245 +        statedPurpose: i.statedPurpose,                       
+      246 +        expectedCapabilities: i.expectedCapabilities,         
+      247 +        rationale: i.rationale,                               
+      248 +      }),                                                     
+      249 +      emit,                                                   
+      250 +    );                                                        
+      251 +    trace.push(intentLog);                                    
+      252 +    log.writeLog("intent.json", intent);                      
+      253 +    emit?.("intent_extracted", {                              
+      254 +      statedPurpose: intent.statedPurpose,                    
+      255 +      expectedCapabilities: intent.expectedCapabilities,      
+      256 +    });                                                       
+      257 +                                                              
+      258 +    // Phase 1b: Triage — per-file MAP emits Hypothesis[] dire
+          +ctly.                                                         
+      259      const { result: triageOutput, log: triageLog } = await tim
+           edPhase(
+      260        "triage",
+      240 -      () => runTriage(resolved.path, inventory, emit),        
+      261 +      () => runTriage(resolved.path, inventory, intent, emit),
+      262        2 * 60_000 * timeoutScale,
+      263        {
+      264          sourceFiles: inventory.files
+     ...
+      268          packageName: inventory.metadata.name,
+      269        },
+      270        (t) => ({
+      250 -        riskScore: t.result.riskScore,                        
+      251 -        riskSummary: t.result.riskSummary,                    
+      252 -        focusAreas: t.result.focusAreas,                      
+      253 -        fileVerdicts: t.fileVerdicts,                         
+      271 +        hypothesisCount: t.hypotheses.length,                 
+      272 +        hypotheses: t.hypotheses.map((h) => ({                
+      273 +          hypId: h.hypId,                                     
+      274 +          claim: h.claim.kind,                                
+      275 +          severity: h.severity,                               
+      276 +          description: h.description,                         
+      277 +          focusLines: h.focusLines,                           
+      278 +        })),                                                  
+      279 +        fileSummaries: t.fileSummaries,                       
+      280        }),
+      281        emit,
+      282      );
+      283      trace.push(triageLog);
+      284      log.writeLog("triage.json", triageOutput);
+      259 -    const triage = triageOutput.result;                       
+      285  
+      261 -    // Emit triage complete for frontend                      
+      286 +    const triage = synthesizeTriageResult(triageOutput.hypothe
+          +ses);                                                         
+      287 +    const fileVerdicts = emitLegacyFileVerdicts(              
+      288 +      triageOutput.fileSummaries,                             
+      289 +      triageOutput.hypotheses,                                
+      290 +      emit,                                                   
+      291 +    );                                                        
+      292 +                                                              
+      293      emit?.("triage_complete", {
+      294        riskScore: triage.riskScore,
+      295        riskSummary: triage.riskSummary,
+      296        focusAreas: triage.focusAreas,
+      297      });
+      298  
+      268 -    if (triage.riskScore < config.triageRiskThreshold) {      
+      269 -      console.log(`[pipeline] low risk (${triage.riskScore}) —
+          - returning SAFE`);                                            
+      299 +    if (triageOutput.hypotheses.length === 0) {               
+      300 +      console.log(`[pipeline] no hypotheses from triage — retu
+          +rning SAFE`);                                                 
+      301        const report: AuditReport = {
+      302          verdict: "SAFE",
+      303          capabilities: [],
+     ...
+      310        return { report, packagePath: resolved.path, cleanup: ()
+            => cleanupPackage(resolved) };
+      311      }
+      312  
+      282 -    // Phase 1b: Investigation                                
+      313 +    // Phase 1c: Investigation (transitional — will be split i
+          +nto worker                                                    
+      314 +    // agents dispatched from the hypothesis graph in Phase B)
+          +.                                                             
+      315      const { result: investigationResult, log: investigateLog }
+            = await timedPhase(
+      316        "investigation",
+      285 -      () => investigate(resolved.path, inventory, triage, tria
+          -geOutput.fileVerdicts, emit, log),                            
+      317 +      () => investigate(resolved.path, inventory, triage, tria
+          +geOutput.fileSummaries, emit, log),                           
+      318        5 * 60_000 * timeoutScale,
+      319        {
+      320          riskScore: triage.riskScore,
+
+● Bash(npm run build 2>&1 | tail -30)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 1 line, removed 1 line
+      284      log.writeLog("triage.json", triageOutput);
+      285  
+      286      const triage = synthesizeTriageResult(triageOutput.hypothe
+           ses);
+      287 -    const fileVerdicts = emitLegacyFileVerdicts(              
+      287 +    emitLegacyFileVerdicts(                                   
+      288        triageOutput.fileSummaries,
+      289        triageOutput.hypotheses,
+      290        emit,
+
+● Update(engine/src/pipeline.ts)  ⎿  Added 9 lines, removed 10 lines
+      62    fileSummaries: FileSummary[],
+      63    hypotheses: Hypothesis[],
+      64    emit?: EmitFn,
+      65 -): FileVerdict[] {                                             
+      65 +): void {                                                      
+      66    const hypsByFile = new Map<string, Hypothesis[]>();
+      67    for (const h of hypotheses) {
+      68      for (const f of h.focusFiles) {
+     ...
+      72      }
+      73    }
+      74  
+      75 -  const verdicts: FileVerdict[] = [];                          
+      76 -  for (const fs of fileSummaries) {                            
+      77 -    const hyps = hypsByFile.get(fs.file) ?? [];                
+      75 +  for (const summary of fileSummaries) {                       
+      76 +    const hyps = hypsByFile.get(summary.file) ?? [];           
+      77      const maxSeverity = hyps.reduce<HypothesisSeverity>(
+      78        (m, h) => (SEVERITY_TO_SCORE[h.severity] > SEVERITY_TO_SC
+          ORE[m] ? h.severity : m),
+      79        "low",
+     ...
+       81      const riskContribution = hyps.length === 0 ? 0 : SEVERITY_
+           TO_SCORE[maxSeverity];
+       82      const suspiciousPatterns = hyps.map((h) => h.description);
+       83      const suspiciousLines =
+       85 -      hyps.flatMap((h) => h.focusLines.filter((fl) => fl.file 
+          -=== fs.file).map((fl) => fl.range)).join(",") || null;        
+       84 +      hyps                                                    
+       85 +        .flatMap((h) => h.focusLines.filter((fl) => fl.file ==
+          += summary.file).map((fl) => fl.range))                        
+       86 +        .join(",") || null;                                   
+       87  
+       88      const verdict: FileVerdict = {
+       88 -      file: fs.file,                                          
+       89 -      capabilities: fs.capabilities,                          
+       89 +      file: summary.file,                                     
+       90 +      capabilities: summary.capabilities,                     
+       91        suspiciousPatterns,
+       92        suspiciousLines,
+       92 -      summary: fs.summary,                                    
+       93 +      summary: summary.summary,                               
+       94        riskContribution,
+       95      };
+       95 -    verdicts.push(verdict);                                   
+       96      emit?.("file_verdict", { verdict });
+       97    }
+       98 -  return verdicts;                                            
+       98  }
+       99  
+      100  function withTimeout<T>(promise: Promise<T>, ms: number, label
+           : string): Promise<T> {
+
+● Bash(npx vitest run 2>&1 | tail -20)
+  ⎿   ✓ src/sensors/pcap.test.ts (13 tests) 11ms
+      ✓ src/sensors/v8-inspector.test.ts (6 tests) 15ms
+      ✓ src/sensors/fs-diff.test.ts (15 tests) 11ms
+     … +16 lines (ctrl+o to expand)
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● Update(engine/src/config.ts)
+  ⎿  Removed 1 line
+      19    auditPriceCents: z.coerce.number().int().min(50).default(500)
+          ,
+      20  
+      21    triageModel: z.string().default("claude-haiku-4-5-20251001"),
+      22 -  triageRiskThreshold: z.coerce.number().int().min(0).max(10).d
+         -efault(3),                                                     
+      22  
+      23    investigationModel: z.string().default("claude-sonnet-4-6"),
+      24    maxAgentTurns: z.coerce.number().int().min(1).max(200).defaul
+          t(30),
+
+● Update(engine/src/config.ts)
+  ⎿  Removed 1 line
+      61      stripeWebhookSecret: env.NPMGUARD_STRIPE_WEBHOOK_SECRET,
+      62      auditPriceCents: env.NPMGUARD_AUDIT_PRICE_CENTS,
+      63      triageModel: env.NPMGUARD_TRIAGE_MODEL,
+      64 -    triageRiskThreshold: env.NPMGUARD_TRIAGE_RISK_THRESHOLD,   
+      64      investigationModel: env.NPMGUARD_INVESTIGATION_MODEL,
+      65      maxAgentTurns: env.NPMGUARD_MAX_AGENT_TURNS,
+      66      investigationEnabled: env.NPMGUARD_INVESTIGATION_ENABLED,
+
+● Bash(npm run build 2>&1 | tail -10 && npx vitest run 2>&1 | tail -8)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+     … +8 lines (ctrl+o to expand)
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+● Bash(cd /home/wookie/Projects/npmguard && cat engine/package.json | grep -E
+      '"lint|"test|"build"' | head -5)
+  ⎿      "build": "tsc",
+         "test": "vitest run",
+         "test:watch": "vitest"
+
+● Bash(git status --short)
+  ⎿   M engine/src/config.ts
+      M engine/src/phases/investigate.ts
+      M engine/src/phases/triage.ts
+     … +2 lines (ctrl+o to expand)
+
+● Bash(git add engine/src/config.ts engine/src/phases/investigate.ts
+      engine/src/phases/triage.ts engine/src/phases/triage.test.ts
+      engine/src/pipeline.ts && git commit…)
+  ⎿  [dev 798f89e] feat: phase-b — triage emits Hypothesis[] directly
+      5 files changed, 541 insertions(+), 176 deletions(-)
+      create mode 100644 engine/src/phases/triage.test.ts
+
+● Bash(git push origin dev 2>&1 | tail -5)
+  ⎿  To github.com:NpmGuard/NpmGuard.git
+        ae8cdbb..798f89e  dev -> dev
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/graph/hypothesis-graph.ts)
+  ⎿  Added 2 lines
+       9    HypothesisGraphSnapshot as HypothesisGraphSnapshotType,
+      10    HypothesisState as HypothesisStateType,
+      11    EvidenceRef as EvidenceRefType,
+      12 +  FocusRange as FocusRangeType,                                
+      13    HypothesisResolution as HypothesisResolutionType,
+      14  } from "@npmguard/shared";
+      15 +import { findDuplicate, DEFAULT_MERGE_THRESHOLD } from "./merge
+         +.js";                                                          
+      16  
+      17  /**
+      18   * In-memory hypothesis graph with state-machine transitions, p
+          ersistence, and
+
+● Update(engine/src/graph/hypothesis-graph.ts)
+  ⎿  Added 39 lines
+      119      return this.all().filter((h) => h.state === state);
+      120    }
+      121  
+      122 +  /**                                                         
+      123 +   * Add a hypothesis, or merge it into an existing near-dupli
+          +cate (by                                                      
+      124 +   * Jaro-Winkler similarity on `description`). Returns the re
+          +sulting node                                                  
+      125 +   * plus a flag indicating whether a merge occurred. When mer
+          +ging, only                                                    
+      126 +   * focusFiles and focusLines are unioned into the existing n
+          +ode — state,                                                  
+      127 +   * severity, claim, and evidenceRefs on the existing node ar
+          +e preserved.                                                  
+      128 +   */                                                         
+      129 +  addOrMerge(                                                 
+      130 +    h: HypothesisType,                                        
+      131 +    threshold: number = DEFAULT_MERGE_THRESHOLD,              
+      132 +  ): { node: HypothesisType; merged: boolean } {              
+      133 +    const parsed = Hypothesis.parse(h);                       
+      134 +    const match = findDuplicate(parsed, this.all(), threshold)
+          +;                                                             
+      135 +    if (!match) {                                             
+      136 +      return { node: this.add(parsed), merged: false };       
+      137 +    }                                                         
+      138 +                                                              
+      139 +    const focusFiles = Array.from(new Set([...match.focusFiles
+          +, ...parsed.focusFiles]));                                    
+      140 +    const rangeKey = (fr: FocusRangeType) => `${fr.file}|${fr.
+          +range}`;                                                      
+      141 +    const seen = new Set(match.focusLines.map(rangeKey));     
+      142 +    const merged: FocusRangeType[] = [...match.focusLines];   
+      143 +    for (const fl of parsed.focusLines) {                     
+      144 +      if (!seen.has(rangeKey(fl))) {                          
+      145 +        merged.push(fl);                                      
+      146 +        seen.add(rangeKey(fl));                               
+      147 +      }                                                       
+      148 +    }                                                         
+      149 +                                                              
+      150 +    const updated: HypothesisType = {                         
+      151 +      ...match,                                               
+      152 +      focusFiles,                                             
+      153 +      focusLines: merged,                                     
+      154 +    };                                                        
+      155 +    const validated = Hypothesis.parse(updated);              
+      156 +    this.nodes.set(match.hypId, validated);                   
+      157 +    this.updatedAt = this.nowFn();                            
+      158 +    return { node: validated, merged: true };                 
+      159 +  }                                                           
+      160 +                                                              
+      161    /** Append evidence refs to a hypothesis without changing it
+           s state. */
+      162    addEvidence(hypId: string, refs: EvidenceRefType[]): Hypothe
+           sisType {
+      163      const h = this.get(hypId);
+
+● Now tests for the new addOrMerge, plus the orchestrator module.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/graph/hypothesis-graph.test.ts)
+  ⎿  Added 113 lines
+      216      }
+      217    });
+      218  });
+      219 +                                                              
+      220 +describe("HypothesisGraph — addOrMerge", () => {              
+      221 +  it("adds as new when graph is empty", () => {               
+      222 +    const g = new HypothesisGraph("audit_001");               
+      223 +    const { node, merged } = g.addOrMerge(baselineHypothesis()
+          +);                                                            
+      224 +    expect(merged).toBe(false);                               
+      225 +    expect(node.hypId).toBe("hyp_001");                       
+      226 +    expect(g.size).toBe(1);                                   
+      227 +  });                                                         
+      228 +                                                              
+      229 +  it("adds as new when no existing description is similar enou
+          +gh", () => {                                                  
+      230 +    const g = new HypothesisGraph("audit_001");               
+      231 +    g.add(baselineHypothesis({ hypId: "hyp_001", description: 
+          +"reads NPM_TOKEN and POSTs it" }));                           
+      232 +    const { merged } = g.addOrMerge(                          
+      233 +      baselineHypothesis({                                    
+      234 +        hypId: "hyp_002",                                     
+      235 +        description: "writes a new systemd unit for persistenc
+          +e",                                                           
+      236 +      }),                                                     
+      237 +    );                                                        
+      238 +    expect(merged).toBe(false);                               
+      239 +    expect(g.size).toBe(2);                                   
+      240 +  });                                                         
+      241 +                                                              
+      242 +  it("merges into the existing node when descriptions are near
+          +-duplicates", () => {                                         
+      243 +    const g = new HypothesisGraph("audit_001");               
+      244 +    g.add(                                                    
+      245 +      baselineHypothesis({                                    
+      246 +        hypId: "hyp_001",                                     
+      247 +        description: "reads NPM_TOKEN from process env and POS
+          +Ts it to attacker.com",                                       
+      248 +        focusFiles: ["lib/init.js"],                          
+      249 +        focusLines: [{ file: "lib/init.js", range: "42-58" }],
+      250 +      }),                                                     
+      251 +    );                                                        
+      252 +    const { node, merged } = g.addOrMerge(                    
+      253 +      baselineHypothesis({                                    
+      254 +        hypId: "hyp_002",                                     
+      255 +        description: "reads NPM_TOKEN from process env and POS
+          +Ts it to attacker.com",                                       
+      256 +        focusFiles: ["setup.js"],                             
+      257 +        focusLines: [{ file: "setup.js", range: "10-12" }],   
+      258 +      }),                                                     
+      259 +    );                                                        
+      260 +    expect(merged).toBe(true);                                
+      261 +    expect(node.hypId).toBe("hyp_001"); // original kept, not 
+          +the candidate                                                 
+      262 +    expect(g.size).toBe(1);                                   
+      263 +    expect(g.has("hyp_002")).toBe(false);                     
+      264 +    expect(node.focusFiles).toEqual(["lib/init.js", "setup.js"
+          +]);                                                           
+      265 +    expect(node.focusLines).toEqual([                         
+      266 +      { file: "lib/init.js", range: "42-58" },                
+      267 +      { file: "setup.js", range: "10-12" },                   
+      268 +    ]);                                                       
+      269 +  });                                                         
+      270 +                                                              
+      271 +  it("preserves state + severity + evidenceRefs of the existin
+          +g node on merge", () => {                                     
+      272 +    const g = new HypothesisGraph("audit_001");               
+      273 +    g.add(                                                    
+      274 +      baselineHypothesis({                                    
+      275 +        hypId: "hyp_001",                                     
+      276 +        description: "writes crontab entry for persistence",  
+      277 +        severity: "critical",                                 
+      278 +      }),                                                     
+      279 +    );                                                        
+      280 +    g.transition("hyp_001", { to: "IN_PROGRESS", by: "orchestr
+          +ator" });                                                     
+      281 +    const { node, merged } = g.addOrMerge(                    
+      282 +      baselineHypothesis({                                    
+      283 +        hypId: "hyp_002",                                     
+      284 +        description: "writes crontab entry for persistence",  
+      285 +        severity: "low", // should NOT override               
+      286 +      }),                                                     
+      287 +    );                                                        
+      288 +    expect(merged).toBe(true);                                
+      289 +    expect(node.severity).toBe("critical");                   
+      290 +    expect(node.state).toBe("IN_PROGRESS");                   
+      291 +  });                                                         
+      292 +                                                              
+      293 +  it("deduplicates identical focusLines on merge (no duplicate
+          +s in output)", () => {                                        
+      294 +    const g = new HypothesisGraph("audit_001");               
+      295 +    g.add(                                                    
+      296 +      baselineHypothesis({                                    
+      297 +        hypId: "hyp_001",                                     
+      298 +        description: "reads .npmrc and exfiltrates via HTTP PO
+          +ST",                                                          
+      299 +        focusLines: [{ file: "lib/a.js", range: "1-10" }],    
+      300 +      }),                                                     
+      301 +    );                                                        
+      302 +    const { node } = g.addOrMerge(                            
+      303 +      baselineHypothesis({                                    
+      304 +        hypId: "hyp_002",                                     
+      305 +        description: "reads .npmrc and exfiltrates via HTTP PO
+          +ST",                                                          
+      306 +        focusFiles: ["lib/a.js"],                             
+      307 +        focusLines: [{ file: "lib/a.js", range: "1-10" }], // 
+          +same range                                                    
+      308 +      }),                                                     
+      309 +    );                                                        
+      310 +    expect(node.focusLines).toEqual([{ file: "lib/a.js", range
+          +: "1-10" }]);                                                 
+      311 +    expect(node.focusFiles).toEqual(["lib/a.js"]);            
+      312 +  });                                                         
+      313 +                                                              
+      314 +  it("respects a custom threshold", () => {                   
+      315 +    const g = new HypothesisGraph("audit_001");               
+      316 +    g.add(baselineHypothesis({ description: "reads .npmrc" }))
+          +;                                                             
+      317 +    // With default 0.88 these would likely not merge, but at 
+          +0.5 they should                                               
+      318 +    const { merged: withDefault } = g.addOrMerge(             
+      319 +      baselineHypothesis({ hypId: "hyp_002", description: "png
+          +reads c" }),                                                  
+      320 +    );                                                        
+      321 +    expect(withDefault).toBe(false);                          
+      322 +                                                              
+      323 +    const g2 = new HypothesisGraph("audit_002");              
+      324 +    g2.add(baselineHypothesis({ description: "abcdef" }));    
+      325 +    const { merged: lowThr } = g2.addOrMerge(                 
+      326 +      baselineHypothesis({ hypId: "hyp_002", description: "abc
+          +xyz" }),                                                      
+      327 +      0.3,                                                    
+      328 +    );                                                        
+      329 +    expect(lowThr).toBe(true);                                
+      330 +  });                                                         
+      331 +});                                                           
+● Now the orchestrator module. Narrow scope: build graph from triage output,
+  persist it.
+
+● Write(engine/src/orchestrator/build-graph.ts)
+  ⎿  Wrote 31 lines to engine/src/orchestrator/build-graph.ts
+       2 import { HypothesisGraph } from "../graph/hypothesis-graph.js";
+       3 
+       4 export interface BuildGraphResult {
+       5   graph: HypothesisGraph;
+       6   /** Count of candidate hypotheses that merged into an existing
+          node. */
+       7   mergedCount: number;
+       8   /** Count of candidate hypotheses added as new nodes. */
+       9   addedCount: number;
+      10 }
+     … +25 lines (ctrl+o to expand)
+
+● Write(engine/src/orchestrator/build-graph.test.ts)
+  ⎿  Wrote 86 lines to engine/src/orchestrator/build-graph.test.ts
+       2 import type { Hypothesis } from "@npmguard/shared";
+       3 import { buildGraphFromHypotheses } from "./build-graph.js";
+       4 
+       5 function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
+       6   return {
+       8     description: overrides.description ?? "reads .npmrc and POST
+         s it to attacker.com",
+       9     claim: overrides.claim ?? { kind: "env_exfil", gating: null 
+         },
+      10     focusFiles: overrides.focusFiles ?? ["lib/a.js"],
+     … +86 lines (ctrl+o to expand)
+
+● Bash(npx vitest run src/graph/hypothesis-graph.test.ts
+      src/orchestrator/build-graph.test.ts 2>&1 | tail -15)
+  ⎿      309|     );
+         310|     expect(node.focusLines).toEqual([{ file: "lib/a.js", rang
+     e: "1-10"…
+     … +13 lines (ctrl+o to expand)
+
+● Bash(npx vitest run src/graph/hypothesis-graph.test.ts 2>&1 | grep -A 15
+      "focusFiles" | head -40)
+  ⎿      311|     expect(node.focusFiles).toEqual(["lib/a.js"]);
+            |                             ^
+         312|   });
+     … +10 lines (ctrl+o to expand)
+
+● Bash(npx vitest run src/graph/hypothesis-graph.test.ts 2>&1 | grep -B 2 -A 8
+      "AssertionError" | head -20)
+  ⎿   FAIL  engine/src/graph/hypothesis-graph.test.ts > HypothesisGraph — a
+     ddOrMerge > deduplicates identical focusLines on merge (no duplicates
+     in output)
+     … +10 lines (ctrl+o to expand)
+
+● Update(engine/src/graph/hypothesis-graph.test.ts)
+  ⎿  Added 2 lines, removed 1 line
+      296        baselineHypothesis({
+      297          hypId: "hyp_001",
+      298          description: "reads .npmrc and exfiltrates via HTTP PO
+           ST",
+      299 +        focusFiles: ["lib/a.js"],                             
+      300          focusLines: [{ file: "lib/a.js", range: "1-10" }],
+      301        }),
+      302      );
+     ...
+      305          hypId: "hyp_002",
+      306          description: "reads .npmrc and exfiltrates via HTTP PO
+           ST",
+      307          focusFiles: ["lib/a.js"],
+      307 -        focusLines: [{ file: "lib/a.js", range: "1-10" }], // 
+          -same range                                                    
+      308 +        focusLines: [{ file: "lib/a.js", range: "1-10" }], // 
+          +same range + file                                             
+      309        }),
+      310      );
+      311      expect(node.focusLines).toEqual([{ file: "lib/a.js", range
+           : "1-10" }]);
+
+● Bash(npx vitest run 2>&1 | tail -10)
+  ⎿        9|     vi.restoreAllMocks();
+
+     ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/14]⎯
+     … +7 lines (ctrl+o to expand)
+
+● Bash(npx vitest run 2>&1 | grep -B 2 -A 5 "FAIL\|Error" | head -60)
+  ⎿  ⎯⎯⎯⎯⎯⎯ Failed Suites 14 ⎯⎯⎯⎯⎯⎯
+
+      FAIL  sandbox/exploits/build-plugin-exfil.test.js [ sandbox/exploits/
+     … +29 lines (ctrl+o to expand)
+
+  Read 1 file, listed 1 directory (ctrl+o to expand)
+
+● Bash(pwd)
+  ⎿  /home/wookie/Projects/npmguard
+
+● Bash(cd /home/wookie/Projects/npmguard/engine && npx vitest run 2>&1 | tail
+      -10)
+  ⎿   ✓ src/evidence/l4-parser.test.ts (11 tests) 11ms
+      ✓ src/sensors/strace.test.ts (21 tests) 18ms
+      ✓ src/graph/merge.test.ts (14 tests) 10ms
+     … +7 lines (ctrl+o to expand)
+
+● Now wire the orchestrator into the pipeline.
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 1 line
+       5  import { analyzeInventory } from "./phases/inventory.js";
+       6  import { extractIntent } from "./phases/intent-extraction.js";
+       7  import { runTriage, type FileSummary } from "./phases/triage.js
+          ";
+       8 +import { buildGraphFromHypotheses } from "./orchestrator/build-
+         +graph.js";                                                     
+       9  import { investigate } from "./phases/investigate.js";
+      10  import { generateTests } from "./phases/test-gen.js";
+      11  import { verifyProofs } from "./phases/verify.js";
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 17 lines
+      296        focusAreas: triage.focusAreas,
+      297      });
+      298  
+      299 +    // Phase 1c: Build hypothesis graph from triage output. Ja
+          +ro-Winkler dedup                                              
+      300 +    // folds near-duplicate hypotheses emitted across files in
+          +to a single node.                                             
+      301 +    // No workers yet — every node stays OPEN until Phase B or
+          +chestration.                                                  
+      302 +    const { graph, mergedCount, addedCount } = buildGraphFromH
+          +ypotheses(                                                    
+      303 +      auditId ?? "audit_unknown",                             
+      304 +      triageOutput.hypotheses,                                
+      305 +    );                                                        
+      306 +    log.writeLog("graph.json", graph.serialize());            
+      307 +    console.log(                                              
+      308 +      `[pipeline] hypothesis graph: ${addedCount} unique node(
+          +s), ${mergedCount} merged`,                                   
+      309 +    );                                                        
+      310 +    emit?.("graph_built", {                                   
+      311 +      nodeCount: graph.size,                                  
+      312 +      addedCount,                                             
+      313 +      mergedCount,                                            
+      314 +    });                                                       
+      315 +                                                              
+      316      if (triageOutput.hypotheses.length === 0) {
+      317        console.log(`[pipeline] no hypotheses from triage — retu
+           rning SAFE`);
+      318        const report: AuditReport = {
+
+● Bash(npm run build 2>&1 | tail -15)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+
+● Bash(npx vitest run 2>&1 | tail -5)
+  ⎿   Test Files  17 passed (17)
+           Tests  230 passed (230)
+        Start at  14:32:23
+     … +2 lines (ctrl+o to expand)
+
+● Bash(cd /home/wookie/Projects/npmguard && git status --short && git diff
+      --stat HEAD)
+  ⎿   M engine/src/graph/hypothesis-graph.test.ts
+      M engine/src/graph/hypothesis-graph.ts
+      M engine/src/pipeline.ts
+     … +6 lines (ctrl+o to expand)
+● Bash(git add engine/src/graph/hypothesis-graph.ts
+      engine/src/graph/hypothesis-graph.test.ts engine/src/pipeline.ts
+      engine/src/orchestrator/ && git commit -m "$(cat <…)
+  ⎿  [dev dfe4b71] feat: phase-b — hypothesis graph built from triage outpu
+     t
+      5 files changed, 290 insertions(+)
+     … +2 lines (ctrl+o to expand)
+
+● Bash(git push origin dev 2>&1 | tail -5)
+  ⎿  To github.com:NpmGuard/NpmGuard.git
+        798f89e..dfe4b71  dev -> dev
+
+● Next: verdict derivation as a pure function. Small, testable, the contract
+  that unblocks worker+orchestrator work later.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Write(engine/src/orchestrator/verdict.ts)
+  ⎿  Wrote 128 lines to engine/src/orchestrator/verdict.ts
+         js";rt type { HypothesisGraph } from "../graph/hypothesis-graph.
+       2 import type { Hypothesis } from "@npmguard/shared";
+       4 /**
+       5  * The hypothesis-graph-derived verdict. Distinct from the cross
+       6  * `VerdictEnum` (SAFE | DANGEROUS) which is exposed on AuditRep
+         ort today;
+         and the one is richer and will replace it once the workers land 
+       8  * graph starts containing terminal states.
+      10 export type GraphVerdict = "SAFE" | "SUSPECT" | "DANGEROUS" | "U
+         NKNOWN";
+     … +134 lines (ctrl+o to expand)
+
+● Write(engine/src/orchestrator/verdict.test.ts)
+  ⎿  Wrote 210 lines to engine/src/orchestrator/verdict.test.ts
+       2 import type { Hypothesis, EvidenceRef } from "@npmguard/shared";
+       3 import { HypothesisGraph } from "../graph/hypothesis-graph.js";
+       4 import { deriveGraphVerdict } from "./verdict.js";
+       5 
+       6 function baseline(overrides: Partial<Hypothesis> = {}): Hypothes
+       7   return {
+       8     hypId: overrides.hypId ?? "hyp_001",
+       9     description: overrides.description ?? "test",
+      10     claim: overrides.claim ?? { kind: "env_exfil", gating: null 
+         },
+     … +231 lines (ctrl+o to expand)
+
+● Bash(cd /home/wookie/Projects/npmguard/engine && npx vitest run
+      src/orchestrator/verdict.test.ts 2>&1 | tail -15)
+  ⎿   RUN  v3.2.4 /home/wookie/Projects/npmguard/engine
+
+      ✓ src/orchestrator/verdict.test.ts (12 tests) 13ms
+     … +6 lines (ctrl+o to expand)
+
+● Bash(npm run build 2>&1 | tail -5 && npx vitest run 2>&1 | tail -5)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+     … +5 lines (ctrl+o to expand)
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 1 line
+       6  import { extractIntent } from "./phases/intent-extraction.js";
+       7  import { runTriage, type FileSummary } from "./phases/triage.js
+          ";
+       8  import { buildGraphFromHypotheses } from "./orchestrator/build-
+          graph.js";
+       9 +import { deriveGraphVerdict } from "./orchestrator/verdict.js";
+      10  import { investigate } from "./phases/investigate.js";
+      11  import { generateTests } from "./phases/test-gen.js";
+      12  import { verifyProofs } from "./phases/verify.js";
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 10 lines
+      396      const verdict = verifiedProofs.length > 0 ? "DANGEROUS" : 
+           "SAFE";
+      397      console.log(`[pipeline] verdict: ${verdict} (${verifiedPro
+           ofs.length} proofs)`);
+      398  
+      399 +    // Graph-derived verdict is logged for observability; it w
+          +ill replace the                                               
+      400 +    // 2-state AuditReport.verdict once worker dispatch lands 
+          +and the graph                                                 
+      401 +    // actually contains terminal states (currently every node
+          + stays OPEN).                                                 
+      402 +    const graphVerdict = deriveGraphVerdict(graph);           
+      403 +    console.log(                                              
+      404 +      `[pipeline] graph verdict: ${graphVerdict.verdict} — ${g
+          +raphVerdict.rationale}`,                                      
+      405 +    );                                                        
+      406 +    log.writeLog("graph-verdict.json", graphVerdict);         
+      407 +    emit?.("graph_verdict", graphVerdict);                    
+      408 +                                                              
+      409      const report: AuditReport = {
+      410        verdict,
+      411        capabilities: investigationResult.capabilities,
+
+● Bash(npm run build 2>&1 | tail -10 && npx vitest run 2>&1 | tail -5)
+  ⎿  src/pipeline.ts(407,29): error TS2345: Argument of type 'GraphVerdictR
+     eport' is not assignable to parameter of type 'Record<string, unknown>
+     '.
+     … +14 lines (ctrl+o to expand)
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 1 line, removed 1 line
+      404        `[pipeline] graph verdict: ${graphVerdict.verdict} — ${g
+           raphVerdict.rationale}`,
+      405      );
+      406      log.writeLog("graph-verdict.json", graphVerdict);
+      407 -    emit?.("graph_verdict", graphVerdict);                    
+      407 +    emit?.("graph_verdict", { ...graphVerdict });             
+      408  
+      409      const report: AuditReport = {
+      410        verdict,
+
+● Bash(npm run build 2>&1 | tail -5)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+
+● Bash(npx vitest run 2>&1 | tail -5)
+  ⎿   Test Files  18 passed (18)
+           Tests  242 passed (242)
+        Start at  14:35:41
+     … +2 lines (ctrl+o to expand)
+
+● Bash(cd /home/wookie/Projects/npmguard && git add
+      engine/src/orchestrator/verdict.ts engine/src/orchestrator/verdict.test.ts
+       engine/src/pipeline.ts && git commit -m…)
+  ⎿  [dev 678a2cf] feat: phase-b — graph-derived verdict (pure function)
+      3 files changed, 349 insertions(+)
+      create mode 100644 engine/src/orchestrator/verdict.test.ts
+     … +3 lines (ctrl+o to expand)
+
+● Pushed 4 Phase B commits totaling 12 new tests and a working end-to-end
+  graph-aware pipeline. The pipeline now runs:
+
+  resolve → inventory → intent-extraction → triage (→ Hypothesis[]) →
+  buildGraph (dedup via Jaro-Winkler) → [legacy investigate → test-gen → verify]
+   →
+  deriveGraphVerdict (logged) + AuditReport verdict (authoritative)
+
+  242 engine tests green. The legacy investigate/test-gen/verify chain still
+  drives the authoritative 2-state verdict. Graph-derived verdict is
+  observability-only until the worker layer lands.
+
+  The remaining Phase B work is the big one:
+  - Code-reader worker — port the per-hypothesis dispatch out of
+  investigate.ts/agent.ts. Each hypothesis gets its own agent loop that returns
+  CONFIRMED | REFUTED | INCONCLUSIVE with evidenceRefs.
+  - Experimenter worker — use runUnderObservation + manipulation primitives to
+  gather dynamic evidence per hypothesis.
+  - Orchestrator dispatch loop — pop from priority queue, dispatch to the right
+  worker, transition the graph.
+  - 4-state verdict wiring — swap AuditReport.verdict to GraphVerdict, cascade
+  through CLI + frontend.
+
+  That's a substantial rewrite of the current agent code (investigate.ts,
+  agent.ts, test-gen.ts, verify.ts) into per-hypothesis dispatched workers. Want
+   me to proceed with the code-reader worker port next, or pause here for
+  direction?
+
+❯ /effort max                                                                   
+  ⎿  Set effort level to max (this session only): Maximum capability with
+     deepest reasoning
+
+❯ continue ultrathink                                                           
+● I see triage.ts was reverted to the old MAP+REDUCE version. Let me check the
+  full codebase state before proceeding.
+
+● Bash(git status --short && echo "---" && git log --oneline -8)
+  ⎿  ---
+     f2936bf Merge Wave 3: engine route split (index.ts 715 → 73 lines)
+     04cd4c0 refactor: split engine/src/index.ts into per-domain route modu
+     … +10 lines (ctrl+o to expand)
+
+● Bash(git branch --show-current && echo "---" && git branch -a | head -20)
+  ⎿  main
+     ---
+       core-test-malware
+     … +19 lines (ctrl+o to expand)
+
+● Bash(git log dev --oneline -10)
+  ⎿  678a2cf feat: phase-b — graph-derived verdict (pure function)
+     dfe4b71 feat: phase-b — hypothesis graph built from triage output
+     798f89e feat: phase-b — triage emits Hypothesis[] directly
+     … +9 lines (ctrl+o to expand)
+
+● We're on main — the Phase B work lives on dev. Let me check for divergence and
+   switch.
+
+● Bash(git log main..dev --oneline | wc -l && echo "commits on dev ahead of
+      main" && git log dev..main --oneline | wc -l && echo "commits on main
+      ahead of dev")
+  ⎿  16
+     commits on dev ahead of main
+     0
+     commits on main ahead of dev
+
+● Bash(git checkout dev)
+  ⎿  Switched to branch 'dev'
+     Your branch is up to date with 'origin/dev'.
+
+● Bash(git log --oneline -3 && echo "---" && head -15
+      engine/src/phases/triage.ts)
+  ⎿  678a2cf feat: phase-b — graph-derived verdict (pure function)
+     dfe4b71 feat: phase-b — hypothesis graph built from triage output
+     798f89e feat: phase-b — triage emits Hypothesis[] directly
+     … +16 lines (ctrl+o to expand)
+  ⎿  Loaded engine/CLAUDE.md
+
+● On dev with all 4 Phase B commits intact. Now the key next piece: bridging the
+   hypothesis graph to the existing investigation pipeline so the graph drives
+  the verdict.
+
+  Read 3 files (ctrl+o to expand)
+
+● Now I have the mapping surfaces. Building the correlation layer — the bridge
+  that maps investigation findings back to hypothesis graph states.
+
+● Write(engine/src/orchestrator/correlate.ts)
+  ⎿  Wrote 331 lines to engine/src/orchestrator/correlate.ts
+      2 import type {teHash } from "node:crypto";
+      3   Hypothesis,
+      4   ClaimKind,
+      5   EvidenceRef,
+      6 } from "@npmguard/shared";
+      7 import type { HypothesisGraph } from "../graph/hypothesis-graph.j
+        s";
+      8 import type { InvestigationResult } from "../phases/investigate.j
+        s";
+      9 import type { Finding, Proof } from "../models.js";
+     … +375 lines (ctrl+o to expand)
+
+● Now tests for the correlation layer — covering the pure helpers and the
+  two-stage correlation.
+
+● Write(engine/src/orchestrator/correlate.test.ts)
+  ⎿  Wrote 347 lines to engine/src/orchestrator/correlate.test.ts
+       1 import { describe, it, expect } from "vitest";
+       2 import type { Hypothesis, EvidenceRef } from "@npmguard/shared";
+       3 import type { Finding, Proof } from "../models.js";
+       4 import { HypothesisGraph } from "../graph/hypothesis-graph.js";
+       5 import {
+       6   claimMatchesCapability,
+       7   parseFileLine,
+       8   fileOverlapScore,
+       9   scoreFindingHypothesis,
+      10   bestMatch,
+     … +379 lines (ctrl+o to expand)
+
+● Bash(cd /home/wookie/Projects/npmguard/engine && npx vitest run
+      src/orchestrator/correlate.test.ts 2>&1 | tail -20)
+  ⎿      "score": 3,
+       },
+     }
+     … +17 lines (ctrl+o to expand)
+
+● File match should be required for correlation — claim-only match without file
+  overlap is noise.
+
+● Update(engine/src/orchestrator/correlate.ts)
+  ⎿  Added 2 lines
+      165    let best: { hypothesis: Hypothesis; score: CorrelationScore 
+           } | null = null;
+      166    for (const h of hypotheses) {
+      167      const score = scoreFindingHypothesis(finding, h);
+      168 +    // File overlap is mandatory — claim-only matches across d
+          +ifferent files are noise                                      
+      169 +    if (score.fileScore === 0) continue;                      
+      170      if (score.score >= minScore && (!best || score.score > bes
+           t.score.score)) {
+      171        best = { hypothesis: h, score };
+      172      }
+
+● Bash(npx vitest run src/orchestrator/correlate.test.ts 2>&1 | tail -10)
+  ⎿  [correlate] proof[0] (ENV_VARS @ lib/setup.js:42-67) → CONFIRMED h1
+     [correlate] h2 → INCONCLUSIVE (no confirming proof)
+     … +7 lines (ctrl+o to expand)
+
+● Now wire correlation into the pipeline and make the graph-derived verdict
+  participate in the authoritative path.
+
+  Read 1 file (ctrl+o to expand)
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 1 line
+       7  import { runTriage, type FileSummary } from "./phases/triage.js
+          ";
+       8  import { buildGraphFromHypotheses } from "./orchestrator/build-
+          graph.js";
+       9  import { deriveGraphVerdict } from "./orchestrator/verdict.js";
+      10 +import { correlateAfterInvestigation, correlateAfterVerify } fr
+         +om "./orchestrator/correlate.js";                              
+      11  import { investigate } from "./phases/investigate.js";
+      12  import { generateTests } from "./phases/test-gen.js";
+      13  import { verifyProofs } from "./phases/verify.js";
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 8 lines, removed 1 line
+      365      trace.push(investigateLog);
+      366      log.writeLog("investigation.json", investigationResult);
+      367  
+      368 -    // Phase 1c: Test generation                              
+      368 +    // Correlate investigation findings → hypothesis graph tra
+          +nsitions                                                      
+      369 +    const invCorrelation = correlateAfterInvestigation(graph, 
+          +investigationResult);                                         
+      370 +    log.writeLog("correlation-investigate.json", invCorrelatio
+          +n);                                                           
+      371 +    console.log(                                              
+      372 +      `[pipeline] investigation→graph: ${invCorrelation.matche
+          +d.length} matched, ${invCorrelation.unmatched.length} unmatche
+          +d findings`,                                                  
+      373 +    );                                                        
+      374 +                                                              
+      375 +    // Phase 1d: Test generation                              
+      376      const { result: proofs, log: testGenLog } = await timedPha
+           se(
+      377        "test-gen",
+      378        () => generateTests(investigationResult, resolved.path),
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 18 lines, removed 6 lines
+      401      );
+      402      trace.push(verifyLog);
+      403  
+      404 -    const verdict = verifiedProofs.length > 0 ? "DANGEROUS" : 
+          -"SAFE";                                                       
+      405 -    console.log(`[pipeline] verdict: ${verdict} (${verifiedPro
+          -ofs.length} proofs)`);                                        
+      404 +    // Correlate verified proofs → hypothesis graph terminal t
+          +ransitions                                                    
+      405 +    const verifyCorrelation = correlateAfterVerify(           
+      406 +      graph,                                                  
+      407 +      verifiedProofs,                                         
+      408 +      investigationResult.findings,                           
+      409 +    );                                                        
+      410 +    log.writeLog("correlation-verify.json", verifyCorrelation)
+          +;                                                             
+      411 +    console.log(                                              
+      412 +      `[pipeline] verify→graph: ${verifyCorrelation.confirmed.
+          +length} confirmed, ${verifyCorrelation.inconclusive.length} in
+          +conclusive`,                                                  
+      413 +    );                                                        
+      414  
+      407 -    // Graph-derived verdict is logged for observability; it w
+          -ill replace the                                               
+      408 -    // 2-state AuditReport.verdict once worker dispatch lands 
+          -and the graph                                                 
+      409 -    // actually contains terminal states (currently every node
+          - stays OPEN).                                                 
+      415 +    // Persist final graph state                              
+      416 +    log.writeLog("graph-final.json", graph.serialize());      
+      417 +                                                              
+      418 +    // Graph-derived verdict is now authoritative. DANGEROUS r
+          +equires at                                                    
+      419 +    // least one CONFIRMED hypothesis with evidence. SUSPECT /
+          + UNKNOWN /                                                    
+      420 +    // SAFE map to the 2-state SAFE|DANGEROUS for the AuditRep
+          +ort.                                                          
+      421      const graphVerdict = deriveGraphVerdict(graph);
+      422 +    const verdict = graphVerdict.verdict === "DANGEROUS" ? "DA
+          +NGEROUS" : "SAFE";                                            
+      423      console.log(
+      412 -      `[pipeline] graph verdict: ${graphVerdict.verdict} — ${g
+          -raphVerdict.rationale}`,                                      
+      424 +      `[pipeline] graph verdict: ${graphVerdict.verdict} → rep
+          +ort verdict: ${verdict} — ${graphVerdict.rationale}`,         
+      425      );
+      426      log.writeLog("graph-verdict.json", graphVerdict);
+      427      emit?.("graph_verdict", { ...graphVerdict });
+
+● Bash(npm run build 2>&1 | tail -10 && npx vitest run 2>&1 | tail -5)
+  ⎿    Type 'undefined' is not assignable to type '{ capability: "NETWORK"
+     | "DNS_EXFIL" | "DOM_INJECT" | "FILESYSTEM" | "BINARY_DOWNLOAD" | "PRO
+     CESS_SPAWN" | "ENV_VARS" | "CREDENTIAL_THEFT" | "EVAL" | "OBFUSCATION"
+     … +16 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/orchestrator/correlate.ts)
+  ⎿  Added 12 lines, removed 14 lines
+      280    const inProgressHyps = graph.filterByState("IN_PROGRESS");
+      281    const claimed = new Set<string>();
+      282  
+      283 -  for (let i = 0; i < confirmedProofs.length; i++) {          
+      284 -    const proof = confirmedProofs[i];                         
+      285 -    // Find the finding that this proof is based on           
+      286 -    const matchingFinding: Finding | undefined = findings.find
+          -(                                                             
+      287 -      (f) => f.fileLine === proof.fileLine && f.capability ===
+          - (proof.capability ?? ""),                                    
+      283 +  confirmedProofs.forEach((p, i) => {                         
+      284 +    const matchingFinding = findings.find(                    
+      285 +      (f) => f.fileLine === p.fileLine && f.capability === (p.
+          +capability ?? ""),                                            
+      286      );
+      287  
+      288      const candidates = inProgressHyps.filter((h) => !claimed.h
+           as(h.hypId));
+      291 -    const toMatch = matchingFinding ?? {                      
+      292 -      capability: proof.capability ?? "",                     
+      289 +    const toMatch: Finding = matchingFinding ?? {             
+      290 +      capability: p.capability ?? "",                         
+      291        confidence: "CONFIRMED" as const,
+      294 -      fileLine: proof.fileLine,                               
+      295 -      problem: proof.problem,                                 
+      296 -      evidence: proof.evidence,                               
+      292 +      fileLine: p.fileLine,                                   
+      293 +      problem: p.problem,                                     
+      294 +      evidence: p.evidence,                                   
+      295        reproductionStrategy: "",
+      296      };
+      297  
+     ...
+      299  
+      300      if (match) {
+      301        claimed.add(match.hypothesis.hypId);
+      304 -      graph.addEvidence(match.hypothesis.hypId, [proofRef(proo
+          -f, i)]);                                                      
+      302 +      graph.addEvidence(match.hypothesis.hypId, [proofRef(p, i
+          +)]);                                                          
+      303        graph.transition(match.hypothesis.hypId, {
+      304          to: "CONFIRMED",
+      305          by: "correlator:verify",
+      308 -        evidenceRefs: [proofRef(proof, i)],                   
+      306 +        evidenceRefs: [proofRef(p, i)],                       
+      307        });
+      308        result.confirmed.push(match.hypothesis.hypId);
+      309        console.log(
+      312 -        `[correlate] proof[${i}] (${proof.capability} @ ${proo
+          -f.fileLine}) → CONFIRMED ${match.hypothesis.hypId}`,          
+      310 +        `[correlate] proof[${i}] (${p.capability} @ ${p.fileLi
+          +ne}) → CONFIRMED ${match.hypothesis.hypId}`,                  
+      311        );
+      312      }
+      315 -  }                                                           
+      313 +  });                                                         
+      314  
+      315    // Remaining IN_PROGRESS + OPEN hypotheses → INCONCLUSIVE
+      316    const remaining = [
+
+● Bash(npm run build 2>&1 | tail -10)
+  ⎿  src/orchestrator/correlate.ts(242,63): error TS18048: 'finding' is pos
+     sibly 'undefined'.
+     src/orchestrator/correlate.ts(247,39): error TS18048: 'finding' is pos
+     … +10 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/orchestrator/correlate.ts)
+  ⎿  Added 7 lines, removed 8 lines
+      217      return result;
+      218    }
+      219  
+      220 -  const claimed = new Set<string>(); // hypIds already claimed
+          - by a finding                                                 
+      220 +  const claimed = new Set<string>();                          
+      221  
+      222 -  for (let i = 0; i < investigation.findings.length; i++) {   
+      223 -    const finding = investigation.findings[i];                
+      222 +  investigation.findings.forEach((f, i) => {                  
+      223      const candidates = openHyps.filter((h) => !claimed.has(h.h
+           ypId));
+      225 -    const match = bestMatch(finding, candidates);             
+      224 +    const match = bestMatch(f, candidates);                   
+      225  
+      226      if (match) {
+      227        claimed.add(match.hypothesis.hypId);
+     ...
+      231          score: match.score.score,
+      232        });
+      233  
+      235 -      graph.addEvidence(match.hypothesis.hypId, [findingRef(fi
+          -nding, i)]);                                                  
+      234 +      graph.addEvidence(match.hypothesis.hypId, [findingRef(f,
+          + i)]);                                                        
+      235        graph.transition(match.hypothesis.hypId, {
+      236          to: "IN_PROGRESS",
+      237          by: "correlator:investigation",
+      238        });
+      239  
+      240        console.log(
+      242 -        `[correlate] finding[${i}] (${finding.capability} @ ${
+          -finding.fileLine}) → ${match.hypothesis.hypId} (score=${match.
+          -score.score})`,                                               
+      241 +        `[correlate] finding[${i}] (${f.capability} @ ${f.file
+          +Line}) → ${match.hypothesis.hypId} (score=${match.score.score}
+          +)`,                                                           
+      242        );
+      243      } else {
+      244        result.unmatched.push(i);
+      245        console.log(
+      247 -        `[correlate] finding[${i}] (${finding.capability} @ ${
+          -finding.fileLine}) → no match`,                               
+      246 +        `[correlate] finding[${i}] (${f.capability} @ ${f.file
+          +Line}) → no match`,                                           
+      247        );
+      248      }
+      250 -  }                                                           
+      249 +  });                                                         
+      250  
+      251    return result;
+      252  }
+
+● Bash(npm run build 2>&1 | tail -5 && npx vitest run 2>&1 | tail -5)
+  ⎿  npm error path /home/wookie/Projects/npmguard/engine
+     npm error workspace @npmguard/engine@0.1.0
+     npm error location /home/wookie/Projects/npmguard/engine
+     … +7 lines (ctrl+o to expand)
+
+● Bash(npm run build 2>&1)
+  ⎿  Error: Exit code 2
+
+     > @npmguard/engine@0.1.0 build
+     > tsc
+
+     src/orchestrator/correlate.test.ts(248,12): error TS2532: Object is 
+     possibly 'undefined'.
+     src/orchestrator/correlate.ts(86,17): error TS2532: Object is possibly 
+     'undefined'.
+     src/orchestrator/correlate.ts(88,26): error TS2345: Argument of type 
+     'string | undefined' is not assignable to parameter of type 'string'.
+       Type 'undefined' is not assignable to type 'string'.
+     src/orchestrator/correlate.ts(89,43): error TS2345: Argument of type 
+     'string | undefined' is not assignable to parameter of type 'string'.
+     … +8 lines (ctrl+o to see all)
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/orchestrator/correlate.ts)
+  ⎿  Added 4 lines, removed 4 lines
+      83   * Handles "42-58", "42", and comma-separated ranges (takes fir
+          st range).
+      84   */
+      85  function parseRange(range: string): { start: number; end: numbe
+          r } | null {
+      86 -  const first = range.split(",")[0].trim();                    
+      87 -  const parts = first.split("-");                              
+      88 -  const start = parseInt(parts[0], 10);                        
+      89 -  const end = parts.length > 1 ? parseInt(parts[1], 10) : start
+         -;                                                              
+      86 +  const first = range.split(",")[0] ?? "";                     
+      87 +  const parts = first.trim().split("-");                       
+      88 +  const start = parseInt(parts[0] ?? "", 10);                  
+      89 +  const end = parts.length > 1 ? parseInt(parts[1] ?? "", 10) :
+         + start;                                                        
+      90    if (isNaN(start) || isNaN(end)) return null;
+      91    return { start, end };
+      92  }
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/orchestrator/correlate.test.ts)
+  ⎿  Added 1 line, removed 1 line
+      245      });
+      246  
+      247      expect(result.matched.length).toBe(1);
+      248 -    expect(result.matched[0].hypId).toBe("h1");               
+      248 +    expect(result.matched[0]!.hypId).toBe("h1");              
+      249      expect(g.get("h1").state).toBe("IN_PROGRESS");
+      250      expect(g.get("h1").evidenceRefs.length).toBe(1);
+      251      expect(g.get("h2").state).toBe("OPEN"); // unmatched stays
+            OPEN
+
+● Bash(npm run build 2>&1 | tail -5 && npx vitest run 2>&1 | tail -5)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+     … +5 lines (ctrl+o to expand)
+
+● 266 tests passing, build clean. This is the key commit that makes the
+  hypothesis graph authoritative.
+
+● Bash(cd /home/wookie/Projects/npmguard && git add
+      engine/src/orchestrator/correlate.ts
+      engine/src/orchestrator/correlate.test.ts engine/src/pipeline.ts && git
+      commit…)
+  ⎿  [dev 478200e] feat: phase-b — finding→hypothesis correlation, graph-au
+     thoritative verdict
+      3 files changed, 704 insertions(+), 7 deletions(-)
+     … +4 lines (ctrl+o to expand)
+● Building the experimenter worker — the bridge between hypothesis claims and
+  Phase A's runtime observation infrastructure. Let me read the manipulation +
+  runUnderObservation interfaces.
+
+  Searched for 10 patterns, read 2 files (ctrl+o to expand)
+
+● Now I have everything I need. Building the experimenter — claim strategies +
+  event confirmation logic.
+
+● Write(engine/src/orchestrator/experimenter.ts)
+  ⎿  Wrote 289 lines to engine/src/orchestrator/experimenter.ts
+       1 import { createHash } from "node:crypto";
+       2 import type {
+       3   ClaimKind,
+       4   Hypothesis,
+       5   RunArtifact,
+       6   EvidenceRef,
+       7   Trigger,
+       8   Event,
+       9 } from "@npmguard/shared";
+      10 import type { Manipulation } from "../manipulation/types.js";
+     … +332 lines (ctrl+o to expand)
+
+● Now tests for the pure parts — strategies + confirmation logic. The actual
+  runExperiment call needs Docker, so I'll test the strategy selection and
+  confirmation functions with synthetic RunArtifacts.
+
+● Write(engine/src/orchestrator/experimenter.test.ts)
+  ⎿  Wrote 228 lines to engine/src/orchestrator/experimenter.test.ts
+       2 import type { Hypothesis, RunArtifact, Event } from "@npmguard/s
+         hared";
+       3 import {
+       4   strategyForClaim,
+       5   eventsContainDnsWithPayload,
+       6 } from "./experimenter.js";
+       7 
+       8 function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
+       9   return {
+      10     hypId: "h1",
+     … +246 lines (ctrl+o to expand)
+
+● Bash(npx vitest run src/orchestrator/experimenter.test.ts 2>&1 | tail -15)
+  ⎿   RUN  v3.2.4 /home/wookie/Projects/npmguard
+
+      ✓ engine/src/orchestrator/experimenter.test.ts (18 tests) 5ms
+     … +6 lines (ctrl+o to expand)
+
+● Bash(npm run build 2>&1 | tail -5 && npx vitest run 2>&1 | tail -5)
+  ⎿  npm error Missing script: "build"
+     npm error
+     npm error To see a list of scripts, run:
+     … +8 lines (ctrl+o to expand)
+
+● Bash(cd /home/wookie/Projects/npmguard/engine && npm run build 2>&1 | tail -5
+      && npx vitest run 2>&1 | tail -5)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+     … +5 lines (ctrl+o to expand)
+
+● 284 tests green, build clean. Now let me wire the experimenter into the
+  pipeline — it runs for IN_PROGRESS hypotheses after investigation correlation,
+   before test-gen.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 1 line
+       8  import { buildGraphFromHypotheses } from "./orchestrator/build-
+          graph.js";
+       9  import { deriveGraphVerdict } from "./orchestrator/verdict.js";
+      10  import { correlateAfterInvestigation, correlateAfterVerify } fr
+          om "./orchestrator/correlate.js";
+      11 +import { runExperiment } from "./orchestrator/experimenter.js";
+      12  import { investigate } from "./phases/investigate.js";
+      13  import { generateTests } from "./phases/test-gen.js";
+      14  import { verifyProofs } from "./phases/verify.js";
+
+● Now insert the experimenter phase between investigation correlation and
+  test-gen.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 47 lines, removed 1 line
+      373        `[pipeline] investigation→graph: ${invCorrelation.matche
+           d.length} matched, ${invCorrelation.unmatched.length} unmatche
+           d findings`,
+      374      );
+      375  
+      376 -    // Phase 1d: Test generation                              
+      376 +    // Phase 1d: Experimenter — run dynamic observation for IN
+          +_PROGRESS hypotheses.                                         
+      377 +    // This is the first use of Phase A's runUnderObservation 
+          +in the live pipeline.                                         
+      378 +    const inProgressHyps = graph.filterByState("IN_PROGRESS");
+      379 +    if (inProgressHyps.length > 0) {                          
+      380 +      const mainEntry = inventory.entryPoints.runtime[0] ?? "i
+          +ndex.js";                                                     
+      381 +      console.log(                                            
+      382 +        `[pipeline] experimenter: running dynamic observation 
+          +for ${inProgressHyps.length} IN_PROGRESS hypothes${inProgressH
+          +yps.length === 1 ? "is" : "es"}`,                             
+      383 +      );                                                      
+      384 +      emit?.("phase_started", { phase: "experimenter" });     
+      385 +      const expStart = Date.now();                            
+      386 +                                                              
+      387 +      for (const h of inProgressHyps) {                       
+      388 +        try {                                                 
+      389 +          const result = await runExperiment(h, resolved.path,
+          + mainEntry);                                                  
+      390 +          if (result) {                                       
+      391 +            if (result.confirmed) {                           
+      392 +              graph.addEvidence(h.hypId, [result.evidenceRef])
+          +;                                                             
+      393 +              graph.transition(h.hypId, {                     
+      394 +                to: "CONFIRMED",                              
+      395 +                by: "worker:experimenter",                    
+      396 +                evidenceRefs: [result.evidenceRef],           
+      397 +              });                                             
+      398 +              emit?.("experiment_confirmed", { hypId: h.hypId,
+          + reason: result.reason });                                    
+      399 +            }                                                 
+      400 +            log.writeLog(`experiment-${h.hypId}.json`, {      
+      401 +              hypId: h.hypId,                                 
+      402 +              confirmed: result.confirmed,                    
+      403 +              reason: result.reason,                          
+      404 +              runId: result.artifact.runId,                   
+      405 +              wallMs: result.artifact.wallMs,                 
+      406 +              eventCount: result.artifact.events.length,      
+      407 +            });                                               
+      408 +          }                                                   
+      409 +        } catch (err) {                                       
+      410 +          console.error(                                      
+      411 +            `[experimenter] ${h.hypId} failed: ${err instanceo
+          +f Error ? err.message : String(err)}`,                        
+      412 +          );                                                  
+      413 +        }                                                     
+      414 +      }                                                       
+      415 +                                                              
+      416 +      const expDuration = Date.now() - expStart;              
+      417 +      console.log(`[pipeline] experimenter completed in ${expD
+          +uration}ms`);                                                 
+      418 +      emit?.("phase_completed", { phase: "experimenter", durat
+          +ionMs: expDuration });                                        
+      419 +      trace.push({ phase: "experimenter", durationMs: expDurat
+          +ion, input: { hypotheses: inProgressHyps.length }, output: {} 
+          +});                                                           
+      420 +    }                                                         
+      421 +                                                              
+      422 +    // Phase 1e: Test generation                              
+      423      const { result: proofs, log: testGenLog } = await timedPha
+           se(
+      424        "test-gen",
+      425        () => generateTests(investigationResult, resolved.path),
+
+● Bash(npm run build 2>&1 | tail -5 && npx vitest run 2>&1 | tail -5)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+     … +5 lines (ctrl+o to expand)
+
+● 284 passing, build clean. Let me commit and push.
+
+● Bash(cd /home/wookie/Projects/npmguard && git add
+      engine/src/orchestrator/experimenter.ts
+      engine/src/orchestrator/experimenter.test.ts engine/src/pipeline.ts &&
+      git…)
+  ⎿  [dev 62f9449] feat: phase-b — experimenter worker with claim-specific
+     strategies
+      3 files changed, 565 insertions(+), 1 deletion(-)
+     … +4 lines (ctrl+o to expand)
+
+● That's 6 Phase B commits in this session. Let me summarize the full state.
+
+● Bash(git log dev --oneline -10)
+  ⎿  62f9449 feat: phase-b — experimenter worker with claim-specific strate
+     gies
+     478200e feat: phase-b — finding→hypothesis correlation, graph-authorit
+     … +11 lines (ctrl+o to expand)
+
+● Bash(cd /home/wookie/Projects/npmguard/engine && npx vitest run 2>&1 | grep -E
+       "Tests |Test Files")  ⎿   Test Files  20 passed (20)
+           Tests  284 passed (284)
+
+● Phase B is now substantially complete. Here's the pipeline on dev:
+
+  resolve → inventory → intent-extraction → triage (→ Hypothesis[]) →
+    buildGraph (Jaro-Winkler dedup) →
+    investigate → correlateAfterInvestigation (→ IN_PROGRESS) →
+    experimenter (runUnderObservation per hypothesis → CONFIRMED) →
+    test-gen → verify → correlateAfterVerify (→ CONFIRMED/INCONCLUSIVE) →
+    deriveGraphVerdict (authoritative) → AuditReport
+
+  What shipped (6 commits, 284 tests, 20 test files):
+  1. Intent extraction — Haiku call over README+description+keywords →
+  PackageIntent baseline
+  2. Triage restructure — MAP emits Hypothesis[] directly (no REDUCE), intent
+  threads capability-mismatch reasoning
+  3. Graph builder — Jaro-Winkler dedup on description, persists graph.json
+  4. Verdict derivation — pure deriveGraphVerdict:
+  DANGEROUS/SAFE/SUSPECT/UNKNOWN from graph state
+  5. Correlation layer — two-stage bridge mapping investigation findings +
+  verified proofs → hypothesis transitions, making the graph authoritative for
+  verdicts
+  6. Experimenter worker — 6 claim-specific strategies (env_exfil, cred_theft,
+  binary_drop, dos_loop, obfuscation, persistence, dns_exfil) using Phase A's
+  runUnderObservation with manipulation primitives + sensor observation
+
+  What's left for future work:
+  - Experimenter strategies for 6 remaining claim kinds (dom_inject,
+  clipboard_hijack, telemetry, propagation, destructive, build_plugin_exfil)
+  - 4-state verdict in AuditReport schema (→ CLI + frontend cascade)
+  - Report bundle layout (report.json + artifacts/)
+  - Frontend hypothesis graph visualization + SSE vocabulary update
+
+✻ Baked for 14m 56s
+
+❯ spin up the engine,                                                           
+  1. run the tool in chrome via mcp, verify it works on a malicious package.    
+  2. record all problems/errors                                                 
+  3. fix them                                                                   
+  4. go back to 1 untill there are problems                                     
+
+● Let me get the engine running and test it end-to-end through the browser.
+
+● Bash(cd /home/wookie/Projects/npmguard && git branch --show-current)
+  ⎿  dev
+
+● Bash(cd /home/wookie/Projects/npmguard/engine && cat .env 2>/dev/null | head
+      -20; echo "---"; ls -la .env* 2>/dev/null)
+  ⎿  # API
+     NPMGUARD_API_HOST=0.0.0.0
+     NPMGUARD_API_PORT=8000
+     … +21 lines (ctrl+o to expand)
+
+● Bash(cd /home/wookie/Projects/npmguard && ls frontend/package.json 2>/dev/null
+       && cat frontend/package.json | grep -E '"dev"|"build"|"start"' | head -5)
+  ⎿  frontend/package.json
+         "dev": "vite",
+         "build": "tsc -b && vite build",
+
+● Bash(cd /home/wookie/Projects/npmguard/engine && npm install 2>&1 | tail -5)
+  ⎿  To address all issues (including breaking changes), run:
+       npm audit fix --force
+
+     Run `npm audit` for details.
+
+● Bash(npx tsx src/index.ts 2>&1 &
+      sleep 3…)
+  ⎿  [demo] loaded recording: react (83 events, 27 files)
+     [demo] loaded recording: test-pkg-dom-inject (65 events, 4 files)
+     [demo] loaded recording: test-pkg-env-exfil (50 events, 3 files)
+     … +17 lines (ctrl+o to expand)
+  ⎿  (timeout 15s)
+
+● Engine is running on port 8000. Let me open it in Chrome.
+
+  Called claude-in-chrome, chrome-devtools-mcp 3 times (ctrl+o to expand)
+
+  Called chrome-devtools-mcp (ctrl+o to expand)
+
+● The devtools MCP sees a different browser context. Let me use the
+  claude-in-chrome tools consistently since that one has the right tab.
+
+  Called claude-in-chrome (ctrl+o to expand)
+
+● Frontend is loaded. Let me use one of the test malicious packages. First let
+  me check how the resolve works for test fixtures.
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+● Good — test-pkg-env-exfil resolves from local fixtures. Let me type it into
+  the search box and run an audit.
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● Bash(sleep 5 && echo "waited 5s")
+  ⎿  waited 5s
+
+  Called claude-in-chrome (ctrl+o to expand)
+
+● The page didn't navigate to an audit — likely the Stripe payment gate is
+  active. Let me check the console and also check if PAYMENT_ENABLED needs to be
+   false.
+
+  Searched for 1 pattern, called claude-in-chrome (ctrl+o to expand)
+
+● Payment is enabled because Stripe key exists. Let me disable it to test the
+  pipeline directly.
+
+● Bash(kill $(pgrep -f "tsx src/index.ts") 2>/dev/null; echo "killed")
+  ⎿  Error: Exit code 144
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/.env)
+  ⎿  Added 4 lines, removed 4 lines
+      12  NPMGUARD_INVESTIGATION_MODEL=anthropic/claude-sonnet-4-6
+      13  NPMGUARD_TEST_GEN_MODEL=anthropic/claude-sonnet-4-6
+      14  
+      15 -# Stripe                                                       
+      16 -NPMGUARD_STRIPE_SECRET_KEY=sk_live_51TJCMM6tRwCiDZrYwyZ1LmFwh3D
+         -DskTcO6jpgESNXgQzITJoyzMwx3RlaCNaAwf4i7HGHbp0fuweh0tStAk6vyMh00
+         -2qiThwSs                                                       
+      17 -NPMGUARD_STRIPE_WEBHOOK_SECRET=whsec_fwiOKqvi9FtS6smOw9MUI78P7J
+         -FDKdQK                                                         
+      18 -NPMGUARD_AUDIT_PRICE_CENTS=400                                 
+      15 +# Stripe (disabled for dev testing — uncomment to enable paymen
+         +t gate)                                                        
+      16 +# NPMGUARD_STRIPE_SECRET_KEY=sk_live_51TJCMM6tRwCiDZrYwyZ1LmFwh
+         +3DDskTcO6jpgESNXgQzITJoyzMwx3RlaCNaAwf4i7HGHbp0fuweh0tStAk6vyMh
+         +002qiThwSs                                                     
+      17 +# NPMGUARD_STRIPE_WEBHOOK_SECRET=whsec_fwiOKqvi9FtS6smOw9MUI78P
+         +7JFDKdQK                                                       
+      18 +# NPMGUARD_AUDIT_PRICE_CENTS=400                               
+
+● Bash(npx tsx src/index.ts > /tmp/npmguard-engine.log 2>&1 &
+      sleep 3…)
+  ⎿  [demo] loaded recording: react (83 events, 27 files)
+     [demo] loaded recording: test-pkg-dom-inject (65 events, 4 files)
+     [demo] loaded recording: test-pkg-env-exfil (50 events, 3 files)
+     … +3 lines (ctrl+o to expand)
+  ⎿  (timeout 15s)
+
+● Engine restarted without payment. Let me refresh the page and try again.
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● Page refs are stale after refresh. Let me re-read the page.
+
+  Called claude-in-chrome 3 times (ctrl+o to expand)
+
+● Bash(sleep 3 && echo "waited")
+  ⎿  waited
+
+  Called claude-in-chrome (ctrl+o to expand)
+
+● The form input value isn't being picked up by React's state. Let me trigger it
+   properly.
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● Still not navigating. Let me check how the frontend routes audits.
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+  ⎿  Loaded ../frontend/CLAUDE.md
+
+● The frontend resolves version via the API first. Let me check if that works
+  for test fixtures.
+
+● Bash(curl -s http://localhost:8000/resolve/test-pkg-env-exfil | head -20)
+  ⎿  {
+       "error": "npm registry returned 404 for test-pkg-env-exfil@latest"
+     }
+
+● The resolve endpoint fails for test fixtures (not on npm). I can either fix
+  the resolve or provide an explicit version. Let me check what version format
+  the audit needs.
+  Searched for 2 patterns (ctrl+o to expand)
+
+● Let me try with an explicit version to skip the resolve step.
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● Bash(sleep 3 && tail -20 /tmp/npmguard-engine.log)
+  ⎿  [pipeline] 2 source files → timeout scale 1.00×
+     [intent] "Load application configuration with environment detection."
+     → expected=[(none)]
+     … +19 lines (ctrl+o to expand)
+
+● The audit is running. Intent extraction succeeded, triage is processing. Let
+  me wait for more progress.
+
+● Bash(sleep 15 && tail -50 /tmp/npmguard-engine.log)
+  ⎿    "hasDealbreaker": false,
+       "scripts": {
+         "preinstall": "node setup.js"
+     … +35 lines (ctrl+o to expand)
+  ⎿  (timeout 30s)
+
+● Bash(sleep 20 && tail -60 /tmp/npmguard-engine.log)
+  ⎿    "packagePath": "/home/wookie/Projects/npmguard/sandbox/test-fixtures
+     /test-pkg-env-exfil"
+     }
+     … +41 lines (ctrl+o to expand)
+  ⎿  (timeout 30s)
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(sleep 30 && wc -l /tmp/npmguard-engine.log && tail -30
+      /tmp/npmguard-engine.log)
+  ⎿  Error: Blocked: sleep 30 followed by: wc -l /tmp/npmguard-engine.log tail 
+     -30 /tmp/npmguard-engine.log. To wait for a condition, use Monitor with an 
+     until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command 
+     you started, use run_in_background: true. Do not chain shorter sleeps to 
+     work around this block.
+
+● Monitor(Engine pipeline progress for test-pkg-env-exfil audit)
+  ⎿  Monitor started · task b9h2xqqik · timeout 180s
+
+● Good, monitoring engine logs. Let me also check the browser state to see what
+  the frontend is showing.
+
+  Called claude-in-chrome (ctrl+o to expand)
+
+● Monitor event: "Engine pipeline progress for test-pkg-env-exfil audit"
+
+● The frontend is working — it navigated to the audit page and is showing
+  real-time progress. Triage is still processing with the LLM. Let me check for
+  any errors so far.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● No errors so far. Waiting for triage LLM to complete — deepseek calls can take
+   a while.
+
+  Read 1 file (ctrl+o to expand)
+
+● Concerning — setup.js returned 0 hypotheses. That's the malicious file. May be
+   a model quality issue with deepseek. Let me wait for the full triage to
+  finish.
+
+● Bash(until grep -q "triage\] emitted" /tmp/npmguard-engine.log; do sleep 2;
+      done; tail -10 /tmp/npmguard-engine.log)
+  ⎿  Running in the background (↓ to manage)
+  ⎿  (timeout 2m)
+
+● Monitor event: "Engine pipeline progress for test-pkg-env-exfil audit"
+
+● The triage timed out after 120s. And setup.js (the malicious file) returned 0
+  hypotheses — likely a model/schema issue with deepseek. Let me check the full
+  error context.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Two problems found:
+  1. Triage timeout — deepseek v3.2 via OpenRouter hangs on the second LLM call
+  2. Zero hypotheses on the malicious setup.js — deepseek doesn't handle the
+  hypothesis schema well
+
+  Fix: switch triage model to claude-haiku which handles structured output
+  reliably.
+
+● Bash(kill $(pgrep -f "tsx src/index.ts") 2>/dev/null; echo "killed")
+  ⎿  Error: Exit code 144
+
+● Monitor event: "Engine pipeline progress for test-pkg-env-exfil audit"
+● Update(engine/.env)
+  ⎿  Added 1 line, removed 1 line
+       8  NPMGUARD_LLM_API_KEY=sk-or-v1-828120dda039f73cb669fea9929755458
+          28d7688be46365f39ae0b0639c50a66
+       9  
+      10  # Per-phase models
+      11 -NPMGUARD_TRIAGE_MODEL=deepseek/deepseek-v3.2                   
+      11 +NPMGUARD_TRIAGE_MODEL=anthropic/claude-haiku-4-5-20251001      
+      12  NPMGUARD_INVESTIGATION_MODEL=anthropic/claude-sonnet-4-6
+      13  NPMGUARD_TEST_GEN_MODEL=anthropic/claude-sonnet-4-6
+      14  
+
+● Bash(> /tmp/npmguard-engine.log && npx tsx src/index.ts >>
+      /tmp/npmguard-engine.log 2>&1 &
+      sleep 3 && tail -5 /tmp/npmguard-engine.log)
+  ⎿  [demo] loaded recording: react (83 events, 27 files)
+     [demo] loaded recording: test-pkg-dom-inject (65 events, 4 files)
+     [demo] loaded recording: test-pkg-env-exfil (50 events, 3 files)
+     … +3 lines (ctrl+o to expand)
+  ⎿  (timeout 15s)
+
+● Good, engine restarted. Let me set up the monitor and re-run the audit.
+
+● Monitor(Engine pipeline progress (round 2))
+  ⎿  Monitor started · task bfuru54za · timeout 300s
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● Audit submitted. Waiting for monitor events from the pipeline.
+
+  Read 1 file (ctrl+o to expand)
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Background command "Wait for triage to complete" completed (exit code 0)
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Found the issue — anthropic/claude-haiku-4-5-20251001 isn't a valid OpenRouter
+   model ID. The investigation with anthropic/claude-sonnet-4-6 is running (so
+  that works). Let me fix the triage model name. Let me kill and restart with a
+  valid model.
+
+● Bash(kill $(pgrep -f "tsx src/index.ts") 2>/dev/null; echo "done")
+  ⎿  Error: Exit code 144
+
+● Update(engine/.env)
+  ⎿  Added 1 line, removed 1 line
+       8  NPMGUARD_LLM_API_KEY=sk-or-v1-828120dda039f73cb669fea9929755458
+          28d7688be46365f39ae0b0639c50a66
+       9  
+      10  # Per-phase models
+      11 -NPMGUARD_TRIAGE_MODEL=anthropic/claude-haiku-4-5-20251001      
+      11 +NPMGUARD_TRIAGE_MODEL=anthropic/claude-sonnet-4-6              
+      12  NPMGUARD_INVESTIGATION_MODEL=anthropic/claude-sonnet-4-6
+      13  NPMGUARD_TEST_GEN_MODEL=anthropic/claude-sonnet-4-6
+      14  
+
+● Bash(> /tmp/npmguard-engine.log && npx tsx src/index.ts >>
+      /tmp/npmguard-engine.log 2>&1 &
+      sleep 3 && tail -3 /tmp/npmguard-engine.log)
+  ⎿  [demo] loaded recording: test-pkg-env-exfil (50 events, 3 files)
+     [static] Serving frontend from /home/wookie/Projects/npmguard/frontend
+     /dist
+     NpmGuard Engine starting on 0.0.0.0:8000
+  ⎿  (timeout 15s)
+
+● Monitor(Engine pipeline (round 3 - sonnet triage))
+  ⎿  Monitor started · task blk5ip072 · timeout 600s
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● Audit submitted with sonnet for all models. Waiting for monitor events.
+
+  Read 1 file, called claude-in-chrome (ctrl+o to expand)
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Sonnet working well — intent extraction correctly identified [FILESYSTEM, 
+  ENV_VARS] as expected capabilities. Triage is now analyzing files against this
+   baseline. Waiting for triage results.
+
+✻ Churned for 12m 23s
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● 5 hypotheses found. Investigation agent should be running now. Let me check
+  the browser state.
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● The frontend is showing great progress — investigation agent is actively
+  analyzing the package at step 4, reading files, running lifecycle hooks,
+  tracing behavior. Triage flagged setup.js as "risk 10". Waiting for the
+  investigation to complete.
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● The pipeline is working end-to-end — investigation found 6 findings,
+  correlation matched 5/6 to hypotheses, and the experimenter is now running
+  dynamic observation. This is the first live use of Phase A's
+  runUnderObservation. Let me watch for Docker/experimenter results.
+
+● Bash(docker ps --format "{{.Names}}" 2>/dev/null | head -5; echo "---"; docker
+       images --format "{{.Repository}}:{{.Tag}}" | grep npmguard 2>/dev/null |
+      head -5)
+  ⎿  npmguard-sandbox-46eeee23-6f3
+     ---
+     npmguard-sandbox:v1
+     npmguard-verify:latest
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Good progress. Experimenter couldn't confirm because it triggered index.js
+  (benign) instead of setup.js (the preinstall hook). That's Problem 3 — I'll
+  fix the trigger selection. Test-gen is now running for all 6 findings, which
+  should succeed via the legacy verify path. Waiting for completion.
+
+✻ Worked for 40s
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Excellent — 5/6 tests passed first try. One retry on the DECEPTION finding
+  (module path issue). Test-gen retry loop should handle it. Waiting for verify
+  phase.
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Retry attempt 2 running for the DECEPTION test. Waiting for result.
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● Full pipeline completed successfully! All 6 tests passed, 5/5 hypotheses
+  CONFIRMED, verdict: DANGEROUS. Let me check how the frontend displays the
+  results.
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● The full pipeline works end-to-end. The frontend shows DANGEROUS with 6
+  verified findings — all with evidence, reproduction steps, and exploit test
+  code. Excellent.
+
+  One real problem to fix: the experimenter triggers index.js (benign) instead 
+  of setup.js (the lifecycle hook with the malicious code). Let me fix the
+  trigger selection now.
+
+  Read 1 file (ctrl+o to expand)
+
+● Monitor event: "Engine pipeline progress (round 2)"
+
+● The fix: runExperiment should accept install entry points, and
+  strategyForClaim should prefer lifecycle-referenced files when the hypothesis
+  points at them.
+
+● Update(engine/src/orchestrator/experimenter.ts)
+  ⎿  Added 20 lines
+       96  // -----------------------------------------------------------
+           ----------------
+       97  
+       98  /**
+       99 + * Pick the best trigger target for this hypothesis. If any fo
+          +cusFile is a                                                  
+      100 + * known install-time entry point (lifecycle hook target), use
+          + it — the                                                     
+      101 + * malicious code runs at install, not at runtime require().  
+      102 + */                                                           
+      103 +export function pickTriggerTarget(                            
+      104 +  hypothesis: Hypothesis,                                     
+      105 +  runtimeEntry: string,                                       
+      106 +  installEntries: readonly string[],                          
+      107 +): { target: string; kind: "entrypoint" | "lifecycle" } {     
+      108 +  for (const focus of hypothesis.focusFiles) {                
+      109 +    if (installEntries.includes(focus)) {                     
+      110 +      return { target: focus, kind: "entrypoint" };           
+      111 +    }                                                         
+      112 +  }                                                           
+      113 +  return { target: runtimeEntry, kind: "entrypoint" };        
+      114 +}                                                             
+      115 +                                                              
+      116 +/**                                                           
+      117   * Build an experiment strategy for the given claim kind. Uses
+            the hypothesis's
+      118   * focusFiles to select the right trigger target (main entry p
+           oint or lifecycle
+      119   * hook). Returns null for claim kinds with no automated exper
+           iment yet.
+     ...
+      122    claim: ClaimKind,
+      123    hypothesis: Hypothesis,
+      124    entryTarget: string,
+      125 +  installEntries: readonly string[] = [],                     
+      126  ): ExperimentStrategy | null {
+      127 +  const { target, kind } = pickTriggerTarget(hypothesis, entry
+          +Target, installEntries);                                      
+      128    switch (claim) {
+      129      case "env_exfil":
+      130      case "cred_theft":
+
+● Now replace all hardcoded entryTarget references in the strategies with the
+  computed target.
+
+● Update(engine/src/orchestrator/experimenter.ts)
+  ⎿  Added 6 lines, removed 6 lines
+      129      case "env_exfil":
+      130      case "cred_theft":
+      131        return {
+      132 -        trigger: { kind: "entrypoint", target: entryTarget, ar
+          -gv: [], stdin: null },                                        
+      132 +        trigger: { kind, target, argv: [], stdin: null },     
+      133          setup: [
+      134            setEnv({
+      135              NPM_TOKEN: PLANTED_TOKEN,
+     ...
+      158  
+      159      case "binary_drop":
+      160        return {
+      161 -        trigger: { kind: "entrypoint", target: entryTarget, ar
+          -gv: [], stdin: null },                                        
+      161 +        trigger: { kind, target, argv: [], stdin: null },     
+      162          setup: [],
+      163          observe: { kernel: true, network: true, node: true, fs
+           Diff: true, inspector: false },
+      164          budget: { wallMs: 20_000 },
+     ...
+      175  
+      176      case "dos_loop":
+      177        return {
+      178 -        trigger: { kind: "entrypoint", target: entryTarget, ar
+          -gv: [], stdin: null },                                        
+      178 +        trigger: { kind, target, argv: [], stdin: null },     
+      179          setup: [],
+      180          observe: { kernel: true, node: true, fsDiff: false, ne
+           twork: false, inspector: false },
+      181          budget: { wallMs: 5_000 },
+     ...
+      189  
+      190      case "obfuscation":
+      191        return {
+      192 -        trigger: { kind: "entrypoint", target: entryTarget, ar
+          -gv: [], stdin: null },                                        
+      192 +        trigger: { kind, target, argv: [], stdin: null },     
+      193          setup: [],
+      194          observe: { kernel: false, network: false, node: true, 
+           fsDiff: false, inspector: true },
+      195          budget: { wallMs: 15_000 },
+     ...
+      203  
+      204      case "persistence":
+      205        return {
+      206 -        trigger: { kind: "entrypoint", target: entryTarget, ar
+          -gv: [], stdin: null },                                        
+      206 +        trigger: { kind, target, argv: [], stdin: null },     
+      207          setup: [],
+      208          observe: { kernel: true, node: true, fsDiff: true, net
+           work: false, inspector: false },
+      209          budget: { wallMs: 15_000 },
+     ...
+      217  
+      218      case "dns_exfil":
+      219        return {
+      220 -        trigger: { kind: "entrypoint", target: entryTarget, ar
+          -gv: [], stdin: null },                                        
+      220 +        trigger: { kind, target, argv: [], stdin: null },     
+      221          setup: [
+      222            setEnv({
+      223              NPM_TOKEN: PLANTED_TOKEN,
+
+● Now update runExperiment to pass install entries through.
+
+● Update(engine/src/orchestrator/experimenter.ts)
+  ⎿  Added 2 lines, removed 1 line
+      264    hypothesis: Hypothesis,
+      265    packagePath: string,
+      266    entryTarget: string,
+      267 +  installEntries: readonly string[] = [],                     
+      268  ): Promise<ExperimentResult | null> {
+      268 -  const strategy = strategyForClaim(hypothesis.claim.kind, hyp
+          -othesis, entryTarget);                                        
+      269 +  const strategy = strategyForClaim(hypothesis.claim.kind, hyp
+          +othesis, entryTarget, installEntries);                        
+      270    if (!strategy) {
+      271      console.log(
+      272        `[experimenter] no strategy for claim ${hypothesis.claim
+           .kind} (${hypothesis.hypId})`,
+
+● Now update the pipeline to pass install entries.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Update(engine/src/pipeline.ts)
+  ⎿  Added 1 line, removed 1 line
+      386  
+      387        for (const h of inProgressHyps) {
+      388          try {
+      389 -          const result = await runExperiment(h, resolved.path,
+          - mainEntry);                                                  
+      389 +          const result = await runExperiment(h, resolved.path,
+          + mainEntry, inventory.entryPoints.install);                   
+      390            if (result) {
+      391              if (result.confirmed) {
+      392                graph.addEvidence(h.hypId, [result.evidenceRef])
+           ;
+● Now update the test to cover the new pickTriggerTarget function.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(engine/src/orchestrator/experimenter.test.ts)
+  ⎿  Added 1 line
+      2  import type { Hypothesis, RunArtifact, Event } from "@npmguard/s
+         hared";
+      3  import {
+      4    strategyForClaim,
+      5 +  pickTriggerTarget,                                            
+      6    eventsContainDnsWithPayload,
+      7  } from "./experimenter.js";
+      8  
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Update(engine/src/orchestrator/experimenter.test.ts)
+  ⎿  Added 20 lines
+      74  // strategyForClaim
+      75  // ------------------------------------------------------------
+          ---------------
+      76  
+      77 +describe("pickTriggerTarget", () => {                          
+      78 +  it("prefers a focusFile that is an install entry point", () =
+         +> {                                                            
+      79 +    const h = hyp({ focusFiles: ["setup.js", "index.js"] });   
+      80 +    const result = pickTriggerTarget(h, "index.js", ["setup.js"
+         +]);                                                            
+      81 +    expect(result.target).toBe("setup.js");                    
+      82 +  });                                                          
+      83 +                                                               
+      84 +  it("falls back to runtimeEntry when no focusFile is an instal
+         +l entry", () => {                                              
+      85 +    const h = hyp({ focusFiles: ["lib/util.js"] });            
+      86 +    const result = pickTriggerTarget(h, "index.js", ["setup.js"
+         +]);                                                            
+      87 +    expect(result.target).toBe("index.js");                    
+      88 +  });                                                          
+      89 +                                                               
+      90 +  it("falls back to runtimeEntry when installEntries is empty",
+         + () => {                                                       
+      91 +    const h = hyp({ focusFiles: ["setup.js"] });               
+      92 +    const result = pickTriggerTarget(h, "index.js", []);       
+      93 +    expect(result.target).toBe("index.js");                    
+      94 +  });                                                          
+      95 +});                                                            
+      96 +                                                               
+      97  describe("strategyForClaim", () => {
+      98    it("returns a strategy for env_exfil", () => {
+      99      const s = strategyForClaim("env_exfil", hyp(), "index.js");
+
+● Also update the strategy tests to pass installEntries so they use the right
+  trigger.
+
+● Update(engine/src/orchestrator/experimenter.test.ts)
+  ⎿  Added 4 lines, removed 3 lines
+       95  });
+       96  
+       97  describe("strategyForClaim", () => {
+       98 -  it("returns a strategy for env_exfil", () => {              
+       99 -    const s = strategyForClaim("env_exfil", hyp(), "index.js")
+          -;                                                             
+       98 +  it("returns a strategy for env_exfil targeting lifecycle fil
+          +e when available", () => {                                    
+       99 +    const h = hyp({ focusFiles: ["setup.js"] });              
+      100 +    const s = strategyForClaim("env_exfil", h, "index.js", ["s
+          +etup.js"]);                                                   
+      101      expect(s).not.toBeNull();
+      101 -    expect(s!.trigger.kind).toBe("entrypoint");               
+      102 +    expect(s!.trigger.target).toBe("setup.js");               
+      103      expect(s!.setup.length).toBeGreaterThan(0);
+      104    });
+      105  
+
+● Bash(npm run build 2>&1 | tail -5 && npx vitest run
+      src/orchestrator/experimenter.test.ts 2>&1 | tail -10)
+  ⎿  > @npmguard/engine@0.1.0 build
+     > tsc
+     … +10 lines (ctrl+o to expand)
+
+● Bash(npx vitest run src/orchestrator/experimenter.test.ts 2>&1 | grep -B 3 -A
+      8 "FAIL\|AssertionError")
+  ⎿  ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+      FAIL  src/orchestrator/experimenter.test.ts > pickTriggerTarget > fal
+     … +12 lines (ctrl+o to expand)
+
+● The hyp() helper doesn't spread overrides for focusFiles. Let me fix it.
+
+● Update(engine/src/orchestrator/experimenter.test.ts)
+  ⎿  Added 2 lines, removed 1 line
+      10    return {
+      11      hypId: "h1",
+      12      description: "test",
+      13 -    claim: overrides.claim ?? { kind: "env_exfil", gating: null
+         - },                                                            
+      13 +    claim: { kind: "env_exfil", gating: null },                
+      14      focusFiles: ["setup.js"],
+      15      focusLines: [{ file: "setup.js", range: "1-10" }],
+      16      severity: "high",
+     ...
+      22      createdAt: "2026-04-24T12:00:00.000Z",
+      23      resolvedAt: null,
+      24      resolution: null,
+      25 +    ...overrides,                                              
+      26    };
+      27  }
+      28  
+
+● Bash(npx vitest run src/orchestrator/experimenter.test.ts 2>&1 | tail -8)
+  ⎿   ✓ src/orchestrator/experimenter.test.ts (21 tests) 6ms
+
+      Test Files  1 passed (1)
+     … +4 lines (ctrl+o to expand)
+
+● Bash(npx vitest run 2>&1 | tail -5)
+  ⎿   Test Files  20 passed (20)
+           Tests  287 passed (287)
+        Start at  20:14:11
+     … +2 lines (ctrl+o to expand)
+
+● 287 green. Now restart the engine and re-run the audit to verify the
+  experimenter picks the right trigger.
+
+● Bash(kill $(pgrep -f "tsx src/index.ts") 2>/dev/null; >
+      /tmp/npmguard-engine.log && npx tsx src/index.ts >>
+      /tmp/npmguard-engine.log 2>&1 &
+      sleep 3 && tail -3 /tmp/n…)
+  ⎿  Error: Exit code 144
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(pkill -f "tsx src/index.ts" 2>/dev/null; sleep 1; >
+      /tmp/npmguard-engine.log; npx tsx src/index.ts >> /tmp/npmguard-engine.log
+       2>&1 &
+      sleep 3; tail -3 /tmp/npmg…)
+  ⎿  Error: Exit code 144
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(pgrep -f "tsx src/index" && echo "engine running" || echo "engine not
+      running")
+  ⎿  244459
+     engine running
+
+● Bash(curl -s http://localhost:8000/ | head -3)
+  ⎿  (No output)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Bash(curl -s http://localhost:8000/ | head -5 2>&1; echo "---"; ss -tlnp |
+      grep 8000)
+  ⎿  ---
+
+● Bash(pkill -9 -f "tsx src/index" 2>/dev/null; sleep 2; ss -tlnp | grep 8000;
+      echo "---port freed"; > /tmp/npmguard-engine.log; npx tsx src/index.ts >>
+      /tmp/npmguard-…)
+  ⎿  No matches found
+  Read 1 file (ctrl+o to expand)
+
+● Bash(pkill -9 -f "tsx" 2>/dev/null; sleep 2; > /tmp/npmguard-engine.log; npx
+      tsx src/index.ts >> /tmp/npmguard-engine.log 2>&1 &
+      sleep 4; tail -5 /tmp/npmguard-engin…)
+  ⎿  Error: Exit code 1
+
+  Read 1 file (ctrl+o to expand)
+
+● The engine is running — it re-ran the previous audit connection. Let me verify
+   it's up and run a fresh test.
+
+● Bash(curl -s http://localhost:8000/ | head -3)
+  ⎿  (No output)
+
+● Bash(curl -v http://localhost:8000/ 2>&1 | head -15)
+  ⎿  * Host localhost:8000 was resolved.
+     * IPv6: ::1
+     * IPv4: 127.0.0.1
+     … +17 lines (ctrl+o to expand)
+
+● Engine crashed. Let me check and restart properly.
+
+● Bash(pgrep -af "tsx" 2>/dev/null; echo "---"; tail -5
+      /tmp/npmguard-engine.log)
+  ⎿  244545 /usr/bin/zsh -c source /home/wookie/.claude/shell-snapshots/sna
+     pshot-zsh-1777916347221-0fl18s.sh 2>/dev/null || true && setopt NO_EXT
+     ENDED_GLOB 2>/dev/null || true && eval 'pgrep -af "tsx" 2>/dev/null; e
+     … +10 lines (ctrl+o to expand)
+
+● Bash(> /tmp/npmguard-engine.log && npx tsx src/index.ts >
+      /tmp/npmguard-engine.log 2>&1 &
+      sleep 4 && curl -s http://localhost:8000/ | head -3 && echo "---OK")
+  ⎿  <!doctype html>
+     <html lang="en">
+       <head>
+     ---OK
+  ⎿  (timeout 15s)
+
+● Engine is up. Now let me run the audit again and watch if the experimenter
+  picks up setup.js this time.
+
+● Monitor(Engine pipeline (round 4 - experimenter fix))
+  ⎿  Monitor started · task bk53rlusk · timeout 600s
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+● Audit submitted. Waiting for pipeline to reach the experimenter phase —
+  specifically watching for the trigger target.
+
+✻ Baked for 5m 56s
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● Pipeline started. Waiting for experimenter events to verify the trigger fix.
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● Intent extraction done (27s — OpenRouter latency varies). Triage is running.
+  Waiting for experimenter phase.
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● 4 hypotheses this time (vs 5 last run — LLM variance). Investigation agent
+  running next. The experimenter trigger fix will show after investigation +
+  correlation.
+
+● Monitor event: "Engine pipeline (round 3 - sonnet triage)"
+● Old monitor timed out — round 4 monitor still active. Investigation takes ~90s
+   with Sonnet.
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● The fix works — trigger=entrypoint:setup.js instead of the old
+  entrypoint:index.js. The experimenter is now targeting the actual malicious
+  file. Waiting for confirmation results.
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● First dynamic confirmation ever! trg-0001 CONFIRMED — the experimenter ran
+  setup.js, planted fake credentials, and observed network exfiltration. Phase
+  A's runtime observation is working. Waiting for remaining 3 experiments.
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● 2/2 confirmed. All targeting setup.js correctly now.
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● 3/3 confirmed dynamically. One more experiment remaining.
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● 4/4 experiments CONFIRMED via dynamic observation in 24s. All hypotheses
+  confirmed by planting credentials and observing network exfiltration from
+  setup.js. Now test-gen + verify will add even more evidence. Waiting for final
+   verdict.
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● Test generation done. Verify phase running next.
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● Full pipeline complete — DANGEROUS verdict with 4 confirmed hypotheses backed 
+  by dynamic evidence.
+
+  Let me commit the experimenter fix and take stock.
+
+● Bash(cd /home/wookie/Projects/npmguard && git add
+      engine/src/orchestrator/experimenter.ts
+      engine/src/orchestrator/experimenter.test.ts engine/src/pipeline.ts &&
+      git…)
+  ⎿  [dev a5d913c] fix: experimenter picks lifecycle-hook files as trigger
+     targets
+      3 files changed, 56 insertions(+), 12 deletions(-)
+     … +2 lines (ctrl+o to expand)
+
+● Now let me also commit the .env model fix (switching from deepseek to sonnet
+  for triage), since that's a config issue worth documenting. Actually the .env
+  is gitignored — let me check.
+
+● Bash(git status --short)
+  ⎿  ?? data/
+
+● Clean. Here's the summary of the end-to-end test session:
+
+  Problems found and fixed:
+
+  #: 1
+  Problem: Payment gate blocks audit in dev
+  Fix: Commented out NPMGUARD_STRIPE_SECRET_KEY in .env
+  Status: Fixed (config)
+  ────────────────────────────────────────
+  #: 2
+  Problem: deepseek/deepseek-v3.2 too slow + returns 0 hypotheses on malicious
+    code
+  Fix: Switched NPMGUARD_TRIAGE_MODEL to anthropic/claude-sonnet-4-6
+  Status: Fixed (config)
+  ────────────────────────────────────────
+  #: 3
+  Problem: anthropic/claude-haiku-4-5-20251001 not a valid OpenRouter model ID
+  Fix: Used sonnet instead (valid on OpenRouter)
+  Status: Fixed (config)
+  ────────────────────────────────────────
+  #: 4
+  Problem: Experimenter triggers index.js (benign) instead of setup.js
+  (lifecycle
+    hook)
+  Fix: Added pickTriggerTarget() that prefers focusFiles matching install
+  entries
+  Status: Fixed (code, committed)
+
+  Pipeline results on test-pkg-env-exfil:
+  - Intent: correctly identified FILESYSTEM + ENV_VARS as expected
+  - Triage: 4-5 hypotheses emitted (env_exfil, cred_theft variants)
+  - Investigation: 6 findings, all CONFIRMED by agent (88s)
+  - Experimenter: 4/4 hypotheses CONFIRMED via dynamic observation (24s)
+  - Test-gen: 6/6 exploit tests generated (41s)
+  - Verify: 6/6 tests PASSED in Docker sandbox (7s)
+  - Final verdict: DANGEROUS — 4 confirmed hypotheses with dynamic evidence
+
+✻ Churned for 1m 2s
+
+※ recap: Tested the full audit pipeline end-to-end on test-pkg-env-exfil via the browser. Fixed the experimenter trigger selection so it runs lifecycle hook files instead of benign entry points. All 4 hypotheses now dynamically confirmed, verdict DANGEROUS. Pipeline works. (disable recaps in /config)
+
+● Monitor event: "Engine pipeline (round 4 - experimenter fix)"
+
+● Monitor timed out — pipeline already completed, no need to re-arm. All
+  problems from the test run are resolved. The full audit pipeline works
+  end-to-end through the browser, from intent extraction through dynamic
+  confirmation to final DANGEROUS verdict.
