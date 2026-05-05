@@ -231,14 +231,27 @@ export function correlateAfterInvestigation(
         score: match.score.score,
       });
 
-      graph.addEvidence(match.hypothesis.hypId, [findingRef(f, i)]);
+      const ref = findingRef(f, i);
+      graph.addEvidence(match.hypothesis.hypId, [ref]);
+
+      // Agent-CONFIRMED findings come from the investigation tool traces
+      // (runLifecycleHook, requireAndTrace) — that's real dynamic evidence,
+      // not just an LLM opinion. Promote straight to CONFIRMED so verify
+      // infra failures can't downgrade us to SAFE on a confirmed worm.
+      // SUSPECTED / LIKELY findings stay IN_PROGRESS pending verify.
       graph.transition(match.hypothesis.hypId, {
         to: "IN_PROGRESS",
         by: "correlator:investigation",
       });
+      if (f.confidence === "CONFIRMED") {
+        graph.transition(match.hypothesis.hypId, {
+          to: "CONFIRMED",
+          by: "correlator:investigation",
+        });
+      }
 
       console.log(
-        `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}) → ${match.hypothesis.hypId} (score=${match.score.score})`,
+        `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}, ${f.confidence}) → ${match.hypothesis.hypId} (score=${match.score.score})`,
       );
     } else {
       result.unmatched.push(i);
@@ -263,9 +276,24 @@ export interface VerifyCorrelationResult {
 /**
  * After verify: proofs with TEST_CONFIRMED kind transition matched hypotheses
  * from IN_PROGRESS → CONFIRMED. Remaining IN_PROGRESS hypotheses without a
- * confirmed proof go to INCONCLUSIVE. OPEN hypotheses (no investigation match)
- * also go to INCONCLUSIVE.
+ * confirmed proof go to INCONCLUSIVE — UNLESS the failures were all infra
+ * (container_start_failed, npm_install_failed): in that case verify never
+ * actually ran the tests, so claiming "we tested and couldn't confirm" would
+ * be a lie. Leave hypotheses in their current state for retry.
  */
+const INFRA_ERRORS = new Set([
+  "container_start_failed",
+  "npm_install_failed",
+]);
+
+function allFailuresWereInfra(proofs: readonly Proof[]): boolean {
+  const testProofs = proofs.filter((p) => p.testFile !== null);
+  if (testProofs.length === 0) return false;
+  const unconfirmed = testProofs.filter((p) => p.kind !== "TEST_CONFIRMED");
+  if (unconfirmed.length === 0) return false; // everything passed
+  return unconfirmed.every((p) => p.verifyError !== null && INFRA_ERRORS.has(p.verifyError));
+}
+
 export function correlateAfterVerify(
   graph: HypothesisGraph,
   verifiedProofs: Proof[],
@@ -274,6 +302,7 @@ export function correlateAfterVerify(
   const result: VerifyCorrelationResult = { confirmed: [], inconclusive: [] };
 
   const confirmedProofs = verifiedProofs.filter((p) => p.kind === "TEST_CONFIRMED");
+  const infraFailed = allFailuresWereInfra(verifiedProofs);
 
   // Match confirmed proofs to IN_PROGRESS hypotheses
   const inProgressHyps = graph.filterByState("IN_PROGRESS");
@@ -310,6 +339,18 @@ export function correlateAfterVerify(
       );
     }
   });
+
+  if (infraFailed) {
+    // Verify infra never ran the tests — leave hypotheses in their current
+    // state. Don't downgrade IN_PROGRESS to INCONCLUSIVE; that would falsely
+    // claim "we tested and couldn't confirm." OPEN hypotheses (no
+    // investigation match) also stay OPEN — pipeline-level deriveGraphVerdict
+    // will surface this as SUSPECT.
+    console.log(
+      `[correlate] verify infra failed (no tests ran) — preserving graph state`,
+    );
+    return result;
+  }
 
   // Remaining IN_PROGRESS + OPEN hypotheses → INCONCLUSIVE
   const remaining = [
