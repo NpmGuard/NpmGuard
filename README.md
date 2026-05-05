@@ -189,7 +189,7 @@ The webhook receives pushes to `main`, validates the HMAC-SHA256
 signature, and spawns `deploy/pull-and-restart.sh` which pulls, runs
 `npm install && tsc`, and restarts systemd services.
 
-Full playbook: [docs/DEPLOYMENT_PLAYBOOK.md](docs/DEPLOYMENT_PLAYBOOK.md)
+Full playbook: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md)
 
 ## Tech Stack
 
