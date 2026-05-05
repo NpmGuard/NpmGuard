@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync, chmodSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { generateText } from "ai";
@@ -234,13 +234,22 @@ export async function verifyProofs(
   emit?.("verify_started", { totalTests: proofsWithTests.length });
 
   // 1. Create temp workspace on host
+  // chmod 0777 so the container (whatever UID rootless/userns-remap maps it
+  // to) can write into /workspace. mkdtempSync creates with mode 0700 owned
+  // by the host user (uid 1000); under rootless docker the container's root
+  // maps to a different host UID (e.g. 100000) and gets EACCES on writes.
   const workDir = mkdtempSync(join(tmpdir(), "npmguard-verify-"));
+  chmodSync(workDir, 0o777);
   const harnessDir = join(workDir, "harness");
   const generatedDir = join(workDir, "generated");
   const testPkgDir = join(workDir, "test-packages");
-  mkdirSync(harnessDir, { recursive: true });
-  mkdirSync(generatedDir, { recursive: true });
-  mkdirSync(testPkgDir, { recursive: true });
+  mkdirSync(harnessDir, { recursive: true, mode: 0o777 });
+  mkdirSync(generatedDir, { recursive: true, mode: 0o777 });
+  mkdirSync(testPkgDir, { recursive: true, mode: 0o777 });
+  // mkdirSync mode is masked by umask — apply explicitly
+  chmodSync(harnessDir, 0o777);
+  chmodSync(generatedDir, 0o777);
+  chmodSync(testPkgDir, 0o777);
 
   const containerName = `npmguard-verify-${randomUUID().slice(0, 12)}`;
   const timeoutMs = config.verifyTimeoutSec * 1000;

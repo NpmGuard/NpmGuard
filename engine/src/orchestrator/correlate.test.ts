@@ -48,22 +48,23 @@ function finding(overrides: Partial<Finding> = {}): Finding {
 
 function proof(overrides: Partial<Proof> = {}): Proof {
   return {
-    capability: overrides.capability ?? "ENV_VARS",
+    capability: "ENV_VARS",
     attackPathway: "",
-    confidence: overrides.confidence ?? "CONFIRMED",
-    fileLine: overrides.fileLine ?? "lib/setup.js:42-67",
-    problem: overrides.problem ?? "reads process.env.NPM_TOKEN",
-    evidence: overrides.evidence ?? "test confirmed env access",
-    kind: overrides.kind ?? "TEST_CONFIRMED",
-    contentHash: overrides.contentHash ?? null,
+    confidence: "CONFIRMED",
+    fileLine: "lib/setup.js:42-67",
+    problem: "reads process.env.NPM_TOKEN",
+    evidence: "test confirmed env access",
+    kind: "TEST_CONFIRMED",
+    contentHash: null,
     reproducible: true,
     reproductionCmd: null,
-    testFile: overrides.testFile ?? "/tmp/test.ts",
-    testHash: overrides.testHash ?? "abc123",
+    testFile: "/tmp/test.ts",
+    testHash: "abc123",
     testCode: null,
     verifyError: null,
     reasoningHash: null,
     teeAttestationId: null,
+    ...overrides,
   };
 }
 
@@ -343,5 +344,83 @@ describe("correlateAfterVerify", () => {
     expect(result.inconclusive).toContain("h2");
     expect(g.get("h1").state).toBe("CONFIRMED");
     expect(g.get("h2").state).toBe("INCONCLUSIVE");
+  });
+
+  it("does NOT downgrade when all failures are infra (container_start_failed)", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({ hypId: "h1" }));
+    g.transition("h1", { to: "IN_PROGRESS", by: "correlator:investigation" });
+
+    const infraProof = proof({ kind: "TEST_UNCONFIRMED", verifyError: "container_start_failed" });
+    const result = correlateAfterVerify(g, [infraProof], []);
+
+    expect(result.inconclusive).toEqual([]);
+    expect(g.get("h1").state).toBe("IN_PROGRESS");
+  });
+
+  it("does NOT downgrade when all failures are npm_install_failed", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({ hypId: "h1" }));
+    g.transition("h1", { to: "IN_PROGRESS", by: "correlator:investigation" });
+
+    const infraProof = proof({ kind: "TEST_UNCONFIRMED", verifyError: "npm_install_failed" });
+    const result = correlateAfterVerify(g, [infraProof], []);
+
+    expect(g.get("h1").state).toBe("IN_PROGRESS");
+  });
+
+  it("DOES downgrade when failures are real assertion errors", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({ hypId: "h1" }));
+    g.transition("h1", { to: "IN_PROGRESS", by: "correlator:investigation" });
+
+    const failedProof = proof({ kind: "TEST_UNCONFIRMED", verifyError: "assertion failed: expected 'fetch' to be called" });
+    const result = correlateAfterVerify(g, [failedProof], []);
+
+    expect(g.get("h1").state).toBe("INCONCLUSIVE");
+  });
+});
+
+describe("correlateAfterInvestigation — agent CONFIRMED findings", () => {
+  it("transitions to CONFIRMED when finding has confidence=CONFIRMED", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({ hypId: "h1" }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [finding({ confidence: "CONFIRMED" })],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.matched.length).toBe(1);
+    expect(g.get("h1").state).toBe("CONFIRMED");
+    expect(g.get("h1").evidenceRefs.length).toBeGreaterThan(0);
+  });
+
+  it("stays IN_PROGRESS for LIKELY/SUSPECTED findings", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({ hypId: "h1" }));
+    g.add(hyp({
+      hypId: "h2",
+      claim: { kind: "dos_loop", gating: null },
+      focusFiles: ["loop.js"],
+      focusLines: [{ file: "loop.js", range: "1-5" }],
+    }));
+
+    correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({ confidence: "LIKELY" }),
+        finding({ confidence: "SUSPECTED", fileLine: "loop.js:1-5", capability: "DOS_LOOP" }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(g.get("h1").state).toBe("IN_PROGRESS");
+    expect(g.get("h2").state).toBe("IN_PROGRESS");
   });
 });
