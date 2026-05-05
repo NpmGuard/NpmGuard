@@ -6,7 +6,8 @@ import { PackageName } from "./validation.js";
 
 export const registryRoutes = new Hono();
 
-registryRoutes.get("/packages", (c) => {
+registryRoutes.get("/packages", (c, next) => {
+  if (c.req.header("accept")?.includes("text/html")) return next();
   return c.json({ packages: listReports() });
 });
 
