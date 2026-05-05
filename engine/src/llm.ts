@@ -4,6 +4,18 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { config } from "./config.js";
 
+/**
+ * When the backend is openai_compatible (e.g. OpenRouter) and the model name
+ * is a bare Anthropic/Google model ID without a provider prefix, prepend the
+ * provider so the router resolves it correctly.
+ */
+function normalizeForOpenAICompat(modelName: string): string {
+  if (modelName.includes("/")) return modelName;
+  if (modelName.startsWith("claude-")) return `anthropic/${modelName}`;
+  if (modelName.startsWith("gemini-")) return `google/${modelName}`;
+  return modelName;
+}
+
 export function getModel(modelName: string): LanguageModel {
   if (config.llmBackend === "anthropic") {
     return anthropic(modelName);
@@ -21,5 +33,5 @@ export function getModel(modelName: string): LanguageModel {
     baseURL: config.llmBaseUrl,
     apiKey: config.llmApiKey ?? "",
   });
-  return openai.chat(modelName);
+  return openai.chat(normalizeForOpenAICompat(modelName));
 }
