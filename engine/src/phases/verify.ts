@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { generateText } from "ai";
@@ -70,17 +70,14 @@ function parseVitestOutput(stdout: string): VitestResult | null {
 // ---------------------------------------------------------------------------
 
 function isValidSyntax(code: string): boolean {
-  const tmpFile = join(tmpdir(), `npmguard-syntax-check-${Date.now()}.ts`);
-  try {
-    writeFileSync(tmpFile, code, "utf-8");
-    execFileSync("npx", ["tsx", "--eval", `import(${JSON.stringify(tmpFile)})`], { timeout: 10_000, stdio: "pipe" });
-    return true;
-  } catch {
-    // Fall back to basic structural checks — the Docker verify phase will catch real errors
-    return code.includes("describe(") && (code.includes("runPackage(") || code.includes("runInChildProcess("));
-  } finally {
-    try { unlinkSync(tmpFile); } catch { /* ignore */ }
-  }
+  // CRITICAL: never use `tsx --eval import(...)` here — `import()` is a dynamic
+  // import that EXECUTES module top-level code on the host. LLM-generated tests
+  // can include `import "<malware-path>"` which would run the malware OUTSIDE
+  // the Docker sandbox, with full host credentials. (Confirmed exfil incident:
+  // Shai-Hulud worm escaped via this path on 2026-04-30.)
+  //
+  // Structural checks only — the Docker verify phase catches real errors.
+  return code.includes("describe(") && (code.includes("runPackage(") || code.includes("runInChildProcess("));
 }
 
 async function regenerateTestWithError(
@@ -184,13 +181,23 @@ async function runVitest(
 
   const vitestResult = await dockerExec(
     ["exec", containerName, "sh", "-c",
-      `cd /workspace && ${npxPath} run --reporter=json --outputFile.json=/workspace/vitest-results.json 2>&1; echo VITEST_EXIT=$?`],
+      // Dual reporter: verbose to stdout (so console.error from sandbox-runner is visible),
+      // json to file (so we can parse structured results).
+      `cd /workspace && ${npxPath} run --reporter=verbose --reporter=json --outputFile.json=/workspace/vitest-results.json 2>&1; echo VITEST_EXIT=$?`],
     timeoutMs,
   );
 
   console.log(`[verify] vitest exited with code ${vitestResult.exitCode}`);
   if (vitestResult.stdout) {
-    console.log(`[verify] vitest stdout (last 800): ${vitestResult.stdout.slice(-800)}`);
+    // On failure, surface lines that point at the actual cause (sandbox-runner
+    // require errors, assertion failures, thrown errors). Helps a test author
+    // see WHY a test failed without parsing the full vitest output.
+    const dbg = vitestResult.stdout
+      .split("\n")
+      .filter((l) => /sandbox-runner|FAIL|AssertionError|Error:|throw/i.test(l))
+      .slice(0, 30)
+      .join("\n");
+    if (dbg) console.log(`[verify] vitest dbg lines:\n${dbg}`);
   }
 
   let parsed: VitestResult | null = null;
@@ -288,7 +295,14 @@ export async function verifyProofs(
       "--cap-drop=ALL",
       `--memory=${config.sandboxMemoryMb}m`,
       `--cpus=${config.sandboxCpus}`,
-      "--user", `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
+      // NOTE: do NOT set --user. Mapping the host's UID (501 on macOS, 1000 on
+      // Linux) into the container would point at a UID with no entry in the
+      // container's /etc/passwd, causing `os.userInfo()` to throw
+      // "uv_os_get_passwd returned ENOENT". Many malware samples call userInfo()
+      // at module load time, so the entire setup.js never executes and tests
+      // see zero observable behaviour. Run as the image's default user (root
+      // for node:22-slim). The other isolation primitives — cap-drop=ALL,
+      // network=none, memory cap, pids-limit — are the actual sandbox.
       "--pids-limit", "128",
       "-e", "NPMGUARD_PACKAGES_DIR=/workspace/test-packages",
       "-v", `${workDir}:/workspace`,
@@ -406,6 +420,7 @@ export async function verifyProofs(
             ?.slice(0, 1000) ?? "Test did not pass (no detailed failure message)";
 
           console.log(`[verify] finding-${i}: ${testResult?.status ?? "NOT_FOUND"} -> FAILED (attempt ${attempt + 1})`);
+          console.log(`[verify] finding-${i} failure message:\n${failureMsg.slice(0, 600)}`);
 
           allPassed = false;
           failedTests.push({ proofIndex: i, errorMsg: failureMsg });
@@ -418,12 +433,21 @@ export async function verifyProofs(
           break;
         }
 
+        // Preserve last-attempt failure message so audit-logs explain WHY a
+        // test ended UNCONFIRMED. Without this we operate blind when iterating
+        // on the test-gen prompt.
+        const errorByIndex = new Map(failedTests.map((f) => [f.proofIndex, f.errorMsg]));
+
         if (attempt >= MAX_RETRY_ATTEMPTS - 1) {
           console.log(`[verify] max retries reached, marking remaining as TEST_UNCONFIRMED`);
           currentProofs = currentProofs.map((proof, i) => {
             if (proof.testFile && proof.kind !== "TEST_CONFIRMED") {
               emit?.("verify_test_result", { proofIndex: i, testFile: `finding-${i}.test.ts`, status: "unconfirmed" });
-              return { ...proof, kind: "TEST_UNCONFIRMED" as const };
+              return {
+                ...proof,
+                kind: "TEST_UNCONFIRMED" as const,
+                verifyError: errorByIndex.get(i) ?? proof.verifyError ?? "max_retries_reached",
+              };
             }
             return proof;
           });
@@ -436,7 +460,11 @@ export async function verifyProofs(
           currentProofs = currentProofs.map((proof, i) => {
             if (proof.testFile && proof.kind !== "TEST_CONFIRMED") {
               emit?.("verify_test_result", { proofIndex: i, testFile: `finding-${i}.test.ts`, status: "unconfirmed" });
-              return { ...proof, kind: "TEST_UNCONFIRMED" as const };
+              return {
+                ...proof,
+                kind: "TEST_UNCONFIRMED" as const,
+                verifyError: errorByIndex.get(i) ?? "no_findings_for_retry",
+              };
             }
             return proof;
           });

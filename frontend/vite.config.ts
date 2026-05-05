@@ -9,7 +9,9 @@ export default defineConfig({
     allowedHosts: ['npmguard.com', 'www.npmguard.com'],
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8000',
+        changeOrigin: true,
+        secure: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },

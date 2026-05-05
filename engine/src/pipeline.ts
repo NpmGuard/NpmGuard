@@ -87,7 +87,7 @@ function emitLegacyFileVerdicts(
     const suspiciousLines =
       hyps
         .flatMap((h) => h.focusLines.filter((fl) => fl.file === summary.file).map((fl) => fl.range))
-        .join(",") || null;
+        .join(",") || undefined;
 
     const verdict: FileVerdict = {
       file: summary.file,
@@ -232,6 +232,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
         triage: null,
         findings: [],
         trace,
+        runtimeEvidence: null,
       };
       emit?.("verdict_reached", { verdict: report.verdict, capabilities: [], proofCount: report.proofs.length });
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
@@ -325,6 +326,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
         triage,
         findings: [],
         trace,
+        runtimeEvidence: null,
       };
       emit?.("verdict_reached", { verdict: "SAFE", capabilities: [], proofCount: 0 });
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
@@ -480,6 +482,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       triage,
       findings: investigationResult.findings,
       trace,
+      runtimeEvidence: null,
     };
     log.writeLog("report.json", report);
     console.log(`[pipeline] full logs saved to ${log.runDir}`);
