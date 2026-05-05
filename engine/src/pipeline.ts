@@ -1,5 +1,5 @@
 import { SOURCE_FILE_TYPES } from "./config.js";
-import { Proof, type AuditReport, type FileVerdict, type PhaseLog, type TriageResult } from "./models.js";
+import { Proof, type AuditReport, type FileVerdict, type PhaseLog } from "./models.js";
 import type { Hypothesis, HypothesisSeverity } from "@npmguard/shared";
 import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
@@ -17,7 +17,7 @@ import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
 
 // ---------------------------------------------------------------------------
-// Legacy-shape adapters (transitional — Phase B orchestrator will replace)
+// Legacy file_verdict SSE adapter (kept for frontend code-viewer compat)
 // ---------------------------------------------------------------------------
 
 const SEVERITY_TO_SCORE: Record<HypothesisSeverity, number> = {
@@ -26,36 +26,6 @@ const SEVERITY_TO_SCORE: Record<HypothesisSeverity, number> = {
   high: 8,
   critical: 10,
 };
-
-/**
- * The old pipeline gates investigation on a 0-10 riskScore. The new triage
- * emits Hypothesis[] directly. For the interim, collapse the hypothesis
- * list into a synthetic TriageResult so investigate/test-gen/verify can
- * keep running. This adapter goes away when the orchestrator lands.
- */
-function synthesizeTriageResult(hypotheses: Hypothesis[]): TriageResult {
-  if (hypotheses.length === 0) {
-    return { riskScore: 0, riskSummary: "No hypotheses emitted during triage.", focusAreas: [] };
-  }
-
-  const maxScore = hypotheses.reduce(
-    (m, h) => Math.max(m, SEVERITY_TO_SCORE[h.severity]),
-    0,
-  );
-
-  const top = hypotheses.slice(0, 3).map((h) => h.description).join(" | ");
-  const riskSummary = `${hypotheses.length} hypothes${hypotheses.length === 1 ? "is" : "es"} from triage: ${top}`;
-
-  const focusAreas = hypotheses.flatMap((h) =>
-    h.focusLines.map((fl) => ({
-      file: fl.file,
-      lines: fl.range,
-      reason: h.description,
-    })),
-  );
-
-  return { riskScore: maxScore, riskSummary, focusAreas };
-}
 
 /**
  * Reconstruct per-file FileVerdict records from the new triage output so
@@ -287,7 +257,6 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     trace.push(triageLog);
     log.writeLog("triage.json", triageOutput);
 
-    const triage = synthesizeTriageResult(triageOutput.hypotheses);
     emitLegacyFileVerdicts(
       triageOutput.fileSummaries,
       triageOutput.hypotheses,
@@ -295,9 +264,13 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     );
 
     emit?.("triage_complete", {
-      riskScore: triage.riskScore,
-      riskSummary: triage.riskSummary,
-      focusAreas: triage.focusAreas,
+      hypothesisCount: triageOutput.hypotheses.length,
+      hypotheses: triageOutput.hypotheses.map((h) => ({
+        hypId: h.hypId,
+        claim: h.claim.kind,
+        severity: h.severity,
+        description: h.description,
+      })),
     });
 
     // Phase 1c: Build hypothesis graph from triage output. Jaro-Winkler dedup
@@ -323,7 +296,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
         verdict: "SAFE",
         capabilities: [],
         proofs: [],
-        triage,
+        triage: null,
         findings: [],
         trace,
         runtimeEvidence: null,
@@ -332,15 +305,14 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
     }
 
-    // Phase 1c: Investigation (transitional — will be split into worker
-    // agents dispatched from the hypothesis graph in Phase B).
+    // Phase 1c: Investigation — agentic LLM with read tools, given the
+    // triage hypotheses as a starting list of suspicious sites to verify.
     const { result: investigationResult, log: investigateLog } = await timedPhase(
       "investigation",
-      () => investigate(resolved.path, inventory, triage, triageOutput.fileSummaries, emit, log),
+      () => investigate(resolved.path, inventory, triageOutput.hypotheses, triageOutput.fileSummaries, emit, log),
       5 * 60_000 * timeoutScale,
       {
-        riskScore: triage.riskScore,
-        focusAreas: triage.focusAreas,
+        hypothesisCount: triageOutput.hypotheses.length,
         packagePath: resolved.path,
       },
       (inv) => ({
@@ -479,7 +451,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       verdict,
       capabilities: investigationResult.capabilities,
       proofs: verifiedProofs,
-      triage,
+      triage: null,
       findings: investigationResult.findings,
       trace,
       runtimeEvidence: null,

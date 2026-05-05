@@ -1,5 +1,6 @@
 import { config } from "../config.js";
-import { CapabilityEnum, type Finding, type InvestigationInput, type InventoryReport, type Proof, type ToolCallRecord, type TriageResult } from "../models.js";
+import { CapabilityEnum, type Finding, type InvestigationInput, type InventoryReport, type Proof, type ToolCallRecord } from "../models.js";
+import type { Hypothesis } from "@npmguard/shared";
 import { DockerSandboxController } from "../sandbox/controller.js";
 import { runInvestigationAgent } from "../investigation/agent.js";
 import { LIFECYCLE_SCRIPTS } from "../inventory/parse-manifest.js";
@@ -18,7 +19,7 @@ export interface InvestigationResult {
 export async function investigate(
   packagePath: string,
   inventory: InventoryReport,
-  triage: TriageResult,
+  hypotheses: Hypothesis[],
   fileSummaries: FileSummary[],
   emit?: EmitFn,
   log?: AuditLogger,
@@ -40,6 +41,10 @@ export async function investigate(
     for (const cap of fs.capabilities) allCaps.add(cap);
   }
 
+  const staticProofSummaries = hypotheses.flatMap((h) =>
+    h.focusLines.map((fl) => `${fl.file}:${fl.range} [${h.claim.kind}/${h.severity}]: ${h.description}`),
+  );
+
   const input: InvestigationInput = {
     packagePath,
     packageName: inventory.metadata.name ?? "",
@@ -47,9 +52,7 @@ export async function investigate(
     description: inventory.metadata.description ?? "",
     flags: inventory.flags.map((f) => `[${f.severity}] ${f.check}: ${f.detail}`),
     staticCaps: [...allCaps],
-    staticProofSummaries: triage.focusAreas.map((fa) =>
-      `${fa.file}${fa.lines ? `:${fa.lines}` : ""}: ${fa.reason}`
-    ),
+    staticProofSummaries,
   };
 
   // Start sandbox
