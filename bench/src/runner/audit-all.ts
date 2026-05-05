@@ -52,7 +52,7 @@ function parseCli(): CliArgs {
       limit: { type: "string" },
       out: { type: "string" },
       "api-key": { type: "string" },
-      timeout: { type: "string", default: "5400000" }, // 90 min — v2 hit 60min ceiling on 16/50 fixtures. Pipeline budget: triage 5 + investigation 15 + test-gen 5 + verify 15 + retries with timeoutScale.
+      timeout: { type: "string", default: "1800000" }, // 30 min — with bounded triage concurrency (8) and the new prompt, no fixture should take >25min. v3 hit 90min only because rate-limited triage failures crashed the queue silently and polling waited the full deadline.
     },
     strict: true,
   });
