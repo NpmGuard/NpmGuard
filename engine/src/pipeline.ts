@@ -263,7 +263,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const { result: triageOutput, log: triageLog } = await timedPhase(
       "triage",
       () => runTriage(resolved.path, inventory, intent, emit),
-      2 * 60_000 * timeoutScale,
+      5 * 60_000 * timeoutScale,
       {
         sourceFiles: inventory.files
           .filter((f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary)
@@ -439,7 +439,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const { result: verifiedProofs, log: verifyLog } = await timedPhase(
       "verify",
       () => verifyProofs(proofs, resolved.path, emit, investigationResult.findings),
-      8 * 60_000 * timeoutScale,
+      15 * 60_000 * timeoutScale,
       { proofCount: proofs.length, withTests: proofs.filter((x) => x.testFile).length },
       (p) => ({
         verifiedCount: p.length,
