@@ -246,12 +246,24 @@ export async function runTriage(
   intent: PackageIntent,
   emit?: EmitFn,
 ): Promise<TriageOutput> {
-  const sourceFiles = inventory.files.filter(
+  // Skip files that are pure overhead for triage:
+  //   - .d.ts: TypeScript declarations carry no runtime code
+  //   - test/spec files: not the package's published surface
+  // We DO keep dist/, esm*/, fesm*/ since camouflaged packages embed
+  // malware in build output (e.g. ngx-trend's bundle.js).
+  const isTriageNoise = (relPath: string): boolean =>
+    /\.d\.ts$/.test(relPath) ||
+    /(^|\/)(__tests__|__mocks__)\//.test(relPath) ||
+    /\.(test|spec)\.(js|ts|mjs|cjs|tsx|mts)$/.test(relPath);
+
+  const allCandidates = inventory.files.filter(
     (f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary,
   );
+  const sourceFiles = allCandidates.filter((f) => !isTriageNoise(f.path));
+  const skippedNoise = allCandidates.length - sourceFiles.length;
 
   console.log(
-    `[triage] analyzing ${sourceFiles.length} source files for ${inventory.metadata.name ?? "unknown"} (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
+    `[triage] analyzing ${sourceFiles.length} source files for ${inventory.metadata.name ?? "unknown"}${skippedNoise > 0 ? ` (skipped ${skippedNoise} .d.ts/test files)` : ""} (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
   );
 
   const flagsByFile = new Map<string, string[]>();
