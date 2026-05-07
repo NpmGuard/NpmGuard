@@ -79,7 +79,23 @@ export async function investigate(
 
     for (const finding of output.findings) {
       const capParsed = CapabilityEnum.safeParse(finding.capability);
-      const cap = capParsed.success ? capParsed.data : null;
+      // Safety net: LLMs sometimes invent labels ("CRYPTO_THEFT", "SECRET_LEAK")
+      // outside the strict enum. Without this, capability ends up null and the
+      // verdict logic ignores otherwise-valid TEST_CONFIRMED proofs.
+      let cap = capParsed.success ? capParsed.data : null;
+      if (!cap && finding.capability) {
+        const raw = finding.capability.toUpperCase();
+        if (raw.includes("CREDENTIAL") || raw.includes("SECRET") || raw.includes("TOKEN")) cap = "CREDENTIAL_THEFT";
+        else if (raw.includes("EXFIL") || raw.includes("EXPORT")) cap = "DATA_EXFILTRATION";
+        else if (raw.includes("ENV")) cap = "ENV_VARS";
+        else if (raw.includes("PROC") || raw.includes("SPAWN") || raw.includes("EXEC")) cap = "PROCESS_SPAWN";
+        else if (raw.includes("FILE") || raw.includes("FS") || raw.includes("DISK")) cap = "FILESYSTEM";
+        else if (raw.includes("EVAL") || raw.includes("FUNCTION_CONSTRUCTOR")) cap = "EVAL";
+        else if (raw.includes("OBFUSC") || raw.includes("PACK") || raw.includes("MINIF")) cap = "OBFUSCATION";
+        else if (raw.includes("LIFECYCLE") || raw.includes("POSTINSTALL") || raw.includes("PREINSTALL")) cap = "LIFECYCLE_HOOK";
+        else if (raw.includes("NETWORK") || raw.includes("HTTP") || raw.includes("FETCH")) cap = "NETWORK";
+        if (cap) console.log(`[investigate] normalized "${finding.capability}" → ${cap}`);
+      }
       if (cap) capabilities.add(cap);
 
       proofs.push({
