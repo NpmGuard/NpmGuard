@@ -439,8 +439,20 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     // Graph-derived verdict is now authoritative. DANGEROUS requires at
     // least one CONFIRMED hypothesis with evidence. SUSPECT / UNKNOWN /
     // SAFE map to the 2-state SAFE|DANGEROUS for the AuditReport.
+    //
+    // Fallback: if the graph didn't reach DANGEROUS (typical when triage
+    // produced no hypothesis matching the actual finding, so all findings
+    // ended unmatched in correlate.ts), trust a TEST_CONFIRMED proof as
+    // sufficient evidence. This prevents the v2 graph from reporting SAFE
+    // on packages where the sandbox-verified test reproduced the malicious
+    // behavior. The proper fix (correlator creating new hypotheses for
+    // unmatched findings) lives in a separate PR.
     const graphVerdict = deriveGraphVerdict(graph);
-    const verdict = graphVerdict.verdict === "DANGEROUS" ? "DANGEROUS" : "SAFE";
+    const hasConfirmedProof = verifiedProofs.some((p) => p.kind === "TEST_CONFIRMED");
+    const verdict =
+      graphVerdict.verdict === "DANGEROUS" || hasConfirmedProof
+        ? "DANGEROUS"
+        : "SAFE";
     console.log(
       `[pipeline] graph verdict: ${graphVerdict.verdict} → report verdict: ${verdict} — ${graphVerdict.rationale}`,
     );
