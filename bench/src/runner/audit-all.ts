@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -145,7 +145,49 @@ function deleteExistingReport(fixtureName: string): void {
   }
 }
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 10_000;
+
+async function fetchReportOnce(
+  args: CliArgs,
+  fixtureName: string,
+): Promise<AuditReportShape | null> {
+  let resp: Response;
+  try {
+    resp = await fetch(
+      `${args.api}/package/${encodeURIComponent(fixtureName)}/report`,
+      { signal: AbortSignal.timeout(15_000) },
+    );
+  } catch {
+    return null;
+  }
+  if (!resp.ok) return null;
+  let body: { report?: AuditReportShape };
+  try {
+    body = (await resp.json()) as { report?: AuditReportShape };
+  } catch {
+    return null;
+  }
+  return body.report ?? null;
+}
+
+/** Last-resort: read the report from disk. Useful when the engine wrote
+ *  the report (verdict in queue logs) but the HTTP fetch raced or 404'd
+ *  for some reason — the file is still authoritative.
+ *  Only safe when the bench runs on the same host as the engine. */
+function loadReportFromDisk(fixtureName: string): AuditReportShape | null {
+  const dir = join(REPORTS_DIR, fixtureName);
+  if (!existsSync(dir)) return null;
+  try {
+    const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+    if (files.length === 0) return null;
+    const sorted = files
+      .map((f) => ({ file: f, mtime: statSync(join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    return JSON.parse(readFileSync(join(dir, sorted[0]!.file), "utf-8")) as AuditReportShape;
+  } catch {
+    return null;
+  }
+}
 
 async function pollForReport(
   args: CliArgs,
@@ -155,26 +197,19 @@ async function pollForReport(
   const deadline = start + args.timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    let resp: Response;
-    try {
-      resp = await fetch(
-        `${args.api}/package/${encodeURIComponent(entry.fixtureName)}/report`,
-        { signal: AbortSignal.timeout(15_000) },
-      );
-    } catch {
-      continue; // transient error, keep polling
+    const report = await fetchReportOnce(args, entry.fixtureName);
+    if (report) {
+      return reportToResult(report, Date.now() - start);
     }
-    if (resp.status === 404) continue; // not yet written
-    if (!resp.ok) continue;
-    let body: { report?: AuditReportShape };
-    try {
-      body = (await resp.json()) as { report?: AuditReportShape };
-    } catch {
-      continue;
-    }
-    if (body.report) {
-      return reportToResult(body.report, Date.now() - start);
-    }
+  }
+  // Final fallback: read from disk. Catches the case where the engine
+  // saved the report but HTTP polling missed it (rare race, but accounts
+  // for ~20 of the 26 v3 timeouts where engine logs show completion but
+  // the report endpoint never returned 200 to the runner).
+  const diskReport = loadReportFromDisk(entry.fixtureName);
+  if (diskReport) {
+    console.log(`[runner] disk-fallback recovered report for ${entry.fixtureName}`);
+    return reportToResult(diskReport, Date.now() - start);
   }
   return {
     durationMs: Date.now() - start,
