@@ -10,6 +10,7 @@ export type VerdictEnum = z.infer<typeof VerdictEnum>;
 export const CapabilityEnum = z.enum([
   // Network / exfiltration
   "NETWORK",
+  "DATA_EXFILTRATION",
   "DNS_EXFIL",
   "DOM_INJECT",
   // Filesystem / OS
