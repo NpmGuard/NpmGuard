@@ -1,253 +1,28 @@
 {
   "datasetVersion": "0.2.0-datadog",
-  "engineSha": "826a22cf5b0c0a9e541abf06cd2bee11024accd4",
+  "engineSha": "02d40674654c8432611b40e8ecd59b42f4792816",
   "modelId": "unknown",
   "sandboxImageDigest": null,
   "runsPerMutation": 1,
-  "startedAt": "2026-05-02T20:33:14.445Z",
-  "completedAt": "2026-05-03T16:21:25.218Z",
+  "startedAt": "2026-05-04T20:44:35.793Z",
+  "completedAt": "2026-05-07T00:36:17.796Z",
   "results": [
     {
-      "fixtureName": "test-pkg-bench-dd-c-react-keycloak-context-v1.0.8",
+      "fixtureName": "test-pkg-bench-dd-c-ember-browser-services-v5.0.3",
       "runs": [
         {
-          "durationMs": 390280,
+          "durationMs": 510360,
           "verdict": "DANGEROUS",
           "capabilities": [
-            "CREDENTIAL_THEFT",
-            "OBFUSCATION"
-          ],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_CONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [
             "CREDENTIAL_THEFT"
           ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-backslash-v0.2.1",
-      "runs": [
-        {
-          "durationMs": 360218,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "NETWORK"
-          ],
           "proofKinds": [
             "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "TEST_CONFIRMED",
-            "AI_STATIC",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-swc-plugin-component-annotate-v1.9.2",
-      "runs": [
-        {
-          "durationMs": 270215,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "CREDENTIAL_THEFT",
-            "NETWORK",
-            "OBFUSCATION"
-          ],
-          "proofKinds": [
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-itobuz-angular-v0.0.1",
-      "runs": [
-        {
-          "durationMs": 3602008,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-posthog-js-v1.297.3",
-      "runs": [
-        {
-          "durationMs": 3602292,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-create-hardhat3-app-v1.1.2",
-      "runs": [
-        {
-          "durationMs": 480324,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "NETWORK",
-            "OBFUSCATION",
-            "CREDENTIAL_THEFT",
-            "ENV_VARS",
-            "FILESYSTEM"
-          ],
-          "proofKinds": [
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-vant-v2.13.3",
-      "runs": [
-        {
-          "durationMs": 30031,
-          "verdict": "DANGEROUS",
-          "capabilities": [],
-          "proofKinds": [
-            "STRUCTURAL"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-swc-plugin-component-annotate-v1.9.1",
-      "runs": [
-        {
-          "durationMs": 3602017,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-cordova-plugin-voxeet2-v1.0.24",
-      "runs": [
-        {
-          "durationMs": 420279,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "CREDENTIAL_THEFT",
-            "OBFUSCATION"
-          ],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
             "AI_DYNAMIC",
             "AI_DYNAMIC",
             "AI_DYNAMIC",
             "TEST_CONFIRMED",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-automation_model-v1.0.491",
-      "runs": [
-        {
-          "durationMs": 600403,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "PROCESS_SPAWN",
-            "NETWORK",
-            "EVAL",
-            "ENV_VARS"
-          ],
-          "proofKinds": [
             "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_STATIC"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-capacitor-plugin-ihealth-v1.1.9",
-      "runs": [
-        {
-          "durationMs": 420776,
-          "verdict": "DANGEROUS",
-          "capabilities": [],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_CONFIRMED",
-            "TEST_CONFIRMED",
-            "AI_DYNAMIC",
             "AI_DYNAMIC",
             "AI_DYNAMIC"
           ],
@@ -262,28 +37,70 @@
       "fixtureName": "test-pkg-bench-dd-c-ember-headless-table-v2.1.6",
       "runs": [
         {
-          "durationMs": 3601997,
+          "durationMs": 5402999,
           "verdict": null,
           "capabilities": [],
           "proofKinds": [],
           "verifiedCapabilities": [],
           "llmTokens": null,
           "auditId": null,
-          "error": "polling timed out after 3600000ms"
+          "error": "polling timed out after 5400000ms"
         }
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-c-airchief-v0.3.1",
+      "fixtureName": "test-pkg-bench-dd-c-xrpl-v4.2.1",
       "runs": [
         {
-          "durationMs": 30015,
-          "verdict": "DANGEROUS",
+          "durationMs": 5403173,
+          "verdict": null,
           "capabilities": [],
-          "proofKinds": [
-            "STRUCTURAL"
-          ],
+          "proofKinds": [],
           "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-dialogflow-es-v1.1.3",
+      "runs": [
+        {
+          "durationMs": 5403040,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-react-complaint-image-v0.0.34",
+      "runs": [
+        {
+          "durationMs": 630455,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "OBFUSCATION"
+          ],
           "llmTokens": null,
           "auditId": null,
           "error": null
@@ -291,22 +108,43 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-c-pm2-gelf-json-v1.0.4",
+      "fixtureName": "test-pkg-bench-dd-c-axios-timed-v1.0.2",
       "runs": [
         {
-          "durationMs": 360230,
+          "durationMs": 1110634,
           "verdict": "DANGEROUS",
           "capabilities": [
-            "CREDENTIAL_THEFT",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "FILESYSTEM"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-slice-ansi-v7.1.1",
+      "runs": [
+        {
+          "durationMs": 630349,
+          "verdict": "DANGEROUS",
+          "capabilities": [
             "NETWORK"
           ],
           "proofKinds": [
             "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
             "TEST_UNCONFIRMED"
           ],
           "verifiedCapabilities": [],
@@ -317,28 +155,20 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-c-react-jam-icons-v1.0.2",
+      "fixtureName": "test-pkg-bench-dd-c-evm-checkcode-cli-v1.0.13",
       "runs": [
         {
-          "durationMs": 3601907,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-ngx-trend-v8.0.1",
-      "runs": [
-        {
-          "durationMs": 630346,
+          "durationMs": 1320770,
           "verdict": "DANGEROUS",
-          "capabilities": [],
+          "capabilities": [
+            "LIFECYCLE_HOOK",
+            "NETWORK",
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION"
+          ],
           "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
             "TEST_UNCONFIRMED",
             "TEST_UNCONFIRMED",
             "TEST_UNCONFIRMED",
@@ -347,6 +177,335 @@
             "AI_DYNAMIC",
             "AI_DYNAMIC",
             "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-jsonsurge-v1.0.7",
+      "runs": [
+        {
+          "durationMs": 1260720,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "FILESYSTEM",
+            "CREDENTIAL_THEFT",
+            "NETWORK",
+            "ENV_VARS",
+            "PROCESS_SPAWN"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "ENV_VARS"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-prime-one-table-v0.0.19",
+      "runs": [
+        {
+          "durationMs": 1140645,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "CREDENTIAL_THEFT",
+            "ENV_VARS",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN",
+            "CREDENTIAL_THEFT"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-swc-plugin-component-annotate-v1.9.2",
+      "runs": [
+        {
+          "durationMs": 600389,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-vant-v3.6.13",
+      "runs": [
+        {
+          "durationMs": 5403080,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-02-echo-v0.0.7",
+      "runs": [
+        {
+          "durationMs": 720423,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "OBFUSCATION"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ngx-trend-v8.0.1",
+      "runs": [
+        {
+          "durationMs": 5402939,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ngx-bootstrap-v20.0.6",
+      "runs": [
+        {
+          "durationMs": 5403055,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ng2-file-upload-v8.0.2",
+      "runs": [
+        {
+          "durationMs": 930525,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-zapier-platform-core-v18.0.2",
+      "runs": [
+        {
+          "durationMs": 5403067,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-zapier-platform-cli-v18.0.3",
+      "runs": [
+        {
+          "durationMs": 5402968,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-mcp-knowledge-base-v0.0.2",
+      "runs": [
+        {
+          "durationMs": 750427,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "LIFECYCLE_HOOK",
+            "ENV_VARS",
+            "CREDENTIAL_THEFT",
+            "FILESYSTEM",
+            "EVAL",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-is-arrayish-v0.3.3",
+      "runs": [
+        {
+          "durationMs": 570319,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-capacitor-plugin-vonage-v1.0.2",
+      "runs": [
+        {
+          "durationMs": 990585,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-email-deliverability-tester-v1.1.1",
+      "runs": [
+        {
+          "durationMs": 1410847,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED"
           ],
           "verifiedCapabilities": [],
           "llmTokens": null,
@@ -359,28 +518,28 @@
       "fixtureName": "test-pkg-bench-dd-c-discord-bot-server-v0.1.2",
       "runs": [
         {
-          "durationMs": 720449,
+          "durationMs": 960575,
           "verdict": "DANGEROUS",
           "capabilities": [
-            "NETWORK",
             "PROCESS_SPAWN",
+            "NETWORK",
+            "EVAL",
             "OBFUSCATION",
-            "CREDENTIAL_THEFT",
-            "FILESYSTEM",
-            "ENV_VARS"
+            "ENV_VARS",
+            "CREDENTIAL_THEFT"
           ],
           "proofKinds": [
             "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
             "TEST_CONFIRMED",
             "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
             "AI_DYNAMIC",
             "AI_DYNAMIC"
           ],
           "verifiedCapabilities": [
-            "NETWORK",
-            "PROCESS_SPAWN"
+            "PROCESS_SPAWN",
+            "OBFUSCATION"
           ],
           "llmTokens": null,
           "auditId": null,
@@ -389,25 +548,163 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-c-is-v5.0.0",
+      "fixtureName": "test-pkg-bench-dd-c-napi-postinstall-v0.3.1",
       "runs": [
         {
-          "durationMs": 840484,
+          "durationMs": 5402884,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-gate-evm-tools-test-v1.0.6",
+      "runs": [
+        {
+          "durationMs": 1110663,
           "verdict": "DANGEROUS",
           "capabilities": [
-            "FILESYSTEM",
+            "OBFUSCATION",
+            "PROCESS_SPAWN",
             "NETWORK",
+            "ENV_VARS",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_STATIC",
+            "AI_STATIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ids-enterprise-typings-v20.1.6",
+      "runs": [
+        {
+          "durationMs": 5402628,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-eslint-config-prettier-v10.1.7",
+      "runs": [
+        {
+          "durationMs": 600341,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ember-velcro-v2.2.2",
+      "runs": [
+        {
+          "durationMs": 720461,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-zuper-sdk-v1.0.57",
+      "runs": [
+        {
+          "durationMs": 1680958,
+          "verdict": "DANGEROUS",
+          "capabilities": [
             "OBFUSCATION"
           ],
           "proofKinds": [
             "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
             "TEST_CONFIRMED",
             "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
             "AI_DYNAMIC"
           ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-tg-redbird-v1.3.1",
+      "runs": [
+        {
+          "durationMs": 780448,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "PROCESS_SPAWN",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "AI_STATIC",
+            "AI_STATIC"
+          ],
           "verifiedCapabilities": [
+            "PROCESS_SPAWN",
             "FILESYSTEM"
           ],
           "llmTokens": null,
@@ -417,277 +714,41 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-c-mcp-use-v1.4.2",
+      "fixtureName": "test-pkg-bench-dd-c-create-hardhat3-app-v1.1.2",
       "runs": [
         {
-          "durationMs": 3602043,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-ember-velcro-v2.2.1",
-      "runs": [
-        {
-          "durationMs": 540326,
-          "verdict": "DANGEROUS",
-          "capabilities": [],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-zapier-platform-cli-v18.0.3",
-      "runs": [
-        {
-          "durationMs": 3602019,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-zapier-platform-core-v18.0.3",
-      "runs": [
-        {
-          "durationMs": 3602044,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-calc-loan-interest-v1.0.4",
-      "runs": [
-        {
-          "durationMs": 3602010,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-kill-port-v2.0.3",
-      "runs": [
-        {
-          "durationMs": 810492,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "NETWORK",
-            "OBFUSCATION",
-            "CREDENTIAL_THEFT",
-            "FILESYSTEM",
-            "ENV_VARS",
-            "PROCESS_SPAWN"
-          ],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_UNCONFIRMED",
-            "TEST_CONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [
-            "NETWORK",
-            "CREDENTIAL_THEFT"
-          ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-c-ngx-bootstrap-v20.0.6",
-      "runs": [
-        {
-          "durationMs": 3602056,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-iceberg-api-v1.0.0",
-      "runs": [
-        {
-          "durationMs": 420238,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "NETWORK",
-            "CREDENTIAL_THEFT",
-            "OBFUSCATION",
-            "PROCESS_SPAWN"
-          ],
-          "proofKinds": [
-            "TEST_UNCONFIRMED",
-            "TEST_CONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_STATIC"
-          ],
-          "verifiedCapabilities": [
-            "CREDENTIAL_THEFT"
-          ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-erwin-lapis87-miaww-v3.2.1",
-      "runs": [
-        {
-          "durationMs": 480279,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "PROCESS_SPAWN",
-            "FILESYSTEM",
-            "OBFUSCATION"
-          ],
-          "proofKinds": [
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "TEST_CONFIRMED",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [
-            "OBFUSCATION"
-          ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-item-card-config-v6.5.8",
-      "runs": [
-        {
-          "durationMs": 180097,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "CREDENTIAL_THEFT",
-            "NETWORK"
-          ],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_CONFIRMED",
-            "TEST_CONFIRMED",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [
-            "CREDENTIAL_THEFT"
-          ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-flat_wren_z3n-v1.1.1",
-      "runs": [
-        {
-          "durationMs": 570298,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "PROCESS_SPAWN",
-            "CREDENTIAL_THEFT"
-          ],
-          "proofKinds": [
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-badgekit-api-client-v9.9.0",
-      "runs": [
-        {
-          "durationMs": 420215,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "EVAL"
-          ],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-parse-session-v2.4.1",
-      "runs": [
-        {
-          "durationMs": 660382,
+          "durationMs": 1110610,
           "verdict": "DANGEROUS",
           "capabilities": [
             "NETWORK"
           ],
           "proofKinds": [
             "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ansi-regex-v6.2.1",
+      "runs": [
+        {
+          "durationMs": 450239,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
             "TEST_CONFIRMED",
             "TEST_UNCONFIRMED"
           ],
@@ -699,15 +760,23 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-bc-nuxt-vue-starter-v1.0.1",
+      "fixtureName": "test-pkg-bench-dd-c-compare-obj-v1.1.2",
       "runs": [
         {
-          "durationMs": 240146,
+          "durationMs": 810464,
           "verdict": "DANGEROUS",
-          "capabilities": [],
+          "capabilities": [
+            "NETWORK",
+            "OBFUSCATION"
+          ],
           "proofKinds": [
+            "TEST_CONFIRMED",
             "TEST_UNCONFIRMED",
-            "TEST_CONFIRMED"
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_STATIC"
           ],
           "verifiedCapabilities": [],
           "llmTokens": null,
@@ -717,24 +786,70 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-pcl-build-docroot-v99.9.9",
+      "fixtureName": "test-pkg-bench-dd-c-jumpgate-v0.0.2",
       "runs": [
         {
-          "durationMs": 120071,
+          "durationMs": 570331,
           "verdict": "DANGEROUS",
           "capabilities": [
-            "NETWORK",
-            "ENV_VARS"
+            "CREDENTIAL_THEFT"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-dialogflow-es-v1.1.2",
+      "runs": [
+        {
+          "durationMs": 5402907,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-template-micro-service-v1.0.3",
+      "runs": [
+        {
+          "durationMs": 570322,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "OBFUSCATION",
+            "FILESYSTEM",
+            "PROCESS_SPAWN"
           ],
           "proofKinds": [
             "TEST_CONFIRMED",
             "TEST_CONFIRMED",
             "TEST_CONFIRMED",
-            "AI_STATIC"
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
           ],
           "verifiedCapabilities": [
-            "NETWORK",
-            "ENV_VARS"
+            "OBFUSCATION"
           ],
           "llmTokens": null,
           "auditId": null,
@@ -743,20 +858,269 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-nina-botok22-breki-v4.3.3",
+      "fixtureName": "test-pkg-bench-dd-c-react-autolink-text-v2.0.1",
       "runs": [
         {
-          "durationMs": 690360,
+          "durationMs": 390199,
           "verdict": "DANGEROUS",
           "capabilities": [
-            "PROCESS_SPAWN",
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION",
+            "NETWORK",
+            "LIFECYCLE_HOOK"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION",
+            "NETWORK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ove-auto-annotate-v0.0.10",
+      "runs": [
+        {
+          "durationMs": 630442,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-mgc-v1.2.2",
+      "runs": [
+        {
+          "durationMs": 570286,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_STATIC",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "FILESYSTEM"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-posthog-node-v5.13.3",
+      "runs": [
+        {
+          "durationMs": 5402945,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-create-mcp-use-app-v0.5.3",
+      "runs": [
+        {
+          "durationMs": 900527,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "OBFUSCATION"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-cline-v2.3.0",
+      "runs": [
+        {
+          "durationMs": 390670,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-vf-oss-template-v1.0.4",
+      "runs": [
+        {
+          "durationMs": 810483,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-html-to-base64-image-v1.0.2",
+      "runs": [
+        {
+          "durationMs": 570309,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK",
             "FILESYSTEM",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-rxnt-authentication-v0.0.3",
+      "runs": [
+        {
+          "durationMs": 780412,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
             "EVAL"
           ],
           "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ngx-ws-v1.1.5",
+      "runs": [
+        {
+          "durationMs": 780479,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "LIFECYCLE_HOOK",
+            "CREDENTIAL_THEFT",
+            "NETWORK",
+            "OBFUSCATION",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
             "TEST_UNCONFIRMED",
             "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
             "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
             "AI_DYNAMIC",
             "AI_DYNAMIC",
             "AI_DYNAMIC",
@@ -770,30 +1134,10 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-pbr-client-v99.99.2",
+      "fixtureName": "test-pkg-bench-dd-c-got-fetch-v5.1.12",
       "runs": [
         {
-          "durationMs": 390207,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "NETWORK"
-          ],
-          "proofKinds": [
-            "TEST_UNCONFIRMED",
-            "TEST_CONFIRMED"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-perfect_toucan_z3n-v3.1.1",
-      "runs": [
-        {
-          "durationMs": 570306,
+          "durationMs": 540281,
           "verdict": "DANGEROUS",
           "capabilities": [
             "PROCESS_SPAWN",
@@ -801,13 +1145,11 @@
             "OBFUSCATION"
           ],
           "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
             "TEST_CONFIRMED",
             "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_STATIC"
+            "TEST_UNCONFIRMED"
           ],
           "verifiedCapabilities": [
             "PROCESS_SPAWN"
@@ -819,226 +1161,232 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-fantastic_goose_z3n-v2.2.1",
+      "fixtureName": "test-pkg-bench-dd-c-oradm-to-sqlz-v1.1.4",
       "runs": [
         {
-          "durationMs": 390228,
+          "durationMs": 5403021,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-zuper-cli-v1.0.1",
+      "runs": [
+        {
+          "durationMs": 5402959,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-compare-obj-v1.1.1",
+      "runs": [
+        {
+          "durationMs": 750443,
           "verdict": "DANGEROUS",
           "capabilities": [
             "PROCESS_SPAWN",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "OBFUSCATION"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-evocater_libpnpmpublish-v99.3.5",
+      "runs": [
+        {
+          "durationMs": 390225,
+          "verdict": "DANGEROUS",
+          "capabilities": [
             "FILESYSTEM",
-            "NETWORK"
-          ],
-          "proofKinds": [
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "TEST_CONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_STATIC"
-          ],
-          "verifiedCapabilities": [
-            "FILESYSTEM"
-          ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-botframework-webchat-react-valibot-v9.9.9",
-      "runs": [
-        {
-          "durationMs": 30023,
-          "verdict": "DANGEROUS",
-          "capabilities": [],
-          "proofKinds": [
-            "STRUCTURAL"
-          ],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-shopify-css-import-v1.0.0",
-      "runs": [
-        {
-          "durationMs": 120048,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "NETWORK",
-            "ENV_VARS"
-          ],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_CONFIRMED",
-            "AI_DYNAMIC",
-            "TEST_CONFIRMED"
-          ],
-          "verifiedCapabilities": [
-            "NETWORK",
-            "ENV_VARS"
-          ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-ultimatepower-v10.9.1",
-      "runs": [
-        {
-          "durationMs": 3601900,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-node-calculator-feea-v1.0.0",
-      "runs": [
-        {
-          "durationMs": 3601959,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-tsign-uix-v17.1.0",
-      "runs": [
-        {
-          "durationMs": 210112,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "NETWORK",
-            "CREDENTIAL_THEFT",
-            "LIFECYCLE_HOOK",
             "ENV_VARS",
-            "FILESYSTEM"
-          ],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_CONFIRMED",
-            "TEST_CONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [
-            "NETWORK",
-            "CREDENTIAL_THEFT",
-            "LIFECYCLE_HOOK"
-          ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-guppy-dev-v2.0.0",
-      "runs": [
-        {
-          "durationMs": 3601920,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-zul-lapis79-riris-v4.2.2",
-      "runs": [
-        {
-          "durationMs": 570312,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "PROCESS_SPAWN",
-            "FILESYSTEM",
-            "NETWORK"
-          ],
-          "proofKinds": [
-            "TEST_CONFIRMED",
-            "TEST_UNCONFIRMED",
-            "TEST_UNCONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC"
-          ],
-          "verifiedCapabilities": [
-            "PROCESS_SPAWN"
-          ],
-          "llmTokens": null,
-          "auditId": null,
-          "error": null
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-frequent_galliform_z3n-v3.3.2",
-      "runs": [
-        {
-          "durationMs": 3601913,
-          "verdict": null,
-          "capabilities": [],
-          "proofKinds": [],
-          "verifiedCapabilities": [],
-          "llmTokens": null,
-          "auditId": null,
-          "error": "polling timed out after 3600000ms"
-        }
-      ]
-    },
-    {
-      "fixtureName": "test-pkg-bench-dd-m-open-banking-reference-application-australia-region-v1.0.0",
-      "runs": [
-        {
-          "durationMs": 150089,
-          "verdict": "DANGEROUS",
-          "capabilities": [
-            "FILESYSTEM",
-            "CREDENTIAL_THEFT",
             "NETWORK",
             "LIFECYCLE_HOOK",
-            "ENV_VARS",
             "OBFUSCATION"
           ],
           "proofKinds": [
             "TEST_CONFIRMED",
             "TEST_CONFIRMED",
             "TEST_CONFIRMED",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
-            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "FILESYSTEM",
+            "ENV_VARS",
+            "NETWORK",
+            "LIFECYCLE_HOOK",
+            "OBFUSCATION"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-bootstrap_dev_scratch-v1.0.4",
+      "runs": [
+        {
+          "durationMs": 510289,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "LIFECYCLE_HOOK",
+            "CREDENTIAL_THEFT",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
             "AI_DYNAMIC",
             "AI_DYNAMIC"
           ],
           "verifiedCapabilities": [
+            "LIFECYCLE_HOOK",
+            "CREDENTIAL_THEFT",
+            "NETWORK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-vida-empal7-breki-v1.3.3",
+      "runs": [
+        {
+          "durationMs": 510261,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-elf-stats-mistletoe-sparkler-211-v9999.1.1",
+      "runs": [
+        {
+          "durationMs": 90052,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-dian-ragi10-sluey-v4.2.4",
+      "runs": [
+        {
+          "durationMs": 480275,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
             "FILESYSTEM",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN",
+            "OBFUSCATION"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-prajwal-remote-v1-v1.0.1",
+      "runs": [
+        {
+          "durationMs": 5402814,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-libxml2-dev-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 750425,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
             "CREDENTIAL_THEFT"
           ],
           "llmTokens": null,
@@ -1048,20 +1396,24 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-verbal_bird_z3n-v1.1.4",
+      "fixtureName": "test-pkg-bench-dd-m-hendra-lapis91-sumpek-v1.3.4",
       "runs": [
         {
-          "durationMs": 510281,
+          "durationMs": 660338,
           "verdict": "DANGEROUS",
           "capabilities": [
-            "FILESYSTEM"
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "OBFUSCATION",
+            "EVAL"
           ],
           "proofKinds": [
             "TEST_UNCONFIRMED",
             "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
             "TEST_UNCONFIRMED",
-            "AI_STATIC",
-            "AI_DYNAMIC"
+            "TEST_UNCONFIRMED"
           ],
           "verifiedCapabilities": [],
           "llmTokens": null,
@@ -1071,37 +1423,168 @@
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-gh-node-module-generatebom-v1.0.0",
+      "fixtureName": "test-pkg-bench-dd-m-ogi-ragi27-ruro-v2.2.2",
       "runs": [
         {
-          "durationMs": 3601937,
+          "durationMs": 600318,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-candra-botok63-ruro-v4.1.2",
+      "runs": [
+        {
+          "durationMs": 360158,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-0xmisoke-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 360188,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-arubaiothubdemoapp-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 210124,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "CREDENTIAL_THEFT"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-opensource.razorpay.dev-v9.9.9",
+      "runs": [
+        {
+          "durationMs": 270161,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-cal-pretty-console-v10.13.0",
+      "runs": [
+        {
+          "durationMs": 5402817,
           "verdict": null,
           "capabilities": [],
           "proofKinds": [],
           "verifiedCapabilities": [],
           "llmTokens": null,
           "auditId": null,
-          "error": "polling timed out after 3600000ms"
+          "error": "polling timed out after 5400000ms"
         }
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-node-tailwind-v0.0.1",
+      "fixtureName": "test-pkg-bench-dd-m-brfsddd-v0.0.1",
       "runs": [
         {
-          "durationMs": 3601978,
+          "durationMs": 5402818,
           "verdict": null,
           "capabilities": [],
           "proofKinds": [],
           "verifiedCapabilities": [],
           "llmTokens": null,
           "auditId": null,
-          "error": "polling timed out after 3600000ms"
+          "error": "polling timed out after 5400000ms"
         }
       ]
     },
     {
-      "fixtureName": "test-pkg-bench-dd-m-megaexploitvorkemol1-v0.30.1",
+      "fixtureName": "test-pkg-bench-dd-m-utomo-tek95-sluey-v1.3.3",
+      "runs": [
+        {
+          "durationMs": 1050554,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "FILESYSTEM",
+            "PROCESS_SPAWN",
+            "OBFUSCATION",
+            "CREDENTIAL_THEFT"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-gurubu-v1.1.1",
       "runs": [
         {
           "durationMs": 30021,
@@ -1114,6 +1597,709 @@
           "llmTokens": null,
           "auditId": null,
           "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-eslint-plugin-i18n-scan-v11.0.10",
+      "runs": [
+        {
+          "durationMs": 360191,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-wati-sambalado33-sukiwir-v3.1.2",
+      "runs": [
+        {
+          "durationMs": 5402803,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-fatfingers-hellooo-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 630299,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-bambang-kepok67-miaww-v4.3.2",
+      "runs": [
+        {
+          "durationMs": 5402687,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-mozilla-l10n-docs-linter-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 840460,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "EVAL"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-jaja-bakwan20-breki-v4.1.3",
+      "runs": [
+        {
+          "durationMs": 780427,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "NETWORK",
+            "CREDENTIAL_THEFT"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-ai-dial-chat-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 180102,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-large_mandrill_z3n-v4.2.2",
+      "runs": [
+        {
+          "durationMs": 810433,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "FILESYSTEM",
+            "PROCESS_SPAWN"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-byteplus-platform-runtime-v99.99.99",
+      "runs": [
+        {
+          "durationMs": 30022,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "STRUCTURAL"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-react-device-plugin-v1.0.1",
+      "runs": [
+        {
+          "durationMs": 420198,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-xaver-tempe65-breki-v1.1.2",
+      "runs": [
+        {
+          "durationMs": 540293,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-vina-oblok92-sluey-v1.1.3",
+      "runs": [
+        {
+          "durationMs": 1050572,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "EVAL",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "EVAL"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-log4net-v4.0.0",
+      "runs": [
+        {
+          "durationMs": 270137,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-zain-lapis88-riris-v4.4.3",
+      "runs": [
+        {
+          "durationMs": 510277,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [
+            "FILESYSTEM"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-chain-cli-promised-v2.3.5",
+      "runs": [
+        {
+          "durationMs": 540312,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "EVAL",
+            "PROCESS_SPAWN",
+            "NETWORK",
+            "LIFECYCLE_HOOK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "PROCESS_SPAWN",
+            "NETWORK",
+            "LIFECYCLE_HOOK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-vuejs-accessibility-v9.9.0",
+      "runs": [
+        {
+          "durationMs": 390203,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "OBFUSCATION"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-candra-martabak69-sluey-v4.2.2",
+      "runs": [
+        {
+          "durationMs": 1140540,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "PROCESS_SPAWN",
+            "FILESYSTEM",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_STATIC",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "AI_DYNAMIC"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-sap-code-style-guides-v99.99.100",
+      "runs": [
+        {
+          "durationMs": 5402739,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-node-request-ip-v3.4.3",
+      "runs": [
+        {
+          "durationMs": 5402877,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-weex-main-v19.4.9",
+      "runs": [
+        {
+          "durationMs": 540286,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-supervot4-v0.30.1",
+      "runs": [
+        {
+          "durationMs": 720355,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "LIFECYCLE_HOOK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-ssr-catalogue-sfcc-v99.99.2",
+      "runs": [
+        {
+          "durationMs": 30022,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "STRUCTURAL"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-excluder-mcp-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 5402775,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-sdsowf-devapptea-v1.1.4",
+      "runs": [
+        {
+          "durationMs": 5402872,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-config-conventional-v20.1.1",
+      "runs": [
+        {
+          "durationMs": 150088,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "CREDENTIAL_THEFT",
+            "PROCESS_SPAWN"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK",
+            "CREDENTIAL_THEFT",
+            "PROCESS_SPAWN"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-htx-production-v19.4.9",
+      "runs": [
+        {
+          "durationMs": 180102,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "OBFUSCATION",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-postcss-hotfix-v77.7.7",
+      "runs": [
+        {
+          "durationMs": 30019,
+          "verdict": "DANGEROUS",
+          "capabilities": [],
+          "proofKinds": [
+            "STRUCTURAL"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-elf-stats-mulled-ornament-810-v1.0.0",
+      "runs": [
+        {
+          "durationMs": 210107,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK",
+            "OBFUSCATION"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "CREDENTIAL_THEFT",
+            "NETWORK",
+            "OBFUSCATION"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-inline-dep-v99.1.8",
+      "runs": [
+        {
+          "durationMs": 300163,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "OBFUSCATION",
+            "NETWORK"
+          ],
+          "proofKinds": [
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_UNCONFIRMED",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-react-headers-v5.0.0",
+      "runs": [
+        {
+          "durationMs": 240142,
+          "verdict": "DANGEROUS",
+          "capabilities": [
+            "NETWORK",
+            "FILESYSTEM",
+            "PROCESS_SPAWN",
+            "LIFECYCLE_HOOK"
+          ],
+          "proofKinds": [
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "TEST_CONFIRMED",
+            "AI_DYNAMIC",
+            "TEST_CONFIRMED"
+          ],
+          "verifiedCapabilities": [
+            "NETWORK",
+            "FILESYSTEM",
+            "PROCESS_SPAWN",
+            "LIFECYCLE_HOOK"
+          ],
+          "llmTokens": null,
+          "auditId": null,
+          "error": null
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-peloton-creative-assets-v5.0.0",
+      "runs": [
+        {
+          "durationMs": 5402716,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-airbnb-embed-frame-v10.9.0",
+      "runs": [
+        {
+          "durationMs": 5402840,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
+        }
+      ]
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-fitri-telur64-breki-v1.2.2",
+      "runs": [
+        {
+          "durationMs": 5402586,
+          "verdict": null,
+          "capabilities": [],
+          "proofKinds": [],
+          "verifiedCapabilities": [],
+          "llmTokens": null,
+          "auditId": null,
+          "error": "polling timed out after 5400000ms"
         }
       ]
     }
