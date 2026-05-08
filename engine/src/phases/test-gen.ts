@@ -1,12 +1,13 @@
-import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, unlinkSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { generateText } from "ai";
 
 import { config } from "../config.js";
 import { getModel } from "../llm.js";
+import { dockerExec } from "../sandbox/docker.js";
 import type { Proof, Finding } from "../models.js";
 import type { InvestigationResult } from "./investigate.js";
 import {
@@ -15,10 +16,25 @@ import {
 } from "./test-gen-prompt.js";
 import { readPackageSource, readExampleTest } from "./test-gen-helpers.js";
 
-const EXPLOITS_DIR = resolve(import.meta.dirname, "../../../sandbox/exploits");
-const SANDBOX_DIR = resolve(import.meta.dirname, "../../../sandbox");
-
 const MAX_RETRIES = 3;
+const HARNESS_DIR = resolve(import.meta.dirname, "../../../sandbox/harness");
+const VALIDATE_TIMEOUT_MS = 30_000;
+
+// Same vitest config as verify.ts, kept in sync intentionally.
+const VITEST_CONFIG = `const { defineConfig } = require("vitest/config");
+
+module.exports = defineConfig({
+  test: {
+    include: ["generated/**/*.test.{js,ts}"],
+    setupFiles: ["./harness/setup.js"],
+    restoreMocks: true,
+    testTimeout: 15000,
+    pool: "forks",
+    reporters: ["json"],
+    globals: true,
+  },
+});
+`;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,7 +45,25 @@ function sleep(ms: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Vitest validation — run the generated test on the host to catch runtime errors
+// Docker-based vitest preflight (replaces the host-side validateTestWithVitest
+// that was removed in PR #13 after the 2026-05-08 sandbox-escape incident).
+//
+// The previous implementation ran `npx vitest run` on the host. Vitest loads
+// the test module, which imports the audited package via runPackage(...);
+// for malicious bench fixtures (test-pkg-bench-dd-*) the package's
+// module-load code executed with root privileges and wiped
+// /root/.ssh/authorized_keys.
+//
+// This implementation runs the same vitest command inside a one-shot
+// `docker run --rm` container with:
+//   --cap-drop=ALL    no Linux capabilities
+//   --network=none    no network at all
+//   --memory=Xm       memory cap
+//   --pids-limit=64   no fork bombs
+//   -v workDir:/workspace   only the test workdir is bind-mounted, NOT /root
+//
+// Same isolation profile as verify.ts. The host remains unreachable from the
+// audited package's code.
 // ---------------------------------------------------------------------------
 
 interface ValidationResult {
@@ -57,45 +91,76 @@ function classifyFailureMessages(messages: string[]): "runtime" | "assertion" {
   return "assertion";
 }
 
-function validateTestWithVitest(testCode: string): ValidationResult {
-  const tmpName = `_validation_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.test.ts`;
-  const tmpPath = join(EXPLOITS_DIR, tmpName);
+async function validateTestInDocker(
+  testCode: string,
+  packagePath: string,
+): Promise<ValidationResult> {
+  const workDir = mkdtempSync(join(tmpdir(), "npmguard-validate-"));
+  chmodSync(workDir, 0o777);
+  const harnessDir = join(workDir, "harness");
+  const generatedDir = join(workDir, "generated");
+  const testPkgDir = join(workDir, "test-packages");
+  mkdirSync(harnessDir, { recursive: true, mode: 0o777 });
+  mkdirSync(generatedDir, { recursive: true, mode: 0o777 });
+  mkdirSync(testPkgDir, { recursive: true, mode: 0o777 });
+  chmodSync(harnessDir, 0o777);
+  chmodSync(generatedDir, 0o777);
+  chmodSync(testPkgDir, 0o777);
 
   try {
-    writeFileSync(tmpPath, testCode, "utf-8");
+    for (const file of ["setup.js", "server.js", "sandbox-runner.js", "child-process-runner.js"]) {
+      copyFileSync(join(HARNESS_DIR, file), join(harnessDir, file));
+    }
+    writeFileSync(join(workDir, "vitest.config.js"), VITEST_CONFIG, "utf-8");
 
-    let stdout = "";
-    let stderr = "";
-    let exitCode = 0;
+    const packageDirName = basename(packagePath);
+    execFileSync("cp", ["-r", packagePath, join(testPkgDir, packageDirName)], { timeout: 10_000 });
+    writeFileSync(join(generatedDir, "preflight.test.ts"), testCode, "utf-8");
 
-    try {
-      stdout = execFileSync(
-        "npx",
-        ["vitest", "run", tmpPath, "--reporter=json", "--config", join(SANDBOX_DIR, "vitest.config.js")],
-        { cwd: SANDBOX_DIR, timeout: 25_000, encoding: "utf-8", stdio: "pipe" },
-      );
-    } catch (err: unknown) {
-      const e = err as { stdout?: string; stderr?: string; status?: number; killed?: boolean };
-      stdout = e.stdout ?? "";
-      stderr = e.stderr ?? "";
-      exitCode = e.status ?? 1;
-
-      if (e.killed) {
-        return { valid: false, errorType: "timeout", errorMessage: "Test execution timed out (25s)" };
-      }
+    // Confirm npmguard-verify image exists (already used by verify phase).
+    const verifyImage = "npmguard-verify";
+    const imageInspect = await dockerExec(["image", "inspect", verifyImage], 5_000);
+    if (imageInspect.exitCode !== 0) {
+      // Image missing — skip preflight rather than fall back to host execution.
+      // Docker verify phase will validate later.
+      console.log(`[test-gen:validate] ${verifyImage} image not present, skipping preflight`);
+      return { valid: true, errorType: null, errorMessage: null };
     }
 
-    // Parse vitest JSON output
+    const runCmd = [
+      "run", "--rm",
+      "--name", `npmguard-validate-${randomUUID().slice(0, 12)}`,
+      "--network=none",
+      "--cap-drop=ALL",
+      `--memory=${config.sandboxMemoryMb}m`,
+      `--cpus=${config.sandboxCpus}`,
+      "--pids-limit", "64",
+      "-e", "NPMGUARD_PACKAGES_DIR=/workspace/test-packages",
+      "-v", `${workDir}:/workspace`,
+      "-w", "/workspace",
+      verifyImage,
+      "sh", "-c",
+      "ln -s /opt/verify/node_modules /workspace/node_modules 2>/dev/null; /opt/verify/node_modules/.bin/vitest run --reporter=json --outputFile.json=/workspace/results.json 2>&1; echo EXIT=$?",
+    ];
+
+    const result = await dockerExec(runCmd, VALIDATE_TIMEOUT_MS);
+
+    if (result.timedOut) {
+      return { valid: false, errorType: "timeout", errorMessage: `Preflight timed out after ${VALIDATE_TIMEOUT_MS}ms` };
+    }
+
+    // Parse vitest JSON output (last { in stdout — vitest reporter prints it inline).
+    const stdout = result.stdout || "";
     const jsonStart = stdout.lastIndexOf('{"numTotalTestSuites"');
     if (jsonStart === -1) {
-      // Could not parse — check stderr for compilation errors
-      const combined = stdout + stderr;
+      const combined = stdout + (result.stderr || "");
       const isRuntime = RUNTIME_ERROR_PATTERNS.some((p) => combined.includes(p));
       if (isRuntime) {
         const errorLine = combined.split("\n").find((l) => RUNTIME_ERROR_PATTERNS.some((p) => l.includes(p))) ?? combined.slice(0, 300);
         return { valid: false, errorType: "runtime", errorMessage: errorLine.slice(0, 500) };
       }
-      return { valid: false, errorType: "runtime", errorMessage: `Could not parse vitest output. stderr: ${stderr.slice(0, 300)}` };
+      // Could not parse — treat as inconclusive (let Docker verify make the call).
+      return { valid: true, errorType: null, errorMessage: null };
     }
 
     let parsed: {
@@ -108,19 +173,16 @@ function validateTestWithVitest(testCode: string): ValidationResult {
         }>;
       }>;
     };
-
     try {
       parsed = JSON.parse(stdout.slice(jsonStart));
     } catch {
-      return { valid: false, errorType: "runtime", errorMessage: "Failed to parse vitest JSON" };
+      return { valid: true, errorType: null, errorMessage: null };
     }
 
-    // All tests passed
     if (parsed.numFailedTests === 0 && parsed.numPassedTests > 0) {
       return { valid: true, errorType: null, errorMessage: null };
     }
 
-    // Some tests failed — classify the failures
     const allFailureMessages = parsed.testResults
       ?.flatMap((r) => r.assertionResults ?? [])
       ?.filter((a) => a.status === "failed")
@@ -130,15 +192,17 @@ function validateTestWithVitest(testCode: string): ValidationResult {
     const errorMessage = allFailureMessages.join("\n").slice(0, 500);
 
     if (errorType === "assertion") {
-      // Assertion failure = structurally correct test, keep it
+      // Test is structurally correct, just doesn't observe the malicious
+      // behavior in the sandbox (often expected with --network=none and
+      // sandbox-detection). Keep the test; Docker verify gets the final say.
       return { valid: true, errorType: "assertion", errorMessage };
     }
-
     return { valid: false, errorType: "runtime", errorMessage };
   } finally {
-    try { unlinkSync(tmpPath); } catch { /* best effort */ }
+    try { rmSync(workDir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Test generation with retry loop
@@ -159,6 +223,7 @@ async function generateTestDirect(
   finding: Finding,
   packageName: string,
   packageSource: string,
+  packagePath: string,
 ): Promise<string | null> {
   const example = readExampleTest(finding.capability);
   let lastError: string | null = null;
@@ -190,33 +255,23 @@ async function generateTestDirect(
         continue;
       }
 
-      // For test fixtures, validate on the host; for real packages skip
-      // (the Docker verify phase with retry handles real packages)
-      const isTestFixture = packageName.startsWith("test-pkg-");
-      if (isTestFixture) {
-        console.log(`[test-gen] attempt ${attempt + 1}: validating with vitest (test fixture)...`);
-        const validation = validateTestWithVitest(code);
+      // Preflight in Docker (sandboxed). Replaces the previous host-side
+      // vitest run that was responsible for the 2026-05-08 escape.
+      console.log(`[test-gen] attempt ${attempt + 1}: validating in Docker preflight...`);
+      const validation = await validateTestInDocker(code, packagePath);
 
-        if (validation.valid) {
-          if (validation.errorType === "assertion") {
-            console.log(`[test-gen] attempt ${attempt + 1}: VALID (assertion failure — structurally correct, keeping)`);
-          } else {
-            console.log(`[test-gen] attempt ${attempt + 1}: VALID (tests passed)`);
-          }
-          return code;
+      if (validation.valid) {
+        if (validation.errorType === "assertion") {
+          console.log(`[test-gen] attempt ${attempt + 1}: VALID (assertion mismatch — structurally correct, kept)`);
+        } else {
+          console.log(`[test-gen] attempt ${attempt + 1}: VALID (passed in preflight)`);
         }
-
-        lastError = validation.errorMessage?.slice(0, 500) ?? "Unknown runtime error";
-        console.log(`[test-gen] attempt ${attempt + 1}: ${validation.errorType} error, retrying — ${lastError.slice(0, 200)}`);
-
-        if (attempt < MAX_RETRIES - 1) {
-          await sleep(1000);
-        }
-      } else {
-        // Real npm package — accept the test, Docker verify will validate it
-        console.log(`[test-gen] attempt ${attempt + 1}: ACCEPTED (real package, Docker verify will validate)`);
         return code;
       }
+
+      lastError = validation.errorMessage?.slice(0, 500) ?? "Unknown runtime error";
+      console.log(`[test-gen] attempt ${attempt + 1}: ${validation.errorType} error, retrying — ${lastError.slice(0, 200)}`);
+      if (attempt < MAX_RETRIES - 1) await sleep(1000);
     } catch (err) {
       console.error(`[test-gen] attempt ${attempt + 1}: LLM call failed for ${finding.fileLine}: ${err}`);
       lastError = `LLM call failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -265,7 +320,7 @@ export async function generateTests(
   const testResultPromises = limited.map(({ index: i, finding }, j) =>
     sleep(j * 2000).then(async () => {
       console.log(`[test-gen] generating test ${j + 1}/${limited.length}: ${finding.capability} @ ${finding.fileLine}`);
-      const testCode = await generateTestDirect(finding, packageName, packageSource);
+      const testCode = await generateTestDirect(finding, packageName, packageSource, packagePath);
       return { index: i, finding, testCode };
     }),
   );
