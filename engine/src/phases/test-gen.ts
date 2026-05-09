@@ -8,6 +8,7 @@ import { generateText } from "ai";
 import { config } from "../config.js";
 import { getModel } from "../llm.js";
 import { dockerExec } from "../sandbox/docker.js";
+import { canaryEnvFlags, canaryPlantedFiles } from "../sandbox/canaries.js";
 import type { Proof, Finding } from "../models.js";
 import type { InvestigationResult } from "./investigate.js";
 import {
@@ -117,6 +118,15 @@ async function validateTestInDocker(
     execFileSync("cp", ["-r", packagePath, join(testPkgDir, packageDirName)], { timeout: 10_000 });
     writeFileSync(join(generatedDir, "preflight.test.ts"), testCode, "utf-8");
 
+    // Plant canary credentials so the preflight environment matches verify.
+    // Keeps test-gen retries focused on real failures instead of "no canary
+    // present" assertion mismatches that would resolve themselves in verify.
+    for (const planted of canaryPlantedFiles()) {
+      const dest = join(workDir, planted.relativePath);
+      mkdirSync(join(dest, ".."), { recursive: true, mode: 0o777 });
+      writeFileSync(dest, planted.content, { mode: 0o644 });
+    }
+
     // Confirm npmguard-verify image exists (already used by verify phase).
     const verifyImage = "npmguard-verify";
     const imageInspect = await dockerExec(["image", "inspect", verifyImage], 5_000);
@@ -136,6 +146,7 @@ async function validateTestInDocker(
       `--cpus=${config.sandboxCpus}`,
       "--pids-limit", "64",
       "-e", "NPMGUARD_PACKAGES_DIR=/workspace/test-packages",
+      ...canaryEnvFlags(),
       "-v", `${workDir}:/workspace`,
       "-w", "/workspace",
       verifyImage,
