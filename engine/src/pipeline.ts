@@ -173,17 +173,21 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       metadata: inventory.metadata,
     });
 
-    // Scale phase timeouts by file count: base timeout for ≤20 files,
-    // +50% per 20 extra files, clamped at 4× base.
-    const sourceFileCount = inventory.files.filter(
+    // Scale phase timeouts on whichever signal is bigger: file count OR
+    // total source size. A single 10MB obfuscated bundle (sourceFileCount=1)
+    // is harder to analyze than 50 small files — without sizeScale it gets
+    // scale=1× and times out the investigation phase. Both clamp at 4×.
+    const sourceFiles = inventory.files.filter(
       (f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary,
-    ).length;
-    const timeoutScale = Math.min(
-      4,
-      1 + Math.max(0, sourceFileCount - 20) * 0.025,
     );
+    const sourceFileCount = sourceFiles.length;
+    const totalSrcKB = sourceFiles.reduce((s, f) => s + f.sizeBytes / 1024, 0);
+    const countScale = Math.min(4, 1 + Math.max(0, sourceFileCount - 20) * 0.025);
+    const sizeScale = Math.min(4, 1 + Math.max(0, totalSrcKB - 200) / 500);
+    const timeoutScale = Math.max(countScale, sizeScale);
     console.log(
-      `[pipeline] ${sourceFileCount} source files → timeout scale ${timeoutScale.toFixed(2)}×`,
+      `[pipeline] ${sourceFileCount} source files / ${totalSrcKB.toFixed(0)}KB → ` +
+        `count=${countScale.toFixed(2)}× size=${sizeScale.toFixed(2)}× → scale ${timeoutScale.toFixed(2)}×`,
     );
 
     // Dealbreaker -> immediate DANGEROUS
@@ -357,10 +361,24 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       );
       emit?.("phase_started", { phase: "experimenter" });
       const expStart = Date.now();
+      // Per-hypothesis cap (90s) prevents one stuck experiment from burning
+      // the whole budget; global cap (10min × scale) bounds the loop overall.
+      const PER_HYP_MS = 90_000;
+      const GLOBAL_BUDGET_MS = 10 * 60_000 * timeoutScale;
 
       for (const h of inProgressHyps) {
+        if (Date.now() - expStart > GLOBAL_BUDGET_MS) {
+          console.warn(
+            `[experimenter] global budget ${GLOBAL_BUDGET_MS}ms exceeded — skipping remaining ${inProgressHyps.length - inProgressHyps.indexOf(h)} hypothes${inProgressHyps.length - inProgressHyps.indexOf(h) === 1 ? "is" : "es"}`,
+          );
+          break;
+        }
         try {
-          const result = await runExperiment(h, resolved.path, mainEntry, inventory.entryPoints.install);
+          const result = await withTimeout(
+            runExperiment(h, resolved.path, mainEntry, inventory.entryPoints.install),
+            PER_HYP_MS,
+            `experiment:${h.hypId}`,
+          );
           if (result) {
             if (result.confirmed) {
               graph.addEvidence(h.hypId, [result.evidenceRef]);

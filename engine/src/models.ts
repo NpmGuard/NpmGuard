@@ -53,6 +53,11 @@ export const InvestigationInput = z.object({
   flags: z.array(z.string()).default([]),
   staticCaps: z.array(z.string()).default([]),
   staticProofSummaries: z.array(z.string()).default([]),
+  // Populated before the agent runs by an early observation pass
+  // (require + lifecycle hooks under instrumentation). Lets the agent see
+  // runtime evidence (network, eval, fs, env) up front instead of grinding
+  // chunked-evalJs against obfuscated bundles to discover the same facts.
+  runtimeObservation: InstrumentationLog.nullable().default(null),
 });
 export type InvestigationInput = z.infer<typeof InvestigationInput>;
 
