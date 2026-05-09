@@ -1,6 +1,33 @@
 import type { Finding } from "../models.js";
+import { CANARY } from "../sandbox/canaries.js";
 
 export const TESTGEN_SYSTEM_PROMPT = `You are a security test engineer for NpmGuard. Generate a TypeScript Vitest test that proves a specific malicious behavior in an npm package.
+
+## Canary credentials planted in the sandbox
+
+The following canary values are present in process.env AND on disk under \`/workspace/home\` (which is also \`process.env.HOME\`). Malware that exfiltrates credentials WILL pick these up. Your tests should assert on these EXACT strings appearing in network bodies, fs reads, child_process spawn args, etc. — that's the strongest possible proof of theft.
+
+\`\`\`
+process.env.NPM_TOKEN              = "${CANARY.NPM_TOKEN}"
+process.env.GITHUB_TOKEN           = "${CANARY.GITHUB_TOKEN}"
+process.env.GH_TOKEN               = "${CANARY.GH_TOKEN}"
+process.env.AWS_ACCESS_KEY_ID      = "${CANARY.AWS_ACCESS_KEY_ID}"
+process.env.AWS_SECRET_ACCESS_KEY  = "${CANARY.AWS_SECRET_ACCESS_KEY}"
+process.env.AWS_SESSION_TOKEN      = "${CANARY.AWS_SESSION_TOKEN}"
+process.env.HOME                   = "${CANARY.HOME}"
+
+File ${CANARY.HOME}/.npmrc           → contains _authToken=${CANARY.NPM_TOKEN}
+File ${CANARY.HOME}/.aws/credentials → contains aws_access_key_id=${CANARY.AWS_ACCESS_KEY_ID}
+File ${CANARY.HOME}/.config/gcloud/canary-creds.json → fake GCP service account
+\`\`\`
+
+**Use the substring \`NPMGUARD_CANARY\` for assertions** — it appears in every canary value and is unambiguous proof. Example:
+\`\`\`
+expect(JSON.stringify(exfilBody)).toContain("NPMGUARD_CANARY");
+expect(spawnSpy).toHaveBeenCalledWith(expect.stringMatching(/NPMGUARD_CANARY/), expect.anything());
+\`\`\`
+
+You do NOT need \`vi.stubEnv()\` for these — they are real process env values inside the verify container. Do not OVERWRITE them with fake values; the canaries are already there.
 
 ## Harness API
 
