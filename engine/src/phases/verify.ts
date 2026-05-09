@@ -8,6 +8,7 @@ import { generateText } from "ai";
 import { config } from "../config.js";
 import { getModel } from "../llm.js";
 import { dockerExec } from "../sandbox/docker.js";
+import { canaryEnvFlags, canaryPlantedFiles } from "../sandbox/canaries.js";
 import type { Proof, Finding } from "../models.js";
 import type { EmitFn } from "../events.js";
 import { TESTGEN_SYSTEM_PROMPT } from "./test-gen-prompt.js";
@@ -270,6 +271,15 @@ export async function verifyProofs(
     // Copy the package into test-packages/
     execFileSync("cp", ["-r", packagePath, join(testPkgDir, packageDirName)], { timeout: 10_000 });
 
+    // Plant canary credentials so malware exfil paths actually fire.
+    // Without these, gated code paths (`if (process.env.GITHUB_TOKEN) ...`)
+    // never execute and tests assert on behavior that never happens.
+    for (const planted of canaryPlantedFiles()) {
+      const dest = join(workDir, planted.relativePath);
+      mkdirSync(join(dest, ".."), { recursive: true, mode: 0o777 });
+      writeFileSync(dest, planted.content, { mode: 0o644 });
+    }
+
     // Copy generated test files
     const testFileMap = new Map<string, number>();
     for (let i = 0; i < proofs.length; i++) {
@@ -314,6 +324,7 @@ export async function verifyProofs(
       // network=none, memory cap, pids-limit — are the actual sandbox.
       "--pids-limit", "128",
       "-e", "NPMGUARD_PACKAGES_DIR=/workspace/test-packages",
+      ...canaryEnvFlags(),
       "-v", `${workDir}:/workspace`,
       "-w", "/workspace",
       image,
@@ -480,13 +491,18 @@ export async function verifyProofs(
           break;
         }
 
-        console.log(`[verify] regenerating ${failedTests.length} failed tests with error feedback...`);
+        console.log(`[verify] regenerating ${failedTests.length} failed tests with error feedback (parallel)...`);
         emit?.("verify_regenerating", { count: failedTests.length, attempt: attempt + 1 });
 
-        for (const { proofIndex, errorMsg } of failedTests) {
+        // Parallelize LLM fix-ups: each (proofIndex, errorMsg) is independent
+        // (different finding, different output file). Sequential here was the
+        // dominant within-audit bottleneck — 8 fails × 20s LLM each = ~3min
+        // wasted per attempt × 3 attempts. Promise.allSettled so one LLM
+        // failure doesn't kill the others.
+        const regenJobs = failedTests.map(async ({ proofIndex, errorMsg }) => {
           const proof = currentProofs[proofIndex]!;
           const finding = findings[proofIndex];
-          if (!finding || !proof.testCode) continue;
+          if (!finding || !proof.testCode) return null;
 
           const newCode = await regenerateTestWithError(
             finding,
@@ -496,14 +512,20 @@ export async function verifyProofs(
             errorMsg,
             attempt + 1,
           );
+          return { proofIndex, proof, newCode };
+        });
+        const regenResults = await Promise.allSettled(regenJobs);
 
-          if (newCode) {
-            const testFileName = `finding-${proofIndex}.test.ts`;
-            writeFileSync(join(generatedDir, testFileName), newCode, "utf-8");
-            const hash = createHash("sha256").update(newCode).digest("hex");
-            currentProofs[proofIndex] = { ...proof, testCode: newCode, testHash: hash };
-            console.log(`[verify:retry] updated ${testFileName} (${newCode.length} bytes, hash=${hash.slice(0, 12)})`);
-          }
+        for (const settled of regenResults) {
+          if (settled.status !== "fulfilled" || !settled.value) continue;
+          const { proofIndex, proof, newCode } = settled.value;
+          if (!newCode) continue;
+
+          const testFileName = `finding-${proofIndex}.test.ts`;
+          writeFileSync(join(generatedDir, testFileName), newCode, "utf-8");
+          const hash = createHash("sha256").update(newCode).digest("hex");
+          currentProofs[proofIndex] = { ...proof, testCode: newCode, testHash: hash };
+          console.log(`[verify:retry] updated ${testFileName} (${newCode.length} bytes, hash=${hash.slice(0, 12)})`);
         }
       }
 
