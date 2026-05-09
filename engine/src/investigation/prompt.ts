@@ -33,6 +33,49 @@ CRITICAL RULES FOR EVIDENCE AND CONFIDENCE:
 - Be thorough but focused. Follow leads from the prior static analysis. Do not flag benign patterns (legitimate HTTP clients, standard file operations for a package's stated purpose). If a package is designed to make requests (e.g. an XHR wrapper), legitimate network code is SAFE.
 `;
 
+function renderRuntimeObservation(obs: NonNullable<InvestigationInput["runtimeObservation"]>): string | null {
+  // Cap each list so a noisy package can't blow up the prompt budget.
+  const CAP = 30;
+  const lines: string[] = [];
+  if (obs.networkCalls.length) {
+    lines.push(`### Network calls (${obs.networkCalls.length})`);
+    for (const c of obs.networkCalls.slice(0, CAP)) {
+      const body = c.bodyPreview ? ` body=${JSON.stringify(c.bodyPreview).slice(0, 120)}` : "";
+      lines.push(`- ${c.method} ${c.url}${body}`);
+    }
+    if (obs.networkCalls.length > CAP) lines.push(`- … +${obs.networkCalls.length - CAP} more`);
+  }
+  if (obs.evalCalls.length) {
+    lines.push(`### Dynamic eval (${obs.evalCalls.length})`);
+    for (const e of obs.evalCalls.slice(0, CAP)) {
+      lines.push(`- ${e.code.slice(0, 200)}`);
+    }
+    if (obs.evalCalls.length > CAP) lines.push(`- … +${obs.evalCalls.length - CAP} more`);
+  }
+  if (obs.fsOperations.length) {
+    lines.push(`### Filesystem ops (${obs.fsOperations.length})`);
+    for (const f of obs.fsOperations.slice(0, CAP)) {
+      lines.push(`- ${f.op} ${f.path}`);
+    }
+    if (obs.fsOperations.length > CAP) lines.push(`- … +${obs.fsOperations.length - CAP} more`);
+  }
+  if (obs.processSpawns.length) {
+    lines.push(`### Process spawns (${obs.processSpawns.length})`);
+    for (const p of obs.processSpawns.slice(0, CAP)) {
+      lines.push(`- ${p.cmd} ${p.args.join(" ")}`.slice(0, 200));
+    }
+  }
+  if (obs.envAccess.length) {
+    lines.push(`### Env vars read (${obs.envAccess.length})`);
+    lines.push(obs.envAccess.slice(0, 50).join(", "));
+  }
+  if (obs.modulesLoaded.length) {
+    lines.push(`### Modules loaded (${obs.modulesLoaded.length})`);
+    lines.push(obs.modulesLoaded.slice(0, 50).join(", "));
+  }
+  return lines.length ? lines.join("\n") : null;
+}
+
 export function buildUserPrompt(input: InvestigationInput): string {
   const parts: string[] = [
     `## Package: ${input.packageName || "unknown"}@${input.version || "?"}`,
@@ -54,10 +97,27 @@ export function buildUserPrompt(input: InvestigationInput): string {
     }
   }
 
+  // Runtime observation comes BEFORE instructions because it's the strongest
+  // signal: facts the package actually exhibited when executed under
+  // instrumentation. The agent should ground further analysis on these.
+  if (input.runtimeObservation) {
+    const rendered = renderRuntimeObservation(input.runtimeObservation);
+    if (rendered) {
+      parts.push(
+        "\n## Runtime observation (already executed under instrumentation)\n" +
+          "These are real events captured when the package was loaded in the sandbox. " +
+          "Trace each one back to the source code and treat them as CONFIRMED if they match a malicious capability. " +
+          "Do NOT re-run requireAndTrace or runLifecycleHook for the same entry points — the data is already here.\n\n" +
+          rendered,
+      );
+    }
+  }
+
   parts.push(
     "\n## Instructions\n" +
     "Investigate this package using the tools available to you. " +
-    "Start by listing files, then read suspicious files and use sandbox execution to confirm behavior. " +
+    "If runtime observations are listed above, START by tracing them to their source code (use searchFiles for URLs, eval payloads, or env keys you see above). " +
+    "Otherwise, start by listing files, then read suspicious files and use sandbox execution to confirm behavior. " +
     "Report all findings with evidence.",
   );
 

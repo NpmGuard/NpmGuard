@@ -1,12 +1,52 @@
 import { config } from "../config.js";
-import { CapabilityEnum, type Finding, type InvestigationInput, type InventoryReport, type Proof, type ToolCallRecord } from "../models.js";
+import { CapabilityEnum, type Finding, type InstrumentationLog, type InvestigationInput, type InventoryReport, type Proof, type ToolCallRecord } from "../models.js";
 import type { Hypothesis } from "@npmguard/shared";
 import { DockerSandboxController } from "../sandbox/controller.js";
 import { runInvestigationAgent } from "../investigation/agent.js";
+import { requireAndTraceImpl, runLifecycleHookImpl } from "../investigation/tools-execute.js";
+import { aggregateFromResultPreviews } from "../sandbox/parse-trace.js";
 import { LIFECYCLE_SCRIPTS } from "../inventory/parse-manifest.js";
 import type { EmitFn } from "../events.js";
 import type { AuditLogger } from "../audit-log.js";
 import type { FileSummary } from "./triage.js";
+
+/**
+ * Run the package once under instrumentation BEFORE the LLM agent starts.
+ * Captures network/eval/fs/env/process events so the agent has runtime
+ * evidence in its prompt — avoids the chunked-evalJs grind on obfuscated
+ * bundles. Best-effort: failures are logged and observation is left null.
+ */
+async function collectEarlyObservation(
+  sandbox: DockerSandboxController,
+  mainEntry: string | null,
+  lifecycleHooks: Record<string, string>,
+): Promise<InstrumentationLog | null> {
+  const previews: string[] = [];
+
+  if (mainEntry) {
+    try {
+      console.log(`[investigate] early observation: require ${mainEntry}`);
+      previews.push(await requireAndTraceImpl(sandbox, mainEntry));
+    } catch (err) {
+      console.warn(
+        `[investigate] early observation: require ${mainEntry} failed — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  for (const hookName of Object.keys(lifecycleHooks)) {
+    try {
+      console.log(`[investigate] early observation: lifecycle ${hookName}`);
+      previews.push(await runLifecycleHookImpl(sandbox, hookName, lifecycleHooks));
+    } catch (err) {
+      console.warn(
+        `[investigate] early observation: lifecycle ${hookName} failed — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  return aggregateFromResultPreviews(previews);
+}
 
 export interface InvestigationResult {
   capabilities: CapabilityEnum[];
@@ -45,16 +85,6 @@ export async function investigate(
     h.focusLines.map((fl) => `${fl.file}:${fl.range} [${h.claim.kind}/${h.severity}]: ${h.description}`),
   );
 
-  const input: InvestigationInput = {
-    packagePath,
-    packageName: inventory.metadata.name ?? "",
-    version: inventory.metadata.version ?? "",
-    description: inventory.metadata.description ?? "",
-    flags: inventory.flags.map((f) => `[${f.severity}] ${f.check}: ${f.detail}`),
-    staticCaps: [...allCaps],
-    staticProofSummaries,
-  };
-
   // Start sandbox
   const sandbox = new DockerSandboxController(
     config.sandboxImage,
@@ -65,6 +95,38 @@ export async function investigate(
 
   try {
     await sandbox.start(packagePath);
+
+    // Early observation: run main entry + lifecycle hooks under instrumentation
+    // BEFORE the agent. Gives it runtime evidence to ground static analysis on
+    // (esp. obfuscated packages where the agent otherwise grinds chunked-evalJs
+    // through 10MB minified bundles to rediscover what the runtime already showed).
+    const mainEntry = inventory.entryPoints.runtime[0] ?? null;
+    const runtimeObservation = await collectEarlyObservation(sandbox, mainEntry, lifecycleHooks);
+    if (runtimeObservation) {
+      const counts = {
+        network: runtimeObservation.networkCalls.length,
+        eval: runtimeObservation.evalCalls.length,
+        fs: runtimeObservation.fsOperations.length,
+        env: runtimeObservation.envAccess.length,
+        spawn: runtimeObservation.processSpawns.length,
+        modules: runtimeObservation.modulesLoaded.length,
+      };
+      console.log(`[investigate] early observation captured: ${JSON.stringify(counts)}`);
+      log?.writeLog("early-observation.json", runtimeObservation);
+    } else {
+      console.log("[investigate] early observation produced no events");
+    }
+
+    const input: InvestigationInput = {
+      packagePath,
+      packageName: inventory.metadata.name ?? "",
+      version: inventory.metadata.version ?? "",
+      description: inventory.metadata.description ?? "",
+      flags: inventory.flags.map((f) => `[${f.severity}] ${f.check}: ${f.detail}`),
+      staticCaps: [...allCaps],
+      staticProofSummaries,
+      runtimeObservation,
+    };
 
     const output = await runInvestigationAgent(input, sandbox, lifecycleHooks, emit, log);
 
