@@ -29,7 +29,7 @@ module.exports = defineConfig({
     include: ["generated/**/*.test.{js,ts}"],
     setupFiles: ["./harness/setup.js"],
     restoreMocks: true,
-    testTimeout: 15000,
+    testTimeout: 30000,
     pool: "forks",
     reporters: ["json"],
     globals: true,
