@@ -189,10 +189,29 @@ export async function runInvestigationAgent(
 
   log?.writeLog("extraction_prompt.md", extractionPrompt);
 
-  const extraction = await generateObject({
-    model,
-    schema: InvestigationOutput,
-    prompt: extractionPrompt,
+  // Bound the extraction LLM call so a hung response can't park the whole
+  // pipeline past the upstream phase timeout. Observed in bench v9 on the
+  // `mgc` audit: agent finished, extraction never returned, pipeline-level
+  // timeout fired eventually but bench polling gave up first.
+  const EXTRACTION_TIMEOUT_MS = 90_000;
+  const extractionTimer: { id: ReturnType<typeof setTimeout> | undefined } = { id: undefined };
+  const extraction = await Promise.race([
+    generateObject({
+      model,
+      schema: InvestigationOutput,
+      prompt: extractionPrompt,
+    }),
+    new Promise<never>((_, reject) => {
+      extractionTimer.id = setTimeout(
+        () => reject(new Error(`extraction generateObject timed out after ${EXTRACTION_TIMEOUT_MS}ms`)),
+        EXTRACTION_TIMEOUT_MS,
+      );
+    }),
+  ]).finally(() => {
+    if (extractionTimer.id) clearTimeout(extractionTimer.id);
+  }).catch((err) => {
+    console.warn(`[agent] extraction failed: ${err instanceof Error ? err.message : String(err)} — returning empty findings`);
+    return { object: { findings: [], summary: "" } };
   });
 
   console.log(`[agent] extraction complete — ${extraction.object.findings.length} findings`);

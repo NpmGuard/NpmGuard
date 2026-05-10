@@ -167,6 +167,16 @@ describe("test-pkg-dos-loop (colors.js pattern)", () => {
 \`\`\`
 
 ## Rules
+-1. **\`runInChildProcess(packageName, entryPoint, options)\` — second arg is a FILE PATH inside the package, NOT arbitrary code.** This was the single most common test-gen bug in the last bench:
+   - GOOD: \`await runInChildProcess(pkg, "index.js", { timeout: 5000 })\` — runs \`./<pkg>/index.js\` in a forked Node process.
+   - GOOD: \`await runInChildProcess(pkg, "postinstall.js", { timeout: 5000 })\` — runs the postinstall script directly.
+   - **BAD**: \`runInChildProcess(pkg, \`const fs=require("fs"); /* code */ \`, ...)\` — the harness does \`path.join(packageName, "<your code string>")\` and the file doesn't exist; the child crashes silently and stdout/log captures are empty, so your assertion fails with \`expected '' to contain X\`.
+   - If you need to execute a code snippet inside the sandbox, use \`runPackage()\` with the package's existing entry point and observe via spies / msw — don't try to inject custom code through \`runInChildProcess\`.
+-0b. **\`toHaveBeenCalledWith\` matcher misuse causes \`Error: The property "function call() {...}" is not defined on the function\`**. Don't pass a function reference (e.g. \`fs.readFileSync\`) as a matcher — wrap it in an asymmetric matcher.
+   - GOOD: \`expect(spy).toHaveBeenCalledWith(expect.stringContaining(".npmrc"), expect.anything())\`
+   - GOOD: \`expect(spy).toHaveBeenCalledWith(expect.stringMatching(/NPMGUARD_CANARY/), expect.anything())\`
+   - **BAD**: \`expect(spy).toHaveBeenCalledWith(fs.readFileSync, anything)\` — \`fs.readFileSync\` is a function, vitest tries to use it as a matcher and crashes.
+   - **BAD**: \`expect(spy).toHaveBeenCalledWith(stringContaining(...))\` — missing the \`expect.\` prefix.
 0. **Declare every module you use at the TOP.** \`ReferenceError: fs is not defined\` is the single most common test failure: the test references \`fs.readFileSync\` but never \`require()\`d \`fs\`. Before you finish, scan your code: every identifier in \`fs.\`, \`path.\`, \`os.\`, \`child_process.\`, \`crypto.\`, \`http.\`, \`https.\` MUST have a matching \`const xxx = require("xxx")\` line at the top. Same for \`http\` and \`HttpResponse\` from \`msw\`, \`server\` from \`../harness/server\`, \`runPackage\` from \`../harness/sandbox-runner\`.
 1. Output ONLY TypeScript code. No markdown fences, no explanation, no prose.
 2. Always fall back to the original when mocking fs/crypto/etc:
