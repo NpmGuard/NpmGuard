@@ -8,7 +8,7 @@ import { generateText } from "ai";
 import { config } from "../config.js";
 import { getModel } from "../llm.js";
 import { dockerExec } from "../sandbox/docker.js";
-import { canaryEnvFlags, canaryPlantedFiles } from "../sandbox/canaries.js";
+import { canaryEnvFlags, canaryPlantedFiles, canaryPathEnvFlag } from "../sandbox/canaries.js";
 import type { Proof, Finding } from "../models.js";
 import type { EmitFn } from "../events.js";
 import { TESTGEN_SYSTEM_PROMPT } from "./test-gen-prompt.js";
@@ -271,13 +271,15 @@ export async function verifyProofs(
     // Copy the package into test-packages/
     execFileSync("cp", ["-r", packagePath, join(testPkgDir, packageDirName)], { timeout: 10_000 });
 
-    // Plant canary credentials so malware exfil paths actually fire.
-    // Without these, gated code paths (`if (process.env.GITHUB_TOKEN) ...`)
-    // never execute and tests assert on behavior that never happens.
+    // Plant canary credentials + fake binaries. Canaries make exfil paths
+    // fire; fake binaries shadow real ones in PATH and log every spawn to
+    // /workspace/spawn-log.txt so PROCESS_SPAWN tests can verify what the
+    // malware tried to execute.
     for (const planted of canaryPlantedFiles()) {
       const dest = join(workDir, planted.relativePath);
       mkdirSync(join(dest, ".."), { recursive: true, mode: 0o777 });
-      writeFileSync(dest, planted.content, { mode: 0o644 });
+      writeFileSync(dest, planted.content, { mode: planted.executable ? 0o755 : 0o644 });
+      if (planted.executable) chmodSync(dest, 0o755);
     }
 
     // Copy generated test files
@@ -325,6 +327,7 @@ export async function verifyProofs(
       "--pids-limit", "128",
       "-e", "NPMGUARD_PACKAGES_DIR=/workspace/test-packages",
       ...canaryEnvFlags(),
+      ...canaryPathEnvFlag(),
       "-v", `${workDir}:/workspace`,
       "-w", "/workspace",
       image,
