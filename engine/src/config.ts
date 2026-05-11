@@ -31,13 +31,13 @@ const ConfigSchema = z.object({
   testGenMode: z.enum(["openclaw", "direct"]).default("direct"),
   /**
    * Maximum number of findings for which test-gen attempts to generate a
-   * reproducer. 0 = unlimited (production default). Set a small cap (e.g. 2)
-   * in fixture / cost-constrained test runs via `NPMGUARD_MAX_FINDINGS_TO_PROVE`.
-   * Capability-based dedup has been removed — two findings with the same
-   * capability enum are tested independently. See ARCHITECT_REVIEW_ENGINE.md
-   * Finding 4 for why.
+   * reproducer (sorted by confidence: CONFIRMED > LIKELY > SUSPECTED).
+   * Bench v9.2b showed verify cost grows ~linearly with proof count; the
+   * default cap of 6 keeps wall time bounded without dropping DANGEROUS
+   * verdicts (lower-confidence findings still emit STRUCTURAL/AI_STATIC
+   * proofs). Set to 0 via NPMGUARD_MAX_FINDINGS_TO_PROVE for unlimited.
    */
-  maxFindingsToProve: z.coerce.number().int().min(0).default(0),
+  maxFindingsToProve: z.coerce.number().int().min(0).default(6),
   verifyTimeoutSec: z.coerce.number().int().min(10).max(300).default(60),
 
   sandboxImage: z.string().default("npmguard-sandbox:v1"),

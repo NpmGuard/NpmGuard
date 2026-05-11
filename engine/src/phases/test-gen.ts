@@ -318,9 +318,15 @@ export async function generateTests(
   // - `config.maxFindingsToProve` caps how many findings we actually
   //   generate tests for. 0 = unlimited (production default). Tests /
   //   cost-constrained runs can set e.g. NPMGUARD_MAX_FINDINGS_TO_PROVE=2.
+  // Sort findings by confidence so the cap keeps the most-likely-to-confirm
+  // first. Order: CONFIRMED > LIKELY > SUSPECTED. Preserve original index for
+  // proof correlation downstream.
+  const CONFIDENCE_RANK: Record<string, number> = { CONFIRMED: 0, LIKELY: 1, SUSPECTED: 2 };
   const cap = config.maxFindingsToProve;
   const selectedFindings: Array<{ index: number; finding: Finding }> =
-    investigation.findings.map((finding, index) => ({ index, finding }));
+    investigation.findings
+      .map((finding, index) => ({ index, finding }))
+      .sort((a, b) => (CONFIDENCE_RANK[a.finding.confidence] ?? 3) - (CONFIDENCE_RANK[b.finding.confidence] ?? 3));
   const limited = cap > 0 ? selectedFindings.slice(0, cap) : selectedFindings;
 
   console.log(

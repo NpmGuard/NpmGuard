@@ -158,3 +158,55 @@ export function searchFilesImpl(packagePath: string, pattern: string): string {
   const out = results.length ? results.join("\n") : `No matches for pattern: ${pattern}`;
   return clipOutput(out);
 }
+
+// ---------------------------------------------------------------------------
+// searchInFile — regex search within ONE file, byte-offset based.
+//
+// `searchFiles` splits by \n and shows line context, which is useless on
+// obfuscated bundles where 10MB sits on a single line. `searchInFile`
+// operates on raw bytes and returns N characters of surrounding context per
+// match, so the agent can probe an obfuscated file (decoder symbols, URLs,
+// fs paths, etc.) in 1 tool call instead of grinding 20+ evalJs reads.
+// ---------------------------------------------------------------------------
+
+const SEARCH_IN_FILE_CONTEXT = 200;
+const SEARCH_IN_FILE_MAX_HITS = 50;
+
+export function searchInFileImpl(packagePath: string, relPath: string, pattern: string): string {
+  const abs = safePath(packagePath, relPath);
+  if (!abs) return `ERROR: path traversal blocked: ${relPath}`;
+
+  let regex: RegExp;
+  try {
+    regex = new RegExp(pattern, "g");
+  } catch (err) {
+    return `ERROR: invalid regex: ${err}`;
+  }
+
+  let content: string;
+  try {
+    content = fs.readFileSync(abs, "utf-8");
+  } catch (err) {
+    return `ERROR: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  const hits: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(content)) !== null) {
+    const start = Math.max(0, m.index - SEARCH_IN_FILE_CONTEXT);
+    const end = Math.min(content.length, m.index + m[0].length + SEARCH_IN_FILE_CONTEXT);
+    const before = content.slice(start, m.index);
+    const match = m[0];
+    const after = content.slice(m.index + m[0].length, end);
+    hits.push(`@offset=${m.index} match=${JSON.stringify(match.slice(0, 200))}\n  ...${before.slice(-SEARCH_IN_FILE_CONTEXT)}[[${match.slice(0, 80)}]]${after.slice(0, SEARCH_IN_FILE_CONTEXT)}...`);
+    if (hits.length >= SEARCH_IN_FILE_MAX_HITS) {
+      hits.push(`... truncated at ${SEARCH_IN_FILE_MAX_HITS} hits`);
+      break;
+    }
+    // Avoid zero-length-match infinite loop
+    if (m.index === regex.lastIndex) regex.lastIndex++;
+  }
+
+  if (hits.length === 0) return `No matches for /${pattern}/ in ${relPath} (${content.length} bytes)`;
+  return clipOutput(`File: ${relPath} (${content.length} bytes), ${hits.length} matches:\n\n${hits.join("\n\n")}`);
+}
