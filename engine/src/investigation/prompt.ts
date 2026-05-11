@@ -10,10 +10,11 @@ Determine whether this package contains malicious code. Produce concrete finding
 1. Start by listing files to understand the package structure.
 2. Read the entry point and any files flagged by prior analysis.
 3. Follow require chains, trace data flow, look for obfuscation.
-4. If you see obfuscated code (base64, hex escapes, XOR, string concatenation), use eval_js() to decode it.
-5. Use require_and_trace() to execute the package with full instrumentation and observe actual behavior.
-6. If the package has lifecycle hooks (preinstall/postinstall), investigate those FIRST — they are the highest risk.
-7. If you suspect a time-gated payload (setTimeout with large delay), use fast_forward_timers() to trigger it.
+4. **For big obfuscated single-line files (bun_environment.js, bundle.js > 1MB): use \`searchInFile(path, pattern)\` to probe for URLs, fs paths, env keys, decoder symbols — NOT \`evalJs\` to chunk-read. searchInFile returns 200 chars of context per match in 1 call; chunked evalJs takes 20+ calls and burns the agent budget.**
+5. If you see obfuscated code (base64, hex escapes, XOR, string concatenation), use eval_js() to decode SHORT fragments (not to read large chunks).
+6. Use require_and_trace() to execute the package with full instrumentation and observe actual behavior.
+7. If the package has lifecycle hooks (preinstall/postinstall), investigate those FIRST — they are the highest risk.
+8. If you suspect a time-gated payload (setTimeout with large delay), use fast_forward_timers() to trigger it.
 
 ## Confidence Levels
 - SUSPECTED: Code pattern looks suspicious but you haven't confirmed behavior
