@@ -5,7 +5,7 @@ import { getModel } from "../llm.js";
 import { InvestigationOutput, type InvestigationAgentOutput, type InvestigationInput, type ToolCallRecord } from "../models.js";
 import type { AuditLogger } from "../audit-log.js";
 import { SYSTEM_PROMPT, buildUserPrompt } from "./prompt.js";
-import { readFileImpl, listFilesImpl, searchFilesImpl } from "./tools-read.js";
+import { readFileImpl, listFilesImpl, searchFilesImpl, searchInFileImpl } from "./tools-read.js";
 import { evalJsImpl, requireAndTraceImpl, runLifecycleHookImpl, fastForwardTimersImpl } from "./tools-execute.js";
 import type { DockerSandboxController } from "../sandbox/controller.js";
 import type { EmitFn } from "../events.js";
@@ -35,6 +35,12 @@ export async function runInvestigationAgent(
       description: "Regex search across all text files in the package. Returns matches with surrounding context.",
       inputSchema: z.object({ pattern: z.string() }),
       execute: async ({ pattern }) => searchFilesImpl(packagePath, pattern),
+    }),
+    searchInFile: tool({
+      description:
+        "Regex search INSIDE ONE file (byte-offset based). Use this on big obfuscated bundles (>1MB, minified single-line files like bun_environment.js) — it returns 200 chars of surrounding context per match. Far more efficient than evalJs chunked-reads for finding URLs, API keys, decoder symbols, fs paths, etc. in obfuscated payloads.",
+      inputSchema: z.object({ path: z.string(), pattern: z.string() }),
+      execute: async ({ path, pattern }) => searchInFileImpl(packagePath, path, pattern),
     }),
     evalJs: tool({
       description:
