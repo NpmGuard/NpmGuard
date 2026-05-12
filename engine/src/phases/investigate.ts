@@ -130,8 +130,36 @@ export async function investigate(
 
     const output = await runInvestigationAgent(input, sandbox, lifecycleHooks, emit, log);
 
+    // Fallback for "agent emitted 0 findings despite strong triage signals":
+    // observed in bench v9.2c on mahesa-mangut14 (4 high hypotheses, 0 findings
+    // → false SAFE) and gate-evm-tools-test (10MB obfuscated bundle, 0 findings
+    // → false SAFE). When the agent extracts nothing, fall back to the triage
+    // hypotheses themselves so the pipeline doesn't silently drop the signal.
+    // Only high/critical severity to avoid promoting noisy medium hypotheses.
+    let agentFindings = output.findings;
+    if (agentFindings.length === 0) {
+      const strongHyps = hypotheses.filter(
+        (h) => h.severity === "high" || h.severity === "critical",
+      );
+      if (strongHyps.length > 0) {
+        console.warn(
+          `[investigate] agent extracted 0 findings; falling back to ${strongHyps.length} ${strongHyps.length === 1 ? "hypothesis" : "hypotheses"} from triage`,
+        );
+        agentFindings = strongHyps.map((h) => ({
+          capability: h.claim.kind.toUpperCase(),
+          confidence: "LIKELY" as const,
+          fileLine: h.focusLines[0]
+            ? `${h.focusLines[0].file}:${h.focusLines[0].range}`
+            : h.focusFiles[0] ?? "",
+          problem: h.description,
+          evidence: `Triage emitted this ${h.severity} hypothesis (claim=${h.claim.kind}). Investigation agent did not extract corroborating findings, but the static signal alone is strong enough to flag.`,
+          reproductionStrategy: `Static-signal proof. Inspect the focus file(s): ${h.focusFiles.join(", ")}`,
+        }));
+      }
+    }
+
     // Emit findings for frontend visualization
-    for (const finding of output.findings) {
+    for (const finding of agentFindings) {
       emit?.("finding_discovered", { finding });
     }
 
@@ -139,7 +167,7 @@ export async function investigate(
     const capabilities = new Set<CapabilityEnum>();
     const proofs: Proof[] = [];
 
-    for (const finding of output.findings) {
+    for (const finding of agentFindings) {
       const capParsed = CapabilityEnum.safeParse(finding.capability);
       // Safety net: LLMs sometimes invent labels ("CRYPTO_THEFT", "SECRET_LEAK")
       // outside the strict enum. Without this, capability ends up null and the
@@ -183,7 +211,7 @@ export async function investigate(
     return {
       capabilities: [...capabilities],
       proofs,
-      findings: output.findings,
+      findings: agentFindings,
       toolCalls: output.toolCalls,
       agentText: output.agentText,
     };

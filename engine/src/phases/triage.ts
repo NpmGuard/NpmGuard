@@ -197,17 +197,22 @@ async function analyzeFile(args: {
   }
 
   if (contents.length > MAX_FILE_SIZE) {
+    const sizeKB = Math.round(contents.length / 1024);
+    // >5MB single-file source in a published package is anomalous and
+    // strongly correlates with bundled malware (bun_environment.js,
+    // Shai-Hulud worm payloads, etc.). Bump severity above the borderline.
+    const severity = sizeKB > 5000 ? "high" : "medium";
     return {
       skipped: true,
       reason: "file-too-large",
       response: {
-        summary: `File is ${Math.round(contents.length / 1024)}KB — too large for triage analysis`,
+        summary: `File is ${sizeKB}KB — too large for triage analysis`,
         capabilities: [],
         hypotheses: [
           {
-            description: `File ${file} is ${Math.round(contents.length / 1024)}KB — too large for LLM triage; manual or dynamic inspection required.`,
+            description: `File ${file} is ${sizeKB}KB — too large for LLM triage; manual or dynamic inspection required.`,
             claim: { kind: "obfuscation", gating: null },
-            severity: "medium",
+            severity,
             rangesInFile: ["1-1"],
           },
         ],
