@@ -13,6 +13,7 @@ import { investigate } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
 import { startAuditLog, type AuditLogger } from "./audit-log.js";
+import { ArtifactStore } from "./evidence/artifact-store.js";
 import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
 
@@ -118,6 +119,7 @@ export interface AuditResult {
 export async function runAudit(packageName: string, emit?: EmitFn, auditId?: string, version?: string): Promise<AuditResult> {
   console.log(`[pipeline] starting audit for ${packageName}${version ? `@${version}` : ""}`);
   const log = startAuditLog(packageName);
+  const artifactStore = new ArtifactStore(log.runDir);
   const trace: PhaseLog[] = [];
 
   emit?.("audit_started", { packageName });
@@ -380,6 +382,15 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
             `experiment:${h.hypId}`,
           );
           if (result) {
+            const { contentHash: artifactContentHash, ...artifactWithoutHash } = result.artifact;
+            const artifactHash = artifactStore.writeArtifact(artifactWithoutHash);
+            if (artifactHash !== artifactContentHash) {
+              console.warn(
+                `[experimenter] artifact hash mismatch for ${result.artifact.runId}: ` +
+                  `artifact=${artifactContentHash} store=${artifactHash}`,
+              );
+            }
+
             if (result.confirmed) {
               graph.addEvidence(h.hypId, [result.evidenceRef]);
               graph.transition(h.hypId, {
@@ -394,8 +405,12 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
               confirmed: result.confirmed,
               reason: result.reason,
               runId: result.artifact.runId,
+              artifactHash,
+              evidenceRef: result.evidenceRef,
               wallMs: result.artifact.wallMs,
               eventCount: result.artifact.events.length,
+              eventSummary: result.artifact.eventSummary,
+              error: result.artifact.error,
             });
           }
         } catch (err) {
@@ -454,9 +469,11 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     // Persist final graph state
     log.writeLog("graph-final.json", graph.serialize());
 
-    // Graph-derived verdict is now authoritative. DANGEROUS requires at
-    // least one CONFIRMED hypothesis with evidence. SUSPECT / UNKNOWN /
-    // SAFE map to the 2-state SAFE|DANGEROUS for the AuditReport.
+    // Graph-derived verdict is authoritative. Until AuditReport/CLI/frontend
+    // grow the richer 4-state vocabulary, keep the public 2-state mapping
+    // conservative: only graph SAFE with no confirmed proof maps to SAFE.
+    // SUSPECT/UNKNOWN become DANGEROUS so the CLI warns instead of silently
+    // installing an under-investigated package.
     //
     // Fallback: if the graph didn't reach DANGEROUS (typical when triage
     // produced no hypothesis matching the actual finding, so all findings
@@ -468,9 +485,9 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const graphVerdict = deriveGraphVerdict(graph);
     const hasConfirmedProof = verifiedProofs.some((p) => p.kind === "TEST_CONFIRMED");
     const verdict =
-      graphVerdict.verdict === "DANGEROUS" || hasConfirmedProof
-        ? "DANGEROUS"
-        : "SAFE";
+      graphVerdict.verdict === "SAFE" && !hasConfirmedProof
+        ? "SAFE"
+        : "DANGEROUS";
     console.log(
       `[pipeline] graph verdict: ${graphVerdict.verdict} → report verdict: ${verdict} — ${graphVerdict.rationale}`,
     );
