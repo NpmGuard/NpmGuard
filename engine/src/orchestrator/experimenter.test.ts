@@ -117,11 +117,26 @@ describe("strategyForClaim", () => {
     expect(s!.budget?.wallMs).toBe(5000);
   });
 
-  it("returns null for dom_inject (no automated strategy yet)", () => {
-    expect(strategyForClaim("dom_inject", hyp({ claim: { kind: "dom_inject", gating: null } }), "x")).toBeNull();
+  it("returns a strategy for telemetry", () => {
+    const s = strategyForClaim("telemetry", hyp({ claim: { kind: "telemetry", gating: null } }), "index.js");
+    expect(s).not.toBeNull();
+    expect(s!.observe?.network).toBe(true);
   });
 
-  it("returns null for clipboard_hijack (no automated strategy yet)", () => {
+  it("returns a strategy for build_plugin_exfil", () => {
+    const s = strategyForClaim("build_plugin_exfil", hyp({ claim: { kind: "build_plugin_exfil", gating: null } }), "index.js");
+    expect(s).not.toBeNull();
+    expect(s!.setup.length).toBeGreaterThan(0);
+  });
+
+  it("returns a strategy for destructive with fs diff enabled", () => {
+    const s = strategyForClaim("destructive", hyp({ claim: { kind: "destructive", gating: null } }), "index.js");
+    expect(s).not.toBeNull();
+    expect(s!.observe?.fsDiff).toBe(true);
+  });
+
+  it("still returns null for browser-only strategies", () => {
+    expect(strategyForClaim("dom_inject", hyp({ claim: { kind: "dom_inject", gating: null } }), "x")).toBeNull();
     expect(strategyForClaim("clipboard_hijack", hyp({ claim: { kind: "clipboard_hijack", gating: null } }), "x")).toBeNull();
   });
 });
@@ -222,6 +237,56 @@ describe("obfuscation confirmation", () => {
 
   it("does not confirm without eval/script_parsed", () => {
     const art = baseArtifact({ events: [] });
+    expect(strategy.confirm(art).confirmed).toBe(false);
+  });
+});
+
+describe("telemetry/build-plugin confirmation", () => {
+  const telemetry = strategyForClaim("telemetry", hyp({ claim: { kind: "telemetry", gating: null } }), "index.js")!;
+  const buildPlugin = strategyForClaim("build_plugin_exfil", hyp({ claim: { kind: "build_plugin_exfil", gating: null } }), "index.js")!;
+
+  it("confirms telemetry when canary appears in outbound data", () => {
+    const art = baseArtifact({
+      events: [
+        makeEvent({
+          kind: "network",
+          stream: "L4:monkey",
+          raw: "POST /metrics NPMGUARD_CANARY_TOKEN_f8e2d91a",
+        }),
+      ],
+    });
+    expect(telemetry.confirm(art).confirmed).toBe(true);
+  });
+
+  it("confirms build-plugin exfil on outbound network activity", () => {
+    const art = baseArtifact({
+      events: [makeEvent({ kind: "connect", stream: "L1:seccomp" })],
+    });
+    expect(buildPlugin.confirm(art).confirmed).toBe(true);
+  });
+});
+
+describe("destructive confirmation", () => {
+  const strategy = strategyForClaim("destructive", hyp({ claim: { kind: "destructive", gating: null } }), "index.js")!;
+
+  it("confirms on file deletion", () => {
+    const art = baseArtifact({
+      events: [makeEvent({ kind: "file_deleted", stream: "L3:fsDiff" })],
+    });
+    expect(strategy.confirm(art).confirmed).toBe(true);
+  });
+
+  it("confirms on unlink syscall", () => {
+    const art = baseArtifact({
+      events: [makeEvent({ kind: "unlink", stream: "L1:seccomp" })],
+    });
+    expect(strategy.confirm(art).confirmed).toBe(true);
+  });
+
+  it("does not confirm on harmless fs writes", () => {
+    const art = baseArtifact({
+      events: [makeEvent({ kind: "file_created", stream: "L3:fsDiff" })],
+    });
     expect(strategy.confirm(art).confirmed).toBe(false);
   });
 });

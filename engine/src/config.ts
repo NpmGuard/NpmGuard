@@ -32,12 +32,10 @@ const ConfigSchema = z.object({
   /**
    * Maximum number of findings for which test-gen attempts to generate a
    * reproducer (sorted by confidence: CONFIRMED > LIKELY > SUSPECTED).
-   * Bench v9.2b showed verify cost grows ~linearly with proof count; the
-   * default cap of 6 keeps wall time bounded without dropping DANGEROUS
-   * verdicts (lower-confidence findings still emit STRUCTURAL/AI_STATIC
-   * proofs). Set to 0 via NPMGUARD_MAX_FINDINGS_TO_PROVE for unlimited.
+   * 0 means unlimited, which is the production default: proof budget should
+   * be explicit in tests/cost-constrained runs, not a hidden production cap.
    */
-  maxFindingsToProve: z.coerce.number().int().min(0).default(6),
+  maxFindingsToProve: z.coerce.number().int().min(0).default(0),
   verifyTimeoutSec: z.coerce.number().int().min(10).max(300).default(60),
 
   sandboxImage: z.string().default("npmguard-sandbox:v1"),
