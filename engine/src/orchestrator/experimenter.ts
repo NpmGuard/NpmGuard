@@ -178,6 +178,47 @@ export function pickTriggerTarget(
 }
 
 /**
+ * Triage sometimes emits a broad env/credential hypothesis even when the file
+ * shape clearly points to a narrower proof driver. Keep the claim taxonomy
+ * stable, but route the dynamic experiment toward the behavior-specific
+ * strategy so benchmark runs get a chance to reproduce the payload.
+ */
+export function inferExperimentClaim(
+  claim: ClaimKind,
+  hypothesis: Hypothesis,
+): ClaimKind {
+  if (claim !== "env_exfil" && claim !== "cred_theft") return claim;
+
+  const haystack = [
+    hypothesis.description,
+    ...hypothesis.focusFiles,
+    ...hypothesis.focusLines.map((fl) => `${fl.file}:${fl.range}`),
+  ].join("\n").toLowerCase();
+
+  if (
+    /\b(webpack|rollup|vite|babel|esbuild|swc|compiler|compilation|loader|plugin|apply\s*\(|tap\s*\()\b/.test(
+      haystack,
+    )
+  ) {
+    return "build_plugin_exfil";
+  }
+
+  if (
+    /\b(telemetry|analytics|posthog|segment|sentry|mixpanel|datadog|track|identify|capture|flush|metrics?)\b/.test(
+      haystack,
+    )
+  ) {
+    return "telemetry";
+  }
+
+  if (/\b(rm\s+-rf|unlink\w*|rmdir|rename\w*|delet\w*|wipe\w*|destroy\w*|remove\w*|overwrit\w*|filesystem mutation)\b/.test(haystack)) {
+    return "destructive";
+  }
+
+  return claim;
+}
+
+/**
  * Build an experiment strategy for the given claim kind. Uses the hypothesis's
  * focusFiles to select the right trigger target (main entry point or lifecycle
  * hook). Returns null for claim kinds with no automated experiment yet.
@@ -189,7 +230,8 @@ export function strategyForClaim(
   installEntries: readonly string[] = [],
 ): ExperimentStrategy | null {
   const { target, kind } = pickTriggerTarget(hypothesis, entryTarget, installEntries);
-  switch (claim) {
+  const experimentClaim = inferExperimentClaim(claim, hypothesis);
+  switch (experimentClaim) {
     case "env_exfil":
     case "cred_theft":
       return {
