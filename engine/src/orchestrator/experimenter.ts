@@ -128,13 +128,15 @@ function eventsContainFsWrite(events: readonly Event[]): boolean {
   );
 }
 
-function eventsContainFsDelete(events: readonly Event[]): boolean {
-  return events.some(
-    (e) =>
-      e.kind === "file_deleted" ||
-      e.kind === "unlink" ||
-      e.kind === "rename",
-  );
+function eventsContainCanaryFileMutation(events: readonly Event[]): boolean {
+  return events.some((e) => {
+    if (e.kind !== "file_modified" && e.kind !== "file_deleted" && e.kind !== "unlink" && e.kind !== "rename") {
+      return false;
+    }
+    const raw = typeof e.raw === "string" ? e.raw : JSON.stringify(e.raw ?? "");
+    const path = typeof e.normalized?.path === "string" ? e.normalized.path : raw;
+    return path.includes("sandbox-test");
+  });
 }
 
 function eventsContainEval(events: readonly Event[]): boolean {
@@ -375,8 +377,8 @@ export function strategyForClaim(
         observe: { kernel: true, network: false, node: true, fsDiff: true, inspector: false },
         budget: { wallMs: 20_000 },
         confirm(artifact) {
-          if (eventsContainFsDelete(artifact.events)) {
-            return { confirmed: true, reason: "Deletion or rename activity detected against planted files." };
+          if (eventsContainCanaryFileMutation(artifact.events)) {
+            return { confirmed: true, reason: "Destructive mutation detected against planted canary files." };
           }
           return { confirmed: false, reason: "No destructive filesystem activity observed." };
         },
