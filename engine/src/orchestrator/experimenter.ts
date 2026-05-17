@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type {
   ClaimKind,
   Hypothesis,
@@ -72,6 +71,15 @@ function eventsContainFsWrite(events: readonly Event[]): boolean {
       e.kind === "file_modified" ||
       (e.kind === "write" && e.stream === "L1:seccomp") ||
       (e.kind === "fs_op" && e.stream === "L4:monkey"),
+  );
+}
+
+function eventsContainFsDelete(events: readonly Event[]): boolean {
+  return events.some(
+    (e) =>
+      e.kind === "file_deleted" ||
+      e.kind === "unlink" ||
+      e.kind === "rename",
   );
 }
 
@@ -234,12 +242,58 @@ export function strategyForClaim(
         },
       };
 
+    case "telemetry":
+    case "build_plugin_exfil":
+      return {
+        trigger: { kind, target, argv: [], stdin: null },
+        setup: [
+          setEnv({
+            NPM_TOKEN: PLANTED_TOKEN,
+            CI: "true",
+            HOME: "/home/node",
+          }),
+          plantFiles([
+            {
+              path: "/home/node/.npmrc",
+              content: `//registry.npmjs.org/:_authToken=${PLANTED_TOKEN}\n`,
+            },
+          ]),
+        ],
+        observe: { kernel: true, network: true, node: true, fsDiff: false, inspector: false },
+        budget: { wallMs: 20_000 },
+        confirm(artifact) {
+          if (eventsContainTokenExfil(artifact.events)) {
+            return { confirmed: true, reason: "Canary credential appeared in outbound telemetry/build traffic." };
+          }
+          if (eventsContainNetwork(artifact.events)) {
+            return { confirmed: true, reason: "Outbound network activity detected from telemetry/build-plugin path." };
+          }
+          return { confirmed: false, reason: "No outbound telemetry or build-plugin exfiltration observed." };
+        },
+      };
+
+    case "destructive":
+      return {
+        trigger: { kind, target, argv: [], stdin: null },
+        setup: [
+          plantFiles([
+            { path: "/pkg/sandbox-test/file1.txt", content: "NPMGUARD_CANARY_DELETE_TARGET\n" },
+            { path: "/pkg/sandbox-test/file2.txt", content: "NPMGUARD_CANARY_DELETE_TARGET\n" },
+          ]),
+        ],
+        observe: { kernel: true, network: false, node: true, fsDiff: true, inspector: false },
+        budget: { wallMs: 20_000 },
+        confirm(artifact) {
+          if (eventsContainFsDelete(artifact.events)) {
+            return { confirmed: true, reason: "Deletion or rename activity detected against planted files." };
+          }
+          return { confirmed: false, reason: "No destructive filesystem activity observed." };
+        },
+      };
+
     case "dom_inject":
     case "clipboard_hijack":
-    case "telemetry":
     case "propagation":
-    case "destructive":
-    case "build_plugin_exfil":
       return null;
   }
 }
@@ -287,14 +341,10 @@ export async function runExperiment(
   });
 
   const check = strategy.confirm(artifact);
-  const hash = createHash("sha256")
-    .update(artifact.contentHash)
-    .digest("hex");
-
   const evidenceRef: EvidenceRef = {
     kind: "run",
     id: artifact.runId,
-    hash,
+    hash: artifact.contentHash,
   };
 
   console.log(
