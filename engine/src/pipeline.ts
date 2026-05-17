@@ -17,6 +17,10 @@ import { ArtifactStore } from "./evidence/artifact-store.js";
 import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
 
+function hasRunArtifactEvidence(refs: readonly { kind: string; id: string }[]): boolean {
+  return refs.some((ref) => ref.kind === "run" && ref.id.startsWith("run_"));
+}
+
 // ---------------------------------------------------------------------------
 // Legacy file_verdict SSE adapter (kept for frontend code-viewer compat)
 // ---------------------------------------------------------------------------
@@ -358,7 +362,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const experimentHyps = [
       ...graph.filterByState("IN_PROGRESS"),
       ...graph.filterByState("CONFIRMED").filter((h) =>
-        !h.evidenceRefs.some((ref) => ref.kind === "run"),
+        !hasRunArtifactEvidence(h.evidenceRefs),
       ),
     ];
     if (experimentHyps.length > 0) {
