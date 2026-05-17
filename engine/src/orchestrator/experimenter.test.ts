@@ -275,21 +275,21 @@ describe("destructive confirmation", () => {
 
   it("confirms on file deletion", () => {
     const art = baseArtifact({
-      events: [makeEvent({ kind: "file_deleted", stream: "L3:fsDiff" })],
+      events: [makeEvent({ kind: "file_deleted", stream: "L3:fsDiff", normalized: { path: "/pkg/sandbox-test/file1.txt" } })],
     });
     expect(strategy.confirm(art).confirmed).toBe(true);
   });
 
-  it("confirms on unlink syscall", () => {
+  it("confirms on planted file modification", () => {
     const art = baseArtifact({
-      events: [makeEvent({ kind: "unlink", stream: "L1:seccomp" })],
+      events: [makeEvent({ kind: "file_modified", stream: "L3:fsDiff", normalized: { path: "/pkg/sandbox-test/file1.txt" } })],
     });
     expect(strategy.confirm(art).confirmed).toBe(true);
   });
 
-  it("does not confirm on harmless fs writes", () => {
+  it("does not confirm on harmless fs writes outside the planted canary dir", () => {
     const art = baseArtifact({
-      events: [makeEvent({ kind: "file_created", stream: "L3:fsDiff" })],
+      events: [makeEvent({ kind: "file_created", stream: "L3:fsDiff", normalized: { path: "/pkg/cache/file.txt" } })],
     });
     expect(strategy.confirm(art).confirmed).toBe(false);
   });
