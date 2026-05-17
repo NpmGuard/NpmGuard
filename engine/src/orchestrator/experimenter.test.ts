@@ -120,12 +120,15 @@ describe("strategyForClaim", () => {
   it("returns a strategy for telemetry", () => {
     const s = strategyForClaim("telemetry", hyp({ claim: { kind: "telemetry", gating: null } }), "index.js");
     expect(s).not.toBeNull();
+    expect(s!.trigger.kind).toBe("subpath");
     expect(s!.observe?.network).toBe(true);
+    expect(s!.setup.length).toBeGreaterThan(1);
   });
 
   it("returns a strategy for build_plugin_exfil", () => {
     const s = strategyForClaim("build_plugin_exfil", hyp({ claim: { kind: "build_plugin_exfil", gating: null } }), "index.js");
     expect(s).not.toBeNull();
+    expect(s!.trigger.kind).toBe("subpath");
     expect(s!.setup.length).toBeGreaterThan(0);
   });
 
@@ -133,6 +136,7 @@ describe("strategyForClaim", () => {
     const s = strategyForClaim("destructive", hyp({ claim: { kind: "destructive", gating: null } }), "index.js");
     expect(s).not.toBeNull();
     expect(s!.observe?.fsDiff).toBe(true);
+    expect(s!.setup.length).toBeGreaterThan(1);
   });
 
   it("still returns null for browser-only strategies", () => {

@@ -355,11 +355,16 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
     // Phase 1d: Experimenter — run dynamic observation for IN_PROGRESS hypotheses.
     // This is the first use of Phase A's runUnderObservation in the live pipeline.
-    const inProgressHyps = graph.filterByState("IN_PROGRESS");
-    if (inProgressHyps.length > 0) {
+    const experimentHyps = [
+      ...graph.filterByState("IN_PROGRESS"),
+      ...graph.filterByState("CONFIRMED").filter((h) =>
+        !h.evidenceRefs.some((ref) => ref.kind === "run"),
+      ),
+    ];
+    if (experimentHyps.length > 0) {
       const mainEntry = inventory.entryPoints.runtime[0] ?? "index.js";
       console.log(
-        `[pipeline] experimenter: running dynamic observation for ${inProgressHyps.length} IN_PROGRESS hypothes${inProgressHyps.length === 1 ? "is" : "es"}`,
+        `[pipeline] experimenter: running dynamic observation for ${experimentHyps.length} hypothes${experimentHyps.length === 1 ? "is" : "es"} lacking run evidence`,
       );
       emit?.("phase_started", { phase: "experimenter" });
       const expStart = Date.now();
@@ -368,10 +373,10 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       const PER_HYP_MS = 90_000;
       const GLOBAL_BUDGET_MS = 10 * 60_000 * timeoutScale;
 
-      for (const h of inProgressHyps) {
+      for (const h of experimentHyps) {
         if (Date.now() - expStart > GLOBAL_BUDGET_MS) {
           console.warn(
-            `[experimenter] global budget ${GLOBAL_BUDGET_MS}ms exceeded — skipping remaining ${inProgressHyps.length - inProgressHyps.indexOf(h)} hypothes${inProgressHyps.length - inProgressHyps.indexOf(h) === 1 ? "is" : "es"}`,
+            `[experimenter] global budget ${GLOBAL_BUDGET_MS}ms exceeded — skipping remaining ${experimentHyps.length - experimentHyps.indexOf(h)} hypothes${experimentHyps.length - experimentHyps.indexOf(h) === 1 ? "is" : "es"}`,
           );
           break;
         }
@@ -393,11 +398,13 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
             if (result.confirmed) {
               graph.addEvidence(h.hypId, [result.evidenceRef]);
-              graph.transition(h.hypId, {
-                to: "CONFIRMED",
-                by: "worker:experimenter",
-                evidenceRefs: [result.evidenceRef],
-              });
+              if (h.state !== "CONFIRMED") {
+                graph.transition(h.hypId, {
+                  to: "CONFIRMED",
+                  by: "worker:experimenter",
+                  evidenceRefs: [result.evidenceRef],
+                });
+              }
               emit?.("experiment_confirmed", { hypId: h.hypId, reason: result.reason });
             }
             log.writeLog(`experiment-${h.hypId}.json`, {
@@ -423,7 +430,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       const expDuration = Date.now() - expStart;
       console.log(`[pipeline] experimenter completed in ${expDuration}ms`);
       emit?.("phase_completed", { phase: "experimenter", durationMs: expDuration });
-      trace.push({ phase: "experimenter", durationMs: expDuration, input: { hypotheses: inProgressHyps.length }, output: {} });
+      trace.push({ phase: "experimenter", durationMs: expDuration, input: { hypotheses: experimentHyps.length }, output: {} });
     }
 
     // Phase 1e: Test generation
