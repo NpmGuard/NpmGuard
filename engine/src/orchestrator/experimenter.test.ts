@@ -3,6 +3,7 @@ import type { Hypothesis, RunArtifact, Event } from "@npmguard/shared";
 import {
   strategyForClaim,
   pickTriggerTarget,
+  inferExperimentClaim,
   eventsContainDnsWithPayload,
 } from "./experimenter.js";
 
@@ -137,6 +138,39 @@ describe("strategyForClaim", () => {
     expect(s).not.toBeNull();
     expect(s!.observe?.fsDiff).toBe(true);
     expect(s!.setup.length).toBeGreaterThan(1);
+  });
+
+  it("routes generic credential hypotheses about build plugins to the build-plugin driver", () => {
+    const h = hyp({
+      description: "Webpack plugin apply hook reads NPM_TOKEN and posts it during compilation.",
+      focusFiles: ["src/BuildOptimizerPlugin.js"],
+    });
+    const s = strategyForClaim("cred_theft", h, "index.js");
+    expect(inferExperimentClaim("cred_theft", h)).toBe("build_plugin_exfil");
+    expect(s).not.toBeNull();
+    expect(s!.trigger.kind).toBe("subpath");
+  });
+
+  it("routes generic env exfil hypotheses about analytics clients to telemetry", () => {
+    const h = hyp({
+      description: "Analytics client track/flush path sends process.env values to a metrics endpoint.",
+      focusFiles: ["lib/posthog.js"],
+    });
+    const s = strategyForClaim("env_exfil", h, "index.js");
+    expect(inferExperimentClaim("env_exfil", h)).toBe("telemetry");
+    expect(s).not.toBeNull();
+    expect(s!.trigger.kind).toBe("subpath");
+  });
+
+  it("routes generic credential hypotheses about destructive file operations to destructive", () => {
+    const h = hyp({
+      description: "Geo-gated payload unlinks project files and overwrites user data.",
+      focusFiles: ["setup.js"],
+    });
+    const s = strategyForClaim("cred_theft", h, "index.js");
+    expect(inferExperimentClaim("cred_theft", h)).toBe("destructive");
+    expect(s).not.toBeNull();
+    expect(s!.observe?.fsDiff).toBe(true);
   });
 
   it("still returns null for browser-only strategies", () => {

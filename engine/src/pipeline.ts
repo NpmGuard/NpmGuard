@@ -1,6 +1,6 @@
 import { SOURCE_FILE_TYPES } from "./config.js";
-import { Proof, type AuditReport, type FileVerdict, type PhaseLog } from "./models.js";
-import type { Hypothesis, HypothesisSeverity } from "@npmguard/shared";
+import { CapabilityEnum, Proof, type AuditReport, type FileVerdict, type Finding, type PhaseLog } from "./models.js";
+import type { ClaimKind, Hypothesis, HypothesisSeverity } from "@npmguard/shared";
 import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
 import { extractIntent } from "./phases/intent-extraction.js";
@@ -9,7 +9,7 @@ import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { deriveGraphVerdict } from "./orchestrator/verdict.js";
 import { correlateAfterInvestigation, correlateAfterVerify } from "./orchestrator/correlate.js";
 import { runExperiment } from "./orchestrator/experimenter.js";
-import { investigate } from "./phases/investigate.js";
+import { investigate, type InvestigationResult } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
 import { startAuditLog, type AuditLogger } from "./audit-log.js";
@@ -84,6 +84,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+function isTimeoutError(err: unknown, phase: string): boolean {
+  return err instanceof Error && err.message.startsWith(`${phase} timed out after `);
+}
+
 async function timedPhase<T>(
   name: string,
   fn: () => Promise<T>,
@@ -112,6 +116,85 @@ async function timedPhase<T>(
   console.log(`${"=".repeat(60)}\n`);
   emit?.("phase_completed", { phase: name, durationMs });
   return { result, log };
+}
+
+const PARTIAL_CAPABILITY_BY_CLAIM: Record<ClaimKind, CapabilityEnum> = {
+  env_exfil: "ENV_VARS",
+  cred_theft: "CREDENTIAL_THEFT",
+  binary_drop: "BINARY_DOWNLOAD",
+  obfuscation: "OBFUSCATION",
+  persistence: "FILESYSTEM",
+  destructive: "FILESYSTEM",
+  propagation: "WORM_PROPAGATION",
+  dos_loop: "DOS_LOOP",
+  clipboard_hijack: "CLIPBOARD_HIJACK",
+  dom_inject: "DOM_INJECT",
+  telemetry: "TELEMETRY_RAT",
+  dns_exfil: "DNS_EXFIL",
+  build_plugin_exfil: "BUILD_PLUGIN_EXFIL",
+};
+
+const PARTIAL_SEVERITY_SCORE: Record<HypothesisSeverity, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
+function buildPartialInvestigationResult(
+  hypotheses: readonly Hypothesis[],
+  reason: string,
+): InvestigationResult {
+  const strong = hypotheses.filter((h) => h.severity === "high" || h.severity === "critical");
+  const selected = (strong.length > 0 ? strong : [...hypotheses])
+    .sort((a, b) => PARTIAL_SEVERITY_SCORE[b.severity] - PARTIAL_SEVERITY_SCORE[a.severity])
+    .slice(0, 8);
+
+  const capabilities = new Set<CapabilityEnum>();
+  const findings: Finding[] = selected.map((h) => {
+    const cap = PARTIAL_CAPABILITY_BY_CLAIM[h.claim.kind];
+    capabilities.add(cap);
+    const focus = h.focusLines[0]
+      ? `${h.focusLines[0].file}:${h.focusLines[0].range}`
+      : h.focusFiles[0] ?? "";
+    return {
+      capability: cap,
+      confidence: h.severity === "critical" || h.severity === "high" ? "LIKELY" : "SUSPECTED",
+      fileLine: focus,
+      problem: h.description,
+      evidence:
+        `${reason}. Preserved from triage hypothesis ${h.hypId} ` +
+        `(${h.claim.kind}/${h.severity}) so the audit keeps a usable partial signal.`,
+      reproductionStrategy: `Resume dynamic investigation from ${h.focusFiles.join(", ") || "the package entrypoint"}.`,
+    };
+  });
+
+  const proofs = findings.map((finding) => ({
+    capability: CapabilityEnum.parse(finding.capability),
+    attackPathway: "",
+    confidence: finding.confidence,
+    fileLine: finding.fileLine,
+    problem: finding.problem,
+    evidence: finding.evidence.slice(0, 500),
+    kind: "AI_STATIC" as const,
+    contentHash: null,
+    reproducible: false,
+    reproductionCmd: null,
+    testFile: null,
+    testHash: null,
+    testCode: null,
+    verifyError: reason,
+    reasoningHash: null,
+    teeAttestationId: null,
+  }));
+
+  return {
+    capabilities: [...capabilities],
+    proofs,
+    findings,
+    toolCalls: [],
+    agentText: reason,
+  };
 }
 
 export interface AuditResult {
@@ -317,36 +400,70 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
     // Phase 1c: Investigation — agentic LLM with read tools, given the
     // triage hypotheses as a starting list of suspicious sites to verify.
-    const { result: investigationResult, log: investigateLog } = await timedPhase(
-      "investigation",
-      () => investigate(resolved.path, inventory, triageOutput.hypotheses, triageOutput.fileSummaries, emit, log),
-      5 * 60_000 * timeoutScale,
-      {
-        hypothesisCount: triageOutput.hypotheses.length,
-        packagePath: resolved.path,
-      },
-      (inv) => ({
-        capabilityCount: inv.capabilities.length,
-        capabilities: inv.capabilities,
-        findingCount: inv.findings.length,
-        findings: inv.findings.map((f) => ({
-          capability: f.capability,
-          confidence: f.confidence,
-          fileLine: f.fileLine,
-          problem: f.problem,
-        })),
-        proofCount: inv.proofs.length,
-        toolCalls: inv.toolCalls.map((tc) => ({
-          tool: tc.tool,
-          args: tc.args,
-          resultPreview: tc.resultPreview,
-          timestamp: tc.timestamp,
-          injectionDetected: tc.injectionDetected,
-        })),
-        agentText: inv.agentText.slice(0, 2000),
-      }),
-      emit,
-    );
+    let investigationResult: InvestigationResult;
+    let investigateLog: PhaseLog;
+    const investigationTimeoutMs = 5 * 60_000 * timeoutScale;
+    try {
+      const timed = await timedPhase(
+        "investigation",
+        () => investigate(resolved.path, inventory, triageOutput.hypotheses, triageOutput.fileSummaries, emit, log),
+        investigationTimeoutMs,
+        {
+          hypothesisCount: triageOutput.hypotheses.length,
+          packagePath: resolved.path,
+        },
+        (inv) => ({
+          capabilityCount: inv.capabilities.length,
+          capabilities: inv.capabilities,
+          findingCount: inv.findings.length,
+          findings: inv.findings.map((f) => ({
+            capability: f.capability,
+            confidence: f.confidence,
+            fileLine: f.fileLine,
+            problem: f.problem,
+          })),
+          proofCount: inv.proofs.length,
+          toolCalls: inv.toolCalls.map((tc) => ({
+            tool: tc.tool,
+            args: tc.args,
+            resultPreview: tc.resultPreview,
+            timestamp: tc.timestamp,
+            injectionDetected: tc.injectionDetected,
+          })),
+          agentText: inv.agentText.slice(0, 2000),
+        }),
+        emit,
+      );
+      investigationResult = timed.result;
+      investigateLog = timed.log;
+    } catch (err) {
+      if (!isTimeoutError(err, "investigation")) throw err;
+      const durationMs = investigationTimeoutMs;
+      const reason = err instanceof Error ? err.message : "investigation timed out";
+      console.warn(`[pipeline] ${reason}; preserving partial triage-derived findings`);
+      investigationResult = buildPartialInvestigationResult(triageOutput.hypotheses, `PARTIAL_TIMEOUT: ${reason}`);
+      investigateLog = {
+        phase: "investigation",
+        durationMs,
+        input: {
+          hypothesisCount: triageOutput.hypotheses.length,
+          packagePath: resolved.path,
+        },
+        output: {
+          partial: true,
+          reason,
+          capabilityCount: investigationResult.capabilities.length,
+          capabilities: investigationResult.capabilities,
+          findingCount: investigationResult.findings.length,
+          proofCount: investigationResult.proofs.length,
+        },
+      };
+      emit?.("phase_completed", { phase: "investigation", durationMs });
+      emit?.("agent_reasoning", {
+        text: `Investigation timed out; preserving ${investigationResult.findings.length} triage-derived partial findings.`,
+        step: -1,
+      });
+    }
     trace.push(investigateLog);
     log.writeLog("investigation.json", investigationResult);
 
