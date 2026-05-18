@@ -30,7 +30,9 @@ export function extractScriptFileRef(scriptValue: string): string | null {
   const parts = scriptValue.trim().split(/\s+/);
   if (!parts.length || parts[0] !== "node") return null;
   for (const part of parts.slice(1)) {
-    if (!part.startsWith("-")) return part;
+    if (!part.startsWith("-")) {
+      return part.replace(/^['"]|['"]$/g, "").replace(/^\.\//, "");
+    }
   }
   return null;
 }

