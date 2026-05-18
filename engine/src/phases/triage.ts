@@ -171,6 +171,72 @@ export function draftToHypothesis(args: {
   };
 }
 
+function scriptLooksLikeNetworkExfil(script: string): boolean {
+  return /\b(curl|wget|Invoke-WebRequest|iwr|fetch|nc|netcat)\b/i.test(script) &&
+    /(https?:\/\/|webhook\.site|oast\.|burpcollaborator|interact\.sh|requestbin|\.xyz\b)/i.test(script);
+}
+
+function scriptCapturesHostData(script: string): boolean {
+  return /\$\((?:hostname|whoami|pwd|id|uname|date)\b/i.test(script) ||
+    /\$(?:PWD|HOME|USER|USERNAME|HOSTNAME|COMPUTERNAME|npm_config_[A-Z0-9_]+)/i.test(script) ||
+    /%(?:USERNAME|COMPUTERNAME|CD|TIME)%/i.test(script) ||
+    /\b(process\.env|env\b|printenv\b|\.npmrc|NPM_TOKEN|AWS_|GITHUB_TOKEN)\b/i.test(script);
+}
+
+function packageJsonLineForScript(packagePath: string, hook: string): string {
+  try {
+    const contents = fs.readFileSync(path.join(packagePath, "package.json"), "utf-8");
+    const lines = contents.split("\n");
+    const idx = lines.findIndex((line) => line.includes(`"${hook}"`) || line.includes(`'${hook}'`));
+    return idx >= 0 ? String(idx + 1) : "1";
+  } catch {
+    return "1";
+  }
+}
+
+export function synthesizeInventoryHypotheses(args: {
+  packagePath: string;
+  inventory: InventoryReport;
+  now: string;
+  startCounter: number;
+}): Hypothesis[] {
+  const { packagePath, inventory, now } = args;
+  let counter = args.startCounter;
+  const hypotheses: Hypothesis[] = [];
+
+  for (const flag of inventory.flags) {
+    if (flag.check !== "non-node-script") continue;
+    const match = /^Lifecycle script '([^']+)' is not a node command: (.+)$/.exec(flag.detail);
+    if (!match) continue;
+    const [, hook, script] = match;
+    if (!hook || !script || !scriptLooksLikeNetworkExfil(script)) continue;
+
+    counter += 1;
+    const capturesHostData = scriptCapturesHostData(script);
+    const claim = capturesHostData ? "env_exfil" : "telemetry";
+    const range = packageJsonLineForScript(packagePath, hook);
+    hypotheses.push({
+      hypId: `trg-${counter.toString().padStart(4, "0")}`,
+      description:
+        `Lifecycle script '${hook}' runs a shell network command during install: ${script}`,
+      claim: { kind: claim, gating: null },
+      focusFiles: ["package.json"],
+      focusLines: [{ file: "package.json", range }],
+      severity: capturesHostData ? "critical" : "high",
+      parentHypId: null,
+      childHypIds: [],
+      state: "OPEN",
+      createdBy: "inventory",
+      evidenceRefs: [],
+      createdAt: now,
+      resolvedAt: null,
+      resolution: null,
+    });
+  }
+
+  return hypotheses;
+}
+
 // ---------------------------------------------------------------------------
 // MAP: per-file analysis
 // ---------------------------------------------------------------------------
@@ -361,6 +427,29 @@ export async function runTriage(
         claim: hyp.claim.kind,
         severity: hyp.severity,
         file,
+      });
+    }
+  }
+
+  const inventoryHypotheses = synthesizeInventoryHypotheses({
+    packagePath,
+    inventory,
+    now,
+    startCounter: counter,
+  });
+  if (inventoryHypotheses.length > 0) {
+    hypotheses.push(...inventoryHypotheses);
+    fileSummaries.push({
+      file: "package.json",
+      summary: "Package manifest contains suspicious lifecycle script behavior.",
+      capabilities: ["LIFECYCLE_HOOK", "NETWORK", "ENV_VARS"],
+    });
+    for (const hyp of inventoryHypotheses) {
+      emit?.("hypothesis_emitted", {
+        hypId: hyp.hypId,
+        claim: hyp.claim.kind,
+        severity: hyp.severity,
+        file: "package.json",
       });
     }
   }
