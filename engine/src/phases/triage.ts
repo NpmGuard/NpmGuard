@@ -205,33 +205,53 @@ export function synthesizeInventoryHypotheses(args: {
   const hypotheses: Hypothesis[] = [];
 
   for (const flag of inventory.flags) {
-    if (flag.check !== "non-node-script") continue;
-    const match = /^Lifecycle script '([^']+)' is not a node command: (.+)$/.exec(flag.detail);
-    if (!match) continue;
-    const [, hook, script] = match;
-    if (!hook || !script || !scriptLooksLikeNetworkExfil(script)) continue;
+    if (flag.check === "non-node-script") {
+      const match = /^Lifecycle script '([^']+)' is not a node command: (.+)$/.exec(flag.detail);
+      if (!match) continue;
+      const [, hook, script] = match;
+      if (!hook || !script || !scriptLooksLikeNetworkExfil(script)) continue;
 
-    counter += 1;
-    const capturesHostData = scriptCapturesHostData(script);
-    const claim = capturesHostData ? "env_exfil" : "telemetry";
-    const range = packageJsonLineForScript(packagePath, hook);
-    hypotheses.push({
-      hypId: `trg-${counter.toString().padStart(4, "0")}`,
-      description:
-        `Lifecycle script '${hook}' runs a shell network command during install: ${script}`,
-      claim: { kind: claim, gating: null },
-      focusFiles: ["package.json"],
-      focusLines: [{ file: "package.json", range }],
-      severity: capturesHostData ? "critical" : "high",
-      parentHypId: null,
-      childHypIds: [],
-      state: "OPEN",
-      createdBy: "inventory",
-      evidenceRefs: [],
-      createdAt: now,
-      resolvedAt: null,
-      resolution: null,
-    });
+      counter += 1;
+      const capturesHostData = scriptCapturesHostData(script);
+      const claim = capturesHostData ? "env_exfil" : "telemetry";
+      const range = packageJsonLineForScript(packagePath, hook);
+      hypotheses.push({
+        hypId: `trg-${counter.toString().padStart(4, "0")}`,
+        description:
+          `Lifecycle script '${hook}' runs a shell network command during install: ${script}`,
+        claim: { kind: claim, gating: null },
+        focusFiles: ["package.json"],
+        focusLines: [{ file: "package.json", range }],
+        severity: capturesHostData ? "critical" : "high",
+        parentHypId: null,
+        childHypIds: [],
+        state: "OPEN",
+        createdBy: "inventory",
+        evidenceRefs: [],
+        createdAt: now,
+        resolvedAt: null,
+        resolution: null,
+      });
+    } else if (flag.check === "dependency-url" && /\buses URL specifier: http:\/\//i.test(flag.detail)) {
+      counter += 1;
+      hypotheses.push({
+        hypId: `trg-${counter.toString().padStart(4, "0")}`,
+        description:
+          `Package manifest declares an HTTP dependency URL outside the npm registry: ${flag.detail}`,
+        claim: { kind: "binary_drop", gating: null },
+        focusFiles: ["package.json"],
+        focusLines: [{ file: "package.json", range: "1" }],
+        severity: "high",
+        parentHypId: null,
+        childHypIds: [],
+        state: "OPEN",
+        createdBy: "inventory",
+        evidenceRefs: [],
+        createdAt: now,
+        resolvedAt: null,
+        resolution: null,
+      });
+    }
   }
 
   return hypotheses;
@@ -442,7 +462,7 @@ export async function runTriage(
     fileSummaries.push({
       file: "package.json",
       summary: "Package manifest contains suspicious lifecycle script behavior.",
-      capabilities: ["LIFECYCLE_HOOK", "NETWORK", "ENV_VARS"],
+      capabilities: ["LIFECYCLE_HOOK", "NETWORK", "ENV_VARS", "BINARY_DOWNLOAD"],
     });
     for (const hyp of inventoryHypotheses) {
       emit?.("hypothesis_emitted", {

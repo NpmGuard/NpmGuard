@@ -232,4 +232,29 @@ describe("synthesizeInventoryHypotheses", () => {
 
     expect(hyps).toEqual([]);
   });
+
+  it("turns HTTP dependency URLs into a high-risk supply-chain hypothesis", () => {
+    const hyps = synthesizeInventoryHypotheses({
+      packagePath: "/tmp/does-not-matter",
+      now: "2026-04-24T12:00:00.000Z",
+      startCounter: 0,
+      inventory: {
+        ...baseInventory,
+        flags: [
+          {
+            severity: "warn",
+            check: "dependency-url",
+            detail:
+              "prod dependency 'ui-styles-pkg' uses URL specifier: http://packages.storeartifact.com/npm/badgekit-api-client",
+            file: "package.json",
+          },
+        ],
+      },
+    });
+
+    expect(hyps).toHaveLength(1);
+    expect(hyps[0]!.claim.kind).toBe("binary_drop");
+    expect(hyps[0]!.severity).toBe("high");
+    expect(hyps[0]!.focusFiles).toEqual(["package.json"]);
+  });
 });
