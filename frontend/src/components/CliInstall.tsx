@@ -13,11 +13,11 @@ const WORKFLOW_STEPS = [
   },
   {
     title: "Requests an audit when missing",
-    text: "Stripe or WalletConnect starts the server-side audit and streams the phases back to the terminal.",
+    text: "Stripe, browser wallet, or WalletConnect starts the server-side audit and returns the verdict to the CLI.",
   },
   {
     title: "Chooses the install source",
-    text: "SAFE installs from npm by default, or from a Pinata tarball discovered through the API or ENS.",
+    text: "SAFE installs from an ENS-announced Pinata tarball when available, with npm as fallback.",
   },
 ];
 
@@ -44,13 +44,13 @@ const COMMANDS: CommandBlockProps[] = [
   },
   {
     title: "Install from Pinata after SAFE",
-    command: "npx npmguard-cli@latest install is-even@1.0.0 --install-source pinata",
-    note: "Uses NpmGuard's storage API to find the pinned tarball.",
+    command: "npx npmguard-cli@latest install is-buffer@2.0.5",
+    note: "Default auto mode resolves ENS/Pinata when publication exists.",
   },
   {
-    title: "Install through ENS after SAFE",
-    command: "npx npmguard-cli@latest install is-even@1.0.0 --install-source ens",
-    note: "Resolves npmguard.* text records on Sepolia ENS.",
+    title: "Force a source",
+    command: "npx npmguard-cli@latest install is-buffer@2.0.5 --install-source ens\nnpx npmguard-cli@latest install is-buffer@2.0.5 --install-source npm",
+    note: "Useful for showing the ENS path or comparing against npm.",
   },
 ];
 
@@ -179,9 +179,10 @@ export function CliInstall() {
             </h1>
             <p style={{ color: "var(--text-dim)", lineHeight: 1.6, maxWidth: 700 }}>
               The CLI checks NpmGuard before a package reaches node_modules. It
-              uses https://npmguard.com by default, supports Stripe and
-              WalletConnect audit requests, can install from npm, Pinata, or
-              ENS-discovered Pinata tarballs, and never handles private keys.
+              uses https://npmguard.com by default, supports Stripe, browser
+              wallet, and WalletConnect audit requests, installs from
+              ENS-discovered Pinata tarballs by default when available, and
+              never handles private keys.
             </p>
           </div>
 
@@ -321,9 +322,9 @@ export function CliInstall() {
               Install source
             </h2>
             <p style={{ color: "var(--text-dim)", lineHeight: 1.55 }}>
-              Set <code style={{ fontFamily: "var(--font-mono)" }}>--install-source npm|pinata|ens</code>{" "}
+              Set <code style={{ fontFamily: "var(--font-mono)" }}>--install-source auto|npm|pinata|ens</code>{" "}
               or <code style={{ fontFamily: "var(--font-mono)" }}>NPMGUARD_INSTALL_SOURCE</code>.
-              The audit verdict still comes from the server report store.
+              Auto mode tries ENS, then Pinata, then npm fallback.
             </p>
           </div>
           <div>

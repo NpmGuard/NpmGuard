@@ -20,6 +20,7 @@ import {
   normalizeInstallSource,
   resolveEnsInstallSpec,
   resolvePinataInstallSpec,
+  resolvePublishedInstallSpec,
   type InstallSource,
 } from "../install-source.js";
 
@@ -31,6 +32,8 @@ interface InstallOpts {
   ensRoot?: string;
   ensRpc?: string;
 }
+
+const POST_AUDIT_STORAGE_WAIT_MS = Number(process.env.NPMGUARD_STORAGE_WAIT_MS ?? 90_000);
 
 /**
  * Run the correct "add this package" command for the detected package manager.
@@ -50,20 +53,47 @@ async function resolveInstallTarget(
   packageName: string,
   version: string,
   opts: InstallOpts,
+  waitForPublishedMs = 0,
 ): Promise<{ spec: string; detail: string }> {
   const source = normalizeInstallSource(opts.installSource) as InstallSource;
+  const rootDomain = opts.ensRoot ?? defaultEnsRootDomain();
+  const rpcUrl = opts.ensRpc ?? defaultEnsRpcUrl();
+
+  if (source === "auto") {
+    const deadline = Date.now() + waitForPublishedMs;
+    do {
+      const published = await resolvePublishedInstallSpec({
+        apiUrl: opts.api,
+        packageName,
+        version,
+        rootDomain,
+        rpcUrl,
+      });
+      if (published) return published;
+      if (Date.now() < deadline) await delay(3000);
+    } while (Date.now() < deadline);
+
+    return { spec: fullSpec, detail: "npm registry (ENS/Pinata publication not available yet)" };
+  }
+
   if (source === "npm") {
     return { spec: fullSpec, detail: "npm registry" };
   }
   if (source === "pinata") {
-    return resolvePinataInstallSpec(opts.api, packageName, version);
+    return retryInstallSource(
+      () => resolvePinataInstallSpec(opts.api, packageName, version),
+      waitForPublishedMs,
+    );
   }
-  return resolveEnsInstallSpec({
-    packageName,
-    version,
-    rootDomain: opts.ensRoot ?? defaultEnsRootDomain(),
-    rpcUrl: opts.ensRpc ?? defaultEnsRpcUrl(),
-  });
+  return retryInstallSource(
+    () => resolveEnsInstallSpec({
+      packageName,
+      version,
+      rootDomain,
+      rpcUrl,
+    }),
+    waitForPublishedMs,
+  );
 }
 
 async function installSafePackage(
@@ -71,10 +101,11 @@ async function installSafePackage(
   packageName: string,
   version: string,
   opts: InstallOpts,
+  waitForPublishedMs = 0,
 ): Promise<never> {
   let target: { spec: string; detail: string };
   try {
-    target = await resolveInstallTarget(fullSpec, packageName, version, opts);
+    target = await resolveInstallTarget(fullSpec, packageName, version, opts, waitForPublishedMs);
   } catch (err) {
     console.error(
       chalk.red(
@@ -86,6 +117,27 @@ async function installSafePackage(
     process.exit(1);
   }
   process.exit(runInstall(target.spec, target.detail));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryInstallSource(
+  resolve: () => Promise<{ spec: string; detail: string }>,
+  waitMs: number,
+): Promise<{ spec: string; detail: string }> {
+  const deadline = Date.now() + waitMs;
+  let lastError: unknown;
+  do {
+    try {
+      return await resolve();
+    } catch (err) {
+      lastError = err;
+      if (Date.now() < deadline) await delay(3000);
+    }
+  } while (Date.now() < deadline);
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 function extractVerdict(report: api.PackageReport): string {
@@ -284,7 +336,7 @@ function buildBrowserWalletUrl(
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return delay(ms);
 }
 
 async function waitForPackageReport(
@@ -347,7 +399,7 @@ async function runBrowserWalletAuditAndInstall(
   }
 
   spinner.succeed("Audit report received");
-  await finalizeWithReport(fullSpec, name, version, report, opts);
+  await finalizeWithReport(fullSpec, name, version, report, opts, POST_AUDIT_STORAGE_WAIT_MS);
 }
 
 async function runCryptoAuditAndInstall(
@@ -446,7 +498,7 @@ async function finalizeAfterAudit(
     console.log(chalk.red("  Audit finished but report not found."));
     process.exit(1);
   }
-  await finalizeWithReport(fullSpec, name, version, freshReport, opts);
+  await finalizeWithReport(fullSpec, name, version, freshReport, opts, POST_AUDIT_STORAGE_WAIT_MS);
 }
 
 async function finalizeWithReport(
@@ -455,11 +507,12 @@ async function finalizeWithReport(
   version: string,
   report: api.PackageReport,
   opts: InstallOpts,
+  waitForPublishedMs = 0,
 ): Promise<void> {
   const verdict = extractVerdict(report);
   if (verdict === "SAFE") {
     console.log(chalk.green("\n  ✓ SAFE — proceeding with install"));
-    await installSafePackage(fullSpec, name, version, opts);
+    await installSafePackage(fullSpec, name, version, opts, waitForPublishedMs);
   }
   console.log(chalk.red(`\n  Audit verdict: ${verdict}`));
   const confirm = await prompt(chalk.red.bold("  Install anyway? (y/N) "));

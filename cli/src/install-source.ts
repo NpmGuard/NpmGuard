@@ -3,7 +3,7 @@ import { sepolia } from "viem/chains";
 import { namehash, packetToBytes } from "viem/ens";
 import * as api from "./api.js";
 
-export type InstallSource = "npm" | "pinata" | "ens";
+export type InstallSource = "auto" | "npm" | "pinata" | "ens";
 
 const DEFAULT_ENS_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
 const DEFAULT_ENS_ROOT_DOMAIN = "npmguard-demo.eth";
@@ -25,9 +25,9 @@ export interface InstallSourceOptions {
 }
 
 export function normalizeInstallSource(value: string | undefined): InstallSource {
-  const source = (value ?? "npm").toLowerCase();
-  if (source === "npm" || source === "pinata" || source === "ens") return source;
-  throw new Error(`Invalid install source "${value}". Expected npm, pinata, or ens.`);
+  const source = (value ?? "auto").toLowerCase();
+  if (source === "auto" || source === "npm" || source === "pinata" || source === "ens") return source;
+  throw new Error(`Invalid install source "${value}". Expected auto, npm, pinata, or ens.`);
 }
 
 export function defaultEnsRootDomain(): string {
@@ -153,14 +153,39 @@ export async function resolveEnsInstallSpec(options: {
     if (!packageMatches || !versionMatches) continue;
 
     const directTarball = records["npmguard.tarball_uri"] ?? records["npmguard.latest_tarball_uri"];
-    if (directTarball) return { spec: directTarball, detail: `ENS ${name} → Pinata tarball` };
+    if (directTarball) return { spec: directTarball, detail: `ENS ${name} -> Pinata tarball` };
 
     const manifestUrl = records["npmguard.manifest_uri"] ?? records["npmguard.latest_manifest_uri"];
     if (manifestUrl) {
       const tarballUrl = await tarballFromManifest(manifestUrl);
-      if (tarballUrl) return { spec: tarballUrl, detail: `ENS ${name} → manifest → Pinata tarball` };
+      if (tarballUrl) return { spec: tarballUrl, detail: `ENS ${name} -> manifest -> Pinata tarball` };
     }
   }
 
   throw new Error(`No installable ENS tarball record found for ${options.packageName}@${options.version}`);
+}
+
+export async function resolvePublishedInstallSpec(options: {
+  apiUrl: string;
+  packageName: string;
+  version: string;
+  rootDomain: string;
+  rpcUrl: string;
+}): Promise<{ spec: string; detail: string } | null> {
+  try {
+    return await resolveEnsInstallSpec({
+      packageName: options.packageName,
+      version: options.version,
+      rootDomain: options.rootDomain,
+      rpcUrl: options.rpcUrl,
+    });
+  } catch {
+    // Fall through to the API-backed Pinata publication.
+  }
+
+  try {
+    return await resolvePinataInstallSpec(options.apiUrl, options.packageName, options.version);
+  } catch {
+    return null;
+  }
 }

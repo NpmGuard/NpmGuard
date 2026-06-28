@@ -51,17 +51,17 @@ program
   .option("-f, --force", "Install even if the package is flagged as dangerous")
   .option(
     "--install-source <source>",
-    "Install SAFE packages from npm, pinata, or ens",
-    process.env.NPMGUARD_INSTALL_SOURCE ?? "npm",
+    "Install SAFE packages from auto, npm, pinata, or ens",
+    process.env.NPMGUARD_INSTALL_SOURCE ?? "auto",
   )
   .option(
     "--ens-root <name>",
-    "ENS root domain for --install-source ens",
+    "ENS root domain for auto/ens install resolution",
     defaultEnsRootDomain(),
   )
   .option(
     "--ens-rpc <url>",
-    "Sepolia RPC URL for --install-source ens",
+    "Sepolia RPC URL for auto/ens install resolution",
     defaultEnsRpcUrl(),
   )
   .action(async (pkg: string, cmdOpts: {
