@@ -147,7 +147,7 @@ browser wallet option instead.
 - **Chain**: Base Sepolia (testnet — free ETH from
   [Alchemy faucet](https://www.alchemy.com/faucets/base-sepolia))
 - **Fee**: `0.0001 ETH` per audit
-- **Contract**: [`0xBF562626e4Afb883423Ec719e0270DB232bcB9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed)
+- **Contract**: [`0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7`](https://sepolia.basescan.org/address/0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7)
 
 Flow:
 

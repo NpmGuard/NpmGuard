@@ -77,7 +77,7 @@ flowchart TD
 | Frontend Dashboard | [https://npmguard.com](https://npmguard.com) |
 | Audit Engine API | [https://npmguard.com/health](https://npmguard.com/health) |
 | CLI on npm | [`npmguard-cli`](https://www.npmjs.com/package/npmguard-cli) |
-| Audit Contract (Base Sepolia) | [`0xBF56...B9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed) |
+| Audit Contract (Base Sepolia) | [`0x5288...02B7`](https://sepolia.basescan.org/address/0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7) |
 
 ## Quick Start
 
@@ -179,7 +179,7 @@ requested `(packageName, version)` before running the audit.
 
 - **Fee**: `0.0001 ETH` (set in contract constructor, updatable by owner)
 - **Chain**: Base Sepolia (chain id 84532)
-- **Contract**: [`0xBF562626e4Afb883423Ec719e0270DB232bcB9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed)
+- **Contract**: [`0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7`](https://sepolia.basescan.org/address/0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7)
 
 Anti-replay: the engine maintains a `(chain, txHash)` dedup map so a single
 payment can only launch one audit. The contract itself also prevents
