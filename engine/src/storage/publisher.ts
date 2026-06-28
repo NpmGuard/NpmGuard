@@ -145,6 +145,15 @@ function readStorageConfig(publishEns: boolean): StorageConfig {
           process.env.NPMGUARD_ENS_UNIVERSAL_RESOLVER_ADDRESS ??
           process.env.ENS_UNIVERSAL_RESOLVER_ADDRESS,
         v2RegistryAddress: process.env.NPMGUARD_ENS_V2_REGISTRY_ADDRESS ?? process.env.ENS_V2_REGISTRY_ADDRESS,
+        v2ResolverFactoryAddress:
+          process.env.NPMGUARD_ENS_V2_RESOLVER_FACTORY_ADDRESS ??
+          process.env.ENS_V2_RESOLVER_FACTORY_ADDRESS,
+        v2SubregistryImplementationAddress:
+          process.env.NPMGUARD_ENS_V2_SUBREGISTRY_IMPLEMENTATION_ADDRESS ??
+          process.env.ENS_V2_SUBREGISTRY_IMPLEMENTATION_ADDRESS,
+        v2SubnameDurationSeconds: process.env.NPMGUARD_ENS_V2_SUBNAME_DURATION_SECONDS
+          ? Number(process.env.NPMGUARD_ENS_V2_SUBNAME_DURATION_SECONDS)
+          : undefined,
       };
     }
   }
