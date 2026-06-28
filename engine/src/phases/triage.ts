@@ -83,6 +83,16 @@ const SUSPICIOUS_LINE_PATTERNS = [
   /\b(?:EXFIL|exfiltrate|http\.request|fetch|axios|POST|localhost:9999)\b/i,
 ];
 
+function withHardTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function summaryImpliesCriticalRisk(summary: string): boolean {
   return SUMMARY_CRITICAL_PATTERNS.some((pattern) => pattern.test(summary));
 }
@@ -136,6 +146,40 @@ function suspiciousLineRanges(contents: string): string[] {
   return merged.slice(0, 8).map((range) =>
     range.start === range.end ? String(range.start) : `${range.start}-${range.end}`,
   );
+}
+
+function hasSuspiciousStaticSignals(contents: string): boolean {
+  return SUSPICIOUS_LINE_PATTERNS.some((pattern) => pattern.test(contents));
+}
+
+function synthesizeAnalysisFailureFallback(args: {
+  file: string;
+  contents: string;
+  fileFlags: string[];
+  reason: string;
+}): FileAnalysisResponse {
+  const { file, contents, fileFlags, reason } = args;
+  const suspicious = fileFlags.length > 0 || hasSuspiciousStaticSignals(contents);
+  if (!suspicious) {
+    return {
+      summary: `LLM triage failed for this file (${reason}); static fallback found no suspicious indicators.`,
+      capabilities: [],
+      hypotheses: [],
+    };
+  }
+
+  return {
+    summary: `LLM triage failed for this file (${reason}); static fallback found suspicious indicators.`,
+    capabilities: inferSummaryCapabilities(contents),
+    hypotheses: [
+      {
+        description: `Triage LLM failed on ${file}; static fallback found suspicious indicators requiring review.`,
+        claim: { kind: "obfuscation", gating: null },
+        severity: "medium",
+        rangesInFile: suspiciousLineRanges(contents),
+      },
+    ],
+  };
 }
 
 export function synthesizeSummaryFallback(args: {
@@ -458,14 +502,34 @@ async function analyzeFile(args: {
   emit?.("file_analyzing", { file });
 
   const model = getModel(config.triageModel);
-  const result = await generateObject({
-    model,
-    schema: FileAnalysisResponse,
-    system: MAP_SYSTEM,
-    prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
-    timeout: config.llmTimeoutSeconds * 1000,
-    maxRetries: 1,
-  });
+  const llmTimeoutMs = config.llmTimeoutSeconds * 1000;
+  let result: Awaited<ReturnType<typeof generateObject<typeof FileAnalysisResponse>>>;
+  try {
+    result = await withHardTimeout(
+      generateObject({
+        model,
+        schema: FileAnalysisResponse,
+        system: MAP_SYSTEM,
+        prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
+        timeout: llmTimeoutMs,
+        maxRetries: 1,
+      }),
+      llmTimeoutMs + 5000,
+      `triage MAP ${file}`,
+    );
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`[triage:map] ${file} LLM failed; using static fallback: ${reason}`);
+    return {
+      response: synthesizeAnalysisFailureFallback({
+        file,
+        contents,
+        fileFlags,
+        reason,
+      }),
+      skipped: false,
+    };
+  }
 
   const response = result.object;
   if (response.hypotheses.length === 0) {

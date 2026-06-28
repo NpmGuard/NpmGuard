@@ -1,4 +1,4 @@
-import { SOURCE_FILE_TYPES } from "./config.js";
+import { config, SOURCE_FILE_TYPES } from "./config.js";
 import { CapabilityEnum, Proof, type AuditReport, type FileVerdict, type Finding, type PhaseLog } from "./models.js";
 import type { ClaimKind, Hypothesis, HypothesisSeverity } from "@npmguard/shared";
 import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
@@ -86,6 +86,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 function isTimeoutError(err: unknown, phase: string): boolean {
   return err instanceof Error && err.message.startsWith(`${phase} timed out after `);
+}
+
+function readPositiveNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function estimateTriageTimeoutMs(sourceFileCount: number, timeoutScale: number): number {
+  const selectedFileCount = Math.min(sourceFileCount, config.triageMaxFiles);
+  const concurrency = Math.max(1, Math.floor(readPositiveNumber(process.env.NPMGUARD_TRIAGE_CONCURRENCY, 8)));
+  const waves = Math.max(1, Math.ceil(selectedFileCount / concurrency));
+  const perFileBudgetMs = config.llmTimeoutSeconds * 1000 + 10_000;
+  const dynamicBudgetMs = waves * perFileBudgetMs + 60_000;
+  return Math.max(5 * 60_000 * timeoutScale, dynamicBudgetMs);
 }
 
 async function timedPhase<T>(
@@ -323,16 +337,18 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     });
 
     // Phase 1b: Triage — per-file MAP emits Hypothesis[] directly.
+    const triageTimeoutMs = estimateTriageTimeoutMs(sourceFileCount, timeoutScale);
     const { result: triageOutput, log: triageLog } = await timedPhase(
       "triage",
       () => runTriage(resolved.path, inventory, intent, emit),
-      5 * 60_000 * timeoutScale,
+      triageTimeoutMs,
       {
         sourceFiles: inventory.files
           .filter((f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary)
           .map((f) => ({ path: f.path, sizeBytes: f.sizeBytes })),
         flagCount: inventory.flags.length,
         packageName: inventory.metadata.name,
+        timeoutMs: triageTimeoutMs,
       },
       (t) => ({
         hypothesisCount: t.hypotheses.length,
