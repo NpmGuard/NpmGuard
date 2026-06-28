@@ -26,7 +26,7 @@ interface ReportData {
   };
 }
 
-export function PackageLookup({ packageName }: { packageName: string }) {
+export function PackageLookup({ packageName, version: requestedVersion }: { packageName: string; version?: string }) {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -36,7 +36,8 @@ export function PackageLookup({ packageName }: { packageName: string }) {
     setNotFound(false);
     setData(null);
 
-    fetch(`/api/package/${encodeURIComponent(packageName)}/report`)
+    const query = requestedVersion ? `?version=${encodeURIComponent(requestedVersion)}` : "";
+    fetch(`/api/package/${encodeURIComponent(packageName)}/report${query}`)
       .then((r) => {
         if (r.status === 404) {
           setNotFound(true);
@@ -56,7 +57,7 @@ export function PackageLookup({ packageName }: { packageName: string }) {
         setNotFound(true);
         setLoading(false);
       });
-  }, [packageName]);
+  }, [packageName, requestedVersion]);
 
   if (loading) {
     return (

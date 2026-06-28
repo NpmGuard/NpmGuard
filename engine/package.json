@@ -4,9 +4,15 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "audit:batch": "tsx scripts/audit-batch.ts",
+    "audit:latest": "tsx scripts/audit-latest.ts",
+    "bench:check": "tsx scripts/check-benchmark-results.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "ensv2:subname": "tsx scripts/ensv2-subname.ts",
+    "smoke:llm": "tsx scripts/smoke-llm.ts",
+    "storage:publish": "tsx scripts/publish-storage.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

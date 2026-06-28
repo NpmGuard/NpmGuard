@@ -7,15 +7,20 @@ import { AuditView } from "./components/AuditView";
 import { PackageSearch } from "./components/PackageSearch";
 import { PackageLookup } from "./components/PackageLookup";
 import { Benchmark } from "./components/Benchmark";
+import { CliInstall } from "./components/CliInstall";
+import { WebWalletCheckout } from "./components/WebWalletCheckout";
 
 const PACKAGES_PATH_RE = /^\/packages\/?$/;
 const PACKAGE_PATH_RE_LOOKUP = /^\/package\/(.+)$/;
 const BENCHMARK_PATH_RE = /^\/benchmark\/?$/;
+const CLI_PATH_RE = /^\/cli\/?$/;
+const PAY_PATH_RE = /^\/pay\/?$/;
 
 function App() {
   const isRunning = useAuditStore((s) => s.isRunning);
   const verdict = useAuditStore((s) => s.verdict);
   const auditId = useAuditStore((s) => s.auditId);
+  const packageName = useAuditStore((s) => s.packageName);
   const connectToSession = useAuditStore((s) => s.connectToSession);
   const startAuditFromCheckout = useAuditStore((s) => s.startAuditFromCheckout);
   const reset = useAuditStore((s) => s.reset);
@@ -50,6 +55,17 @@ function App() {
     }
   }, [auditId]);
 
+  // Audit sessions are ephemeral; package report pages are durable.
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (verdict && packageName && (path.startsWith("/audit/") || path.startsWith("/pay"))) {
+      const version = new URLSearchParams(window.location.search).get("version");
+      const href = `/package/${encodeURIComponent(packageName)}${version ? `?version=${encodeURIComponent(version)}` : ""}`;
+      history.replaceState(null, "", href);
+      setCurrentPath(`/package/${encodeURIComponent(packageName)}`);
+    }
+  }, [verdict, packageName]);
+
   // Handle browser back/forward
   const onPopState = useCallback(() => {
     const path = window.location.pathname;
@@ -58,7 +74,7 @@ function App() {
     const match = path.match(AUDIT_PATH_RE);
     if (match) {
       if (match[1] !== auditId) connectToSession(match[1]);
-    } else if (!PACKAGES_PATH_RE.test(path) && !PACKAGE_PATH_RE_LOOKUP.test(path) && !BENCHMARK_PATH_RE.test(path)) {
+    } else if (!PACKAGES_PATH_RE.test(path) && !PACKAGE_PATH_RE_LOOKUP.test(path) && !BENCHMARK_PATH_RE.test(path) && !CLI_PATH_RE.test(path) && !PAY_PATH_RE.test(path)) {
       reset();
     }
   }, [auditId, connectToSession, reset]);
@@ -76,9 +92,14 @@ function App() {
   if (PACKAGES_PATH_RE.test(currentPath)) {
     content = <PackageSearch />;
   } else if (packageMatch) {
-    content = <PackageLookup packageName={decodeURIComponent(packageMatch[1])} />;
+    const version = new URLSearchParams(window.location.search).get("version") ?? undefined;
+    content = <PackageLookup packageName={decodeURIComponent(packageMatch[1])} version={version} />;
   } else if (BENCHMARK_PATH_RE.test(currentPath)) {
     content = <Benchmark />;
+  } else if (CLI_PATH_RE.test(currentPath)) {
+    content = <CliInstall />;
+  } else if (PAY_PATH_RE.test(currentPath) && !hasAudit) {
+    content = <WebWalletCheckout />;
   } else if (hasAudit) {
     content = <AuditView />;
   } else {

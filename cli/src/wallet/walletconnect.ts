@@ -33,6 +33,7 @@ export async function payViaWalletConnect(
   version: string,
   feeWei: bigint,
   feeDisplay: string,
+  contractAddress: Hex = AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
 ): Promise<WalletConnectResult> {
   const calldata = encodeFunctionData({
     abi: AUDIT_REQUEST_ABI,
@@ -88,6 +89,10 @@ export async function payViaWalletConnect(
     console.log();
     await generateQrCode(uri);
     console.log();
+    console.log(chalk.cyan("  Desktop wallet? Paste this WalletConnect URI into your wallet:"));
+    console.log(chalk.gray(`  ${uri}`));
+    console.log(chalk.gray("  Keep it private; it is only for this pairing session."));
+    console.log();
 
     const pairSpinner = ora("  Waiting for wallet connection...").start();
     const session = await approval();
@@ -123,7 +128,7 @@ export async function payViaWalletConnect(
         params: [
           {
             from: sender,
-            to: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
+            to: contractAddress,
             data: calldata,
             value: "0x" + feeWei.toString(16),
           },
@@ -162,13 +167,15 @@ export async function payViaWalletConnect(
   }
 }
 
-export async function readAuditFee(): Promise<bigint> {
+export async function readAuditFee(
+  contractAddress: Hex = AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
+): Promise<bigint> {
   const publicClient = createPublicClient({
     chain: baseSepolia,
     transport: http(),
   });
   return (await publicClient.readContract({
-    address: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
+    address: contractAddress,
     abi: AUDIT_REQUEST_ABI,
     functionName: "auditFee",
   })) as bigint;

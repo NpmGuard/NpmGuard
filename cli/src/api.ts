@@ -24,6 +24,19 @@ export interface PackageReport {
   [key: string]: unknown;
 }
 
+export interface PublicConfig {
+  paymentRequired: boolean;
+  paymentEnabled: boolean;
+  stripeEnabled: boolean;
+  priceCents: number;
+  crypto: {
+    chain: "base-sepolia";
+    chainId: 84532;
+    contract: string;
+    auditFeeWei: string | null;
+  } | null;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
   if (!res.ok) {
@@ -35,6 +48,10 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(`Expected JSON but got ${contentType || "unknown content type"}`);
   }
   return res.json() as Promise<T>;
+}
+
+export async function getPublicConfig(apiUrl: string): Promise<PublicConfig> {
+  return request<PublicConfig>(`${apiUrl}/config/public`);
 }
 
 export async function checkout(

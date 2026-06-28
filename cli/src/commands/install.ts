@@ -2,12 +2,14 @@ import chalk from "chalk";
 import ora from "ora";
 import { spawnSync } from "node:child_process";
 import { formatEther } from "viem";
+import type { Hex } from "viem";
 import * as api from "../api.js";
 import {
   parsePackageArg,
   prompt,
   resolveLatestVersion,
   detectPackageManager,
+  openExternalUrl,
 } from "../utils.js";
 import { auditCommand } from "./audit.js";
 import { payViaWalletConnect, readAuditFee } from "../wallet/walletconnect.js";
@@ -15,6 +17,7 @@ import { streamAuditEvents } from "../stream.js";
 
 interface InstallOpts {
   api: string;
+  web: string;
   force?: boolean;
 }
 
@@ -47,6 +50,7 @@ export async function installCommand(
   opts: InstallOpts,
 ): Promise<void> {
   const apiUrl = opts.api;
+  const webUrl = opts.web;
 
   let parsed: { name: string; version?: string };
   try {
@@ -96,11 +100,12 @@ export async function installCommand(
   console.log();
   console.log(chalk.bold("  How do you want to pay for the audit?"));
   console.log("    1) Stripe (credit card)");
-  console.log("    2) WalletConnect — ETH on Base Sepolia");
-  console.log("    3) Install without audit (at your own risk)");
-  console.log("    4) Cancel");
+  console.log("    2) Browser wallet — MetaMask/Rabby in Brave or Chrome");
+  console.log("    3) WalletConnect — QR/mobile wallet");
+  console.log("    4) Install without audit (at your own risk)");
+  console.log("    5) Cancel");
   console.log();
-  const choice = await prompt("  Choice [1/2/3/4]: ");
+  const choice = await prompt("  Choice [1/2/3/4/5]: ");
 
   if (choice === "1") {
     await runStripeAuditAndInstall(fullSpec, name, version, apiUrl);
@@ -108,11 +113,16 @@ export async function installCommand(
   }
 
   if (choice === "2") {
-    await runCryptoAuditAndInstall(fullSpec, name, version, apiUrl);
+    await runBrowserWalletAuditAndInstall(fullSpec, name, version, apiUrl, webUrl);
     return;
   }
 
   if (choice === "3") {
+    await runCryptoAuditAndInstall(fullSpec, name, version, apiUrl);
+    return;
+  }
+
+  if (choice === "4") {
     console.log(
       chalk.yellow("  Installing without audit. Proceed at your own risk."),
     );
@@ -200,24 +210,116 @@ async function runStripeAuditAndInstall(
   await finalizeAfterAudit(fullSpec, name, version, apiUrl);
 }
 
+function buildBrowserWalletUrl(
+  webUrl: string,
+  packageName: string,
+  version: string,
+): string {
+  const url = new URL("/pay", webUrl.replace(/\/+$/, ""));
+  url.searchParams.set("packageName", packageName);
+  url.searchParams.set("version", version);
+  url.searchParams.set("source", "cli");
+  return url.toString();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForPackageReport(
+  apiUrl: string,
+  packageName: string,
+  version: string,
+  timeoutMs: number,
+): Promise<api.PackageReport | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const report = await api.getPackageReport(apiUrl, packageName, version);
+    if (report) return report;
+    await sleep(3000);
+  }
+  return null;
+}
+
+async function runBrowserWalletAuditAndInstall(
+  fullSpec: string,
+  name: string,
+  version: string,
+  apiUrl: string,
+  webUrl: string,
+): Promise<void> {
+  const paymentUrl = buildBrowserWalletUrl(webUrl, name, version);
+
+  console.log();
+  console.log(chalk.bold("  Open this URL in Brave or Chrome with MetaMask/Rabby:"));
+  console.log(chalk.blue.underline(`  ${paymentUrl}`));
+  console.log();
+  console.log(chalk.gray("  The browser page will connect your wallet, sign the Base Sepolia tx, and start the audit."));
+  console.log(chalk.gray("  Keep this terminal open; it will continue when the report is ready."));
+  console.log();
+
+  const openAnswer = await prompt("  Open it now in your default browser? (Y/n) ");
+  if (openAnswer !== "n" && openAnswer !== "no") {
+    const opened = openExternalUrl(paymentUrl);
+    if (!opened) {
+      console.log(chalk.yellow("  Could not open automatically. Copy the URL above."));
+    }
+  }
+
+  const spinner = ora("  Waiting for browser payment and audit report...").start();
+  let report: api.PackageReport | null = null;
+  try {
+    report = await waitForPackageReport(apiUrl, name, version, 30 * 60 * 1000);
+  } catch (err) {
+    spinner.fail(
+      "Could not read report: " +
+        (err instanceof Error ? err.message : String(err)),
+    );
+    process.exit(1);
+  }
+
+  if (!report) {
+    spinner.fail("Timed out waiting for the browser audit report.");
+    console.log(chalk.gray(`  Check ${webUrl.replace(/\/+$/, "")}/package/${encodeURIComponent(name)}`));
+    process.exit(1);
+  }
+
+  spinner.succeed("Audit report received");
+  await finalizeWithReport(fullSpec, report);
+}
+
 async function runCryptoAuditAndInstall(
   fullSpec: string,
   name: string,
   version: string,
   apiUrl: string,
 ): Promise<void> {
-  // 1. Read current fee from contract
+  // 1. Read current fee from the engine's public config, then fall back to
+  // direct contract read if the engine is older or config is unavailable.
   let feeWei: bigint;
+  let contractAddress: Hex | undefined;
   try {
-    feeWei = await readAuditFee();
+    const publicConfig = await api.getPublicConfig(apiUrl);
+    const contract = publicConfig.crypto?.contract;
+    const auditFeeWei = publicConfig.crypto?.auditFeeWei;
+    if (contract && /^0x[0-9a-fA-F]{40}$/.test(contract) && auditFeeWei) {
+      contractAddress = contract as Hex;
+      feeWei = BigInt(auditFeeWei);
+    } else {
+      feeWei = await readAuditFee();
+    }
   } catch (err) {
-    console.error(
-      chalk.red(
-        "Could not read fee from contract: " +
-          (err instanceof Error ? err.message : String(err)),
-      ),
-    );
-    process.exit(1);
+    try {
+      feeWei = await readAuditFee();
+    } catch {
+      console.error(
+        chalk.red(
+          "Could not read fee from engine or contract: " +
+            (err instanceof Error ? err.message : String(err)),
+        ),
+      );
+      process.exit(1);
+    }
   }
   const feeDisplay = `${formatEther(feeWei)} ETH`;
 
@@ -230,7 +332,7 @@ async function runCryptoAuditAndInstall(
   }
 
   // 2. WalletConnect → user signs → we get txHash
-  const result = await payViaWalletConnect(name, version, feeWei, feeDisplay);
+  const result = await payViaWalletConnect(name, version, feeWei, feeDisplay, contractAddress);
   if (!result.paid || !result.txHash) {
     console.log(chalk.red("  Payment failed, aborting."));
     process.exit(1);
@@ -280,7 +382,14 @@ async function finalizeAfterAudit(
     console.log(chalk.red("  Audit finished but report not found."));
     process.exit(1);
   }
-  const verdict = extractVerdict(freshReport);
+  await finalizeWithReport(fullSpec, freshReport);
+}
+
+async function finalizeWithReport(
+  fullSpec: string,
+  report: api.PackageReport,
+): Promise<void> {
+  const verdict = extractVerdict(report);
   if (verdict === "SAFE") {
     console.log(chalk.green("\n  ✓ SAFE — proceeding with install"));
     process.exit(runInstall(fullSpec));

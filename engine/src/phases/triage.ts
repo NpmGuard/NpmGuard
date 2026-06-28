@@ -64,6 +64,108 @@ const FileAnalysisResponse = z.object({
 });
 type FileAnalysisResponse = z.infer<typeof FileAnalysisResponse>;
 
+const SUMMARY_CRITICAL_PATTERNS = [
+  /\bcredential(?:s)?\s+(?:theft|stealer|harvesting|exfiltration)\b/i,
+  /\b(?:steals?|harvests?|exfiltrat(?:es|ed|ing|ion))\b.*\b(?:credentials?|secrets?|tokens?|keys?|env(?:ironment)?|npm|aws|ssh|kube|docker|metadata|imds)\b/i,
+  /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|cloud\s+metadata|imds)\b/i,
+  /\b(?:malware|trojan|supply\s+chain\s+attack)\b/i,
+];
+
+const SUMMARY_CREDENTIAL_PATTERNS = [
+  /\bcredential(?:s)?\b/i,
+  /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|secrets?|tokens?)\b/i,
+];
+
+const SUSPICIOUS_LINE_PATTERNS = [
+  /\b(?:process\.env|SENSITIVE_KEYS|NPM_TOKEN|AWS_|GITHUB_TOKEN|SECRET|TOKEN|credential)\b/i,
+  /\.(?:npmrc|yarnrc|ssh|aws|docker|kube)|readFileSync|homedir/i,
+  /169\.254\.169\.254|\bIMDS\b|metadata/i,
+  /\b(?:EXFIL|exfiltrate|http\.request|fetch|axios|POST|localhost:9999)\b/i,
+];
+
+function summaryImpliesCriticalRisk(summary: string): boolean {
+  return SUMMARY_CRITICAL_PATTERNS.some((pattern) => pattern.test(summary));
+}
+
+function inferSummaryClaim(summary: string): "cred_theft" | "env_exfil" {
+  return SUMMARY_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(summary))
+    ? "cred_theft"
+    : "env_exfil";
+}
+
+function inferSummaryCapabilities(summary: string): string[] {
+  const capabilities = new Set<string>();
+  if (/\b(?:credential|secret|token|key|ssh|aws|npm|github)\b/i.test(summary)) {
+    capabilities.add("CREDENTIAL_THEFT");
+    capabilities.add("ENV_VARS");
+  }
+  if (/\b(?:exfiltrat|http|post|network|imds|metadata)\b/i.test(summary)) {
+    capabilities.add("NETWORK");
+  }
+  if (/\b(?:filesystem|file|\.npmrc|\.ssh|\.aws|docker|kube)\b/i.test(summary)) {
+    capabilities.add("FILESYSTEM");
+  }
+  return [...capabilities];
+}
+
+function suspiciousLineRanges(contents: string): string[] {
+  const lines = contents.split("\n");
+  const hits: Array<{ start: number; end: number }> = [];
+
+  for (const [index, line] of lines.entries()) {
+    if (!SUSPICIOUS_LINE_PATTERNS.some((pattern) => pattern.test(line))) continue;
+    hits.push({
+      start: Math.max(1, index + 1 - 1),
+      end: Math.min(lines.length, index + 1 + 1),
+    });
+  }
+
+  if (hits.length === 0) return ["1-1"];
+
+  hits.sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const hit of hits) {
+    const previous = merged.at(-1);
+    if (previous && hit.start <= previous.end + 1) {
+      previous.end = Math.max(previous.end, hit.end);
+    } else {
+      merged.push({ ...hit });
+    }
+  }
+
+  return merged.slice(0, 8).map((range) =>
+    range.start === range.end ? String(range.start) : `${range.start}-${range.end}`,
+  );
+}
+
+export function synthesizeSummaryFallback(args: {
+  summary: string;
+  contents: string;
+}): { capabilities: string[]; hypotheses: HypothesisDraft[] } {
+  const { summary, contents } = args;
+  if (!summaryImpliesCriticalRisk(summary)) {
+    return { capabilities: [], hypotheses: [] };
+  }
+
+  const claimKind = inferSummaryClaim(summary);
+  const behavior =
+    claimKind === "cred_theft"
+      ? "credential theft or secret harvesting"
+      : "environment or data exfiltration";
+
+  return {
+    capabilities: inferSummaryCapabilities(summary),
+    hypotheses: [
+      {
+        description: `Model summary describes ${behavior}: ${summary.slice(0, 240)}`,
+        claim: { kind: claimKind, gating: null },
+        severity: "critical",
+        rangesInFile: suspiciousLineRanges(contents),
+      },
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public return shape
 // ---------------------------------------------------------------------------
@@ -78,6 +180,8 @@ export interface TriageOutput {
   hypotheses: Hypothesis[];
   fileSummaries: FileSummary[];
 }
+
+type TriageFileCandidate = InventoryReport["files"][number];
 
 // ---------------------------------------------------------------------------
 // Prompt builders (pure)
@@ -137,6 +241,43 @@ function numberLines(contents: string): string {
     .split("\n")
     .map((line, i) => `${i + 1}: ${line}`)
     .join("\n");
+}
+
+function entryPointScore(file: string, inventory: InventoryReport): number {
+  const entryPoints = [
+    ...inventory.entryPoints.install,
+    ...inventory.entryPoints.runtime,
+    ...inventory.entryPoints.bin,
+  ];
+  if (entryPoints.includes(file)) return 100;
+  if (file === "package.json") return 90;
+  if (/^(index|main)\.(js|ts|mjs|cjs)$/.test(file)) return 80;
+  if (/^(dist|lib|src)\//.test(file)) return 20;
+  return 0;
+}
+
+export function selectTriageFiles(args: {
+  files: TriageFileCandidate[];
+  inventory: InventoryReport;
+  flagsByFile: Map<string, string[]>;
+  maxFiles: number;
+}): TriageFileCandidate[] {
+  const { files, inventory, flagsByFile, maxFiles } = args;
+  if (files.length <= maxFiles) return files;
+
+  return [...files]
+    .map((file, index) => {
+      const flagged = flagsByFile.has(file.path) ? 1 : 0;
+      const score =
+        flagged * 1000 +
+        entryPointScore(file.path, inventory) +
+        Math.max(0, 20 - Math.floor(file.sizeBytes / 10_000));
+      return { file, index, score };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, maxFiles)
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.file);
 }
 
 // ---------------------------------------------------------------------------
@@ -322,9 +463,29 @@ async function analyzeFile(args: {
     schema: FileAnalysisResponse,
     system: MAP_SYSTEM,
     prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
+    timeout: config.llmTimeoutSeconds * 1000,
+    maxRetries: 1,
   });
 
-  return { response: result.object, skipped: false };
+  const response = result.object;
+  if (response.hypotheses.length === 0) {
+    const fallback = synthesizeSummaryFallback({
+      summary: response.summary,
+      contents,
+    });
+    if (fallback.hypotheses.length > 0) {
+      response.hypotheses = fallback.hypotheses;
+      response.capabilities = [...new Set([
+        ...response.capabilities,
+        ...fallback.capabilities,
+      ])];
+      console.warn(
+        `[triage:map] ${file} summary described critical risk but emitted no hypotheses; synthesized ${fallback.hypotheses.length}`,
+      );
+    }
+  }
+
+  return { response, skipped: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -350,12 +511,8 @@ export async function runTriage(
   const allCandidates = inventory.files.filter(
     (f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary,
   );
-  const sourceFiles = allCandidates.filter((f) => !isTriageNoise(f.path));
-  const skippedNoise = allCandidates.length - sourceFiles.length;
-
-  console.log(
-    `[triage] analyzing ${sourceFiles.length} source files for ${inventory.metadata.name ?? "unknown"}${skippedNoise > 0 ? ` (skipped ${skippedNoise} .d.ts/test files)` : ""} (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
-  );
+  const sourceFileCandidates = allCandidates.filter((f) => !isTriageNoise(f.path));
+  const skippedNoise = allCandidates.length - sourceFileCandidates.length;
 
   const flagsByFile = new Map<string, string[]>();
   for (const flag of inventory.flags) {
@@ -365,6 +522,21 @@ export async function runTriage(
       flagsByFile.set(flag.file, existing);
     }
   }
+
+  const sourceFiles = selectTriageFiles({
+    files: sourceFileCandidates,
+    inventory,
+    flagsByFile,
+    maxFiles: config.triageMaxFiles,
+  });
+  const skippedByCap = sourceFileCandidates.length - sourceFiles.length;
+
+  console.log(
+    `[triage] analyzing ${sourceFiles.length}/${sourceFileCandidates.length} source files for ${inventory.metadata.name ?? "unknown"}` +
+      `${skippedNoise > 0 ? ` (skipped ${skippedNoise} .d.ts/test files)` : ""}` +
+      `${skippedByCap > 0 ? ` (capped ${skippedByCap} low-priority files)` : ""}` +
+      ` (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
+  );
 
   // Bounded concurrency. Unbounded Promise.all hammered MiniMax's Token
   // Plan rate limit on packages with 100+ files (every triage call would
