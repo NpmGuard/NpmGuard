@@ -50,7 +50,7 @@ lockfiles and runs the correct add command (`npm install`, `pnpm add`,
 
 1. Resolves the version (`latest` if omitted)
 2. Asks the engine if the package has an existing audit
-3. **Found + SAFE** → runs `<pm> add <pkg>` directly
+3. **Found + SAFE** → installs from the configured source
 4. **Found + DANGEROUS** → shows findings + capabilities, prompts `y/N`
    (bypass with `--force`)
 5. **Not found** → asks how you want to pay for the audit:
@@ -63,9 +63,16 @@ lockfiles and runs the correct add command (`npm install`, `pnpm add`,
    report when the browser-wallet page owns the live view
 7. Runs the install if the verdict is SAFE, or prompts otherwise
 
-The install source is configurable:
+The install source defaults to `auto`: after a SAFE verdict the CLI waits
+briefly for NpmGuard publication, then tries ENS, then the NpmGuard Pinata
+storage API, and only falls back to npm if no publication is available.
+
+The source is configurable:
 
 ```bash
+# default: audited verdict, then ENS/Pinata when available
+npmguard install express --install-source auto
+
 # default: audited verdict, then normal registry install
 npmguard install express --install-source npm
 
@@ -175,7 +182,7 @@ Install source:
 npmguard install lodash --install-source ens
 
 # via env
-export NPMGUARD_INSTALL_SOURCE=pinata
+export NPMGUARD_INSTALL_SOURCE=ens
 export NPMGUARD_ENS_ROOT_DOMAIN=npmguard-demo.eth
 export NPMGUARD_ENS_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
 npmguard install lodash
@@ -185,6 +192,7 @@ Available values:
 
 | Source | Behavior |
 |---|---|
+| `auto` | Tries ENS, then NpmGuard's Pinata storage API, then npm fallback |
 | `npm` | Installs `<package>@<version>` from the normal npm registry |
 | `pinata` | Reads `/package/<name>/storage?version=<version>` from NpmGuard and installs the pinned tarball URL |
 | `ens` | Resolves Sepolia ENS `npmguard.*` text records and installs the announced Pinata tarball |

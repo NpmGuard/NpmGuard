@@ -9,9 +9,10 @@ package already has an audit → install happens immediately (or is blocked
 if DANGEROUS). If not → the user pays for an audit with a credit card
 (Stripe), a browser wallet (MetaMask/Rabby), or a mobile wallet
 (WalletConnect on Base Sepolia), the pipeline runs, and the verdict
-decides whether the install proceeds. SAFE packages install from npm by
-default, or from a pinned tarball discovered through NpmGuard's storage API
-or ENS text records when the CLI is configured for that source.
+decides whether the install proceeds. SAFE packages install from an ENS
+announced Pinata tarball by default when publication is available; the CLI
+falls back to npm only when no publication exists yet or when explicitly
+configured.
 
 ## How it works
 
@@ -119,15 +120,17 @@ The audit and install steps are deliberately separate:
 Install source is a CLI policy decision after the server verdict:
 
 ```bash
+npx npmguard-cli@latest install express --install-source auto
 npx npmguard-cli@latest install express --install-source npm
 npx npmguard-cli@latest install express --install-source pinata
 npx npmguard-cli@latest install express --install-source ens
 ```
 
-`npm` uses the normal package registry. `pinata` asks the NpmGuard API for
-the stored tarball URL. `ens` resolves Sepolia ENS text records such as
-`npmguard.tarball_uri` / `npmguard.latest_tarball_uri`, then installs that
-Pinata tarball.
+`auto` is the default: after a SAFE verdict it waits briefly for publication,
+then tries ENS text records, then the NpmGuard storage API, and finally npm
+as a fallback. `pinata` asks the NpmGuard API for the stored tarball URL.
+`ens` resolves Sepolia ENS text records such as `npmguard.tarball_uri` /
+`npmguard.latest_tarball_uri`, then installs that Pinata tarball.
 
 See [cli/README.md](cli/README.md) for the full CLI reference.
 
