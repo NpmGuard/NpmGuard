@@ -228,6 +228,18 @@ auditRoutes.post("/audit/stream", async (c) => {
       console.error("[chain] unexpected error:", err);
       return c.json({ error: "Chain verification failed" }, 500);
     }
+
+    // Double-check: a concurrent identical-txHash request may have recorded
+    // payment during our async verify window (mirrors the Stripe guard below).
+    // Without this, two requests carrying the same txHash both pass the
+    // pre-verify dedup and both launch an audit.
+    const claimedDuringVerify = getChainPayment(chain, parsed.data.txHash);
+    if (claimedDuringVerify) {
+      return c.json({
+        auditId: claimedDuringVerify.auditId,
+        packageName: claimedDuringVerify.packageName,
+      });
+    }
   } else if (parsed.data.stripeSessionId) {
     if (!STRIPE_ENABLED) {
       return c.json({ error: "Stripe payments not configured" }, 501);

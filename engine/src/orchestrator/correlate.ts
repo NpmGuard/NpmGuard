@@ -17,7 +17,7 @@ import type { Finding, Proof } from "../models.js";
  * hypothesis is correct. One-to-many: env_exfil can be backed by ENV_VARS
  * or NPM_TOKEN_ABUSE evidence.
  */
-const CLAIM_TO_CAPABILITIES: Record<ClaimKind, readonly string[]> = {
+export const CLAIM_TO_CAPABILITIES: Record<ClaimKind, readonly string[]> = {
   env_exfil: ["ENV_VARS", "NPM_TOKEN_ABUSE", "CREDENTIAL_THEFT", "NETWORK"],
   cred_theft: ["CREDENTIAL_THEFT", "ENV_VARS", "NPM_TOKEN_ABUSE"],
   binary_drop: ["BINARY_DOWNLOAD", "PROCESS_SPAWN", "FILESYSTEM"],
@@ -358,13 +358,21 @@ export function correlateAfterVerify(
 
     const match = bestMatch(toMatch, candidates);
 
+    // Claim-match gate: bestMatch accepts a file-only match (claimScore 0), so a
+    // proof of an UNRELATED capability could otherwise CONFIRM a hypothesis that
+    // merely shares a file. Skip when the proof capability doesn't map to the
+    // hypothesis claim — leave it IN_PROGRESS to fall through to INCONCLUSIVE.
+    if (match && !claimMatchesCapability(match.hypothesis.claim.kind, toMatch.capability)) {
+      return;
+    }
+
     if (match) {
       claimed.add(match.hypothesis.hypId);
-      graph.addEvidence(match.hypothesis.hypId, [proofRef(p, i)]);
+      const ref = proofRef(p, i);
       graph.transition(match.hypothesis.hypId, {
         to: "CONFIRMED",
         by: "correlator:verify",
-        evidenceRefs: [proofRef(p, i)],
+        evidenceRefs: [ref],
       });
       result.confirmed.push(match.hypothesis.hypId);
       console.log(

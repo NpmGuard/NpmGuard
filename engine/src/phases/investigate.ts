@@ -9,6 +9,7 @@ import { LIFECYCLE_SCRIPTS } from "../inventory/parse-manifest.js";
 import type { EmitFn } from "../events.js";
 import type { AuditLogger } from "../audit-log.js";
 import type { FileSummary } from "./triage.js";
+import { CLAIM_TO_CAPABILITIES } from "../orchestrator/correlate.js";
 
 /**
  * Run the package once under instrumentation BEFORE the LLM agent starts.
@@ -205,7 +206,7 @@ export async function investigate(
           `[investigate] agent extracted 0 findings; falling back to ${strongHyps.length} ${strongHyps.length === 1 ? "hypothesis" : "hypotheses"} from triage`,
         );
         agentFindings = strongHyps.map((h) => ({
-          capability: h.claim.kind.toUpperCase(),
+          capability: CLAIM_TO_CAPABILITIES[h.claim.kind]?.[0] ?? "OBFUSCATION",
           confidence: "LIKELY" as const,
           fileLine: h.focusLines[0]
             ? `${h.focusLines[0].file}:${h.focusLines[0].range}`

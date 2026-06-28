@@ -147,9 +147,12 @@ export function computeProofStats(findings: Finding[], proofs: Proof[]) {
 
 export function parseLineRanges(spec: string | null | undefined): Array<[number, number]> {
   if (!spec) return [];
-  return spec.split(",").map((range) => {
-    const parts = range.trim().split("-").map(Number);
-    if (parts.length === 1) return [parts[0], parts[0]] as [number, number];
-    return [parts[0], parts[1]] as [number, number];
-  });
+  return spec
+    .split(",")
+    .map((range) => {
+      const parts = range.trim().split("-").map(Number);
+      if (parts.length === 1) return [parts[0], parts[0]] as [number, number];
+      return [parts[0], parts[1]] as [number, number];
+    })
+    .filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && a >= 1);
 }
