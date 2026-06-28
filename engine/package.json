@@ -4,9 +4,13 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "audit:batch": "tsx scripts/audit-batch.ts",
+    "audit:latest": "tsx scripts/audit-latest.ts",
+    "bench:check": "tsx scripts/check-benchmark-results.ts",
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "smoke:llm": "tsx scripts/smoke-llm.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

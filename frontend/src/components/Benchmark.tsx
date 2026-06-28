@@ -1,649 +1,569 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
-type ProofKind =
-  | "TEST_CONFIRMED"
-  | "TEST_UNCONFIRMED"
-  | "AI_DYNAMIC"
-  | "AI_STATIC"
-  | "STRUCTURAL";
+type BenchSource = "public" | "datadog";
+type BenchCategory = "public" | "datadog-compromised" | "datadog-malicious-intent";
 
-interface BenchRun {
+type BenchRow = {
+  source?: BenchSource;
+  packageName: string;
+  version: string | null;
+  fixtureName?: string | null;
+  category?: BenchCategory;
+  status: string;
+  verdict: string | null;
   durationMs: number;
-  verdict: "DANGEROUS" | "SAFE" | "UNKNOWN";
-  capabilities: string[];
-  proofKinds: ProofKind[];
-  verifiedCapabilities: string[];
-  llmTokens: number | null;
-  auditId: string | null;
   error: string | null;
-}
-
-interface BenchResult {
-  fixtureName: string;
-  runs: BenchRun[];
-}
-
-interface BenchData {
-  datasetVersion: string;
-  engineSha: string;
-  modelId: string;
-  startedAt: string;
-  completedAt: string;
-  results: BenchResult[];
-}
-
-type Outcome =
-  | "TEST_CONFIRMED"
-  | "TEST_UNCONFIRMED_ONLY"
-  | "AI_ONLY"
-  | "STRUCTURAL_ONLY"
-  | "TIMEOUT"
-  | "MISSED";
-
-const OUTCOME_META: Record<Outcome, { color: string; label: string; desc: string }> = {
-  TEST_CONFIRMED: {
-    color: "#16a34a",
-    label: "Proof-tested",
-    desc: "Vitest exploit reproduced the malicious behavior in a sandbox",
-  },
-  TEST_UNCONFIRMED_ONLY: {
-    color: "#ca8a04",
-    label: "Test failed",
-    desc: "Test was generated but assertions didn't pass — usually mock or timing issue",
-  },
-  AI_ONLY: {
-    color: "#2563eb",
-    label: "AI-evidenced",
-    desc: "Agent observed the behavior at runtime or matched a pattern statically; no test ran",
-  },
-  STRUCTURAL_ONLY: {
-    color: "#5b21b6",
-    label: "Structural",
-    desc: "Dealbreaker hit in inventory phase (e.g. preinstall hook); no investigation needed",
-  },
-  TIMEOUT: {
-    color: "#9e9787",
-    label: "Timeout",
-    desc: "Hit the 60-min audit timeout — usually heavily obfuscated multi-stage payloads",
-  },
-  MISSED: {
-    color: "#dc2626",
-    label: "Missed",
-    desc: "Engine returned SAFE on a known-malicious package",
-  },
+  capabilities?: string[];
+  proofKinds?: string[];
+  verifiedCapabilities?: string[];
+  confirmedProofs?: number;
+  runIndex?: number | null;
 };
 
-function classifyRun(run: BenchRun): Outcome {
-  if (run.error) return "TIMEOUT";
-  if (run.verdict !== "DANGEROUS") return "MISSED";
-  const k = run.proofKinds ?? [];
-  if (k.includes("TEST_CONFIRMED")) return "TEST_CONFIRMED";
-  if (k.includes("TEST_UNCONFIRMED")) return "TEST_UNCONFIRMED_ONLY";
-  if (k.includes("AI_DYNAMIC") || k.includes("AI_STATIC")) return "AI_ONLY";
-  if (k.includes("STRUCTURAL")) return "STRUCTURAL_ONLY";
-  return "AI_ONLY";
+type BenchRun = {
+  file: string;
+  source?: BenchSource;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt?: string | null;
+  watchlist: string | null;
+  datasetVersion?: string | null;
+  engineSha?: string | null;
+  modelId?: string | null;
+  packageCount: number | null;
+  limit: number | null;
+  resultLimit: number | null;
+  dryRun: boolean;
+  counts: Record<string, number>;
+  verdictCounts: Record<string, number>;
+  categoryCounts?: Record<string, number>;
+  totalRows: number;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+  slowest: BenchRow[];
+  rows: BenchRow[];
+};
+
+type BenchResponse = {
+  runs: BenchRun[];
+  resultsDir: string;
+};
+
+type Outcome = "SAFE" | "DANGEROUS" | "timeout" | "failed" | "detected" | "missed" | "unknown";
+type Filter = "all" | Outcome;
+
+const PUBLIC_FILTERS: Filter[] = ["all", "SAFE", "DANGEROUS", "timeout", "failed"];
+const DATADOG_FILTERS: Filter[] = ["all", "detected", "missed", "timeout", "failed"];
+
+const FILTER_LABELS: Record<Filter, string> = {
+  all: "All",
+  SAFE: "Safe",
+  DANGEROUS: "Dangerous",
+  timeout: "Timeout",
+  failed: "Failed",
+  detected: "Detected",
+  missed: "Missed",
+  unknown: "Unknown",
+};
+
+function runSource(run: BenchRun): BenchSource {
+  return run.source ?? run.rows[0]?.source ?? "public";
 }
 
-function countKinds(kinds: ProofKind[]) {
-  const c: Record<ProofKind, number> = {
-    TEST_CONFIRMED: 0,
-    TEST_UNCONFIRMED: 0,
-    AI_DYNAMIC: 0,
-    AI_STATIC: 0,
-    STRUCTURAL: 0,
+function formatDuration(ms: number | null | undefined): string {
+  if (!ms || ms <= 0) return "-";
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rem = seconds % 60;
+  return `${minutes}m ${rem}s`;
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function rowKey(row: BenchRow): string {
+  return `${row.packageName}@${row.version ?? "unknown"}:${row.runIndex ?? 0}`;
+}
+
+function rowOutcome(row: BenchRow, source: BenchSource): Outcome {
+  if (row.status === "timeout") return "timeout";
+  if (row.status === "failed") return "failed";
+
+  if (source === "datadog") {
+    if (row.verdict === "DANGEROUS") return "detected";
+    if (row.verdict === "SAFE") return "missed";
+    return "unknown";
+  }
+
+  if (row.verdict === "DANGEROUS") return "DANGEROUS";
+  if (row.verdict === "SAFE") return "SAFE";
+  return row.status === "failed" ? "failed" : "unknown";
+}
+
+function badgeColors(outcome: Outcome) {
+  if (outcome === "SAFE" || outcome === "detected") {
+    return { color: "var(--safe)", bg: "var(--safe-bg)" };
+  }
+  if (outcome === "DANGEROUS" || outcome === "missed") {
+    return { color: "var(--danger)", bg: "var(--danger-bg)" };
+  }
+  if (outcome === "timeout") {
+    return { color: "var(--warning)", bg: "var(--suspected-bg)" };
+  }
+  return { color: "var(--text-muted)", bg: "var(--bg-tertiary)" };
+}
+
+function categoryLabel(category: BenchCategory | undefined): string {
+  if (category === "datadog-compromised") return "Compromised lib";
+  if (category === "datadog-malicious-intent") return "Malicious intent";
+  return "Public npm";
+}
+
+function countOutcomes(rows: BenchRow[], source: BenchSource): Record<string, number> {
+  return rows.reduce<Record<string, number>>((acc, row) => {
+    const outcome = rowOutcome(row, source);
+    acc[outcome] = (acc[outcome] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+function sourceSummary(runs: BenchRun[], source: BenchSource) {
+  const matching = runs.filter((run) => runSource(run) === source);
+  return {
+    runs: matching.length,
+    rows: matching.reduce((sum, run) => sum + run.totalRows, 0),
   };
-  for (const k of kinds) c[k]++;
-  return c;
 }
 
 export function Benchmark() {
-  const [data, setData] = useState<BenchData | null>(null);
+  const [data, setData] = useState<BenchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Outcome | "all">("all");
+  const [activeSource, setActiveSource] = useState<BenchSource>("datadog");
+  const [activeRunFile, setActiveRunFile] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
-    fetch("/bench-v2.json")
-      .then((r) => r.json())
-      .then((d) => setData(d))
-      .catch((e) => setError(String(e)));
+    fetch("/api/bench/results")
+      .then((resp) => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json() as Promise<BenchResponse>;
+      })
+      .then((payload) => {
+        setData(payload);
+        const preferred =
+          payload.runs.find((run) => runSource(run) === "datadog" && run.totalRows > 0) ??
+          payload.runs.find((run) => run.totalRows > 0) ??
+          payload.runs[0] ??
+          null;
+        if (preferred) {
+          setActiveSource(runSource(preferred));
+          setActiveRunFile(preferred.file);
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
-  const rows = useMemo(() => {
+  const runsForSource = useMemo(() => {
     if (!data) return [];
-    return data.results.map((r) => {
-      const run = r.runs[0]!;
-      return {
-        name: r.fixtureName.replace("test-pkg-bench-dd-", ""),
-        run,
-        outcome: classifyRun(run),
-        counts: countKinds(run.proofKinds ?? []),
-      };
-    });
-  }, [data]);
+    return data.runs.filter((run) => runSource(run) === activeSource);
+  }, [activeSource, data]);
 
-  const summary = useMemo(() => {
-    const c: Record<Outcome, number> = {
-      TEST_CONFIRMED: 0,
-      TEST_UNCONFIRMED_ONLY: 0,
-      AI_ONLY: 0,
-      STRUCTURAL_ONLY: 0,
-      TIMEOUT: 0,
-      MISSED: 0,
-    };
-    let dangerous = 0;
-    let total = 0;
-    for (const r of rows) {
-      c[r.outcome]++;
-      total++;
-      if (r.run.verdict === "DANGEROUS") dangerous++;
-    }
-    return { c, total, dangerous };
-  }, [rows]);
+  const activeRun = useMemo(() => {
+    if (!data) return null;
+    return runsForSource.find((run) => run.file === activeRunFile) ?? runsForSource[0] ?? data.runs[0] ?? null;
+  }, [activeRunFile, data, runsForSource]);
 
-  const filteredRows = useMemo(
-    () =>
-      filter === "all" ? rows : rows.filter((r) => r.outcome === filter),
-    [rows, filter],
-  );
+  const rows = useMemo(() => {
+    if (!activeRun) return [];
+    return filter === "all"
+      ? activeRun.rows
+      : activeRun.rows.filter((row) => rowOutcome(row, runSource(activeRun)) === filter);
+  }, [activeRun, filter]);
 
-  if (error) return <Loading message={`Failed: ${error}`} color="var(--danger)" />;
-  if (!data) return <Loading message="Loading benchmark…" />;
+  if (error) return <StateMessage tone="var(--danger)" message={`Benchmark unavailable: ${error}`} />;
+  if (!data) return <StateMessage message="Loading benchmark results..." />;
+  if (!activeRun) return <StateMessage message="No benchmark result files found yet." />;
+
+  const source = runSource(activeRun);
+  const filterOptions = source === "datadog" ? DATADOG_FILTERS : PUBLIC_FILTERS;
+  const outcomes = countOutcomes(activeRun.rows, source);
+  const datadogSummary = sourceSummary(data.runs, "datadog");
+  const publicSummary = sourceSummary(data.runs, "public");
+  const confirmedRows = activeRun.rows.filter((row) => (row.confirmedProofs ?? 0) > 0).length;
+  const compromised = activeRun.categoryCounts?.["datadog-compromised"] ?? 0;
+  const malicious = activeRun.categoryCounts?.["datadog-malicious-intent"] ?? 0;
+  const subtitle =
+    source === "datadog"
+      ? "Known malicious npm packages from Datadog's public corpus. Each row asks: did NpmGuard flag it, and how much evidence came back?"
+      : "Production-like audits against currently published npm packages, used to watch latency and false positive risk.";
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "32px 48px", maxWidth: 1100, margin: "0 auto" }}>
-      {/* Header */}
-      <header style={{ marginBottom: 32 }}>
-        <h1
-          style={{
-            fontFamily: "var(--font-heading)",
-            fontSize: "1.9rem",
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            marginBottom: 8,
-          }}
-        >
-          NpmGuard benchmark
-        </h1>
-        <p
-          style={{
-            color: "var(--text-dim)",
-            fontSize: "0.92rem",
-            lineHeight: 1.55,
-            marginBottom: 6,
-          }}
-        >
-          End-to-end audit of <strong>{summary.total} confirmed-malicious npm packages</strong>{" "}
-          from{" "}
-          <a
-            href="https://github.com/DataDog/malicious-software-packages-dataset"
-            target="_blank"
-            rel="noreferrer"
-            style={{ color: "var(--accent)", textDecoration: "none" }}
+    <div style={{ flex: 1, overflowY: "auto", padding: "28px", minWidth: 0 }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+        <header style={{ marginBottom: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 16,
+              alignItems: "flex-start",
+              marginBottom: 14,
+              flexWrap: "wrap",
+            }}
           >
-            Datadog's public corpus
-          </a>
-          . Every fixture is real malware. The question is: did the engine{" "}
-          flag it, and how strong is the evidence?
-        </p>
-        <div
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.74rem",
-            color: "var(--text-muted)",
-          }}
-        >
-          dataset {data.datasetVersion} · engine {data.engineSha.slice(0, 12)} ·{" "}
-          completed {new Date(data.completedAt).toISOString().split("T")[0]}
-        </div>
-      </header>
-
-      {/* Hero metrics */}
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 16,
-          marginBottom: 32,
-        }}
-      >
-        <HeroStat
-          label="Detection rate"
-          big={`${summary.dangerous}/${summary.total}`}
-          pct={Math.round((100 * summary.dangerous) / summary.total)}
-          tone="var(--danger)"
-          desc="Packages flagged DANGEROUS by the engine. The remaining are timeouts, not safe verdicts — see below."
-        />
-        <HeroStat
-          label="Proof-tested"
-          big={`${summary.c.TEST_CONFIRMED}/${summary.total}`}
-          pct={Math.round((100 * summary.c.TEST_CONFIRMED) / summary.total)}
-          tone="var(--safe)"
-          desc="Backed by a generated Vitest exploit that ran in a Docker sandbox and reproduced the malicious behavior."
-        />
-      </section>
-
-      {/* Heatmap */}
-      <section style={{ marginBottom: 32 }}>
-        <SectionH>Outcome map · {summary.total} fixtures</SectionH>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(25, 1fr)",
-            gap: 4,
-            marginBottom: 14,
-          }}
-        >
-          {rows.map((r) => (
-            <button
-              key={r.name}
-              title={`${r.name} — ${OUTCOME_META[r.outcome].label}`}
-              onClick={() =>
-                setFilter(filter === r.outcome ? "all" : r.outcome)
-              }
-              style={{
-                aspectRatio: "1",
-                background: OUTCOME_META[r.outcome].color,
-                border: "none",
-                borderRadius: 3,
-                cursor: "pointer",
-                opacity:
-                  filter === "all" || filter === r.outcome ? 1 : 0.25,
-              }}
-            />
-          ))}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {(Object.keys(OUTCOME_META) as Outcome[]).map((o) => (
-            <LegendChip
-              key={o}
-              outcome={o}
-              count={summary.c[o]}
-              active={filter === o}
-              onClick={() => setFilter(filter === o ? "all" : o)}
-            />
-          ))}
-        </div>
-      </section>
-
-      {/* What the categories mean */}
-      <section style={{ marginBottom: 32 }}>
-        <SectionH>How a fixture is classified</SectionH>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 10,
-            fontSize: "0.84rem",
-            lineHeight: 1.5,
-          }}
-        >
-          {(Object.keys(OUTCOME_META) as Outcome[]).map((o) => (
-            <div
-              key={o}
-              style={{
-                display: "flex",
-                gap: 10,
-                alignItems: "flex-start",
-                padding: "8px 10px",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-              }}
-            >
-              <span
+            <div style={{ maxWidth: 720 }}>
+              <div
                 style={{
-                  display: "inline-block",
-                  width: 10,
-                  height: 10,
-                  borderRadius: 2,
-                  background: OUTCOME_META[o].color,
-                  marginTop: 6,
-                  flexShrink: 0,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "0.7rem",
+                  color: "var(--text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  marginBottom: 8,
                 }}
-              />
-              <div>
-                <strong style={{ color: "var(--text)" }}>
-                  {OUTCOME_META[o].label}
-                </strong>
-                <div style={{ color: "var(--text-dim)", fontSize: "0.78rem" }}>
-                  {OUTCOME_META[o].desc}
-                </div>
+              >
+                Evidence bench
               </div>
+              <h1
+                style={{
+                  fontFamily: "var(--font-heading)",
+                  fontSize: "1.75rem",
+                  fontWeight: 750,
+                  marginBottom: 7,
+                  letterSpacing: 0,
+                }}
+              >
+                Benchmark results
+              </h1>
+              <p style={{ color: "var(--text-dim)", lineHeight: 1.5 }}>
+                {subtitle}
+              </p>
             </div>
-          ))}
-        </div>
-      </section>
 
-      {/* Table */}
-      <section>
-        <div
+            <div style={{ minWidth: 280, maxWidth: 430, flex: "1 1 300px" }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <SourceButton
+                  label="Malware corpus"
+                  detail={`${datadogSummary.rows} rows`}
+                  active={source === "datadog"}
+                  onClick={() => {
+                    const next = data.runs.find((run) => runSource(run) === "datadog");
+                    setActiveSource("datadog");
+                    setActiveRunFile(next?.file ?? null);
+                    setFilter("all");
+                  }}
+                />
+                <SourceButton
+                  label="Public packages"
+                  detail={`${publicSummary.rows} rows`}
+                  active={source === "public"}
+                  onClick={() => {
+                    const next = data.runs.find((run) => runSource(run) === "public");
+                    setActiveSource("public");
+                    setActiveRunFile(next?.file ?? null);
+                    setFilter("all");
+                  }}
+                />
+              </div>
+              <select
+                value={activeRun.file}
+                onChange={(e) => {
+                  setActiveRunFile(e.target.value);
+                  setFilter("all");
+                }}
+                style={{
+                  width: "100%",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "0.75rem",
+                  color: "var(--text)",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-strong)",
+                  borderRadius: 4,
+                  padding: "8px 9px",
+                }}
+              >
+                {runsForSource.map((run) => (
+                  <option key={run.file} value={run.file}>
+                    {run.file}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+            Updated {formatDate(activeRun.updatedAt)} - file {activeRun.file}
+            {activeRun.datasetVersion ? ` - dataset ${activeRun.datasetVersion}` : ""}
+            {activeRun.engineSha ? ` - engine ${activeRun.engineSha.slice(0, 12)}` : ""}
+            {activeRun.watchlist ? ` - watchlist ${activeRun.watchlist}` : ""}
+            {source === "datadog" ? ` - ${compromised} compromised / ${malicious} malicious-intent` : ""}
+          </div>
+        </header>
+
+        <section
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            marginBottom: 12,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(138px, 1fr))",
+            gap: 10,
+            marginBottom: 20,
           }}
         >
-          <SectionH>Per-fixture results</SectionH>
-          {filter !== "all" && (
-            <button
-              onClick={() => setFilter("all")}
+          {source === "datadog" ? (
+            <>
+              <Metric label="Rows" value={String(activeRun.totalRows)} />
+              <Metric label="Detected" value={String(outcomes.detected ?? 0)} tone="var(--safe)" />
+              <Metric label="Missed" value={String(outcomes.missed ?? 0)} tone="var(--danger)" />
+              <Metric label="Test-confirmed" value={String(confirmedRows)} tone="var(--accent-light)" />
+              <Metric label="Timeout" value={String(outcomes.timeout ?? 0)} tone="var(--warning)" />
+              <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
+            </>
+          ) : (
+            <>
+              <Metric label="Rows" value={String(activeRun.totalRows)} />
+              <Metric label="Safe" value={String(outcomes.SAFE ?? 0)} tone="var(--safe)" />
+              <Metric label="Dangerous" value={String(outcomes.DANGEROUS ?? 0)} tone="var(--danger)" />
+              <Metric label="Timeout" value={String(outcomes.timeout ?? 0)} tone="var(--warning)" />
+              <Metric label="Failed" value={String(outcomes.failed ?? 0)} tone="var(--text-muted)" />
+              <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
+            </>
+          )}
+        </section>
+
+        <section style={{ marginBottom: 22 }}>
+          <SectionHeader title="Slowest rows" right={`avg ${formatDuration(activeRun.avgDurationMs)}`} />
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: 10,
+            }}
+          >
+            {activeRun.slowest.slice(0, 8).map((row) => (
+              <SlowCard key={rowKey(row)} row={row} source={source} />
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <SectionHeader title="Result rows" right={`${rows.length}/${activeRun.rows.length} shown`} />
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            {filterOptions.map((item) => (
+              <button
+                key={item}
+                onClick={() => setFilter(item)}
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "0.72rem",
+                  padding: "5px 10px",
+                  borderRadius: 4,
+                  border: `1px solid ${filter === item ? "var(--accent)" : "var(--border-strong)"}`,
+                  background: filter === item ? "var(--accent-bg)" : "var(--bg-secondary)",
+                  color: filter === item ? "var(--accent-light)" : "var(--text-dim)",
+                  cursor: "pointer",
+                }}
+              >
+                {FILTER_LABELS[item]}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 6 }}>
+            <table
               style={{
+                width: "100%",
+                borderCollapse: "collapse",
                 fontFamily: "var(--font-mono)",
-                fontSize: "0.74rem",
-                background: "transparent",
-                border: "1px solid var(--border-strong)",
-                borderRadius: "var(--radius-sm)",
-                padding: "4px 10px",
-                color: "var(--text-dim)",
-                cursor: "pointer",
+                fontSize: "0.76rem",
+                minWidth: 900,
               }}
             >
-              clear filter ({OUTCOME_META[filter].label})
-            </button>
-          )}
-        </div>
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.78rem",
-          }}
-        >
-          <thead>
-            <tr style={{ borderBottom: "1px solid var(--border-strong)" }}>
-              <Th>Fixture</Th>
-              <Th>Verdict</Th>
-              <Th>Evidence</Th>
-              <Th style={{ textAlign: "right" }}>Proofs</Th>
-              <Th style={{ textAlign: "right" }}>Duration</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.map((r) => (
-              <tr
-                key={r.name}
-                style={{ borderBottom: "1px solid var(--border)" }}
-              >
-                <td style={{ padding: "10px 6px", color: "var(--text)" }}>
-                  {r.name}
-                </td>
-                <td style={{ padding: "10px 6px" }}>
-                  <VerdictBadge run={r.run} />
-                </td>
-                <td style={{ padding: "10px 6px" }}>
-                  <OutcomeBadge outcome={r.outcome} />
-                </td>
-                <td
-                  style={{
-                    padding: "10px 6px",
-                    textAlign: "right",
-                  }}
-                >
-                  <ProofCounts counts={r.counts} />
-                </td>
-                <td
-                  style={{
-                    padding: "10px 6px",
-                    textAlign: "right",
-                    color: "var(--text-dim)",
-                  }}
-                >
-                  {r.run.error
-                    ? "—"
-                    : `${(r.run.durationMs / 1000).toFixed(0)}s`}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+              <thead>
+                <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)" }}>
+                  <Th>Package</Th>
+                  <Th>{source === "datadog" ? "Class" : "Version"}</Th>
+                  <Th>Outcome</Th>
+                  <Th>Evidence</Th>
+                  <Th style={{ textAlign: "right" }}>Duration</Th>
+                  <Th>Notes</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={rowKey(row)} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <Td strong style={{ maxWidth: 340, overflowWrap: "anywhere" }}>
+                      {row.packageName}
+                    </Td>
+                    <Td>{source === "datadog" ? categoryLabel(row.category) : row.version ?? "-"}</Td>
+                    <Td><OutcomeBadge row={row} source={source} /></Td>
+                    <Td>{evidenceText(row, source)}</Td>
+                    <Td style={{ textAlign: "right" }}>{formatDuration(row.durationMs)}</Td>
+                    <Td muted style={{ maxWidth: 340, overflowWrap: "anywhere" }}>
+                      {notesText(row, source)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
 
-function HeroStat({
+function evidenceText(row: BenchRow, source: BenchSource): string {
+  if (source === "public") return row.status;
+  const confirmed = row.confirmedProofs ?? 0;
+  if (confirmed > 0) return `${confirmed} test-confirmed`;
+  const proofs = row.proofKinds?.length ?? 0;
+  if (proofs > 0) return `${proofs} proof attempts`;
+  return row.status;
+}
+
+function notesText(row: BenchRow, source: BenchSource): string {
+  if (row.error) return row.error.slice(0, 120);
+  if (source === "public") return row.verdict ?? "-";
+  const caps = row.capabilities ?? [];
+  if (caps.length === 0) return "-";
+  return caps.slice(0, 4).join(", ");
+}
+
+function SourceButton({
   label,
-  big,
-  pct,
-  tone,
-  desc,
-}: {
-  label: string;
-  big: string;
-  pct: number;
-  tone: string;
-  desc: string;
-}) {
-  return (
-    <div
-      style={{
-        background: "var(--bg-secondary)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
-        padding: "20px 22px",
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: "0.72rem",
-          color: "var(--text-muted)",
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          marginBottom: 10,
-        }}
-      >
-        {label}
-      </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 8 }}>
-        <span
-          style={{
-            fontFamily: "var(--font-heading)",
-            fontSize: "2.4rem",
-            fontWeight: 700,
-            color: tone,
-            letterSpacing: "-0.02em",
-            lineHeight: 1,
-          }}
-        >
-          {big}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "1rem",
-            color: "var(--text-dim)",
-          }}
-        >
-          {pct}%
-        </span>
-      </div>
-      <p
-        style={{
-          color: "var(--text-dim)",
-          fontSize: "0.82rem",
-          lineHeight: 1.45,
-        }}
-      >
-        {desc}
-      </p>
-    </div>
-  );
-}
-
-function VerdictBadge({ run }: { run: BenchRun }) {
-  let label: string;
-  let color: string;
-  let bg: string;
-  if (run.error) {
-    label = "TIMEOUT";
-    color = "#9e9787";
-    bg = "rgba(158, 151, 135, 0.12)";
-  } else if (run.verdict === "DANGEROUS") {
-    label = "DANGEROUS";
-    color = "#dc2626";
-    bg = "rgba(220, 38, 38, 0.12)";
-  } else {
-    label = "MISSED";
-    color = "#dc2626";
-    bg = "rgba(220, 38, 38, 0.12)";
-  }
-  return (
-    <span
-      style={{
-        fontFamily: "var(--font-mono)",
-        fontSize: "0.72rem",
-        fontWeight: 600,
-        padding: "3px 9px",
-        borderRadius: "var(--radius-sm)",
-        background: bg,
-        color,
-        border: `1px solid ${color}50`,
-        letterSpacing: "0.03em",
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function OutcomeBadge({ outcome }: { outcome: Outcome }) {
-  const m = OUTCOME_META[outcome];
-  return (
-    <span
-      style={{
-        fontFamily: "var(--font-mono)",
-        fontSize: "0.7rem",
-        padding: "3px 8px",
-        borderRadius: "var(--radius-sm)",
-        background: `${m.color}1a`,
-        color: m.color,
-        border: `1px solid ${m.color}40`,
-      }}
-    >
-      {m.label}
-    </span>
-  );
-}
-
-function ProofCounts({ counts }: { counts: Record<ProofKind, number> }) {
-  const items: Array<{ key: ProofKind; n: number; symbol: string; color: string }> = [
-    { key: "TEST_CONFIRMED", n: counts.TEST_CONFIRMED, symbol: "✓", color: "#16a34a" },
-    { key: "TEST_UNCONFIRMED", n: counts.TEST_UNCONFIRMED, symbol: "?", color: "#ca8a04" },
-    { key: "AI_DYNAMIC", n: counts.AI_DYNAMIC, symbol: "ai", color: "#2563eb" },
-    { key: "AI_STATIC", n: counts.AI_STATIC, symbol: "·", color: "#6b6558" },
-    { key: "STRUCTURAL", n: counts.STRUCTURAL, symbol: "x", color: "#5b21b6" },
-  ];
-  const visible = items.filter((i) => i.n > 0);
-  if (visible.length === 0)
-    return <span style={{ color: "var(--text-muted)" }}>—</span>;
-  return (
-    <span style={{ display: "inline-flex", gap: 8, justifyContent: "flex-end" }}>
-      {visible.map((i) => (
-        <span
-          key={i.key}
-          title={i.key}
-          style={{
-            color: i.color,
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {i.symbol} {i.n}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-function LegendChip({
-  outcome,
-  count,
+  detail,
   active,
   onClick,
 }: {
-  outcome: Outcome;
-  count: number;
+  label: string;
+  detail: string;
   active: boolean;
   onClick: () => void;
 }) {
-  const m = OUTCOME_META[outcome];
   return (
     <button
+      type="button"
       onClick={onClick}
       style={{
-        fontFamily: "var(--font-mono)",
-        fontSize: "0.74rem",
-        padding: "4px 10px",
-        borderRadius: "var(--radius-sm)",
-        border: `1px solid ${active ? m.color : "var(--border-strong)"}`,
-        background: active ? `${m.color}20` : "var(--bg-secondary)",
-        color: active ? m.color : "var(--text-dim)",
+        flex: 1,
+        minWidth: 0,
+        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+        background: active ? "var(--accent-bg)" : "var(--bg-secondary)",
+        color: active ? "var(--accent-light)" : "var(--text)",
+        borderRadius: 6,
+        padding: "9px 10px",
         cursor: "pointer",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
+        textAlign: "left",
       }}
     >
-      <span
-        style={{
-          display: "inline-block",
-          width: 8,
-          height: 8,
-          borderRadius: 2,
-          background: m.color,
-        }}
-      />
-      {m.label} <strong style={{ color: m.color }}>{count}</strong>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", fontWeight: 800 }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 4, fontFamily: "var(--font-mono)", fontSize: "0.66rem", color: "var(--text-muted)" }}>
+        {detail}
+      </div>
     </button>
   );
 }
 
-function SectionH({ children }: { children: React.ReactNode }) {
+function Metric({ label, value, tone = "var(--text)" }: { label: string; value: string; tone?: string }) {
   return (
-    <h2
-      style={{
-        fontFamily: "var(--font-heading)",
-        fontSize: "1.05rem",
-        fontWeight: 600,
-        marginBottom: 12,
-        color: "var(--text)",
-      }}
-    >
-      {children}
-    </h2>
+    <div style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: 14 }}>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-muted)", marginBottom: 8 }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: "var(--font-heading)", fontSize: "1.45rem", fontWeight: 750, color: tone }}>
+        {value}
+      </div>
+    </div>
   );
 }
 
-function Th({
+function SlowCard({ row, source }: { row: BenchRow; source: BenchSource }) {
+  return (
+    <div style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: 12, minWidth: 0 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {row.packageName}
+        </div>
+        <OutcomeBadge row={row} source={source} compact />
+      </div>
+      <div style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "0.72rem" }}>
+        {source === "datadog" ? categoryLabel(row.category) : row.version ?? "-"} - {formatDuration(row.durationMs)}
+      </div>
+    </div>
+  );
+}
+
+function OutcomeBadge({ row, source, compact = false }: { row: BenchRow; source: BenchSource; compact?: boolean }) {
+  const outcome = rowOutcome(row, source);
+  const colors = badgeColors(outcome);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: compact ? 0 : 84,
+        fontFamily: "var(--font-mono)",
+        fontSize: "0.68rem",
+        fontWeight: 800,
+        padding: compact ? "2px 6px" : "3px 8px",
+        borderRadius: 4,
+        color: colors.color,
+        background: colors.bg,
+        border: `1px solid ${colors.color}40`,
+      }}
+    >
+      {FILTER_LABELS[outcome].toUpperCase()}
+    </span>
+  );
+}
+
+function SectionHeader({ title, right }: { title: string; right?: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 12 }}>
+      <h2 style={{ fontFamily: "var(--font-heading)", fontSize: "1rem", fontWeight: 700 }}>{title}</h2>
+      {right && <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-muted)" }}>{right}</span>}
+    </div>
+  );
+}
+
+function Th({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return <th style={{ padding: "9px 10px", color: "var(--text-muted)", textAlign: "left", fontWeight: 700, ...style }}>{children}</th>;
+}
+
+function Td({
   children,
+  strong = false,
+  muted = false,
   style,
 }: {
-  children: React.ReactNode;
-  style?: React.CSSProperties;
+  children: ReactNode;
+  strong?: boolean;
+  muted?: boolean;
+  style?: CSSProperties;
 }) {
   return (
-    <th
-      style={{
-        textAlign: "left",
-        padding: "8px 6px",
-        fontWeight: 500,
-        color: "var(--text-muted)",
-        fontSize: "0.7rem",
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-        ...style,
-      }}
-    >
+    <td style={{ padding: "9px 10px", color: muted ? "var(--text-muted)" : "var(--text)", fontWeight: strong ? 650 : 400, verticalAlign: "top", ...style }}>
       {children}
-    </th>
+    </td>
   );
 }
 
-function Loading({ message, color }: { message: string; color?: string }) {
+function StateMessage({ message, tone = "var(--text-dim)" }: { message: string; tone?: string }) {
   return (
-    <div style={{ padding: 48, color: color ?? "var(--text-muted)" }}>
+    <div style={{ flex: 1, display: "grid", placeItems: "center", color: tone, fontFamily: "var(--font-mono)", fontSize: "0.85rem" }}>
       {message}
     </div>
   );

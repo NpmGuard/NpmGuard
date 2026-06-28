@@ -220,6 +220,22 @@ describe("bestMatch", () => {
     const f = finding({ fileLine: "lib/setup.js:42-67" });
     expect(bestMatch(f, [h])).toBeNull();
   });
+
+  it("returns null for same-file findings when the capability does not match", () => {
+    const h = hyp({
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["index.js"],
+      focusLines: [{ file: "index.js", range: "1-1" }],
+    });
+    const f = finding({
+      capability: "UNKNOWN",
+      confidence: "CONFIRMED",
+      fileLine: "index.js:1-1",
+      problem: "Prior triage flag was a false positive",
+    });
+
+    expect(bestMatch(f, [h])).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -249,7 +265,7 @@ describe("correlateAfterInvestigation", () => {
     expect(result.matched[0]!.hypId).toBe("h1");
     expect(g.get("h1").state).toBe("IN_PROGRESS");
     expect(g.get("h1").evidenceRefs.length).toBe(1);
-    expect(g.get("h2").state).toBe("OPEN"); // unmatched stays OPEN
+    expect(g.get("h2").state).toBe("REFUTED");
   });
 
   it("does not match the same hypothesis twice", () => {
@@ -282,7 +298,7 @@ describe("correlateAfterInvestigation", () => {
       agentText: "",
     });
     expect(result.matched.length).toBe(0);
-    expect(g.get("trg-0001").state).toBe("OPEN");
+    expect(g.get("trg-0001").state).toBe("REFUTED");
   });
 });
 
@@ -397,6 +413,36 @@ describe("correlateAfterInvestigation — agent CONFIRMED findings", () => {
     expect(result.matched.length).toBe(1);
     expect(g.get("h1").state).toBe("CONFIRMED");
     expect(g.get("h1").evidenceRefs.length).toBeGreaterThan(0);
+  });
+
+  it("does not confirm hypotheses from CLEAN findings", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["index.js"],
+      focusLines: [{ file: "index.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "CLEAN",
+          confidence: "CONFIRMED",
+          fileLine: "index.js",
+          problem: "Prior triage flag was a false positive",
+          evidence: "index.js is a standard re-export",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.matched).toHaveLength(0);
+    expect(result.unmatched).toEqual([0]);
+    expect(g.get("h1").state).toBe("REFUTED");
   });
 
   it("stays IN_PROGRESS for LIKELY/SUSPECTED findings", () => {

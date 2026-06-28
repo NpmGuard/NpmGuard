@@ -1,6 +1,6 @@
 import { SOURCE_FILE_TYPES } from "./config.js";
-import { Proof, type AuditReport, type FileVerdict, type PhaseLog } from "./models.js";
-import type { Hypothesis, HypothesisSeverity } from "@npmguard/shared";
+import { CapabilityEnum, Proof, type AuditReport, type FileVerdict, type Finding, type PhaseLog } from "./models.js";
+import type { ClaimKind, Hypothesis, HypothesisSeverity } from "@npmguard/shared";
 import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
 import { extractIntent } from "./phases/intent-extraction.js";
@@ -9,12 +9,17 @@ import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { deriveGraphVerdict } from "./orchestrator/verdict.js";
 import { correlateAfterInvestigation, correlateAfterVerify } from "./orchestrator/correlate.js";
 import { runExperiment } from "./orchestrator/experimenter.js";
-import { investigate } from "./phases/investigate.js";
+import { investigate, type InvestigationResult } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
 import { verifyProofs } from "./phases/verify.js";
 import { startAuditLog, type AuditLogger } from "./audit-log.js";
+import { ArtifactStore } from "./evidence/artifact-store.js";
 import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
+
+function hasRunArtifactEvidence(refs: readonly { kind: string; id: string }[]): boolean {
+  return refs.some((ref) => ref.kind === "run" && ref.id.startsWith("run_"));
+}
 
 // ---------------------------------------------------------------------------
 // Legacy file_verdict SSE adapter (kept for frontend code-viewer compat)
@@ -79,6 +84,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+function isTimeoutError(err: unknown, phase: string): boolean {
+  return err instanceof Error && err.message.startsWith(`${phase} timed out after `);
+}
+
 async function timedPhase<T>(
   name: string,
   fn: () => Promise<T>,
@@ -109,6 +118,85 @@ async function timedPhase<T>(
   return { result, log };
 }
 
+const PARTIAL_CAPABILITY_BY_CLAIM: Record<ClaimKind, CapabilityEnum> = {
+  env_exfil: "ENV_VARS",
+  cred_theft: "CREDENTIAL_THEFT",
+  binary_drop: "BINARY_DOWNLOAD",
+  obfuscation: "OBFUSCATION",
+  persistence: "FILESYSTEM",
+  destructive: "FILESYSTEM",
+  propagation: "WORM_PROPAGATION",
+  dos_loop: "DOS_LOOP",
+  clipboard_hijack: "CLIPBOARD_HIJACK",
+  dom_inject: "DOM_INJECT",
+  telemetry: "TELEMETRY_RAT",
+  dns_exfil: "DNS_EXFIL",
+  build_plugin_exfil: "BUILD_PLUGIN_EXFIL",
+};
+
+const PARTIAL_SEVERITY_SCORE: Record<HypothesisSeverity, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
+function buildPartialInvestigationResult(
+  hypotheses: readonly Hypothesis[],
+  reason: string,
+): InvestigationResult {
+  const strong = hypotheses.filter((h) => h.severity === "high" || h.severity === "critical");
+  const selected = (strong.length > 0 ? strong : [...hypotheses])
+    .sort((a, b) => PARTIAL_SEVERITY_SCORE[b.severity] - PARTIAL_SEVERITY_SCORE[a.severity])
+    .slice(0, 8);
+
+  const capabilities = new Set<CapabilityEnum>();
+  const findings: Finding[] = selected.map((h) => {
+    const cap = PARTIAL_CAPABILITY_BY_CLAIM[h.claim.kind];
+    capabilities.add(cap);
+    const focus = h.focusLines[0]
+      ? `${h.focusLines[0].file}:${h.focusLines[0].range}`
+      : h.focusFiles[0] ?? "";
+    return {
+      capability: cap,
+      confidence: h.severity === "critical" || h.severity === "high" ? "LIKELY" : "SUSPECTED",
+      fileLine: focus,
+      problem: h.description,
+      evidence:
+        `${reason}. Preserved from triage hypothesis ${h.hypId} ` +
+        `(${h.claim.kind}/${h.severity}) so the audit keeps a usable partial signal.`,
+      reproductionStrategy: `Resume dynamic investigation from ${h.focusFiles.join(", ") || "the package entrypoint"}.`,
+    };
+  });
+
+  const proofs = findings.map((finding) => ({
+    capability: CapabilityEnum.parse(finding.capability),
+    attackPathway: "",
+    confidence: finding.confidence,
+    fileLine: finding.fileLine,
+    problem: finding.problem,
+    evidence: finding.evidence.slice(0, 500),
+    kind: "AI_STATIC" as const,
+    contentHash: null,
+    reproducible: false,
+    reproductionCmd: null,
+    testFile: null,
+    testHash: null,
+    testCode: null,
+    verifyError: reason,
+    reasoningHash: null,
+    teeAttestationId: null,
+  }));
+
+  return {
+    capabilities: [...capabilities],
+    proofs,
+    findings,
+    toolCalls: [],
+    agentText: reason,
+  };
+}
+
 export interface AuditResult {
   report: AuditReport;
   packagePath: string;
@@ -118,6 +206,7 @@ export interface AuditResult {
 export async function runAudit(packageName: string, emit?: EmitFn, auditId?: string, version?: string): Promise<AuditResult> {
   console.log(`[pipeline] starting audit for ${packageName}${version ? `@${version}` : ""}`);
   const log = startAuditLog(packageName);
+  const artifactStore = new ArtifactStore(log.runDir);
   const trace: PhaseLog[] = [];
 
   emit?.("audit_started", { packageName });
@@ -311,36 +400,70 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
     // Phase 1c: Investigation — agentic LLM with read tools, given the
     // triage hypotheses as a starting list of suspicious sites to verify.
-    const { result: investigationResult, log: investigateLog } = await timedPhase(
-      "investigation",
-      () => investigate(resolved.path, inventory, triageOutput.hypotheses, triageOutput.fileSummaries, emit, log),
-      5 * 60_000 * timeoutScale,
-      {
-        hypothesisCount: triageOutput.hypotheses.length,
-        packagePath: resolved.path,
-      },
-      (inv) => ({
-        capabilityCount: inv.capabilities.length,
-        capabilities: inv.capabilities,
-        findingCount: inv.findings.length,
-        findings: inv.findings.map((f) => ({
-          capability: f.capability,
-          confidence: f.confidence,
-          fileLine: f.fileLine,
-          problem: f.problem,
-        })),
-        proofCount: inv.proofs.length,
-        toolCalls: inv.toolCalls.map((tc) => ({
-          tool: tc.tool,
-          args: tc.args,
-          resultPreview: tc.resultPreview,
-          timestamp: tc.timestamp,
-          injectionDetected: tc.injectionDetected,
-        })),
-        agentText: inv.agentText.slice(0, 2000),
-      }),
-      emit,
-    );
+    let investigationResult: InvestigationResult;
+    let investigateLog: PhaseLog;
+    const investigationTimeoutMs = 5 * 60_000 * timeoutScale;
+    try {
+      const timed = await timedPhase(
+        "investigation",
+        () => investigate(resolved.path, inventory, triageOutput.hypotheses, triageOutput.fileSummaries, emit, log),
+        investigationTimeoutMs,
+        {
+          hypothesisCount: triageOutput.hypotheses.length,
+          packagePath: resolved.path,
+        },
+        (inv) => ({
+          capabilityCount: inv.capabilities.length,
+          capabilities: inv.capabilities,
+          findingCount: inv.findings.length,
+          findings: inv.findings.map((f) => ({
+            capability: f.capability,
+            confidence: f.confidence,
+            fileLine: f.fileLine,
+            problem: f.problem,
+          })),
+          proofCount: inv.proofs.length,
+          toolCalls: inv.toolCalls.map((tc) => ({
+            tool: tc.tool,
+            args: tc.args,
+            resultPreview: tc.resultPreview,
+            timestamp: tc.timestamp,
+            injectionDetected: tc.injectionDetected,
+          })),
+          agentText: inv.agentText.slice(0, 2000),
+        }),
+        emit,
+      );
+      investigationResult = timed.result;
+      investigateLog = timed.log;
+    } catch (err) {
+      if (!isTimeoutError(err, "investigation")) throw err;
+      const durationMs = investigationTimeoutMs;
+      const reason = err instanceof Error ? err.message : "investigation timed out";
+      console.warn(`[pipeline] ${reason}; preserving partial triage-derived findings`);
+      investigationResult = buildPartialInvestigationResult(triageOutput.hypotheses, `PARTIAL_TIMEOUT: ${reason}`);
+      investigateLog = {
+        phase: "investigation",
+        durationMs,
+        input: {
+          hypothesisCount: triageOutput.hypotheses.length,
+          packagePath: resolved.path,
+        },
+        output: {
+          partial: true,
+          reason,
+          capabilityCount: investigationResult.capabilities.length,
+          capabilities: investigationResult.capabilities,
+          findingCount: investigationResult.findings.length,
+          proofCount: investigationResult.proofs.length,
+        },
+      };
+      emit?.("phase_completed", { phase: "investigation", durationMs });
+      emit?.("agent_reasoning", {
+        text: `Investigation timed out; preserving ${investigationResult.findings.length} triage-derived partial findings.`,
+        step: -1,
+      });
+    }
     trace.push(investigateLog);
     log.writeLog("investigation.json", investigationResult);
 
@@ -350,14 +473,40 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     console.log(
       `[pipeline] investigation→graph: ${invCorrelation.matched.length} matched, ${invCorrelation.unmatched.length} unmatched findings`,
     );
+    const matchedFindingIndexes = new Set(
+      invCorrelation.matched.map((m) => m.findingIndex),
+    );
+    const proofInvestigation: InvestigationResult = {
+      ...investigationResult,
+      findings: investigationResult.findings.filter((_, index) =>
+        matchedFindingIndexes.has(index),
+      ),
+      proofs: investigationResult.proofs.filter((proof) =>
+        investigationResult.findings.some((finding, index) =>
+          matchedFindingIndexes.has(index) &&
+          finding.fileLine === proof.fileLine &&
+          finding.capability === (proof.capability ?? ""),
+        ),
+      ),
+    };
+    if (invCorrelation.unmatched.length > 0) {
+      console.log(
+        `[pipeline] skipping test-gen for ${invCorrelation.unmatched.length} unmatched investigation finding(s)`,
+      );
+    }
 
     // Phase 1d: Experimenter — run dynamic observation for IN_PROGRESS hypotheses.
     // This is the first use of Phase A's runUnderObservation in the live pipeline.
-    const inProgressHyps = graph.filterByState("IN_PROGRESS");
-    if (inProgressHyps.length > 0) {
+    const experimentHyps = [
+      ...graph.filterByState("IN_PROGRESS"),
+      ...graph.filterByState("CONFIRMED").filter((h) =>
+        !hasRunArtifactEvidence(h.evidenceRefs),
+      ),
+    ];
+    if (experimentHyps.length > 0) {
       const mainEntry = inventory.entryPoints.runtime[0] ?? "index.js";
       console.log(
-        `[pipeline] experimenter: running dynamic observation for ${inProgressHyps.length} IN_PROGRESS hypothes${inProgressHyps.length === 1 ? "is" : "es"}`,
+        `[pipeline] experimenter: running dynamic observation for ${experimentHyps.length} hypothes${experimentHyps.length === 1 ? "is" : "es"} lacking run evidence`,
       );
       emit?.("phase_started", { phase: "experimenter" });
       const expStart = Date.now();
@@ -366,10 +515,10 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       const PER_HYP_MS = 90_000;
       const GLOBAL_BUDGET_MS = 10 * 60_000 * timeoutScale;
 
-      for (const h of inProgressHyps) {
+      for (const h of experimentHyps) {
         if (Date.now() - expStart > GLOBAL_BUDGET_MS) {
           console.warn(
-            `[experimenter] global budget ${GLOBAL_BUDGET_MS}ms exceeded — skipping remaining ${inProgressHyps.length - inProgressHyps.indexOf(h)} hypothes${inProgressHyps.length - inProgressHyps.indexOf(h) === 1 ? "is" : "es"}`,
+            `[experimenter] global budget ${GLOBAL_BUDGET_MS}ms exceeded — skipping remaining ${experimentHyps.length - experimentHyps.indexOf(h)} hypothes${experimentHyps.length - experimentHyps.indexOf(h) === 1 ? "is" : "es"}`,
           );
           break;
         }
@@ -380,13 +529,24 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
             `experiment:${h.hypId}`,
           );
           if (result) {
+            const { contentHash: artifactContentHash, ...artifactWithoutHash } = result.artifact;
+            const artifactHash = artifactStore.writeArtifact(artifactWithoutHash);
+            if (artifactHash !== artifactContentHash) {
+              console.warn(
+                `[experimenter] artifact hash mismatch for ${result.artifact.runId}: ` +
+                  `artifact=${artifactContentHash} store=${artifactHash}`,
+              );
+            }
+
             if (result.confirmed) {
               graph.addEvidence(h.hypId, [result.evidenceRef]);
-              graph.transition(h.hypId, {
-                to: "CONFIRMED",
-                by: "worker:experimenter",
-                evidenceRefs: [result.evidenceRef],
-              });
+              if (h.state !== "CONFIRMED") {
+                graph.transition(h.hypId, {
+                  to: "CONFIRMED",
+                  by: "worker:experimenter",
+                  evidenceRefs: [result.evidenceRef],
+                });
+              }
               emit?.("experiment_confirmed", { hypId: h.hypId, reason: result.reason });
             }
             log.writeLog(`experiment-${h.hypId}.json`, {
@@ -394,8 +554,12 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
               confirmed: result.confirmed,
               reason: result.reason,
               runId: result.artifact.runId,
+              artifactHash,
+              evidenceRef: result.evidenceRef,
               wallMs: result.artifact.wallMs,
               eventCount: result.artifact.events.length,
+              eventSummary: result.artifact.eventSummary,
+              error: result.artifact.error,
             });
           }
         } catch (err) {
@@ -408,15 +572,15 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       const expDuration = Date.now() - expStart;
       console.log(`[pipeline] experimenter completed in ${expDuration}ms`);
       emit?.("phase_completed", { phase: "experimenter", durationMs: expDuration });
-      trace.push({ phase: "experimenter", durationMs: expDuration, input: { hypotheses: inProgressHyps.length }, output: {} });
+      trace.push({ phase: "experimenter", durationMs: expDuration, input: { hypotheses: experimentHyps.length }, output: {} });
     }
 
     // Phase 1e: Test generation
     const { result: proofs, log: testGenLog } = await timedPhase(
       "test-gen",
-      () => generateTests(investigationResult, resolved.path),
+      () => generateTests(proofInvestigation, resolved.path),
       5 * 60_000 * timeoutScale,
-      { proofCount: investigationResult.proofs.length, findingCount: investigationResult.findings.length },
+      { proofCount: proofInvestigation.proofs.length, findingCount: proofInvestigation.findings.length },
       (p) => ({
         proofCount: p.length,
         withTests: p.filter((x) => x.testFile).length,
@@ -428,7 +592,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     // Phase 2: Proof verification (with retry loop — up to 3 attempts per failed test)
     const { result: verifiedProofs, log: verifyLog } = await timedPhase(
       "verify",
-      () => verifyProofs(proofs, resolved.path, emit, investigationResult.findings),
+      () => verifyProofs(proofs, resolved.path, emit, proofInvestigation.findings),
       15 * 60_000 * timeoutScale,
       { proofCount: proofs.length, withTests: proofs.filter((x) => x.testFile).length },
       (p) => ({
@@ -444,7 +608,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const verifyCorrelation = correlateAfterVerify(
       graph,
       verifiedProofs,
-      investigationResult.findings,
+      proofInvestigation.findings,
     );
     log.writeLog("correlation-verify.json", verifyCorrelation);
     console.log(
@@ -454,23 +618,18 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     // Persist final graph state
     log.writeLog("graph-final.json", graph.serialize());
 
-    // Graph-derived verdict is now authoritative. DANGEROUS requires at
-    // least one CONFIRMED hypothesis with evidence. SUSPECT / UNKNOWN /
-    // SAFE map to the 2-state SAFE|DANGEROUS for the AuditReport.
+    // Graph-derived verdict is authoritative. Until AuditReport/CLI/frontend
+    // grow the richer 4-state vocabulary, keep the public 2-state mapping
+    // conservative: only graph SAFE with no confirmed proof maps to SAFE.
+    // SUSPECT/UNKNOWN become DANGEROUS so the CLI warns instead of silently
+    // installing an under-investigated package.
     //
-    // Fallback: if the graph didn't reach DANGEROUS (typical when triage
-    // produced no hypothesis matching the actual finding, so all findings
-    // ended unmatched in correlate.ts), trust a TEST_CONFIRMED proof as
-    // sufficient evidence. This prevents the v2 graph from reporting SAFE
-    // on packages where the sandbox-verified test reproduced the malicious
-    // behavior. The proper fix (correlator creating new hypotheses for
-    // unmatched findings) lives in a separate PR.
     const graphVerdict = deriveGraphVerdict(graph);
     const hasConfirmedProof = verifiedProofs.some((p) => p.kind === "TEST_CONFIRMED");
     const verdict =
-      graphVerdict.verdict === "DANGEROUS" || hasConfirmedProof
-        ? "DANGEROUS"
-        : "SAFE";
+      graphVerdict.verdict === "SAFE" && !hasConfirmedProof
+        ? "SAFE"
+        : "DANGEROUS";
     console.log(
       `[pipeline] graph verdict: ${graphVerdict.verdict} → report verdict: ${verdict} — ${graphVerdict.rationale}`,
     );

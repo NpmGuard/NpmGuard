@@ -18,7 +18,7 @@ npm run build && npm start        # production
 
 - `stripeSessionId` — verified via the Stripe API
 - `txHash` + `chain` — verified via `src/chain.ts` (Alchemy Base Sepolia / mainnet), decodes `AuditRequested` event and matches `(packageName, version)`
-- neither (dev mode only, requires `PAYMENT_ENABLED=false`)
+- neither (dev mode only, requires `NPMGUARD_PAYMENT_REQUIRED=false`)
 
 Anti-replay is tracked in `src/chain-payment-map.ts` (in-memory, keyed on `(chain, txHash)`). Stripe has its own dedup via `payment-map.ts`.
 
