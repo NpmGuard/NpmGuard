@@ -158,7 +158,7 @@ export function computeEventSummary(events: readonly Event[]): EventSummary {
  * schema, return the sealed record.
  */
 export function sealRunArtifact(draft: Omit<RunArtifact, "contentHash">): RunArtifact {
-  const hashInput = { ...draft, contentHash: "" };
-  const contentHash = sha256Hex(canonicalize(hashInput));
-  return RunArtifactSchema.parse({ ...draft, contentHash });
+  const parsedNoHash = RunArtifactSchema.parse({ ...draft, contentHash: "" });
+  const contentHash = sha256Hex(canonicalize({ ...parsedNoHash, contentHash: "" }));
+  return { ...parsedNoHash, contentHash };
 }
