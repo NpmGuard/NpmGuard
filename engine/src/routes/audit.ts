@@ -10,7 +10,7 @@ import {
   type SupportedChain,
 } from "../chain.js";
 import { getChainPayment, recordChainPayment } from "../chain-payment-map.js";
-import { config, PAYMENT_ENABLED } from "../config.js";
+import { config, PAYMENT_REQUIRED, STRIPE_ENABLED } from "../config.js";
 import { NpmGuardError, QueueFullError } from "../errors.js";
 import {
   createEmitFn,
@@ -96,9 +96,9 @@ auditRoutes.post("/audit", async (c) => {
 
   if (isCre) {
     console.log(`[auth] CRE authenticated for ${parsed.data.packageName}`);
-  } else if (PAYMENT_ENABLED) {
+  } else if (PAYMENT_REQUIRED) {
     return c.json(
-      { error: "Use /checkout for paid audits, or /audit/stream with stripeSessionId" },
+      { error: "Payment required. Use /checkout or /audit/stream with a verified payment proof." },
       402,
     );
   }
@@ -156,7 +156,7 @@ auditRoutes.post("/audit", async (c) => {
 //
 //   1. txHash + chain  → on-chain Base Sepolia / mainnet verify + dedup
 //   2. stripeSessionId → Stripe verify (with double-check race protection)
-//   3. (neither)       → dev mode, only if PAYMENT_ENABLED=false
+//   3. (neither)       → dev mode, only if PAYMENT_REQUIRED=false
 // ---------------------------------------------------------------------------
 
 auditRoutes.post("/audit/stream", async (c) => {
@@ -223,9 +223,10 @@ auditRoutes.post("/audit/stream", async (c) => {
       return c.json({ error: "Chain verification failed" }, 500);
     }
 
-    // Double-check: a concurrent identical-txHash request may have started the
-    // audit during our async receipt poll. Re-read the dedup map before
-    // launching a second audit for the same payment.
+    // Double-check: a concurrent identical-txHash request may have recorded
+    // payment during our async verify window (mirrors the Stripe guard below).
+    // Without this, two requests carrying the same txHash both pass the
+    // pre-verify dedup and both launch an audit.
     const claimedDuringVerify = getChainPayment(chain, parsed.data.txHash);
     if (claimedDuringVerify) {
       return c.json({
@@ -234,8 +235,8 @@ auditRoutes.post("/audit/stream", async (c) => {
       });
     }
   } else if (parsed.data.stripeSessionId) {
-    if (!PAYMENT_ENABLED) {
-      return c.json({ error: "Payments not configured" }, 501);
+    if (!STRIPE_ENABLED) {
+      return c.json({ error: "Stripe payments not configured" }, 501);
     }
 
     // Dedup: return existing auditId if this session was already verified
@@ -264,7 +265,7 @@ auditRoutes.post("/audit/stream", async (c) => {
         packageName: claimedDuringVerify.packageName,
       });
     }
-  } else if (!PAYMENT_ENABLED) {
+  } else if (!PAYMENT_REQUIRED) {
     // Dev mode: no payment required
     if (!parsed.data.packageName) {
       return c.json({ error: "packageName is required" }, 400);
@@ -272,8 +273,7 @@ auditRoutes.post("/audit/stream", async (c) => {
     packageName = parsed.data.packageName;
     version = parsed.data.version;
   } else {
-    // Payment enabled but no stripeSessionId
-    return c.json({ error: "Payment required. Use /checkout first." }, 402);
+    return c.json({ error: "Payment required. Use /checkout or provide txHash + chain." }, 402);
   }
 
   // --- Start audit ---
