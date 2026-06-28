@@ -473,6 +473,27 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     console.log(
       `[pipeline] investigation→graph: ${invCorrelation.matched.length} matched, ${invCorrelation.unmatched.length} unmatched findings`,
     );
+    const matchedFindingIndexes = new Set(
+      invCorrelation.matched.map((m) => m.findingIndex),
+    );
+    const proofInvestigation: InvestigationResult = {
+      ...investigationResult,
+      findings: investigationResult.findings.filter((_, index) =>
+        matchedFindingIndexes.has(index),
+      ),
+      proofs: investigationResult.proofs.filter((proof) =>
+        investigationResult.findings.some((finding, index) =>
+          matchedFindingIndexes.has(index) &&
+          finding.fileLine === proof.fileLine &&
+          finding.capability === (proof.capability ?? ""),
+        ),
+      ),
+    };
+    if (invCorrelation.unmatched.length > 0) {
+      console.log(
+        `[pipeline] skipping test-gen for ${invCorrelation.unmatched.length} unmatched investigation finding(s)`,
+      );
+    }
 
     // Phase 1d: Experimenter — run dynamic observation for IN_PROGRESS hypotheses.
     // This is the first use of Phase A's runUnderObservation in the live pipeline.
@@ -557,9 +578,9 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     // Phase 1e: Test generation
     const { result: proofs, log: testGenLog } = await timedPhase(
       "test-gen",
-      () => generateTests(investigationResult, resolved.path),
+      () => generateTests(proofInvestigation, resolved.path),
       5 * 60_000 * timeoutScale,
-      { proofCount: investigationResult.proofs.length, findingCount: investigationResult.findings.length },
+      { proofCount: proofInvestigation.proofs.length, findingCount: proofInvestigation.findings.length },
       (p) => ({
         proofCount: p.length,
         withTests: p.filter((x) => x.testFile).length,
@@ -571,7 +592,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     // Phase 2: Proof verification (with retry loop — up to 3 attempts per failed test)
     const { result: verifiedProofs, log: verifyLog } = await timedPhase(
       "verify",
-      () => verifyProofs(proofs, resolved.path, emit, investigationResult.findings),
+      () => verifyProofs(proofs, resolved.path, emit, proofInvestigation.findings),
       15 * 60_000 * timeoutScale,
       { proofCount: proofs.length, withTests: proofs.filter((x) => x.testFile).length },
       (p) => ({
@@ -587,7 +608,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const verifyCorrelation = correlateAfterVerify(
       graph,
       verifiedProofs,
-      investigationResult.findings,
+      proofInvestigation.findings,
     );
     log.writeLog("correlation-verify.json", verifyCorrelation);
     console.log(
@@ -603,13 +624,6 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     // SUSPECT/UNKNOWN become DANGEROUS so the CLI warns instead of silently
     // installing an under-investigated package.
     //
-    // Fallback: if the graph didn't reach DANGEROUS (typical when triage
-    // produced no hypothesis matching the actual finding, so all findings
-    // ended unmatched in correlate.ts), trust a TEST_CONFIRMED proof as
-    // sufficient evidence. This prevents the v2 graph from reporting SAFE
-    // on packages where the sandbox-verified test reproduced the malicious
-    // behavior. The proper fix (correlator creating new hypotheses for
-    // unmatched findings) lives in a separate PR.
     const graphVerdict = deriveGraphVerdict(graph);
     const hasConfirmedProof = verifiedProofs.some((p) => p.kind === "TEST_CONFIRMED");
     const verdict =

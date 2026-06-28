@@ -1,20 +1,37 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
+import { readFileSync } from "node:fs";
 import { auditCommand } from "./commands/audit.js";
 import { checkCommand } from "./commands/check.js";
 import { installCommand } from "./commands/install.js";
+
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
+    ) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 const program = new Command();
 
 program
   .name("npmguard")
   .description("NpmGuard CLI — audit npm packages for security issues")
-  .version("1.0.0")
+  .version(readPackageVersion())
   .option(
     "--api <url>",
     "NpmGuard engine API URL",
     process.env.NPMGUARD_API_URL ?? "https://npmguard.com",
+  )
+  .option(
+    "--web <url>",
+    "NpmGuard web app URL for browser wallet payments",
+    process.env.NPMGUARD_WEB_URL ?? "https://npmguard.com",
   );
 
 program
@@ -32,8 +49,8 @@ program
   .argument("<package>", "Package name, optionally with version (e.g. express@4.18.0)")
   .option("-f, --force", "Install even if the package is flagged as dangerous")
   .action(async (pkg: string, cmdOpts: { force?: boolean }) => {
-    const apiUrl = program.opts().api as string;
-    await installCommand(pkg, { api: apiUrl, force: cmdOpts.force });
+    const opts = program.opts() as { api: string; web: string };
+    await installCommand(pkg, { api: opts.api, web: opts.web, force: cmdOpts.force });
   });
 
 program

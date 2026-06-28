@@ -6,6 +6,7 @@ const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/packages", label: "Packages" },
   { href: "/benchmark", label: "Benchmark" },
+  { href: "/cli", label: "CLI" },
 ];
 
 function navigate(href: string) {

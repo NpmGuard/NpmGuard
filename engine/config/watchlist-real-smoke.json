@@ -1,0 +1,7 @@
+[
+  "react",
+  "zod",
+  "chalk",
+  "commander",
+  "dotenv"
+]

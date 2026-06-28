@@ -22,7 +22,12 @@ Determine whether this package contains malicious code. Produce concrete finding
 - CONFIRMED: You observed the behavior in sandbox execution (require_and_trace showed network call, eval_js decoded the payload, etc.)
 
 ## Output
-For each finding, specify:
+Only output findings for suspicious or malicious behavior. If the investigation
+finds that a prior static hypothesis is benign, do NOT output a finding for that
+absence/non-issue. Return an empty findings array when no suspicious behavior
+remains after investigation.
+
+For each suspicious/malicious finding, specify:
 - The exact capability (NETWORK, FILESYSTEM, ENV_VARS, CREDENTIAL_THEFT, EVAL, OBFUSCATION, etc.)
 - The file and line range with the suspicious code
 - Concrete evidence (decoded strings, trace log entries, etc.)
@@ -31,6 +36,9 @@ For each finding, specify:
 CRITICAL RULES FOR EVIDENCE AND CONFIDENCE:
 - NEVER fabricate, invent, or hallucinate trace logs or placeholders. If require_and_trace failed or didn't output a trace for an event, DO NOT provide a fake trace log.
 - You may only use CONFIRMED if you actually saw the successful execution in the sandbox output. If you could not run it due to missing dependencies, you CANNOT mark it CONFIRMED.
+- Do NOT output findings that say a behavior is absent, controlled, legitimate,
+  expected, performance-only, type-only, or otherwise safe. Put those conclusions
+  in the summary instead.
 - Be thorough but focused. Follow leads from the prior static analysis. Do not flag benign patterns (legitimate HTTP clients, standard file operations for a package's stated purpose). If a package is designed to make requests (e.g. an XHR wrapper), legitimate network code is SAFE.
 `;
 

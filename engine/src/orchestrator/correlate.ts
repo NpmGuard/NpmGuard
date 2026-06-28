@@ -37,6 +37,10 @@ export function claimMatchesCapability(
   claim: ClaimKind,
   capability: string,
 ): boolean {
+  if (capability === "CLEAN") {
+    return false;
+  }
+
   const caps = CLAIM_TO_CAPABILITIES[claim];
   return caps ? caps.includes(capability) : false;
 }
@@ -155,18 +159,21 @@ export function scoreFindingHypothesis(
 
 /**
  * Find the best-matching hypothesis for a finding. Returns null if no
- * match scores above the minimum threshold (file must at least match).
+ * match scores above the minimum threshold. A finding must match both file
+ * location and claim capability; file-only matches are often benign reviews
+ * of a triage false positive.
  */
 export function bestMatch(
   finding: Finding,
   hypotheses: readonly Hypothesis[],
-  minScore = 1,
+  minScore = 4,
 ): { hypothesis: Hypothesis; score: CorrelationScore } | null {
   let best: { hypothesis: Hypothesis; score: CorrelationScore } | null = null;
   for (const h of hypotheses) {
     const score = scoreFindingHypothesis(finding, h);
-    // File overlap is mandatory — claim-only matches across different files are noise
+    // File overlap and claim match are both mandatory: either alone is noise.
     if (score.fileScore === 0) continue;
+    if (score.claimScore === 0) continue;
     if (score.score >= minScore && (!best || score.score > best.score.score)) {
       best = { hypothesis: h, score };
     }
@@ -192,6 +199,12 @@ function proofRef(proof: Proof, index: number): EvidenceRef {
   return { kind: "run", id: `proof_${index}`, hash };
 }
 
+function investigationRef(hypothesis: Hypothesis, investigation: InvestigationResult): EvidenceRef {
+  const content = `${hypothesis.hypId}|${hypothesis.description}|${investigation.agentText}`;
+  const hash = createHash("sha256").update(content).digest("hex");
+  return { kind: "run", id: `investigation_refuted_${hypothesis.hypId}`, hash };
+}
+
 // ---------------------------------------------------------------------------
 // Stage 1: After investigation — findings → IN_PROGRESS transitions
 // ---------------------------------------------------------------------------
@@ -203,8 +216,9 @@ export interface CorrelationResult {
 
 /**
  * After investigation: correlate findings to hypotheses. Matched hypotheses
- * transition OPEN → IN_PROGRESS with the finding as evidence. Unmatched
- * hypotheses stay OPEN (the experimenter worker or manual review will handle them).
+ * transition OPEN → IN_PROGRESS with the finding as evidence. Hypotheses that
+ * the investigation does not support are refuted so benign capability findings
+ * do not force expensive proof generation or public DANGEROUS verdicts.
  */
 export function correlateAfterInvestigation(
   graph: HypothesisGraph,
@@ -213,13 +227,21 @@ export function correlateAfterInvestigation(
   const result: CorrelationResult = { matched: [], unmatched: [] };
   const openHyps = graph.filterByState("OPEN");
 
-  if (openHyps.length === 0 || investigation.findings.length === 0) {
+  if (openHyps.length === 0) {
     return result;
   }
 
   const claimed = new Set<string>();
 
   investigation.findings.forEach((f, i) => {
+    if (f.capability === "CLEAN") {
+      result.unmatched.push(i);
+      console.log(
+        `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}) → no match (clean finding)`,
+      );
+      return;
+    }
+
     const candidates = openHyps.filter((h) => !claimed.has(h.hypId));
     const match = bestMatch(f, candidates);
 
@@ -260,6 +282,17 @@ export function correlateAfterInvestigation(
       );
     }
   });
+
+  for (const h of openHyps) {
+    if (claimed.has(h.hypId)) continue;
+    graph.transition(h.hypId, {
+      to: "REFUTED",
+      by: "correlator:investigation",
+      reason: "Investigation completed without evidence matching this hypothesis.",
+      evidenceRefs: [investigationRef(h, investigation)],
+    });
+    console.log(`[correlate] ${h.hypId} → REFUTED (no matching investigation finding)`);
+  }
 
   return result;
 }

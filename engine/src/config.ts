@@ -2,23 +2,35 @@ import "dotenv/config";
 import { z } from "zod";
 
 const LLMBackend = z.enum(["anthropic", "google", "openai_compatible"]);
+const EnvBoolean = z
+  .string()
+  .transform((v) => !["0", "false", "no", "off"].includes(v.toLowerCase()))
+  .default("true");
+const EnvBooleanFalse = z
+  .string()
+  .transform((v) => !["0", "false", "no", "off"].includes(v.toLowerCase()))
+  .default("false");
 
 const ConfigSchema = z.object({
   llmBackend: LLMBackend.default("anthropic"),
   llmBaseUrl: z.string().url().optional(),
   llmApiKey: z.string().optional(),
+  llmModel: z.string().optional(),
   llmTimeoutSeconds: z.coerce.number().positive().default(60),
+  deepseekThinkingEnabled: EnvBooleanFalse,
 
   apiHost: z.string().default("0.0.0.0"),
   apiPort: z.coerce.number().int().min(1).max(65535).default(8000),
 
   // Payment (Stripe)
+  paymentRequired: EnvBoolean,
   creApiKey: z.string().optional(),
   stripeSecretKey: z.string().optional(),
   stripeWebhookSecret: z.string().optional(),
   auditPriceCents: z.coerce.number().int().min(50).default(500),
 
   triageModel: z.string().default("claude-haiku-4-5-20251001"),
+  triageMaxFiles: z.coerce.number().int().min(1).max(1000).default(80),
 
   investigationModel: z.string().default("claude-sonnet-4-6"),
   maxAgentTurns: z.coerce.number().int().min(1).max(200).default(30),
@@ -51,18 +63,22 @@ function loadConfig() {
     llmBackend: env.NPMGUARD_LLM_BACKEND,
     llmBaseUrl: env.NPMGUARD_LLM_BASE_URL,
     llmApiKey: env.NPMGUARD_LLM_API_KEY,
+    llmModel: env.NPMGUARD_LLM_MODEL,
     llmTimeoutSeconds: env.NPMGUARD_LLM_TIMEOUT_SECONDS,
+    deepseekThinkingEnabled: env.NPMGUARD_DEEPSEEK_THINKING_ENABLED,
     apiHost: env.NPMGUARD_API_HOST,
     apiPort: env.NPMGUARD_API_PORT,
+    paymentRequired: env.NPMGUARD_PAYMENT_REQUIRED,
     creApiKey: env.NPMGUARD_CRE_API_KEY,
     stripeSecretKey: env.NPMGUARD_STRIPE_SECRET_KEY,
     stripeWebhookSecret: env.NPMGUARD_STRIPE_WEBHOOK_SECRET,
     auditPriceCents: env.NPMGUARD_AUDIT_PRICE_CENTS,
-    triageModel: env.NPMGUARD_TRIAGE_MODEL,
-    investigationModel: env.NPMGUARD_INVESTIGATION_MODEL,
+    triageModel: env.NPMGUARD_TRIAGE_MODEL ?? env.NPMGUARD_LLM_MODEL,
+    triageMaxFiles: env.NPMGUARD_TRIAGE_MAX_FILES,
+    investigationModel: env.NPMGUARD_INVESTIGATION_MODEL ?? env.NPMGUARD_LLM_MODEL,
     maxAgentTurns: env.NPMGUARD_MAX_AGENT_TURNS,
     investigationEnabled: env.NPMGUARD_INVESTIGATION_ENABLED,
-    testGenModel: env.NPMGUARD_TEST_GEN_MODEL,
+    testGenModel: env.NPMGUARD_TEST_GEN_MODEL ?? env.NPMGUARD_LLM_MODEL,
     testGenMode: env.NPMGUARD_TEST_GEN_MODE,
     maxFindingsToProve: env.NPMGUARD_MAX_FINDINGS_TO_PROVE,
     verifyTimeoutSec: env.NPMGUARD_VERIFY_TIMEOUT_SEC,
@@ -93,7 +109,8 @@ function loadConfig() {
 
 export const config = loadConfig();
 export type Config = z.infer<typeof ConfigSchema>;
-export const PAYMENT_ENABLED = !!config.stripeSecretKey;
+export const PAYMENT_REQUIRED = config.paymentRequired;
+export const STRIPE_ENABLED = !!config.stripeSecretKey;
 
 export const SKIP_DIRS = new Set(["node_modules", ".git", ".svn"]);
 
