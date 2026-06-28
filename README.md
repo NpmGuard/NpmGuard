@@ -9,7 +9,9 @@ package already has an audit → install happens immediately (or is blocked
 if DANGEROUS). If not → the user pays for an audit with a credit card
 (Stripe), a browser wallet (MetaMask/Rabby), or a mobile wallet
 (WalletConnect on Base Sepolia), the pipeline runs, and the verdict
-decides whether the install proceeds.
+decides whether the install proceeds. SAFE packages install from npm by
+default, or from a pinned tarball discovered through NpmGuard's storage API
+or ENS text records when the CLI is configured for that source.
 
 ## How it works
 
@@ -21,7 +23,7 @@ flowchart TD
 
     subgraph LOOKUP["Lookup"]
         GET[GET /package/express/report]
-        GET -->|SAFE| SAFE_INSTALL[npm install directly]
+        GET -->|SAFE| SAFE_INSTALL[Install from npm / Pinata / ENS]
         GET -->|DANGEROUS| WARN[Warn + prompt y/N]
         GET -->|not found| PAY
     end
@@ -55,6 +57,7 @@ flowchart TD
 
     U --> GET
     PIPELINE -->|persist| DB[(data/reports/<br/>pkg/version.json)]
+    PIPELINE -->|optional publish| STORE[(Pinata tarball + manifest<br/>ENS text records)]
     VERDICT -->|SAFE| SAFE_INSTALL
     VERDICT -->|DANGEROUS| WARN
     WARN -->|force| SAFE_INSTALL
@@ -97,6 +100,34 @@ npx npmguard-cli install express
 After payment, the audit runs end-to-end. Stripe and WalletConnect stream
 events in the terminal; the browser-wallet flow shows the live audit in the
 web app while the CLI waits for the persisted report.
+
+The audit and install steps are deliberately separate:
+
+1. **Resolve** the concrete npm tarball and extract package metadata.
+2. **Inventory** files, lifecycle scripts, entry points, dependency surface,
+   and structural dealbreakers.
+3. **Triage** source files with the configured OpenAI-compatible model and
+   produce hypotheses/capabilities.
+4. **Investigate** suspicious hypotheses with an agentic pass when static
+   risk warrants deeper analysis.
+5. **Generate and run proof tests** in the sandbox for high-risk findings.
+6. **Persist the verdict** under `data/reports/<pkg>/<version>.json`.
+7. **Publish demo artefacts** best-effort when configured: report JSON,
+   installable package tarball, optional package folder, manifest, and ENS
+   `npmguard.*` records. Publication failure never changes the verdict.
+
+Install source is a CLI policy decision after the server verdict:
+
+```bash
+npx npmguard-cli@latest install express --install-source npm
+npx npmguard-cli@latest install express --install-source pinata
+npx npmguard-cli@latest install express --install-source ens
+```
+
+`npm` uses the normal package registry. `pinata` asks the NpmGuard API for
+the stored tarball URL. `ens` resolves Sepolia ENS text records such as
+`npmguard.tarball_uri` / `npmguard.latest_tarball_uri`, then installs that
+Pinata tarball.
 
 See [cli/README.md](cli/README.md) for the full CLI reference.
 

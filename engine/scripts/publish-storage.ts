@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { loadReport } from "../src/report-store.js";
+import { saveStoragePublication } from "../src/storage-store.js";
 import { publishAuditStorage } from "../src/storage/publisher.js";
 
 function readFlag(name: string): string | null {
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
     publishEns: !hasFlag("--skip-ens"),
   });
 
+  saveStoragePublication(result);
   console.log(JSON.stringify(result, null, 2));
 }
 

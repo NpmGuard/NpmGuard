@@ -51,6 +51,16 @@ export interface StorageManifest {
     gatewayUrl: string;
     sha256: string;
   };
+  tarball: {
+    cid: string;
+    ipfsUri: string;
+    gatewayUrl: string;
+    sha256: string;
+    origin: "npm" | "file";
+    tarballUrl?: string;
+    integrity?: string;
+    shasum?: string;
+  } | null;
   source: {
     cid: string;
     ipfsUri: string;
@@ -72,6 +82,11 @@ export interface StoragePublishResult {
   version: string;
   publishedAt: string;
   report: PinataUploadResult & { sha256: string };
+  tarball: (PinataUploadResult & {
+    sha256: string;
+    origin: "npm" | "file";
+    tarballUrl?: string;
+  }) | null;
   source: (PinataUploadResult & {
     sha256: string;
     kind: "tarball" | "directory";
@@ -189,6 +204,8 @@ export async function publishAuditStorage(
 
   let sourceUpload: StoragePublishResult["source"] = null;
   let manifestSource: StorageManifest["source"] = null;
+  let tarballUpload: StoragePublishResult["tarball"] = null;
+  let manifestTarball: StorageManifest["tarball"] = null;
   if (options.includeSource ?? true) {
     if (options.sourceDirectoryPath) {
       const directoryUpload = await uploadDirectoryToPinata({
@@ -217,63 +234,115 @@ export async function publishAuditStorage(
     } else if (options.tarballPath) {
       const bytes = await fs.readFile(options.tarballPath);
       const tarballHash = sha256(bytes);
-      const directoryUpload = await withTempExtractedTarball(bytes, (directoryPath) =>
-        uploadDirectoryToPinata({
-          jwt: config.pinataJwt,
-          gatewayHost: config.pinataGatewayHost,
-          directoryPath,
-          name: `${stem}-source-folder`,
-        }),
-      );
-      sourceUpload = {
-        ...directoryUpload,
+      const uploadedTarball = await uploadBytesToPinata({
+        jwt: config.pinataJwt,
+        gatewayHost: config.pinataGatewayHost,
+        network: config.pinataNetwork,
+        bytes,
+        name: `${stem}-package.tgz`,
+        mimeType: "application/gzip",
+      });
+      tarballUpload = {
+        ...uploadedTarball,
         sha256: tarballHash,
-        kind: "directory",
         origin: "file",
       };
-      manifestSource = {
-        cid: directoryUpload.cid,
-        ipfsUri: directoryUpload.ipfsUri,
-        gatewayUrl: directoryUpload.gatewayUrl,
+      manifestTarball = {
+        cid: uploadedTarball.cid,
+        ipfsUri: uploadedTarball.ipfsUri,
+        gatewayUrl: uploadedTarball.gatewayUrl,
         sha256: tarballHash,
-        pathUri: `${directoryUpload.ipfsUri}/`,
-        pathGatewayUrl: `${directoryUpload.gatewayUrl}/`,
-        kind: "directory",
         origin: "file",
-        files: directoryUpload.files,
       };
+      try {
+        const directoryUpload = await withTempExtractedTarball(bytes, (directoryPath) =>
+          uploadDirectoryToPinata({
+            jwt: config.pinataJwt,
+            gatewayHost: config.pinataGatewayHost,
+            directoryPath,
+            name: `${stem}-source-folder`,
+          }),
+        );
+        sourceUpload = {
+          ...directoryUpload,
+          sha256: tarballHash,
+          kind: "directory",
+          origin: "file",
+        };
+        manifestSource = {
+          cid: directoryUpload.cid,
+          ipfsUri: directoryUpload.ipfsUri,
+          gatewayUrl: directoryUpload.gatewayUrl,
+          sha256: tarballHash,
+          pathUri: `${directoryUpload.ipfsUri}/`,
+          pathGatewayUrl: `${directoryUpload.gatewayUrl}/`,
+          kind: "directory",
+          origin: "file",
+          files: directoryUpload.files,
+        };
+      } catch (err) {
+        console.warn(`[storage] directory upload skipped: ${err instanceof Error ? err.message : err}`);
+      }
     } else {
       const tarball = await fetchNpmTarball(options.packageName, options.version);
       const tarballHash = sha256(tarball.bytes);
-      const directoryUpload = await withTempExtractedTarball(tarball.bytes, (directoryPath) =>
-        uploadDirectoryToPinata({
-          jwt: config.pinataJwt,
-          gatewayHost: config.pinataGatewayHost,
-          directoryPath,
-          name: `${stem}-source-folder`,
-        }),
-      );
-      sourceUpload = {
-        ...directoryUpload,
+      const uploadedTarball = await uploadBytesToPinata({
+        jwt: config.pinataJwt,
+        gatewayHost: config.pinataGatewayHost,
+        network: config.pinataNetwork,
+        bytes: tarball.bytes,
+        name: `${stem}-package.tgz`,
+        mimeType: "application/gzip",
+      });
+      tarballUpload = {
+        ...uploadedTarball,
         sha256: tarballHash,
-        kind: "directory",
         origin: "npm",
         tarballUrl: tarball.tarballUrl,
       };
-      manifestSource = {
-        cid: directoryUpload.cid,
-        ipfsUri: directoryUpload.ipfsUri,
-        gatewayUrl: directoryUpload.gatewayUrl,
+      manifestTarball = {
+        cid: uploadedTarball.cid,
+        ipfsUri: uploadedTarball.ipfsUri,
+        gatewayUrl: uploadedTarball.gatewayUrl,
         sha256: tarballHash,
-        pathUri: `${directoryUpload.ipfsUri}/`,
-        pathGatewayUrl: `${directoryUpload.gatewayUrl}/`,
-        kind: "directory",
         origin: "npm",
-        files: directoryUpload.files,
         tarballUrl: tarball.tarballUrl,
         integrity: tarball.integrity,
         shasum: tarball.shasum,
       };
+      try {
+        const directoryUpload = await withTempExtractedTarball(tarball.bytes, (directoryPath) =>
+          uploadDirectoryToPinata({
+            jwt: config.pinataJwt,
+            gatewayHost: config.pinataGatewayHost,
+            directoryPath,
+            name: `${stem}-source-folder`,
+          }),
+        );
+        sourceUpload = {
+          ...directoryUpload,
+          sha256: tarballHash,
+          kind: "directory",
+          origin: "npm",
+          tarballUrl: tarball.tarballUrl,
+        };
+        manifestSource = {
+          cid: directoryUpload.cid,
+          ipfsUri: directoryUpload.ipfsUri,
+          gatewayUrl: directoryUpload.gatewayUrl,
+          sha256: tarballHash,
+          pathUri: `${directoryUpload.ipfsUri}/`,
+          pathGatewayUrl: `${directoryUpload.gatewayUrl}/`,
+          kind: "directory",
+          origin: "npm",
+          files: directoryUpload.files,
+          tarballUrl: tarball.tarballUrl,
+          integrity: tarball.integrity,
+          shasum: tarball.shasum,
+        };
+      } catch (err) {
+        console.warn(`[storage] directory upload skipped: ${err instanceof Error ? err.message : err}`);
+      }
     }
   }
 
@@ -294,6 +363,7 @@ export async function publishAuditStorage(
       gatewayUrl: reportUpload.gatewayUrl,
       sha256: reportHash,
     },
+    tarball: manifestTarball,
     source: manifestSource,
   };
 
@@ -315,6 +385,8 @@ export async function publishAuditStorage(
       publishedAt,
       reportCid: reportUpload.cid,
       reportUri: reportUpload.gatewayUrl,
+      tarballCid: tarballUpload?.cid,
+      tarballUri: tarballUpload?.gatewayUrl,
       sourceCid: sourceUpload?.cid,
       sourceUri: sourceUpload?.ipfsUri,
       sourcePath: manifestSource?.pathUri,
@@ -330,6 +402,7 @@ export async function publishAuditStorage(
     version: options.version,
     publishedAt,
     report: { ...reportUpload, sha256: reportHash },
+    tarball: tarballUpload,
     source: sourceUpload,
     manifest: { ...manifestUpload, value: manifestValue },
     ens,

@@ -7,7 +7,7 @@ engine before it touches your `node_modules`.
 npx npmguard-cli install express
 ```
 
-- **SAFE** → installs immediately
+- **SAFE** → installs immediately from the configured source
 - **DANGEROUS** → warns, shows findings, asks before installing
 - **No audit yet** → offers to pay for one (Stripe or crypto), then streams
   the results in real time
@@ -62,6 +62,23 @@ lockfiles and runs the correct add command (`npm install`, `pnpm add`,
 6. Streams audit events live for Stripe/WalletConnect, or waits for the
    report when the browser-wallet page owns the live view
 7. Runs the install if the verdict is SAFE, or prompts otherwise
+
+The install source is configurable:
+
+```bash
+# default: audited verdict, then normal registry install
+npmguard install express --install-source npm
+
+# audited verdict, then install the tarball published by NpmGuard on Pinata
+npmguard install express --install-source pinata
+
+# audited verdict, then resolve ENS text records to find the Pinata tarball
+npmguard install express --install-source ens
+```
+
+The source choice never replaces server-side verification. NpmGuard always
+checks the report store first; `pinata` and `ens` only decide where the SAFE
+package bytes come from.
 
 ### `npmguard audit <package>[@version]`
 
@@ -150,6 +167,27 @@ export NPMGUARD_API_URL=http://localhost:8000
 export NPMGUARD_WEB_URL=http://localhost:3000
 npmguard install lodash
 ```
+
+Install source:
+
+```bash
+# via flag
+npmguard install lodash --install-source ens
+
+# via env
+export NPMGUARD_INSTALL_SOURCE=pinata
+export NPMGUARD_ENS_ROOT_DOMAIN=npmguard-demo.eth
+export NPMGUARD_ENS_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+npmguard install lodash
+```
+
+Available values:
+
+| Source | Behavior |
+|---|---|
+| `npm` | Installs `<package>@<version>` from the normal npm registry |
+| `pinata` | Reads `/package/<name>/storage?version=<version>` from NpmGuard and installs the pinned tarball URL |
+| `ens` | Resolves Sepolia ENS `npmguard.*` text records and installs the announced Pinata tarball |
 
 No private key or paid RPC config is required from the user. For the
 WalletConnect path, the CLI uses `viem` with a public Base Sepolia RPC to

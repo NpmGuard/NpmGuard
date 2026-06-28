@@ -76,9 +76,11 @@ Reports are persisted to `data/reports/<pkg>/<version>.json`, keyed by the real 
 
 ## Optional Pinata + ENS publication
 
-For demos, a saved report can be published to Pinata together with the npm
-package folder, then announced through ENS text records. This does not replace the
-local report store; it publishes a copy plus a small storage manifest.
+For demos, a saved report can be published to Pinata together with an
+installable npm tarball and, when the Pinata key allows folder uploads, the
+extracted package folder. The publication is then announced through ENS text
+records. This does not replace the local report store; it publishes a copy plus
+a small storage manifest.
 
 ```bash
 NPMGUARD_PINATA_JWT="$PINATA_JWT" \
@@ -86,9 +88,13 @@ NPMGUARD_PINATA_GATEWAY_HOST="example.mypinata.cloud" \
 npm run storage:publish -- express 5.2.1
 ```
 
+When `NPMGUARD_STORAGE_PUBLISH` is `auto` or `true`, normal audits publish
+these artefacts best-effort after the report is persisted. A Pinata/ENS failure
+is logged but never changes the audit verdict.
+
 If ENS variables are also set, the script publishes `npmguard.*` text records
-for the verdict, score, report CID, source folder CID, source path template,
-and storage manifest CID.
+for the verdict, score, report CID, installable tarball URI, source folder CID,
+source path template, and storage manifest CID.
 
 For legacy ENS v1 names with a controllable subname tree, the script creates or
 updates:
@@ -188,7 +194,8 @@ Settings are loaded from environment variables with the `NPMGUARD_` prefix (or a
 | `NPMGUARD_BASE_SEPOLIA_RPC_URL` | `https://sepolia.base.org` | RPC URL for Base Sepolia (Alchemy recommended) |
 | `NPMGUARD_BASE_CONTRACT` | _(unset)_ | `NpmGuardAuditRequest` address on Base mainnet |
 | `NPMGUARD_BASE_RPC_URL` | `https://mainnet.base.org` | RPC URL for Base mainnet |
-| `NPMGUARD_PINATA_JWT` | _(unset)_ | Pinata JWT used by `npm run storage:publish` |
+| `NPMGUARD_STORAGE_PUBLISH` | `auto` | `auto` publishes when Pinata credentials exist; `false` disables best-effort publication |
+| `NPMGUARD_PINATA_JWT` | _(unset)_ | Pinata JWT used by `npm run storage:publish` and best-effort post-audit publication |
 | `NPMGUARD_PINATA_GATEWAY_HOST` | `gateway.pinata.cloud` | Gateway host used for published report/package URLs |
 | `NPMGUARD_PINATA_NETWORK` | `public` | Pinata v3 upload network for report/manifest files: `public` or `private` |
 | `NPMGUARD_ENS_ROOT_DOMAIN` | `npmguard-demo.eth` | ENS root used for package/version records |

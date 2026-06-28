@@ -24,6 +24,32 @@ export interface PackageReport {
   [key: string]: unknown;
 }
 
+export interface StoragePublication {
+  packageName: string;
+  version: string;
+  storage: {
+    tarball?: {
+      gatewayUrl?: string;
+      ipfsUri?: string;
+      cid?: string;
+    } | null;
+    manifest?: {
+      gatewayUrl?: string;
+      value?: {
+        tarball?: {
+          gatewayUrl?: string;
+          ipfsUri?: string;
+          cid?: string;
+        } | null;
+      };
+    };
+    ens?: {
+      recordName?: string;
+      registryVersion?: string;
+    } | null;
+  };
+}
+
 export interface PublicConfig {
   paymentRequired: boolean;
   paymentEnabled: boolean;
@@ -150,6 +176,24 @@ export async function getPackageReport(
     return await request<PackageReport>(url);
   } catch (err) {
     if (err instanceof Error && (err.message.startsWith("HTTP 404") || err.message.startsWith("Expected JSON"))) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function getPackageStorage(
+  apiUrl: string,
+  packageName: string,
+  version: string,
+): Promise<StoragePublication | null> {
+  const query = `?version=${encodeURIComponent(version)}`;
+  const url = `${apiUrl}/package/${encodeURIComponent(packageName)}/storage${query}`;
+
+  try {
+    return await request<StoragePublication>(url);
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("HTTP 404")) {
       return null;
     }
     throw err;
