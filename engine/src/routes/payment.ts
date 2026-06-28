@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 
-import { config, PAYMENT_ENABLED } from "../config.js";
+import { config, PAYMENT_REQUIRED, STRIPE_ENABLED } from "../config.js";
 import { getChainContractAddress, isChainConfigured, readAuditFee } from "../chain.js";
 import { NpmGuardError } from "../errors.js";
 import { createEmitFn, createSession, finalizeSession } from "../events.js";
@@ -18,8 +18,8 @@ export const paymentRoutes = new Hono();
 // ---------------------------------------------------------------------------
 
 paymentRoutes.post("/checkout", async (c) => {
-  if (!PAYMENT_ENABLED) {
-    return c.json({ error: "Payments not configured" }, 501);
+  if (!STRIPE_ENABLED) {
+    return c.json({ error: "Stripe payments not configured" }, 501);
   }
 
   let body: unknown;
@@ -67,8 +67,8 @@ paymentRoutes.post("/checkout", async (c) => {
 });
 
 paymentRoutes.get("/checkout/:sessionId/status", async (c) => {
-  if (!PAYMENT_ENABLED) {
-    return c.json({ error: "Payments not configured" }, 501);
+  if (!STRIPE_ENABLED) {
+    return c.json({ error: "Stripe payments not configured" }, 501);
   }
 
   const sessionId = c.req.param("sessionId");
@@ -104,7 +104,7 @@ paymentRoutes.get("/checkout/:sessionId/status", async (c) => {
 // ---------------------------------------------------------------------------
 
 paymentRoutes.post("/webhooks/stripe", async (c) => {
-  if (!PAYMENT_ENABLED || !config.stripeWebhookSecret) {
+  if (!STRIPE_ENABLED || !config.stripeWebhookSecret) {
     return c.json({ error: "Webhook not configured" }, 501);
   }
 
@@ -196,7 +196,9 @@ paymentRoutes.post("/webhooks/stripe", async (c) => {
 
 paymentRoutes.get("/config/public", async (c) => {
   const base = {
-    paymentEnabled: PAYMENT_ENABLED,
+    paymentRequired: PAYMENT_REQUIRED,
+    paymentEnabled: PAYMENT_REQUIRED,
+    stripeEnabled: STRIPE_ENABLED,
     priceCents: config.auditPriceCents,
   };
 

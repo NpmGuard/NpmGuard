@@ -18,7 +18,7 @@ export interface PlantFileSpec {
 export function plantFiles(specs: readonly PlantFileSpec[]): SetupResult {
   const refs: PlantedFileRef[] = specs.map((s) => ({
     path: s.path,
-    contentHash: sha256Hex(typeof s.content === "string" ? s.content : s.content),
+    contentHash: sha256Hex(s.content),
   }));
 
   return {

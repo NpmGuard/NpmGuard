@@ -1,0 +1,408 @@
+{
+  "datasetVersion": "0.2.0-datadog",
+  "generatedAt": "2026-05-08T19:54:28.164Z",
+  "excludedSeeds": [],
+  "excludedMutations": [],
+  "entries": [
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ember-browser-services-v5.0.3",
+      "pkg": {
+        "name": "ember-browser-services",
+        "version": "5.0.3"
+      },
+      "sourceId": "2025-09-16-ember-browser-services-v5.0.3.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-09-16) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-09-16",
+        "zipFilename": "2025-09-16-ember-browser-services-v5.0.3.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-ember-headless-table-v2.1.6",
+      "pkg": {
+        "name": "ember-headless-table",
+        "version": "2.1.6"
+      },
+      "sourceId": "2025-09-16-ember-headless-table-v2.1.6.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-09-16) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-09-16",
+        "zipFilename": "2025-09-16-ember-headless-table-v2.1.6.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-dialogflow-es-v1.1.3",
+      "pkg": {
+        "name": "dialogflow-es",
+        "version": "1.1.3"
+      },
+      "sourceId": "2025-11-24-dialogflow-es-v1.1.3.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-11-24) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-11-24",
+        "zipFilename": "2025-11-24-dialogflow-es-v1.1.3.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-react-complaint-image-v0.0.34",
+      "pkg": {
+        "name": "react-complaint-image",
+        "version": "0.0.34"
+      },
+      "sourceId": "2025-09-14-react-complaint-image-v0.0.34.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-09-14) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-09-14",
+        "zipFilename": "2025-09-14-react-complaint-image-v0.0.34.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-evm-checkcode-cli-v1.0.13",
+      "pkg": {
+        "name": "evm-checkcode-cli",
+        "version": "1.0.13"
+      },
+      "sourceId": "2025-11-24-evm-checkcode-cli-v1.0.13.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-11-24) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-11-24",
+        "zipFilename": "2025-11-24-evm-checkcode-cli-v1.0.13.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-jsonsurge-v1.0.7",
+      "pkg": {
+        "name": "jsonsurge",
+        "version": "1.0.7"
+      },
+      "sourceId": "2025-11-24-jsonsurge-v1.0.7.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-11-24) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-11-24",
+        "zipFilename": "2025-11-24-jsonsurge-v1.0.7.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-prime-one-table-v0.0.19",
+      "pkg": {
+        "name": "prime-one-table",
+        "version": "0.0.19"
+      },
+      "sourceId": "2025-11-24-prime-one-table-v0.0.19.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-11-24) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-11-24",
+        "zipFilename": "2025-11-24-prime-one-table-v0.0.19.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-gate-evm-tools-test-v1.0.6",
+      "pkg": {
+        "name": "gate-evm-tools-test",
+        "version": "1.0.6"
+      },
+      "sourceId": "2025-11-24-gate-evm-tools-test-v1.0.6.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-11-24) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-11-24",
+        "zipFilename": "2025-11-24-gate-evm-tools-test-v1.0.6.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-zuper-sdk-v1.0.57",
+      "pkg": {
+        "name": "zuper-sdk",
+        "version": "1.0.57"
+      },
+      "sourceId": "2025-11-24-zuper-sdk-v1.0.57.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-11-24) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-11-24",
+        "zipFilename": "2025-11-24-zuper-sdk-v1.0.57.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-create-hardhat3-app-v1.1.2",
+      "pkg": {
+        "name": "create-hardhat3-app",
+        "version": "1.1.2"
+      },
+      "sourceId": "2025-11-24-create-hardhat3-app-v1.1.2.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-11-24) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-11-24",
+        "zipFilename": "2025-11-24-create-hardhat3-app-v1.1.2.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-template-micro-service-v1.0.3",
+      "pkg": {
+        "name": "template-micro-service",
+        "version": "1.0.3"
+      },
+      "sourceId": "2025-11-24-template-micro-service-v1.0.3.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-11-24) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-11-24",
+        "zipFilename": "2025-11-24-template-micro-service-v1.0.3.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-mgc-v1.2.2",
+      "pkg": {
+        "name": "mgc",
+        "version": "1.2.2"
+      },
+      "sourceId": "2026-04-02-mgc-v1.2.2.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2026-04-02) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2026-04-02",
+        "zipFilename": "2026-04-02-mgc-v1.2.2.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-cline-v2.3.0",
+      "pkg": {
+        "name": "cline",
+        "version": "2.3.0"
+      },
+      "sourceId": "2026-02-17-cline-v2.3.0.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2026-02-17) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2026-02-17",
+        "zipFilename": "2026-02-17-cline-v2.3.0.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-c-html-to-base64-image-v1.0.2",
+      "pkg": {
+        "name": "html-to-base64-image",
+        "version": "1.0.2"
+      },
+      "sourceId": "2025-09-14-html-to-base64-image-v1.0.2.zip",
+      "category": "datadog-compromised",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog compromised_lib sample (2025-09-14) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2025-09-14",
+        "zipFilename": "2025-09-14-html-to-base64-image-v1.0.2.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-eslint-plugin-sls-fe-lint-v6.5.8",
+      "pkg": {
+        "name": "eslint-plugin-sls-fe-lint",
+        "version": "6.5.8"
+      },
+      "sourceId": "2024-11-13-eslint-plugin-sls-fe-lint-v6.5.8.zip",
+      "category": "datadog-malicious-intent",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog malicious_intent sample (2024-11-13) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2024-11-13",
+        "zipFilename": "2024-11-13-eslint-plugin-sls-fe-lint-v6.5.8.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-mahesa-mangut14-sluey-v3.3.4",
+      "pkg": {
+        "name": "mahesa-mangut14-sluey",
+        "version": "3.3.4"
+      },
+      "sourceId": "2024-05-16-mahesa-mangut14-sluey-v3.3.4.zip",
+      "category": "datadog-malicious-intent",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog malicious_intent sample (2024-05-16) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2024-05-16",
+        "zipFilename": "2024-05-16-mahesa-mangut14-sluey-v3.3.4.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-playwright-1.47-v10.1.8",
+      "pkg": {
+        "name": "playwright-1.47",
+        "version": "10.1.8"
+      },
+      "sourceId": "2024-12-09-playwright-1.47-v10.1.8.zip",
+      "category": "datadog-malicious-intent",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog malicious_intent sample (2024-12-09) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2024-12-09",
+        "zipFilename": "2024-12-09-playwright-1.47-v10.1.8.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-experienced_wildfowl_z3n-v1.1.4",
+      "pkg": {
+        "name": "experienced_wildfowl_z3n",
+        "version": "1.1.4"
+      },
+      "sourceId": "2024-07-11-experienced_wildfowl_z3n-v1.1.4.zip",
+      "category": "datadog-malicious-intent",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog malicious_intent sample (2024-07-11) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2024-07-11",
+        "zipFilename": "2024-07-11-experienced_wildfowl_z3n-v1.1.4.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-ancient_guineafowl_z3n-v3.4.1",
+      "pkg": {
+        "name": "ancient_guineafowl_z3n",
+        "version": "3.4.1"
+      },
+      "sourceId": "2024-07-07-ancient_guineafowl_z3n-v3.4.1.zip",
+      "category": "datadog-malicious-intent",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog malicious_intent sample (2024-07-07) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2024-07-07",
+        "zipFilename": "2024-07-07-ancient_guineafowl_z3n-v3.4.1.zip"
+      }
+    },
+    {
+      "fixtureName": "test-pkg-bench-dd-m-sahasuhdjdhajdhja-v0.1.0",
+      "pkg": {
+        "name": "sahasuhdjdhajdhja",
+        "version": "0.1.0"
+      },
+      "sourceId": "2024-12-23-sahasuhdjdhajdhja-v0.1.0.zip",
+      "category": "datadog-malicious-intent",
+      "difficulty": null,
+      "expected": {
+        "verdict": "DANGEROUS",
+        "capabilities": [],
+        "kind": "AI_STATIC"
+      },
+      "rationale": "Datadog malicious_intent sample (2024-12-23) \u2014 known malicious npm package; expected verdict is DANGEROUS.",
+      "datadog": {
+        "discoveryDate": "2024-12-23",
+        "zipFilename": "2024-12-23-sahasuhdjdhajdhja-v0.1.0.zip"
+      }
+    }
+  ]
+}
