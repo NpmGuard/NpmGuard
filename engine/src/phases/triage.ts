@@ -64,6 +64,109 @@ const FileAnalysisResponse = z.object({
 });
 type FileAnalysisResponse = z.infer<typeof FileAnalysisResponse>;
 
+
+const SUMMARY_CRITICAL_PATTERNS = [
+  /\bcredential(?:s)?\s+(?:theft|stealer|harvesting|exfiltration)\b/i,
+  /\b(?:steals?|harvests?|exfiltrat(?:es|ed|ing|ion))\b.*\b(?:credentials?|secrets?|tokens?|keys?|env(?:ironment)?|npm|aws|ssh|kube|docker|metadata|imds)\b/i,
+  /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|cloud\s+metadata|imds)\b/i,
+  /\b(?:malware|trojan|supply\s+chain\s+attack)\b/i,
+];
+
+const SUMMARY_CREDENTIAL_PATTERNS = [
+  /\bcredential(?:s)?\b/i,
+  /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|secrets?|tokens?)\b/i,
+];
+
+const SUSPICIOUS_LINE_PATTERNS = [
+  /\b(?:process\.env|SENSITIVE_KEYS|NPM_TOKEN|AWS_|GITHUB_TOKEN|SECRET|TOKEN|credential)\b/i,
+  /\.(?:npmrc|yarnrc|ssh|aws|docker|kube)|readFileSync|homedir/i,
+  /169\.254\.169\.254|\bIMDS\b|metadata/i,
+  /\b(?:EXFIL|exfiltrate|http\.request|fetch|axios|POST|localhost:9999)\b/i,
+];
+
+function summaryImpliesCriticalRisk(summary: string): boolean {
+  return SUMMARY_CRITICAL_PATTERNS.some((pattern) => pattern.test(summary));
+}
+
+function inferSummaryClaim(summary: string): "cred_theft" | "env_exfil" {
+  return SUMMARY_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(summary))
+    ? "cred_theft"
+    : "env_exfil";
+}
+
+function inferSummaryCapabilities(summary: string): string[] {
+  const capabilities = new Set<string>();
+  if (/\b(?:credential|secret|token|key|ssh|aws|npm|github)\b/i.test(summary)) {
+    capabilities.add("CREDENTIAL_THEFT");
+    capabilities.add("ENV_VARS");
+  }
+  if (/\b(?:exfiltrat|http|post|network|imds|metadata)\b/i.test(summary)) {
+    capabilities.add("NETWORK");
+  }
+  if (/\b(?:filesystem|file|\.npmrc|\.ssh|\.aws|docker|kube)\b/i.test(summary)) {
+    capabilities.add("FILESYSTEM");
+  }
+  return [...capabilities];
+}
+
+function suspiciousLineRanges(contents: string): string[] {
+  const lines = contents.split("\n");
+  const hits: Array<{ start: number; end: number }> = [];
+
+  for (const [index, line] of lines.entries()) {
+    if (!SUSPICIOUS_LINE_PATTERNS.some((pattern) => pattern.test(line))) continue;
+    hits.push({
+      start: Math.max(1, index + 1 - 1),
+      end: Math.min(lines.length, index + 1 + 1),
+    });
+  }
+
+  if (hits.length === 0) return ["1-1"];
+
+  hits.sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const hit of hits) {
+    const previous = merged.at(-1);
+    if (previous && hit.start <= previous.end + 1) {
+      previous.end = Math.max(previous.end, hit.end);
+    } else {
+      merged.push({ ...hit });
+    }
+  }
+
+  return merged.slice(0, 8).map((range) =>
+    range.start === range.end ? String(range.start) : `${range.start}-${range.end}`,
+  );
+}
+
+export function synthesizeSummaryFallback(args: {
+  summary: string;
+  contents: string;
+}): { capabilities: string[]; hypotheses: HypothesisDraft[] } {
+  const { summary, contents } = args;
+  if (!summaryImpliesCriticalRisk(summary)) {
+    return { capabilities: [], hypotheses: [] };
+  }
+
+  const claimKind = inferSummaryClaim(summary);
+  const behavior =
+    claimKind === "cred_theft"
+      ? "credential theft or secret harvesting"
+      : "environment or data exfiltration";
+
+  return {
+    capabilities: inferSummaryCapabilities(summary),
+    hypotheses: [
+      {
+        description: `Model summary describes ${behavior}: ${summary.slice(0, 240)}`,
+        claim: { kind: claimKind, gating: null },
+        severity: "critical",
+        rangesInFile: suspiciousLineRanges(contents),
+      },
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public return shape
 // ---------------------------------------------------------------------------
@@ -238,7 +341,25 @@ async function analyzeFile(args: {
     prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
   });
 
-  return { response: result.object, skipped: false };
+  const response = result.object;
+  if (response.hypotheses.length === 0) {
+    const fallback = synthesizeSummaryFallback({
+      summary: response.summary,
+      contents,
+    });
+    if (fallback.hypotheses.length > 0) {
+      response.hypotheses = fallback.hypotheses;
+      response.capabilities = [...new Set([
+        ...response.capabilities,
+        ...fallback.capabilities,
+      ])];
+      console.warn(
+        `[triage:map] ${file} summary described critical risk but emitted no hypotheses; synthesized ${fallback.hypotheses.length}`,
+      );
+    }
+  }
+
+  return { response, skipped: false };
 }
 
 // ---------------------------------------------------------------------------
