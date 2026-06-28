@@ -7,6 +7,7 @@ interface Props {
   packageName: string;
   version: string;
   priceCents: number | null;
+  stripeEnabled: boolean;
   cryptoFeeWei: bigint | null;
   onClose: () => void;
 }
@@ -17,6 +18,7 @@ export function PaymentModal({
   packageName,
   version,
   priceCents,
+  stripeEnabled,
   cryptoFeeWei,
   onClose,
 }: Props) {
@@ -78,11 +80,13 @@ export function PaymentModal({
               Choose a payment method
             </p>
             <div style={buttonCol}>
-              <button style={primaryBtn} onClick={handleStripe}>
+              <button style={primaryBtn} onClick={handleStripe} disabled={!stripeEnabled}>
                 Pay with Stripe
-                {priceCents != null && (
-                  <span style={subLabel}>${(priceCents / 100).toFixed(2)} · card</span>
-                )}
+                <span style={subLabel}>
+                  {stripeEnabled && priceCents != null
+                    ? `$${(priceCents / 100).toFixed(2)} · card`
+                    : "Unavailable"}
+                </span>
               </button>
               <button
                 style={primaryBtn}

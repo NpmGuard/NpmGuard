@@ -258,6 +258,45 @@ button:focus:not(:focus-visible) {
 .thinking-dot:nth-child(2) { animation: thinking-dots 1.4s infinite 0.2s; }
 .thinking-dot:nth-child(3) { animation: thinking-dots 1.4s infinite 0.4s; }
 
+/* ── Packages monitor ── */
+.package-table-header,
+.package-table-row {
+  grid-template-columns: minmax(220px, 1.3fr) 120px 140px 150px;
+}
+
+@media (max-width: 700px) {
+  .package-table-header {
+    display: none;
+  }
+
+  .package-table-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px !important;
+    align-items: start !important;
+    padding: 14px 16px !important;
+  }
+
+  .package-table-name {
+    grid-column: 1 / -1;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+  }
+
+  .package-table-version {
+    grid-column: 1;
+  }
+
+  .package-table-verdict {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .package-table-audited {
+    grid-column: 1 / -1;
+  }
+}
+
 /* ── Tool call pending spinner ── */
 @keyframes spin {
   to { transform: rotate(360deg); }
