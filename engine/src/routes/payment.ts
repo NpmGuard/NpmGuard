@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { persistAuditReport, publishStorageArtifactsAfterAudit } from "../audit-persistence.js";
 import { config, PAYMENT_REQUIRED, STRIPE_ENABLED } from "../config.js";
 import { getChainContractAddress, isChainConfigured, readAuditFee } from "../chain.js";
 import { NpmGuardError } from "../errors.js";
@@ -7,7 +8,6 @@ import { createEmitFn, createSession, finalizeSession } from "../events.js";
 import { getPayment, recordPayment } from "../payment-map.js";
 import { resolveTarballUrl } from "../phases/resolve.js";
 import { runAudit } from "../pipeline.js";
-import { saveReport } from "../report-store.js";
 import { constructWebhookEvent, createCheckoutSession, verifyCheckoutSession } from "../stripe.js";
 import { CheckoutRequest } from "./validation.js";
 
@@ -162,10 +162,16 @@ paymentRoutes.post("/webhooks/stripe", async (c) => {
         recordPayment(stripeSession.id, auditSession.auditId, packageName, version || "latest");
 
         runAudit(packageName, emit, auditSession.auditId, version || undefined)
-          .then(({ report, cleanup }) => {
+          .then(({ report, cleanup, packagePath }) => {
+            const realVersion = persistAuditReport(packageName, version || "latest", report);
             finalizeSession(auditSession.auditId, report);
-            saveReport(packageName, version || "latest", report);
-            cleanup();
+            publishStorageArtifactsAfterAudit({
+              packageName,
+              version: realVersion,
+              report,
+              packagePath,
+              cleanup,
+            });
           })
           .catch((err) => {
             console.error(`[webhook] audit failed for ${packageName}:`, err);

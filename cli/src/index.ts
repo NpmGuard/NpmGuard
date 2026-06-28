@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { auditCommand } from "./commands/audit.js";
 import { checkCommand } from "./commands/check.js";
 import { installCommand } from "./commands/install.js";
+import { defaultEnsRootDomain, defaultEnsRpcUrl, normalizeInstallSource } from "./install-source.js";
 
 function readPackageVersion(): string {
   try {
@@ -48,9 +49,36 @@ program
   .description("Install an npm package with NpmGuard security check")
   .argument("<package>", "Package name, optionally with version (e.g. express@4.18.0)")
   .option("-f, --force", "Install even if the package is flagged as dangerous")
-  .action(async (pkg: string, cmdOpts: { force?: boolean }) => {
+  .option(
+    "--install-source <source>",
+    "Install SAFE packages from npm, pinata, or ens",
+    process.env.NPMGUARD_INSTALL_SOURCE ?? "npm",
+  )
+  .option(
+    "--ens-root <name>",
+    "ENS root domain for --install-source ens",
+    defaultEnsRootDomain(),
+  )
+  .option(
+    "--ens-rpc <url>",
+    "Sepolia RPC URL for --install-source ens",
+    defaultEnsRpcUrl(),
+  )
+  .action(async (pkg: string, cmdOpts: {
+    force?: boolean;
+    installSource?: string;
+    ensRoot?: string;
+    ensRpc?: string;
+  }) => {
     const opts = program.opts() as { api: string; web: string };
-    await installCommand(pkg, { api: opts.api, web: opts.web, force: cmdOpts.force });
+    await installCommand(pkg, {
+      api: opts.api,
+      web: opts.web,
+      force: cmdOpts.force,
+      installSource: normalizeInstallSource(cmdOpts.installSource),
+      ensRoot: cmdOpts.ensRoot,
+      ensRpc: cmdOpts.ensRpc,
+    });
   });
 
 program

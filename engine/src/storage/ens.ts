@@ -206,6 +206,8 @@ export interface EnsAuditRecordInput {
   publishedAt: string;
   reportCid: string;
   reportUri: string;
+  tarballCid?: string;
+  tarballUri?: string;
   sourceCid?: string;
   sourceUri?: string;
   sourcePath?: string;
@@ -617,6 +619,8 @@ function auditTextRecords(entry: EnsAuditRecordInput): Record<string, string> {
     [`${TEXT_RECORD_PREFIX}.score`]: String(entry.riskScore),
     [`${TEXT_RECORD_PREFIX}.report_cid`]: entry.reportCid,
     [`${TEXT_RECORD_PREFIX}.report_uri`]: entry.reportUri,
+    [`${TEXT_RECORD_PREFIX}.tarball_cid`]: entry.tarballCid ?? "",
+    [`${TEXT_RECORD_PREFIX}.tarball_uri`]: entry.tarballUri ?? "",
     [`${TEXT_RECORD_PREFIX}.source_cid`]: entry.sourceCid ?? "",
     [`${TEXT_RECORD_PREFIX}.source_uri`]: entry.sourceUri ?? "",
     [`${TEXT_RECORD_PREFIX}.source_path`]: entry.sourcePath ?? "",
@@ -637,6 +641,8 @@ function latestTextRecords(entry: EnsAuditRecordInput, versionName: string): Rec
     [`${TEXT_RECORD_PREFIX}.latest_score`]: String(entry.riskScore),
     [`${TEXT_RECORD_PREFIX}.latest_report_cid`]: entry.reportCid,
     [`${TEXT_RECORD_PREFIX}.latest_report_uri`]: entry.reportUri,
+    [`${TEXT_RECORD_PREFIX}.latest_tarball_cid`]: entry.tarballCid ?? "",
+    [`${TEXT_RECORD_PREFIX}.latest_tarball_uri`]: entry.tarballUri ?? "",
     [`${TEXT_RECORD_PREFIX}.latest_source_cid`]: entry.sourceCid ?? "",
     [`${TEXT_RECORD_PREFIX}.latest_source_uri`]: entry.sourceUri ?? "",
     [`${TEXT_RECORD_PREFIX}.latest_source_path`]: entry.sourcePath ?? "",

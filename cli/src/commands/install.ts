@@ -14,11 +14,22 @@ import {
 import { auditCommand } from "./audit.js";
 import { payViaWalletConnect, readAuditFee } from "../wallet/walletconnect.js";
 import { streamAuditEvents } from "../stream.js";
+import {
+  defaultEnsRootDomain,
+  defaultEnsRpcUrl,
+  normalizeInstallSource,
+  resolveEnsInstallSpec,
+  resolvePinataInstallSpec,
+  type InstallSource,
+} from "../install-source.js";
 
 interface InstallOpts {
   api: string;
   web: string;
   force?: boolean;
+  installSource?: string;
+  ensRoot?: string;
+  ensRpc?: string;
 }
 
 /**
@@ -26,12 +37,55 @@ interface InstallOpts {
  * `npm install <pkg>` adds the package. `pnpm add <pkg>` / `yarn add <pkg>` do
  * the same. Crucially, `yarn install <pkg>` would ignore <pkg> in yarn classic.
  */
-function runInstall(packageSpec: string): number {
+function runInstall(packageSpec: string, label?: string): number {
   const pm = detectPackageManager();
   const verb = pm === "npm" ? "install" : "add";
-  console.log(chalk.gray(`\n  Running: ${pm} ${verb} ${packageSpec}\n`));
+  console.log(chalk.gray(`\n  Running: ${pm} ${verb} ${packageSpec}${label ? `\n  Source: ${label}` : ""}\n`));
   const res = spawnSync(pm, [verb, packageSpec], { stdio: "inherit" });
   return res.status ?? 1;
+}
+
+async function resolveInstallTarget(
+  fullSpec: string,
+  packageName: string,
+  version: string,
+  opts: InstallOpts,
+): Promise<{ spec: string; detail: string }> {
+  const source = normalizeInstallSource(opts.installSource) as InstallSource;
+  if (source === "npm") {
+    return { spec: fullSpec, detail: "npm registry" };
+  }
+  if (source === "pinata") {
+    return resolvePinataInstallSpec(opts.api, packageName, version);
+  }
+  return resolveEnsInstallSpec({
+    packageName,
+    version,
+    rootDomain: opts.ensRoot ?? defaultEnsRootDomain(),
+    rpcUrl: opts.ensRpc ?? defaultEnsRpcUrl(),
+  });
+}
+
+async function installSafePackage(
+  fullSpec: string,
+  packageName: string,
+  version: string,
+  opts: InstallOpts,
+): Promise<never> {
+  let target: { spec: string; detail: string };
+  try {
+    target = await resolveInstallTarget(fullSpec, packageName, version, opts);
+  } catch (err) {
+    console.error(
+      chalk.red(
+        "Could not resolve install source: " +
+          (err instanceof Error ? err.message : String(err)),
+      ),
+    );
+    console.log(chalk.gray("  Retry with --install-source npm to install from the npm registry."));
+    process.exit(1);
+  }
+  process.exit(runInstall(target.spec, target.detail));
 }
 
 function extractVerdict(report: api.PackageReport): string {
@@ -91,7 +145,7 @@ export async function installCommand(
   spinner.stop();
 
   if (report) {
-    handleExistingReport(report, name, fullSpec, apiUrl, opts);
+    await handleExistingReport(report, name, version, fullSpec, apiUrl, opts);
     return;
   }
 
@@ -108,17 +162,17 @@ export async function installCommand(
   const choice = await prompt("  Choice [1/2/3/4/5]: ");
 
   if (choice === "1") {
-    await runStripeAuditAndInstall(fullSpec, name, version, apiUrl);
+    await runStripeAuditAndInstall(fullSpec, name, version, apiUrl, opts);
     return;
   }
 
   if (choice === "2") {
-    await runBrowserWalletAuditAndInstall(fullSpec, name, version, apiUrl, webUrl);
+    await runBrowserWalletAuditAndInstall(fullSpec, name, version, apiUrl, webUrl, opts);
     return;
   }
 
   if (choice === "3") {
-    await runCryptoAuditAndInstall(fullSpec, name, version, apiUrl);
+    await runCryptoAuditAndInstall(fullSpec, name, version, apiUrl, opts);
     return;
   }
 
@@ -126,20 +180,21 @@ export async function installCommand(
     console.log(
       chalk.yellow("  Installing without audit. Proceed at your own risk."),
     );
-    process.exit(runInstall(fullSpec));
+    process.exit(runInstall(fullSpec, "npm registry (audit skipped)"));
   }
 
   console.log(chalk.gray("  Cancelled."));
   process.exit(0);
 }
 
-function handleExistingReport(
+async function handleExistingReport(
   report: api.PackageReport,
   name: string,
+  version: string,
   fullSpec: string,
   apiUrl: string,
   opts: InstallOpts,
-): void {
+): Promise<void> {
   const verdict = extractVerdict(report);
   const capabilities = extractCapabilities(report);
 
@@ -148,7 +203,8 @@ function handleExistingReport(
     if (capabilities.length > 0) {
       console.log(chalk.gray(`  Capabilities: ${capabilities.join(", ")}`));
     }
-    process.exit(runInstall(fullSpec));
+    await installSafePackage(fullSpec, name, version, opts);
+    return;
   }
 
   if (verdict === "DANGEROUS" || verdict === "CRITICAL" || verdict === "WARNING") {
@@ -168,24 +224,28 @@ function handleExistingReport(
 
     if (opts.force) {
       console.log(chalk.yellow("  --force passed, installing anyway..."));
-      process.exit(runInstall(fullSpec));
+      await installSafePackage(fullSpec, name, version, opts);
+      return;
     }
 
-    promptAndInstallIfAccepted(fullSpec, "  Install anyway? This package is flagged. (y/N) ");
+    await promptAndInstallIfAccepted(fullSpec, name, version, opts, "  Install anyway? This package is flagged. (y/N) ");
     return;
   }
 
   console.log(chalk.yellow(`  Verdict: ${verdict}`));
-  promptAndInstallIfAccepted(fullSpec, "  Proceed with install? (y/N) ");
+  await promptAndInstallIfAccepted(fullSpec, name, version, opts, "  Proceed with install? (y/N) ");
 }
 
 async function promptAndInstallIfAccepted(
   fullSpec: string,
+  name: string,
+  version: string,
+  opts: InstallOpts,
   question: string,
 ): Promise<void> {
   const answer = await prompt(chalk.red.bold(question));
   if (answer === "y" || answer === "yes") {
-    process.exit(runInstall(fullSpec));
+    await installSafePackage(fullSpec, name, version, opts);
   }
   console.log(chalk.gray("  Aborted."));
   process.exit(1);
@@ -196,6 +256,7 @@ async function runStripeAuditAndInstall(
   name: string,
   version: string,
   apiUrl: string,
+  opts: InstallOpts,
 ): Promise<void> {
   try {
     await auditCommand(fullSpec, { api: apiUrl, exit: false });
@@ -207,7 +268,7 @@ async function runStripeAuditAndInstall(
     );
     process.exit(1);
   }
-  await finalizeAfterAudit(fullSpec, name, version, apiUrl);
+  await finalizeAfterAudit(fullSpec, name, version, apiUrl, opts);
 }
 
 function buildBrowserWalletUrl(
@@ -247,6 +308,7 @@ async function runBrowserWalletAuditAndInstall(
   version: string,
   apiUrl: string,
   webUrl: string,
+  opts: InstallOpts,
 ): Promise<void> {
   const paymentUrl = buildBrowserWalletUrl(webUrl, name, version);
 
@@ -285,7 +347,7 @@ async function runBrowserWalletAuditAndInstall(
   }
 
   spinner.succeed("Audit report received");
-  await finalizeWithReport(fullSpec, report);
+  await finalizeWithReport(fullSpec, name, version, report, opts);
 }
 
 async function runCryptoAuditAndInstall(
@@ -293,6 +355,7 @@ async function runCryptoAuditAndInstall(
   name: string,
   version: string,
   apiUrl: string,
+  opts: InstallOpts,
 ): Promise<void> {
   // 1. Read current fee from the engine's public config, then fall back to
   // direct contract read if the engine is older or config is unavailable.
@@ -368,7 +431,7 @@ async function runCryptoAuditAndInstall(
   await streamAuditEvents(apiUrl, auditId);
 
   // 5. Fetch the persisted report and decide whether to install
-  await finalizeAfterAudit(fullSpec, name, version, apiUrl);
+  await finalizeAfterAudit(fullSpec, name, version, apiUrl, opts);
 }
 
 async function finalizeAfterAudit(
@@ -376,28 +439,32 @@ async function finalizeAfterAudit(
   name: string,
   version: string,
   apiUrl: string,
+  opts: InstallOpts,
 ): Promise<void> {
   const freshReport = await api.getPackageReport(apiUrl, name, version);
   if (!freshReport) {
     console.log(chalk.red("  Audit finished but report not found."));
     process.exit(1);
   }
-  await finalizeWithReport(fullSpec, freshReport);
+  await finalizeWithReport(fullSpec, name, version, freshReport, opts);
 }
 
 async function finalizeWithReport(
   fullSpec: string,
+  name: string,
+  version: string,
   report: api.PackageReport,
+  opts: InstallOpts,
 ): Promise<void> {
   const verdict = extractVerdict(report);
   if (verdict === "SAFE") {
     console.log(chalk.green("\n  ✓ SAFE — proceeding with install"));
-    process.exit(runInstall(fullSpec));
+    await installSafePackage(fullSpec, name, version, opts);
   }
   console.log(chalk.red(`\n  Audit verdict: ${verdict}`));
   const confirm = await prompt(chalk.red.bold("  Install anyway? (y/N) "));
   if (confirm === "y" || confirm === "yes") {
-    process.exit(runInstall(fullSpec));
+    await installSafePackage(fullSpec, name, version, opts);
   }
   process.exit(1);
 }

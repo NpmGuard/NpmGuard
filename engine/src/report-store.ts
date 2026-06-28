@@ -50,7 +50,7 @@ export function saveReport(
   packageName: string,
   requestedVersion: string,
   report: AuditReport,
-): void {
+): string {
   const realVersion = extractReportVersion(report) ?? requestedVersion ?? "latest";
 
   const dir = reportDir(packageName);
@@ -76,6 +76,8 @@ export function saveReport(
       }
     }
   }
+
+  return realVersion;
 }
 
 /**
