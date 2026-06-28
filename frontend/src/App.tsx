@@ -16,6 +16,7 @@ function App() {
   const isRunning = useAuditStore((s) => s.isRunning);
   const verdict = useAuditStore((s) => s.verdict);
   const auditId = useAuditStore((s) => s.auditId);
+  const packageName = useAuditStore((s) => s.packageName);
   const connectToSession = useAuditStore((s) => s.connectToSession);
   const startAuditFromCheckout = useAuditStore((s) => s.startAuditFromCheckout);
   const reset = useAuditStore((s) => s.reset);
@@ -49,6 +50,19 @@ function App() {
       setCurrentPath(`/audit/${auditId}`);
     }
   }, [auditId]);
+
+  // When an audit reaches a verdict, canonicalize the URL from the ephemeral
+  // /audit/<id> to the durable /package/<name> route. The audit session is
+  // in-memory and expires (~30min TTL / 100-session cap / server restart),
+  // but the report is persisted on disk keyed by package name — so a later
+  // reload or bookmark must resolve via /package/<name> (PackageLookup) to
+  // avoid the "audit session expired" dead-end. replaceState leaves the live
+  // AuditView untouched (currentPath state is not changed here).
+  useEffect(() => {
+    if (verdict && packageName && window.location.pathname.startsWith("/audit/")) {
+      history.replaceState(null, "", `/package/${encodeURIComponent(packageName)}`);
+    }
+  }, [verdict, packageName]);
 
   // Handle browser back/forward
   const onPopState = useCallback(() => {
