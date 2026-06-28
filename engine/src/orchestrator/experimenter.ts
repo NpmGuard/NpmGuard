@@ -105,14 +105,15 @@ export function eventsContainDnsWithPayload(events: readonly Event[]): boolean {
 
 /**
  * Pick the best trigger target for this hypothesis. If any focusFile is a
- * known install-time entry point (lifecycle hook target), use it — the
- * malicious code runs at install, not at runtime require().
+ * known install-time entry point, prefer it — the malicious code may live in
+ * an install script rather than the runtime require() path. Either way the
+ * chosen target is executed as an entrypoint.
  */
 export function pickTriggerTarget(
   hypothesis: Hypothesis,
   runtimeEntry: string,
   installEntries: readonly string[],
-): { target: string; kind: "entrypoint" | "lifecycle" } {
+): { target: string; kind: "entrypoint" } {
   for (const focus of hypothesis.focusFiles) {
     if (installEntries.includes(focus)) {
       return { target: focus, kind: "entrypoint" };

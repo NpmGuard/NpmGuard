@@ -222,6 +222,17 @@ auditRoutes.post("/audit/stream", async (c) => {
       console.error("[chain] unexpected error:", err);
       return c.json({ error: "Chain verification failed" }, 500);
     }
+
+    // Double-check: a concurrent identical-txHash request may have started the
+    // audit during our async receipt poll. Re-read the dedup map before
+    // launching a second audit for the same payment.
+    const claimedDuringVerify = getChainPayment(chain, parsed.data.txHash);
+    if (claimedDuringVerify) {
+      return c.json({
+        auditId: claimedDuringVerify.auditId,
+        packageName: claimedDuringVerify.packageName,
+      });
+    }
   } else if (parsed.data.stripeSessionId) {
     if (!PAYMENT_ENABLED) {
       return c.json({ error: "Payments not configured" }, 501);

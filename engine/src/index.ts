@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { config } from "./config.js";
+import { cleanupOldChainPayments } from "./chain-payment-map.js";
 import { cleanupOldPayments } from "./payment-map.js";
 import { auditRoutes } from "./routes/audit.js";
 import { demoRoutes } from "./routes/demo.js";
@@ -68,6 +69,7 @@ if (fs.existsSync(frontendDist)) {
 
 // Periodic cleanup of expired payment records
 setInterval(cleanupOldPayments, 10 * 60_000);
+setInterval(cleanupOldChainPayments, 10 * 60_000);
 
 console.log(`NpmGuard Engine starting on ${config.apiHost}:${config.apiPort}`);
 serve({ fetch: app.fetch, hostname: config.apiHost, port: config.apiPort });

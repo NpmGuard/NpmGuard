@@ -1,5 +1,5 @@
 import { SOURCE_FILE_TYPES } from "./config.js";
-import { Proof, type AuditReport, type FileVerdict, type PhaseLog } from "./models.js";
+import { Finding, Proof, type AuditReport, type FileVerdict, type PhaseLog } from "./models.js";
 import type { Hypothesis, HypothesisSeverity } from "@npmguard/shared";
 import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
@@ -194,6 +194,19 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
     // Dealbreaker -> immediate DANGEROUS
     if (inventory.dealbreaker) {
+      // Mirror the structural proof 1:1 as a Finding so frontend finding-list
+      // components (which iterate `findings`, not `proofs`) render the threat
+      // instead of an empty "appears safe to install" panel under a DANGEROUS
+      // header. Use a broad structural capability — a dealbreaker can originate
+      // from any script (shell-pipe, missing install file, etc.), so a specific
+      // label like LIFECYCLE_HOOK would over-claim.
+      const finding = Finding.parse({
+        capability: "OBFUSCATION",
+        confidence: "CONFIRMED",
+        fileLine: "",
+        problem: inventory.dealbreaker.detail,
+        evidence: `Dealbreaker: ${inventory.dealbreaker.check}`,
+      });
       const report: AuditReport = {
         verdict: "DANGEROUS",
         capabilities: [],
@@ -206,10 +219,11 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
           reproducible: true,
         })],
         triage: null,
-        findings: [],
+        findings: [finding],
         trace,
         runtimeEvidence: null,
       };
+      emit?.("finding_discovered", { finding });
       emit?.("verdict_reached", { verdict: report.verdict, capabilities: [], proofCount: report.proofs.length });
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
     }
