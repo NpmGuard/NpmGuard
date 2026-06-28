@@ -52,11 +52,19 @@ export async function checkCommand(opts: {
     const versionSpec =
       pkgJson.dependencies?.[name] ?? pkgJson.devDependencies?.[name] ?? "";
     try {
-      const report = await api.getPackageReport(apiUrl, name);
+      const res = await api.getPackageReport(apiUrl, name);
+      const inner = (res as { report?: { verdict?: string; version?: string } } | null)
+        ?.report;
       results.push({
         name,
-        version: report?.version ?? versionSpec,
-        verdict: report?.verdict ?? null,
+        version:
+          (res as { version?: string } | null)?.version ??
+          inner?.version ??
+          versionSpec,
+        verdict:
+          inner?.verdict ??
+          (res as { verdict?: string } | null)?.verdict ??
+          null,
       });
     } catch {
       results.push({ name, version: versionSpec, verdict: null });

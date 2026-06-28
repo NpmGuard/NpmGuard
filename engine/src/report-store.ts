@@ -4,12 +4,21 @@ import type { AuditReport } from "./models.js";
 
 const DATA_DIR = path.resolve(import.meta.dirname, "../../data/reports");
 
+function assertUnderDataDir(target: string): string {
+  const resolved = path.resolve(target);
+  const rel = path.relative(DATA_DIR, resolved);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error("Report path escapes data directory");
+  }
+  return resolved;
+}
+
 function reportDir(packageName: string): string {
-  return path.join(DATA_DIR, packageName);
+  return assertUnderDataDir(path.join(DATA_DIR, packageName));
 }
 
 function reportPath(packageName: string, version: string): string {
-  return path.join(reportDir(packageName), `${version}.json`);
+  return assertUnderDataDir(path.join(reportDir(packageName), `${version}.json`));
 }
 
 /**
@@ -97,7 +106,7 @@ export function loadReport(
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
     for (const file of files) {
       try {
-        const report = JSON.parse(fs.readFileSync(path.join(dir, file), "utf-8"));
+        const report = JSON.parse(fs.readFileSync(assertUnderDataDir(path.join(dir, file)), "utf-8"));
         const embeddedVersion = extractReportVersion(report);
         if (embeddedVersion === version) {
           return { report, version };
@@ -114,11 +123,11 @@ export function loadReport(
   if (files.length === 0) return null;
 
   const sorted = files
-    .map((f) => ({ file: f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+    .map((f) => ({ file: f, mtime: fs.statSync(assertUnderDataDir(path.join(dir, f))).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
 
   const latest = sorted[0]!;
-  const report = JSON.parse(fs.readFileSync(path.join(dir, latest.file), "utf-8"));
+  const report = JSON.parse(fs.readFileSync(assertUnderDataDir(path.join(dir, latest.file)), "utf-8"));
   // Prefer embedded metadata version over filename (which may be "latest")
   const ver = extractReportVersion(report) ?? latest.file.replace(/\.json$/, "");
   return { report, version: ver };
@@ -129,6 +138,14 @@ export interface PackageSummary {
   version: string;
   verdict: string;
   auditedAt: string;
+}
+
+function isPublicPackageReport(packageName: string): boolean {
+  return !(
+    packageName.startsWith("test-pkg-") ||
+    packageName.startsWith("test-package") ||
+    packageName.includes("-bench-")
+  );
 }
 
 export function listReports(): PackageSummary[] {
@@ -146,21 +163,22 @@ export function listReports(): PackageSummary[] {
           walkDir(path.join(dir, entry.name), entry.name);
         } else {
           // Package directory — find latest report
-          const pkgDir = path.join(dir, entry.name);
+          const pkgDir = assertUnderDataDir(path.join(dir, entry.name));
           const files = fs.readdirSync(pkgDir).filter((f) => f.endsWith(".json"));
           if (files.length === 0) continue;
 
           const sorted = files
             .map((f) => {
-              const stat = fs.statSync(path.join(pkgDir, f));
+              const stat = fs.statSync(assertUnderDataDir(path.join(pkgDir, f)));
               return { file: f, mtime: stat.mtimeMs, iso: stat.mtime.toISOString() };
             })
             .sort((a, b) => b.mtime - a.mtime);
 
           const latest = sorted[0]!;
           try {
-            const report = JSON.parse(fs.readFileSync(path.join(pkgDir, latest.file), "utf-8"));
+            const report = JSON.parse(fs.readFileSync(assertUnderDataDir(path.join(pkgDir, latest.file)), "utf-8"));
             const embeddedVersion = extractReportVersion(report);
+            if (!isPublicPackageReport(name)) continue;
             results.push({
               packageName: name,
               version: embeddedVersion ?? latest.file.replace(/\.json$/, ""),

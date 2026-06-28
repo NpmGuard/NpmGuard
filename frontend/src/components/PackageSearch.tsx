@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface PackageSummary {
   packageName: string;
@@ -7,14 +7,58 @@ interface PackageSummary {
   auditedAt: string;
 }
 
+type VerdictFilter = "ALL" | "SAFE" | "DANGEROUS" | "UNKNOWN";
+type SortKey = "auditedAt" | "packageName" | "verdict";
+const PAGE_SIZE = 10;
+
 function navigate(href: string) {
   history.pushState(null, "", href);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function verdictColor(verdict: string) {
+  if (verdict === "SAFE") {
+    return {
+      color: "var(--safe)",
+      background: "var(--safe-bg)",
+      borderColor: "rgba(22, 163, 74, 0.22)",
+    };
+  }
+  if (verdict === "DANGEROUS") {
+    return {
+      color: "var(--danger)",
+      background: "var(--danger-bg)",
+      borderColor: "rgba(220, 38, 38, 0.22)",
+    };
+  }
+  return {
+    color: "var(--text-dim)",
+    background: "var(--bg-tertiary)",
+    borderColor: "var(--border)",
+  };
+}
+
+function statLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+}
+
 export function PackageSearch() {
   const [packages, setPackages] = useState<PackageSummary[]>([]);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<VerdictFilter>("ALL");
+  const [sortKey, setSortKey] = useState<SortKey>("auditedAt");
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,170 +78,461 @@ export function PackageSearch() {
       });
   }, []);
 
-  const filtered = packages.filter((p) =>
-    p.packageName.toLowerCase().includes(search.toLowerCase())
-  );
+  const stats = useMemo(() => {
+    const safe = packages.filter((p) => p.verdict === "SAFE").length;
+    const dangerous = packages.filter((p) => p.verdict === "DANGEROUS").length;
+    const unknown = packages.length - safe - dangerous;
+    const latestAudit = packages.reduce<string | null>((latest, pkg) => {
+      if (!latest) return pkg.auditedAt;
+      return new Date(pkg.auditedAt).getTime() > new Date(latest).getTime()
+        ? pkg.auditedAt
+        : latest;
+    }, null);
+    return { safe, dangerous, unknown, latestAudit };
+  }, [packages]);
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return packages
+      .filter((pkg) => {
+        const matchesSearch =
+          query.length === 0 ||
+          pkg.packageName.toLowerCase().includes(query) ||
+          pkg.version.toLowerCase().includes(query);
+        const matchesFilter = filter === "ALL" || pkg.verdict === filter;
+        return matchesSearch && matchesFilter;
+      })
+      .sort((a, b) => {
+        if (sortKey === "packageName") {
+          return a.packageName.localeCompare(b.packageName);
+        }
+        if (sortKey === "verdict") {
+          return a.verdict.localeCompare(b.verdict) || a.packageName.localeCompare(b.packageName);
+        }
+        return new Date(b.auditedAt).getTime() - new Date(a.auditedAt).getTime();
+      });
+  }, [filter, packages, search, sortKey]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter, search, sortKey]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const visiblePackages = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  const showingFrom = filtered.length === 0 ? 0 : pageStart + 1;
+  const showingTo = Math.min(pageStart + PAGE_SIZE, filtered.length);
+
+  const filters: VerdictFilter[] = ["ALL", "SAFE", "DANGEROUS", "UNKNOWN"];
 
   return (
     <div
-      className="flex-1 flex flex-col items-center"
-      style={{ padding: "48px 24px" }}
+      className="flex-1"
+      style={{
+        minHeight: 0,
+        overflow: "auto",
+        padding: "32px clamp(18px, 4vw, 48px)",
+      }}
     >
-      <h1
+      <section
         style={{
-          fontFamily: "var(--font-heading)",
-          fontSize: "1.6rem",
-          fontWeight: 700,
-          marginBottom: 8,
-          letterSpacing: "-0.02em",
+          width: "100%",
+          maxWidth: 1180,
+          margin: "0 auto",
         }}
       >
-        Audited Packages
-      </h1>
-      <p
-        style={{
-          color: "var(--text-dim)",
-          fontSize: "0.85rem",
-          marginBottom: 24,
-        }}
-      >
-        Browse previously audited npm packages.
-      </p>
-
-      <div style={{ width: "100%", maxWidth: 600 }}>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search packages..."
-          style={{
-            width: "100%",
-            padding: "10px 14px",
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.85rem",
-            background: "var(--bg-secondary)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            color: "var(--text)",
-            outline: "none",
-            marginBottom: 20,
-          }}
-        />
-
-        {loading && (
-          <div
-            style={{
-              textAlign: "center",
-              color: "var(--text-muted)",
-              fontSize: "0.85rem",
-              padding: 32,
-            }}
-          >
-            Loading...
-          </div>
-        )}
-
-        {error && (
-          <div
-            style={{
-              textAlign: "center",
-              color: "var(--danger)",
-              fontSize: "0.85rem",
-              padding: 32,
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        {!loading && !error && filtered.length === 0 && (
-          <div
-            style={{
-              textAlign: "center",
-              color: "var(--text-muted)",
-              fontSize: "0.85rem",
-              padding: 48,
-            }}
-          >
-            {packages.length === 0
-              ? "No packages audited yet."
-              : "No packages match your search."}
-          </div>
-        )}
-
-        {!loading &&
-          !error &&
-          filtered.map((pkg) => (
-            <button
-              key={`${pkg.packageName}@${pkg.version}`}
-              type="button"
-              onClick={() => navigate(`/package/${pkg.packageName}`)}
+        <div
+          className="flex items-end justify-between gap-5"
+          style={{ marginBottom: 22, flexWrap: "wrap" }}
+        >
+          <div>
+            <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                width: "100%",
-                padding: "14px 16px",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.72rem",
+                color: "var(--text-muted)",
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
                 marginBottom: 8,
-                cursor: "pointer",
-                color: "var(--text)",
-                textAlign: "left",
-                transition: "border-color 0.15s",
               }}
             >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "0.88rem",
-                    fontWeight: 600,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {pkg.packageName}
-                </div>
-                <div
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "0.7rem",
-                    color: "var(--text-muted)",
-                    marginTop: 2,
-                  }}
-                >
-                  v{pkg.version} &middot;{" "}
-                  {new Date(pkg.auditedAt).toLocaleDateString()}
-                </div>
-              </div>
-              <span
+              Registry monitor
+            </div>
+            <h1
+              style={{
+                fontFamily: "var(--font-heading)",
+                fontSize: "clamp(1.7rem, 3vw, 2.35rem)",
+                fontWeight: 750,
+                lineHeight: 1.05,
+                letterSpacing: 0,
+              }}
+            >
+              Audited packages
+            </h1>
+          </div>
+
+          <div
+            className="flex items-center"
+            style={{
+              gap: 8,
+              color: "var(--text-dim)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.78rem",
+            }}
+          >
+            <span>{statLabel(filtered.length, "result")}</span>
+            <span style={{ color: "var(--text-muted)" }}>/</span>
+            <span>{statLabel(packages.length, "audited package", "audited packages")}</span>
+          </div>
+        </div>
+
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+            gap: 10,
+            marginBottom: 18,
+          }}
+        >
+          {[
+            ["Total", packages.length.toLocaleString(), "Reports written"],
+            ["Safe", stats.safe.toLocaleString(), "No confirmed threat"],
+            ["Dangerous", stats.dangerous.toLocaleString(), "Blocked verdicts"],
+            ["Latest", stats.latestAudit ? formatDate(stats.latestAudit) : "None", "Most recent audit"],
+          ].map(([label, value, caption]) => (
+            <div
+              key={label}
+              style={{
+                border: "1px solid var(--border)",
+                background: "var(--bg-secondary)",
+                borderRadius: 8,
+                padding: "14px 16px",
+                minHeight: 86,
+              }}
+            >
+              <div
                 style={{
+                  color: "var(--text-muted)",
                   fontFamily: "var(--font-mono)",
-                  fontSize: "0.6rem",
-                  fontWeight: 700,
+                  fontSize: "0.7rem",
                   textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                  padding: "3px 10px",
-                  borderRadius: 4,
-                  flexShrink: 0,
-                  background:
-                    pkg.verdict === "SAFE"
-                      ? "var(--safe-bg, rgba(0,200,100,0.1))"
-                      : "var(--danger-bg)",
-                  color:
-                    pkg.verdict === "SAFE"
-                      ? "var(--safe)"
-                      : "var(--danger)",
+                  letterSpacing: "0.08em",
                 }}
               >
-                {pkg.verdict}
-              </span>
-            </button>
+                {label}
+              </div>
+              <div
+                style={{
+                  marginTop: 9,
+                  fontFamily: "var(--font-heading)",
+                  fontSize: "1.35rem",
+                  fontWeight: 750,
+                  lineHeight: 1,
+                }}
+              >
+                {value}
+              </div>
+              <div
+                style={{
+                  marginTop: 8,
+                  color: "var(--text-dim)",
+                  fontSize: "0.78rem",
+                }}
+              >
+                {caption}
+              </div>
+            </div>
           ))}
-      </div>
+        </div>
+
+        <div
+          className="flex items-center gap-3"
+          style={{
+            border: "1px solid var(--border)",
+            background: "var(--bg-secondary)",
+            borderRadius: 8,
+            padding: 12,
+            marginBottom: 14,
+            flexWrap: "wrap",
+          }}
+        >
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search package or version"
+            aria-label="Search package or version"
+            style={{
+              flex: "1 1 260px",
+              minWidth: 0,
+              height: 38,
+              padding: "0 12px",
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.82rem",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              color: "var(--text)",
+              outline: "none",
+            }}
+          />
+
+          <div
+            className="flex items-center"
+            style={{
+              border: "1px solid var(--border)",
+              background: "var(--bg)",
+              borderRadius: 6,
+              padding: 3,
+              gap: 2,
+              overflowX: "auto",
+            }}
+          >
+            {filters.map((item) => {
+              const active = item === filter;
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setFilter(item)}
+                  style={{
+                    height: 30,
+                    padding: "0 10px",
+                    border: "none",
+                    borderRadius: 4,
+                    background: active ? "var(--accent-bg)" : "transparent",
+                    color: active ? "var(--accent-light)" : "var(--text-dim)",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                  }}
+                >
+                  {item}
+                </button>
+              );
+            })}
+          </div>
+
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            aria-label="Sort packages"
+            style={{
+              height: 38,
+              padding: "0 10px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "var(--bg)",
+              color: "var(--text)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.76rem",
+            }}
+          >
+            <option value="auditedAt">Newest audit</option>
+            <option value="packageName">Package name</option>
+            <option value="verdict">Verdict</option>
+          </select>
+        </div>
+
+        <div
+          style={{
+            border: "1px solid var(--border)",
+            background: "var(--bg-secondary)",
+            borderRadius: 8,
+            overflow: "hidden",
+          }}
+        >
+          {loading && (
+            <div style={{ padding: 42, color: "var(--text-muted)", textAlign: "center" }}>
+              Loading packages...
+            </div>
+          )}
+
+          {error && (
+            <div style={{ padding: 42, color: "var(--danger)", textAlign: "center" }}>
+              {error}
+            </div>
+          )}
+
+          {!loading && !error && filtered.length === 0 && (
+            <div style={{ padding: 42, color: "var(--text-muted)", textAlign: "center" }}>
+              {packages.length === 0 ? "No audited packages yet." : "No packages match these filters."}
+            </div>
+          )}
+
+          {!loading && !error && filtered.length > 0 && (
+            <>
+              <div style={{ overflowX: "auto" }}>
+              <div
+                className="grid package-table-header"
+                style={{
+                  gap: 16,
+                  padding: "10px 16px",
+                  borderBottom: "1px solid var(--border)",
+                  color: "var(--text-muted)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "0.68rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                <span>Package</span>
+                <span>Version</span>
+                <span>Verdict</span>
+                <span>Audited</span>
+              </div>
+
+              {visiblePackages.map((pkg) => {
+                const colors = verdictColor(pkg.verdict);
+                return (
+                  <button
+                    key={`${pkg.packageName}@${pkg.version}`}
+                    type="button"
+                    onClick={() => navigate(`/package/${pkg.packageName}`)}
+                    className="grid package-table-row"
+                    style={{
+                      gap: 16,
+                      alignItems: "center",
+                      width: "100%",
+                      padding: "13px 16px",
+                      border: "none",
+                      borderBottom: "1px solid var(--border)",
+                      background: "transparent",
+                      color: "var(--text)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span
+                      className="package-table-name"
+                      style={{
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.86rem",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {pkg.packageName}
+                    </span>
+                    <span
+                      className="package-table-version"
+                      style={{
+                        color: "var(--text-dim)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.78rem",
+                      }}
+                    >
+                      {pkg.version}
+                    </span>
+                    <span
+                      className="package-table-verdict"
+                      style={{
+                        justifySelf: "start",
+                        border: `1px solid ${colors.borderColor}`,
+                        background: colors.background,
+                        color: colors.color,
+                        borderRadius: 4,
+                        padding: "4px 9px",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.66rem",
+                        fontWeight: 800,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {pkg.verdict}
+                    </span>
+                    <span
+                      className="package-table-audited"
+                      style={{
+                        color: "var(--text-muted)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.76rem",
+                      }}
+                    >
+                      {formatDate(pkg.auditedAt)}
+                    </span>
+                  </button>
+                );
+              })}
+              </div>
+
+              <div
+                className="flex items-center justify-between gap-3"
+                style={{
+                  padding: "12px 16px",
+                  borderTop: "1px solid var(--border)",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div
+                  style={{
+                    color: "var(--text-muted)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "0.72rem",
+                  }}
+                >
+                  Showing {showingFrom}-{showingTo} of {filtered.length}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPage((value) => Math.max(1, value - 1))}
+                    disabled={currentPage === 1}
+                    style={{
+                      height: 32,
+                      padding: "0 11px",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      background: "var(--bg)",
+                      color: currentPage === 1 ? "var(--text-muted)" : "var(--text)",
+                      cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: "0.72rem",
+                    }}
+                  >
+                    Previous
+                  </button>
+                  <span
+                    style={{
+                      minWidth: 54,
+                      textAlign: "center",
+                      color: "var(--text-dim)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: "0.72rem",
+                    }}
+                  >
+                    {currentPage}/{pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                    disabled={currentPage === pageCount}
+                    style={{
+                      height: 32,
+                      padding: "0 11px",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      background: "var(--bg)",
+                      color: currentPage === pageCount ? "var(--text-muted)" : "var(--text)",
+                      cursor: currentPage === pageCount ? "not-allowed" : "pointer",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: "0.72rem",
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

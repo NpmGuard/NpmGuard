@@ -2,7 +2,7 @@ import { Hono } from "hono";
 
 import { resolveTarballUrl } from "../phases/resolve.js";
 import { listReports, loadReport } from "../report-store.js";
-import { PackageName } from "./validation.js";
+import { PackageName, SemverVersion } from "./validation.js";
 
 export const registryRoutes = new Hono();
 
@@ -15,6 +15,16 @@ registryRoutes.get("/packages", (c, next) => {
 registryRoutes.get("/package/:name{.+}/report", (c) => {
   const packageName = c.req.param("name");
   const version = c.req.query("version");
+  const nameCheck = PackageName.safeParse(packageName);
+  if (!nameCheck.success) {
+    return c.json({ error: "Invalid package name" }, 400);
+  }
+  if (version) {
+    const versionCheck = SemverVersion.safeParse(version);
+    if (!versionCheck.success) {
+      return c.json({ error: "Invalid semver version" }, 400);
+    }
+  }
 
   const result = loadReport(packageName, version || undefined);
   if (!result) {

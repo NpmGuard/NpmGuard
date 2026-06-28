@@ -55,11 +55,9 @@ export class ArtifactStore {
    * (which starts empty, receives the computed value, and gets written).
    */
   writeArtifact(partial: Omit<RunArtifactType, "contentHash">): string {
-    const hashInput = { ...partial, contentHash: "" };
-    const contentHash = contentHashOf(hashInput);
-    const full: RunArtifactType = { ...partial, contentHash };
-
-    const parsed = RunArtifact.parse(full);
+    const parsedNoHash = RunArtifact.parse({ ...partial, contentHash: "" });
+    const contentHash = contentHashOf({ ...parsedNoHash, contentHash: "" });
+    const parsed: RunArtifactType = { ...parsedNoHash, contentHash };
     const canonical = canonicalize(parsed);
 
     const target = this.blobPath(contentHash, "runartifact.json");
