@@ -190,6 +190,9 @@ export async function runInvestigationAgent(
   console.log("[agent] extracting structured findings...");
   const extractionPrompt =
     "Based on the investigation below, extract all findings as structured data.\n\n" +
+    "Only include suspicious or malicious behaviors as findings. " +
+    "Do not include absence-of-risk, benign explanations, legitimate feature use, type-only files, or performance-only observations as findings; put those in the summary. " +
+    "If no suspicious behavior remains, return findings: [].\n\n" +
     `Investigation result:\n${result.text}${toolContext}`;
   console.log(`[agent] extraction prompt: ${extractionPrompt.length} chars (${toolCallLog.length} tool calls included)`);
 

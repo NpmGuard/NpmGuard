@@ -79,6 +79,8 @@ export interface TriageOutput {
   fileSummaries: FileSummary[];
 }
 
+type TriageFileCandidate = InventoryReport["files"][number];
+
 // ---------------------------------------------------------------------------
 // Prompt builders (pure)
 // ---------------------------------------------------------------------------
@@ -139,6 +141,43 @@ function numberLines(contents: string): string {
     .join("\n");
 }
 
+function entryPointScore(file: string, inventory: InventoryReport): number {
+  const entryPoints = [
+    ...inventory.entryPoints.install,
+    ...inventory.entryPoints.runtime,
+    ...inventory.entryPoints.bin,
+  ];
+  if (entryPoints.includes(file)) return 100;
+  if (file === "package.json") return 90;
+  if (/^(index|main)\.(js|ts|mjs|cjs)$/.test(file)) return 80;
+  if (/^(dist|lib|src)\//.test(file)) return 20;
+  return 0;
+}
+
+export function selectTriageFiles(args: {
+  files: TriageFileCandidate[];
+  inventory: InventoryReport;
+  flagsByFile: Map<string, string[]>;
+  maxFiles: number;
+}): TriageFileCandidate[] {
+  const { files, inventory, flagsByFile, maxFiles } = args;
+  if (files.length <= maxFiles) return files;
+
+  return [...files]
+    .map((file, index) => {
+      const flagged = flagsByFile.has(file.path) ? 1 : 0;
+      const score =
+        flagged * 1000 +
+        entryPointScore(file.path, inventory) +
+        Math.max(0, 20 - Math.floor(file.sizeBytes / 10_000));
+      return { file, index, score };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, maxFiles)
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.file);
+}
+
 // ---------------------------------------------------------------------------
 // Draft → Hypothesis (pure)
 // ---------------------------------------------------------------------------
@@ -169,6 +208,92 @@ export function draftToHypothesis(args: {
     resolvedAt: null,
     resolution: null,
   };
+}
+
+function scriptLooksLikeNetworkExfil(script: string): boolean {
+  return /\b(curl|wget|Invoke-WebRequest|iwr|fetch|nc|netcat)\b/i.test(script) &&
+    /(https?:\/\/|webhook\.site|oast\.|burpcollaborator|interact\.sh|requestbin|\.xyz\b)/i.test(script);
+}
+
+function scriptCapturesHostData(script: string): boolean {
+  return /\$\((?:hostname|whoami|pwd|id|uname|date)\b/i.test(script) ||
+    /\$(?:PWD|HOME|USER|USERNAME|HOSTNAME|COMPUTERNAME|npm_config_[A-Z0-9_]+)/i.test(script) ||
+    /%(?:USERNAME|COMPUTERNAME|CD|TIME)%/i.test(script) ||
+    /\b(process\.env|env\b|printenv\b|\.npmrc|NPM_TOKEN|AWS_|GITHUB_TOKEN)\b/i.test(script);
+}
+
+function packageJsonLineForScript(packagePath: string, hook: string): string {
+  try {
+    const contents = fs.readFileSync(path.join(packagePath, "package.json"), "utf-8");
+    const lines = contents.split("\n");
+    const idx = lines.findIndex((line) => line.includes(`"${hook}"`) || line.includes(`'${hook}'`));
+    return idx >= 0 ? String(idx + 1) : "1";
+  } catch {
+    return "1";
+  }
+}
+
+export function synthesizeInventoryHypotheses(args: {
+  packagePath: string;
+  inventory: InventoryReport;
+  now: string;
+  startCounter: number;
+}): Hypothesis[] {
+  const { packagePath, inventory, now } = args;
+  let counter = args.startCounter;
+  const hypotheses: Hypothesis[] = [];
+
+  for (const flag of inventory.flags) {
+    if (flag.check === "non-node-script") {
+      const match = /^Lifecycle script '([^']+)' is not a node command: (.+)$/.exec(flag.detail);
+      if (!match) continue;
+      const [, hook, script] = match;
+      if (!hook || !script || !scriptLooksLikeNetworkExfil(script)) continue;
+
+      counter += 1;
+      const capturesHostData = scriptCapturesHostData(script);
+      const claim = capturesHostData ? "env_exfil" : "telemetry";
+      const range = packageJsonLineForScript(packagePath, hook);
+      hypotheses.push({
+        hypId: `trg-${counter.toString().padStart(4, "0")}`,
+        description:
+          `Lifecycle script '${hook}' runs a shell network command during install: ${script}`,
+        claim: { kind: claim, gating: null },
+        focusFiles: ["package.json"],
+        focusLines: [{ file: "package.json", range }],
+        severity: capturesHostData ? "critical" : "high",
+        parentHypId: null,
+        childHypIds: [],
+        state: "OPEN",
+        createdBy: "inventory",
+        evidenceRefs: [],
+        createdAt: now,
+        resolvedAt: null,
+        resolution: null,
+      });
+    } else if (flag.check === "dependency-url" && /\buses URL specifier: http:\/\//i.test(flag.detail)) {
+      counter += 1;
+      hypotheses.push({
+        hypId: `trg-${counter.toString().padStart(4, "0")}`,
+        description:
+          `Package manifest declares an HTTP dependency URL outside the npm registry: ${flag.detail}`,
+        claim: { kind: "binary_drop", gating: null },
+        focusFiles: ["package.json"],
+        focusLines: [{ file: "package.json", range: "1" }],
+        severity: "high",
+        parentHypId: null,
+        childHypIds: [],
+        state: "OPEN",
+        createdBy: "inventory",
+        evidenceRefs: [],
+        createdAt: now,
+        resolvedAt: null,
+        resolution: null,
+      });
+    }
+  }
+
+  return hypotheses;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +361,8 @@ async function analyzeFile(args: {
     schema: FileAnalysisResponse,
     system: MAP_SYSTEM,
     prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
+    timeout: config.llmTimeoutSeconds * 1000,
+    maxRetries: 1,
   });
 
   return { response: result.object, skipped: false };
@@ -264,12 +391,8 @@ export async function runTriage(
   const allCandidates = inventory.files.filter(
     (f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary,
   );
-  const sourceFiles = allCandidates.filter((f) => !isTriageNoise(f.path));
-  const skippedNoise = allCandidates.length - sourceFiles.length;
-
-  console.log(
-    `[triage] analyzing ${sourceFiles.length} source files for ${inventory.metadata.name ?? "unknown"}${skippedNoise > 0 ? ` (skipped ${skippedNoise} .d.ts/test files)` : ""} (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
-  );
+  const sourceFileCandidates = allCandidates.filter((f) => !isTriageNoise(f.path));
+  const skippedNoise = allCandidates.length - sourceFileCandidates.length;
 
   const flagsByFile = new Map<string, string[]>();
   for (const flag of inventory.flags) {
@@ -279,6 +402,21 @@ export async function runTriage(
       flagsByFile.set(flag.file, existing);
     }
   }
+
+  const sourceFiles = selectTriageFiles({
+    files: sourceFileCandidates,
+    inventory,
+    flagsByFile,
+    maxFiles: config.triageMaxFiles,
+  });
+  const skippedByCap = sourceFileCandidates.length - sourceFiles.length;
+
+  console.log(
+    `[triage] analyzing ${sourceFiles.length}/${sourceFileCandidates.length} source files for ${inventory.metadata.name ?? "unknown"}` +
+      `${skippedNoise > 0 ? ` (skipped ${skippedNoise} .d.ts/test files)` : ""}` +
+      `${skippedByCap > 0 ? ` (capped ${skippedByCap} low-priority files)` : ""}` +
+      ` (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
+  );
 
   // Bounded concurrency. Unbounded Promise.all hammered MiniMax's Token
   // Plan rate limit on packages with 100+ files (every triage call would
@@ -361,6 +499,29 @@ export async function runTriage(
         claim: hyp.claim.kind,
         severity: hyp.severity,
         file,
+      });
+    }
+  }
+
+  const inventoryHypotheses = synthesizeInventoryHypotheses({
+    packagePath,
+    inventory,
+    now,
+    startCounter: counter,
+  });
+  if (inventoryHypotheses.length > 0) {
+    hypotheses.push(...inventoryHypotheses);
+    fileSummaries.push({
+      file: "package.json",
+      summary: "Package manifest contains suspicious lifecycle script behavior.",
+      capabilities: ["LIFECYCLE_HOOK", "NETWORK", "ENV_VARS", "BINARY_DOWNLOAD"],
+    });
+    for (const hyp of inventoryHypotheses) {
+      emit?.("hypothesis_emitted", {
+        hypId: hyp.hypId,
+        claim: hyp.claim.kind,
+        severity: hyp.severity,
+        file: "package.json",
       });
     }
   }

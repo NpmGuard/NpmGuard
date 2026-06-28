@@ -302,9 +302,9 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       });
 
       if (res.status === 501) {
-        // Payments not configured — fall back to free audit
-        set({ checkoutLoading: false });
-        return get().startAudit(packageName, version);
+        const body = await res.json().catch(() => ({}));
+        set({ checkoutLoading: false, error: body.error || "Stripe payments not configured" });
+        return;
       }
 
       if (!res.ok) {

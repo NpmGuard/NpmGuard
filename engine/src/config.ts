@@ -2,6 +2,10 @@ import "dotenv/config";
 import { z } from "zod";
 
 const LLMBackend = z.enum(["anthropic", "google", "openai_compatible"]);
+const EnvBoolean = z
+  .string()
+  .transform((v) => !["0", "false", "no", "off"].includes(v.toLowerCase()))
+  .default("true");
 
 const ConfigSchema = z.object({
   llmBackend: LLMBackend.default("anthropic"),
@@ -13,12 +17,14 @@ const ConfigSchema = z.object({
   apiPort: z.coerce.number().int().min(1).max(65535).default(8000),
 
   // Payment (Stripe)
+  paymentRequired: EnvBoolean,
   creApiKey: z.string().optional(),
   stripeSecretKey: z.string().optional(),
   stripeWebhookSecret: z.string().optional(),
   auditPriceCents: z.coerce.number().int().min(50).default(500),
 
   triageModel: z.string().default("claude-haiku-4-5-20251001"),
+  triageMaxFiles: z.coerce.number().int().min(1).max(1000).default(80),
 
   investigationModel: z.string().default("claude-sonnet-4-6"),
   maxAgentTurns: z.coerce.number().int().min(1).max(200).default(30),
@@ -32,12 +38,10 @@ const ConfigSchema = z.object({
   /**
    * Maximum number of findings for which test-gen attempts to generate a
    * reproducer (sorted by confidence: CONFIRMED > LIKELY > SUSPECTED).
-   * Bench v9.2b showed verify cost grows ~linearly with proof count; the
-   * default cap of 6 keeps wall time bounded without dropping DANGEROUS
-   * verdicts (lower-confidence findings still emit STRUCTURAL/AI_STATIC
-   * proofs). Set to 0 via NPMGUARD_MAX_FINDINGS_TO_PROVE for unlimited.
+   * 0 means unlimited, which is the production default: proof budget should
+   * be explicit in tests/cost-constrained runs, not a hidden production cap.
    */
-  maxFindingsToProve: z.coerce.number().int().min(0).default(6),
+  maxFindingsToProve: z.coerce.number().int().min(0).default(0),
   verifyTimeoutSec: z.coerce.number().int().min(10).max(300).default(60),
 
   sandboxImage: z.string().default("npmguard-sandbox:v1"),
@@ -56,11 +60,13 @@ function loadConfig() {
     llmTimeoutSeconds: env.NPMGUARD_LLM_TIMEOUT_SECONDS,
     apiHost: env.NPMGUARD_API_HOST,
     apiPort: env.NPMGUARD_API_PORT,
+    paymentRequired: env.NPMGUARD_PAYMENT_REQUIRED,
     creApiKey: env.NPMGUARD_CRE_API_KEY,
     stripeSecretKey: env.NPMGUARD_STRIPE_SECRET_KEY,
     stripeWebhookSecret: env.NPMGUARD_STRIPE_WEBHOOK_SECRET,
     auditPriceCents: env.NPMGUARD_AUDIT_PRICE_CENTS,
     triageModel: env.NPMGUARD_TRIAGE_MODEL,
+    triageMaxFiles: env.NPMGUARD_TRIAGE_MAX_FILES,
     investigationModel: env.NPMGUARD_INVESTIGATION_MODEL,
     maxAgentTurns: env.NPMGUARD_MAX_AGENT_TURNS,
     investigationEnabled: env.NPMGUARD_INVESTIGATION_ENABLED,
@@ -95,7 +101,8 @@ function loadConfig() {
 
 export const config = loadConfig();
 export type Config = z.infer<typeof ConfigSchema>;
-export const PAYMENT_ENABLED = !!config.stripeSecretKey;
+export const PAYMENT_REQUIRED = config.paymentRequired;
+export const STRIPE_ENABLED = !!config.stripeSecretKey;
 
 export const SKIP_DIRS = new Set(["node_modules", ".git", ".svn"]);
 

@@ -56,6 +56,54 @@ export interface InvestigationResult {
   agentText: string;
 }
 
+const BENIGN_FINDING_PATTERNS = [
+  /\bnot (?:a )?security (?:issue|risk|problem)\b/,
+  /\bnot security[- ]sensitive\b/,
+  /\bperformance concern,? not security\b/,
+  /\btype(?:s)? only\b/,
+  /\btype-only\b/,
+  /\bstandard typescript declaration\b/,
+  /\blegitimate (?:library )?(?:feature|use|usage|behavior|code|documentation)\b/,
+  /\bintentional feature detection\b/,
+  /\bcontrolled and gated\b/,
+  /\bsafe recursive traversal\b/,
+  /\bzero (?:http|https|network|fetch)\b/,
+];
+
+const ABSENCE_PROBLEM_PATTERN =
+  /^(?:no|none)\b.*\b(?:present|observed|detected|mechanisms?|operations?|calls?|requests?|hooks?|network|credential|theft|obfuscation|payloads?|eval|filesystem|spawn|exfiltration)\b/;
+
+const BENIGN_SUMMARY_PATTERNS = [
+  /\bno malicious behavior\b/,
+  /\bno suspicious behavior\b/,
+  /\bno evidence of (?:malicious|suspicious)\b/,
+  /\bfalse positives?\b/,
+  /\bbenign\b/,
+  /\bsafe\b/,
+];
+
+export function isBenignFinding(finding: Finding): boolean {
+  const problem = finding.problem.trim().toLowerCase();
+  const text = [
+    finding.problem,
+    finding.evidence,
+    finding.reproductionStrategy,
+  ].join(" ").toLowerCase();
+
+  if (finding.capability === "CLEAN") return true;
+  if (ABSENCE_PROBLEM_PATTERN.test(problem)) return true;
+  return BENIGN_FINDING_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function filterActionableFindings(findings: Finding[]): Finding[] {
+  return findings.filter((finding) => !isBenignFinding(finding));
+}
+
+export function isBenignInvestigationSummary(summary: string): boolean {
+  const text = summary.trim().toLowerCase();
+  return BENIGN_SUMMARY_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 export async function investigate(
   packagePath: string,
   inventory: InventoryReport,
@@ -136,8 +184,19 @@ export async function investigate(
     // → false SAFE). When the agent extracts nothing, fall back to the triage
     // hypotheses themselves so the pipeline doesn't silently drop the signal.
     // Only high/critical severity to avoid promoting noisy medium hypotheses.
-    let agentFindings = output.findings;
-    if (agentFindings.length === 0) {
+    const filteredFindings = filterActionableFindings(output.findings);
+    if (filteredFindings.length !== output.findings.length) {
+      console.warn(
+        `[investigate] filtered ${output.findings.length - filteredFindings.length} benign/non-actionable ${output.findings.length - filteredFindings.length === 1 ? "finding" : "findings"} from investigation output`,
+      );
+    }
+
+    let agentFindings = filteredFindings;
+    if (
+      output.findings.length === 0 &&
+      agentFindings.length === 0 &&
+      !isBenignInvestigationSummary(output.summary)
+    ) {
       const strongHyps = hypotheses.filter(
         (h) => h.severity === "high" || h.severity === "critical",
       );
@@ -156,6 +215,8 @@ export async function investigate(
           reproductionStrategy: `Static-signal proof. Inspect the focus file(s): ${h.focusFiles.join(", ")}`,
         }));
       }
+    } else if (output.findings.length === 0 && isBenignInvestigationSummary(output.summary)) {
+      console.log("[investigate] agent found no actionable findings and summary refutes the triage signal; skipping static fallback");
     }
 
     // Emit findings for frontend visualization
