@@ -83,12 +83,20 @@ const SUSPICIOUS_LINE_PATTERNS = [
   /\b(?:EXFIL|exfiltrate|http\.request|fetch|axios|POST|localhost:9999)\b/i,
 ];
 
-function withHardTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+function withAbortTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
   });
-  return Promise.race([promise, timeout]).finally(() => {
+  return Promise.race([run(controller.signal), timeout]).finally(() => {
     if (timer) clearTimeout(timer);
   });
 }
@@ -505,13 +513,14 @@ async function analyzeFile(args: {
   const llmTimeoutMs = config.llmTimeoutSeconds * 1000;
   let result: Awaited<ReturnType<typeof generateObject<typeof FileAnalysisResponse>>>;
   try {
-    result = await withHardTimeout(
-      generateObject({
+    result = await withAbortTimeout(
+      (abortSignal) => generateObject({
         model,
         schema: FileAnalysisResponse,
         system: MAP_SYSTEM,
         prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
         timeout: llmTimeoutMs,
+        abortSignal,
         maxRetries: 1,
       }),
       llmTimeoutMs + 5000,
