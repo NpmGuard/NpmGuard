@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import type { EntryPoints, PackageMetadata } from "../models.js";
 
 export const LIFECYCLE_SCRIPTS = new Set([
@@ -82,7 +83,7 @@ export function parsePackageJson(
     const scriptValue = scripts[hook];
     if (scriptValue) {
       const ref = extractScriptFileRef(scriptValue);
-      if (ref) installEntries.push(ref);
+      if (ref) installEntries.push(path.normalize(ref));
     }
   }
 

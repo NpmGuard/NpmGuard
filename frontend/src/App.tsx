@@ -55,7 +55,8 @@ function App() {
     }
   }, [auditId]);
 
-  // Audit sessions are ephemeral; package report pages are durable.
+  // When an audit reaches a verdict, canonicalize the URL from the ephemeral
+  // /audit/<id> or /pay route to the durable /package/<name> route.
   useEffect(() => {
     const path = window.location.pathname;
     if (verdict && packageName && (path.startsWith("/audit/") || path.startsWith("/pay"))) {

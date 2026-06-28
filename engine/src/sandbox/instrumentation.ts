@@ -105,14 +105,77 @@ process.on('exit', () => {
 });
 `;
 
-/** Timer-advancing wrapper using @sinonjs/fake-timers. */
+/** Timer-advancing wrapper using a self-contained pure-JS fake clock.
+ *  Runs inside the hermetic sandbox (--network=none, read-only, no node_modules),
+ *  so it must not depend on any external module. */
 export function buildTimerAdvanceJs(entrypoint: string, advanceMs: number): string {
   const safeEntrypoint = JSON.stringify("./" + entrypoint);
   const safeMs = Number(advanceMs);
   return `
 'use strict';
-const { createClock } = require('@sinonjs/fake-timers');
-const clock = createClock();
+// Capture the REAL setTimeout before any global reassignment so the kill switch
+// below fires on the real event loop, not the virtual fake clock.
+const _realSetTimeout = setTimeout;
+
+// Minimal self-contained fake clock (no external deps). Drives virtual time so
+// that delayed/interval malware payloads execute synchronously during tick().
+const clock = (function () {
+  let now = 0;
+  let nextId = 1;
+  let timers = [];
+  const _RealDate = Date;
+
+  function insert(timer) {
+    timers.push(timer);
+    timers.sort(function (a, b) { return (a.callAt - b.callAt) || (a.id - b.id); });
+    return timer.id;
+  }
+  function setTimeoutImpl(fn, ms) {
+    const args = Array.prototype.slice.call(arguments, 2);
+    const delay = Math.max(0, Number(ms) || 0);
+    return insert({ id: nextId++, callAt: now + delay, fn: fn, args: args, interval: undefined });
+  }
+  function setIntervalImpl(fn, ms) {
+    const args = Array.prototype.slice.call(arguments, 2);
+    const delay = Math.max(1, Number(ms) || 1);
+    return insert({ id: nextId++, callAt: now + delay, fn: fn, args: args, interval: delay });
+  }
+  function clearImpl(id) {
+    timers = timers.filter(function (t) { return t.id !== id; });
+  }
+
+  function FakeDate() {
+    if (arguments.length === 0) return new _RealDate(now);
+    return new (Function.prototype.bind.apply(_RealDate, [null].concat(Array.prototype.slice.call(arguments))))();
+  }
+  FakeDate.prototype = _RealDate.prototype;
+  FakeDate.now = function () { return now; };
+  FakeDate.parse = _RealDate.parse;
+  FakeDate.UTC = _RealDate.UTC;
+
+  function tick(ms) {
+    const target = now + Math.max(0, Number(ms) || 0);
+    while (timers.length > 0 && timers[0].callAt <= target) {
+      const timer = timers.shift();
+      now = timer.callAt;
+      if (timer.interval !== undefined) {
+        timer.callAt = now + timer.interval;
+        insert(timer);
+      }
+      try { timer.fn.apply(null, timer.args); } catch (e) {}
+    }
+    now = target;
+  }
+
+  return {
+    setTimeout: setTimeoutImpl,
+    setInterval: setIntervalImpl,
+    clearTimeout: clearImpl,
+    clearInterval: clearImpl,
+    Date: FakeDate,
+    tick: tick,
+  };
+})();
 
 global.setTimeout = clock.setTimeout;
 global.setInterval = clock.setInterval;
@@ -124,6 +187,6 @@ require(${safeEntrypoint});
 
 clock.tick(${safeMs});
 
-setTimeout(() => process.exit(0), 100);
+_realSetTimeout(() => process.exit(0), 100);
 `;
 }
