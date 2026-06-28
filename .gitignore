@@ -27,3 +27,7 @@ data/reports/
 sandbox/package.json
 sandbox/package-lock.json
 sandbox/node_modules/
+
+# Claude Code session transcript dumps accidentally left in the repo root.
+# e.g. 2026-05-04-220442-this-session-is-being-continued-from-a-previous-c.txt
+[0-9][0-9][0-9][0-9]-*-this-session-is-being-continued-from-a-previous-*.txt
