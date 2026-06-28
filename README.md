@@ -115,7 +115,8 @@ The audit and install steps are deliberately separate:
 6. **Persist the verdict** under `data/reports/<pkg>/<version>.json`.
 7. **Publish demo artefacts** best-effort when configured: report JSON,
    installable package tarball, optional package folder, manifest, and ENS
-   `npmguard.*` records. Publication failure never changes the verdict.
+   `npmguard.*` records on the package subdomain when ENS v2 is available.
+   Publication failure never changes the verdict.
 
 Install source is a CLI policy decision after the server verdict:
 
