@@ -98,6 +98,7 @@ describe("claimMatchesCapability", () => {
   it("normalizes LLM alias and composite capability labels", () => {
     expect(normalizeCapabilityLabel("CREDENTIAL_ACCESS")).toBe("CREDENTIAL_THEFT");
     expect(normalizeCapabilityLabel("CREDENTIAL_THEFT / NETWORK")).toBe("CREDENTIAL_THEFT");
+    expect(normalizeCapabilityLabel("NETWORK, CREDENTIAL_THEFT")).toBe("CREDENTIAL_THEFT");
     expect(claimMatchesCapability("cred_theft", "CREDENTIAL_ACCESS")).toBe(true);
     expect(claimMatchesCapability("cred_theft", "CREDENTIAL_THEFT / NETWORK")).toBe(true);
   });
@@ -109,6 +110,27 @@ describe("claimMatchesCapability", () => {
         "fetches TruffleHog and exfiltrates hardcoded secrets from .npmrc",
       ),
     ).toBe("NPM_TOKEN_ABUSE");
+  });
+
+  it("uses dangerous context to refine broad capability labels", () => {
+    expect(
+      normalizeCapabilityLabel(
+        "NETWORK",
+        "postinstall executes npm install -g openclaw@latest during install",
+      ),
+    ).toBe("LIFECYCLE_HOOK");
+    expect(
+      normalizeCapabilityLabel(
+        "FILESYSTEM",
+        "auto.js removes private from package.json and runs npm publish as a self-propagating worm",
+      ),
+    ).toBe("WORM_PROPAGATION");
+    expect(
+      normalizeCapabilityLabel(
+        "EVAL",
+        "prepareWriter exfiltrates process.env to a remote collector",
+      ),
+    ).toBe("DATA_EXFILTRATION");
   });
 });
 
@@ -387,6 +409,126 @@ describe("correlateAfterInvestigation", () => {
     expect(result.promoted).toHaveLength(1);
     expect(g.get(result.promoted[0]!.hypId).state).toBe("IN_PROGRESS");
     expect(g.get(result.promoted[0]!.hypId).claim.kind).toBe("cred_theft");
+  });
+
+  it("promotes confirmed broad network findings when context is clearly malicious", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "NETWORK",
+          confidence: "CONFIRMED",
+          fileLine: "package.json:36",
+          problem: "Malicious postinstall hook executes npm install -g openclaw@latest.",
+          evidence: "The postinstall script runs automatically on package install.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(1);
+    expect(result.promoted[0]!.capability).toBe("LIFECYCLE_HOOK");
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("CONFIRMED");
+  });
+
+  it("promotes suspected broad filesystem findings when they describe npm publish propagation", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["index.js"],
+      focusLines: [{ file: "index.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "FILESYSTEM",
+          confidence: "SUSPECTED",
+          fileLine: "auto.js:1-128",
+          problem: "Run auto.js; it removes private from package.json and runs npm publish.",
+          evidence: "The script renames the package, rewrites package.json, and self-propagates as a worm.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(1);
+    expect(result.promoted[0]!.capability).toBe("WORM_PROPAGATION");
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("IN_PROGRESS");
+  });
+
+  it("does not promote broad network findings without dangerous context", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "NETWORK",
+          confidence: "CONFIRMED",
+          fileLine: "client.js:10",
+          problem: "HTTP client sends a request to the documented API endpoint.",
+          evidence: "The request carries a normal JSON query payload for the package's documented API.",
+          reproductionStrategy: "Call the public API helper.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(0);
+    expect(g.all().map((h) => h.hypId)).toEqual(["h1"]);
+    expect(g.get("h1").state).toBe("REFUTED");
+  });
+
+  it("does not promote benchmark marker findings by themselves", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "FILESYSTEM",
+          confidence: "CONFIRMED",
+          fileLine: ".datadog-bench-stamp.json",
+          problem: "Package appears in a benchmark marker file.",
+          evidence: "The marker contains a dataset class label.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(0);
+    expect(g.get("h1").state).toBe("REFUTED");
   });
 });
 

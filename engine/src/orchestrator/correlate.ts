@@ -62,9 +62,31 @@ export function normalizeCapabilityLabel(
   const raw = `${capability ?? ""} ${context}`.toUpperCase();
   if (!raw.trim() || raw.includes("CLEAN")) return null;
 
+  const enumTokens: string[] = [];
   for (const token of raw.split(/[^A-Z0-9_]+/)) {
     const parsed = CapabilityEnum.safeParse(token);
-    if (parsed.success) return parsed.data;
+    if (parsed.success) enumTokens.push(parsed.data);
+  }
+
+  const tokenSet = new Set(enumTokens);
+  const highSignalTokenOrder = [
+    "NPM_TOKEN_ABUSE",
+    "CREDENTIAL_THEFT",
+    "DATA_EXFILTRATION",
+    "DNS_EXFIL",
+    "WORM_PROPAGATION",
+    "BUILD_PLUGIN_EXFIL",
+    "CLIPBOARD_HIJACK",
+    "LIFECYCLE_HOOK",
+    "BINARY_DOWNLOAD",
+    "PROCESS_SPAWN",
+    "ENV_VARS",
+    "DOS_LOOP",
+    "DOM_INJECT",
+    "TELEMETRY_RAT",
+  ];
+  for (const token of highSignalTokenOrder) {
+    if (tokenSet.has(token)) return token;
   }
 
   if (raw.includes("NPM_TOKEN") || raw.includes("NPMRC")) return "NPM_TOKEN_ABUSE";
@@ -78,7 +100,14 @@ export function normalizeCapabilityLabel(
   if (raw.includes("DNS") && raw.includes("EXFIL")) return "DNS_EXFIL";
   if (raw.includes("EXFIL") || raw.includes("EXPORT") || raw.includes("LEAK")) return "DATA_EXFILTRATION";
   if (raw.includes("ENV")) return "ENV_VARS";
+  if (
+    raw.includes("SELF-PROPAGAT") ||
+    raw.includes("WORM") ||
+    (raw.includes("NPM PUBLISH") && raw.includes("PACKAGE.JSON")) ||
+    (raw.includes("PUBLISH") && raw.includes("PRIVATE") && raw.includes("PACKAGE.JSON"))
+  ) return "WORM_PROPAGATION";
   if (raw.includes("BINARY") || raw.includes("DOWNLOAD") || raw.includes("BUN.SH")) return "BINARY_DOWNLOAD";
+  if (raw.includes("LIFECYCLE") || raw.includes("POSTINSTALL") || raw.includes("PREINSTALL")) return "LIFECYCLE_HOOK";
   if (
     raw.includes("PROCESS") ||
     raw.includes("SPAWN") ||
@@ -89,12 +118,16 @@ export function normalizeCapabilityLabel(
   if (raw.includes("FILE") || raw.includes("FS") || raw.includes("DISK") || raw.includes("PERSIST")) return "FILESYSTEM";
   if (raw.includes("EVAL") || raw.includes("FUNCTION_CONSTRUCTOR") || raw.includes("CODE_EXECUTION")) return "EVAL";
   if (raw.includes("OBFUSC") || raw.includes("ENCRYPT")) return "OBFUSCATION";
-  if (raw.includes("LIFECYCLE") || raw.includes("POSTINSTALL") || raw.includes("PREINSTALL")) return "LIFECYCLE_HOOK";
   if (raw.includes("WORM") || raw.includes("PROPAGAT")) return "WORM_PROPAGATION";
   if (raw.includes("CLIPBOARD")) return "CLIPBOARD_HIJACK";
   if (raw.includes("DOM")) return "DOM_INJECT";
   if (raw.includes("TELEMETRY")) return "TELEMETRY_RAT";
   if (raw.includes("BUILD") && raw.includes("PLUGIN")) return "BUILD_PLUGIN_EXFIL";
+  if (tokenSet.has("EVAL")) return "EVAL";
+  if (tokenSet.has("OBFUSCATION")) return "OBFUSCATION";
+  if (tokenSet.has("ENCRYPTED_PAYLOAD")) return "ENCRYPTED_PAYLOAD";
+  if (tokenSet.has("FILESYSTEM")) return "FILESYSTEM";
+  if (tokenSet.has("NETWORK")) return "NETWORK";
   if (raw.includes("NETWORK") || raw.includes("HTTP") || raw.includes("FETCH")) return "NETWORK";
 
   return null;
@@ -452,7 +485,13 @@ function uniqueInvestigationHypId(graph: HypothesisGraph, index: number): string
 
 function shouldPromoteUnmatchedFinding(finding: Finding, capability: string): boolean {
   if (finding.confidence === "CONFIRMED" || finding.confidence === "LIKELY") {
-    return capability !== "NETWORK" && capability !== "FILESYSTEM";
+    if (capability === "NETWORK" || capability === "FILESYSTEM") {
+      return hasDangerousFindingContext(finding);
+    }
+    return true;
+  }
+  if ((capability === "NETWORK" || capability === "FILESYSTEM") && hasDangerousFindingContext(finding)) {
+    return true;
   }
   return new Set([
     "CREDENTIAL_THEFT",
@@ -463,6 +502,39 @@ function shouldPromoteUnmatchedFinding(finding: Finding, capability: string): bo
     "WORM_PROPAGATION",
     "CLIPBOARD_HIJACK",
   ]).has(capability);
+}
+
+function hasDangerousFindingContext(finding: Finding): boolean {
+  const text = [
+    finding.capability,
+    finding.problem,
+    finding.evidence,
+    finding.reproductionStrategy,
+    finding.fileLine,
+  ].join("\n").toLowerCase();
+
+  return [
+    /\bcredential(?:s)?\b/,
+    /\bsecret(?:s)?\b/,
+    /\btoken(?:s)?\b/,
+    /\bexfiltrat(?:e|es|ion|ing)\b/,
+    /\bsteals?\b/,
+    /\bmalicious\b/,
+    /\bmalware\b/,
+    /\bpostinstall\b/,
+    /\bpreinstall\b/,
+    /\blifecycle\b/,
+    /\bnpm\s+install\s+-g\b/,
+    /\bnpm\s+publish\b/,
+    /\bself-propagat(?:e|es|ion|ing)\b/,
+    /\bworm\b/,
+    /\bwebhook\b/,
+    /\bdiscord\.com\/api\/webhooks\b/,
+    /\bbun\.sh\b/,
+    /\bcurl\s+-/,
+    /\bprocess\.env\b/,
+    /\bpackage\.json\b.*\bprivate\b/,
+  ].some((pattern) => pattern.test(text));
 }
 
 function claimForCapability(capability: string): ClaimKind {

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 type BenchSource = "public" | "datadog";
-type BenchCategory = "public" | "datadog-compromised" | "datadog-malicious-intent";
+type BenchCategory = "public" | "datadog-compromised" | "datadog-malicious-intent" | "baseline";
 
 type BenchRow = {
   source?: BenchSource;
@@ -10,6 +10,7 @@ type BenchRow = {
   version: string | null;
   fixtureName?: string | null;
   category?: BenchCategory;
+  expectedVerdict?: "SAFE" | "DANGEROUS" | null;
   status: string;
   verdict: string | null;
   durationMs: number;
@@ -55,7 +56,7 @@ type Filter = "all" | Outcome;
 type ExpectedGroup = "DANGEROUS" | "SAFE";
 
 const PUBLIC_FILTERS: Filter[] = ["all", "SAFE", "DANGEROUS", "timeout", "failed"];
-const DATADOG_FILTERS: Filter[] = ["all", "detected", "missed", "timeout", "failed"];
+const DATADOG_FILTERS: Filter[] = ["all", "detected", "missed", "SAFE", "DANGEROUS", "timeout", "failed"];
 
 const FILTER_LABELS: Record<Filter, string> = {
   all: "All",
@@ -74,6 +75,7 @@ function runSource(run: BenchRun): BenchSource {
 
 function benchmarkName(file: string): string {
   if (file === "v1.json") return "Benchmark v1";
+  if (file === "v1.1.json") return "Benchmark v1.1";
   return file.replace(/\.json$/i, "");
 }
 
@@ -107,6 +109,11 @@ function rowOutcome(row: BenchRow, source: BenchSource): Outcome {
   if (row.status === "failed") return "failed";
 
   if (source === "datadog") {
+    if (row.expectedVerdict === "SAFE") {
+      if (row.verdict === "SAFE") return "SAFE";
+      if (row.verdict === "DANGEROUS") return "DANGEROUS";
+      return "unknown";
+    }
     if (row.verdict === "DANGEROUS") return "detected";
     if (row.verdict === "SAFE") return "missed";
     return "unknown";
@@ -118,7 +125,7 @@ function rowOutcome(row: BenchRow, source: BenchSource): Outcome {
 }
 
 function expectedGroup(row: BenchRow): ExpectedGroup {
-  return row.source === "datadog" ? "DANGEROUS" : "SAFE";
+  return row.expectedVerdict ?? (row.source === "datadog" ? "DANGEROUS" : "SAFE");
 }
 
 function expectedGroupLabel(group: ExpectedGroup): string {
@@ -141,6 +148,7 @@ function badgeColors(outcome: Outcome) {
 function categoryLabel(category: BenchCategory | undefined): string {
   if (category === "datadog-compromised") return "Compromised lib";
   if (category === "datadog-malicious-intent") return "Malicious intent";
+  if (category === "baseline") return "Safe baseline";
   return "Public npm";
 }
 
@@ -219,12 +227,21 @@ export function Benchmark() {
   const outcomes = countOutcomes(activeRun.rows, source);
   const expectedDangerous = activeRun.rows.filter((row) => expectedGroup(row) === "DANGEROUS").length;
   const expectedSafe = activeRun.rows.filter((row) => expectedGroup(row) === "SAFE").length;
-  const positiveCount = source === "datadog" ? outcomes.detected ?? 0 : outcomes.DANGEROUS ?? 0;
-  const negativeCount = source === "datadog" ? outcomes.missed ?? 0 : outcomes.SAFE ?? 0;
-  const positiveLabel = expectedDangerous > 0 ? "Detected" : "Flagged";
-  const negativeLabel = expectedDangerous > 0 ? "Missed" : "Clean";
+  const dangerousOutcomes = countOutcomes(
+    activeRun.rows.filter((row) => expectedGroup(row) === "DANGEROUS"),
+    source,
+  );
+  const safeOutcomes = countOutcomes(
+    activeRun.rows.filter((row) => expectedGroup(row) === "SAFE"),
+    source,
+  );
+  const detectedCount = source === "datadog" ? dangerousOutcomes.detected ?? 0 : outcomes.DANGEROUS ?? 0;
+  const missedCount = source === "datadog" ? dangerousOutcomes.missed ?? 0 : 0;
+  const cleanCount = source === "datadog" ? safeOutcomes.SAFE ?? 0 : outcomes.SAFE ?? 0;
+  const falsePositiveCount = source === "datadog" ? safeOutcomes.DANGEROUS ?? 0 : outcomes.DANGEROUS ?? 0;
   const compromised = activeRun.categoryCounts?.["datadog-compromised"] ?? 0;
   const malicious = activeRun.categoryCounts?.["datadog-malicious-intent"] ?? 0;
+  const baseline = activeRun.categoryCounts?.baseline ?? 0;
   const subtitle =
     "One benchmark run, grouped by expected package behavior. Dangerous samples measure recall; safe samples measure false-positive risk.";
 
@@ -288,7 +305,7 @@ export function Benchmark() {
             {activeRun.datasetVersion ? ` - dataset ${activeRun.datasetVersion}` : ""}
             {activeRun.engineSha ? ` - engine ${activeRun.engineSha.slice(0, 12)}` : ""}
             {activeRun.watchlist ? ` - watchlist ${activeRun.watchlist}` : ""}
-            {source === "datadog" ? ` - ${compromised} compromised / ${malicious} malicious-intent` : ""}
+            {source === "datadog" ? ` - ${compromised} compromised / ${malicious} malicious-intent / ${baseline} safe` : ""}
           </div>
         </header>
 
@@ -302,9 +319,11 @@ export function Benchmark() {
         >
           <Metric label="Rows" value={String(activeRun.totalRows)} />
           <Metric label="Expected dangerous" value={String(expectedDangerous)} tone="var(--danger)" />
+          <Metric label="Detected" value={String(detectedCount)} tone="var(--safe)" />
+          <Metric label="Missed" value={String(missedCount)} tone="var(--danger)" />
           <Metric label="Expected safe" value={String(expectedSafe)} tone="var(--safe)" />
-          <Metric label={positiveLabel} value={String(positiveCount)} tone="var(--safe)" />
-          <Metric label={negativeLabel} value={String(negativeCount)} tone="var(--danger)" />
+          <Metric label="False positives" value={String(falsePositiveCount)} tone="var(--danger)" />
+          <Metric label="Clean safe" value={String(cleanCount)} tone="var(--safe)" />
           <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
         </section>
 
@@ -495,6 +514,8 @@ function RunPicker({
                 {run.totalRows} rows
                 {run.counts.detected != null ? ` - ${run.counts.detected} detected` : ""}
                 {run.counts.missed != null ? ` - ${run.counts.missed} missed` : ""}
+                {run.counts.clean != null ? ` - ${run.counts.clean} clean` : ""}
+                {run.counts.false_positive != null ? ` - ${run.counts.false_positive} fp` : ""}
               </div>
             </button>
           );
