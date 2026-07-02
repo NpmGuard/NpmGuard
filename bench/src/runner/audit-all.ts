@@ -462,7 +462,7 @@ async function main(): Promise<void> {
   function refreshRunResults(): void {
     run.results = entries.flatMap((entry): MutationRunResult[] => {
       const runs = resultsByFixture.get(entry.fixtureName) ?? [];
-      return runs.length > 0 ? [{ fixtureName: entry.fixtureName, runs }] : [];
+      return runs.length > 0 ? [{ fixtureName: entry.fixtureName, entry, runs }] : [];
     });
     run.completedAt = new Date().toISOString();
     persistRun(args.out, run);
