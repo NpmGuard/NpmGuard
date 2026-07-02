@@ -46,11 +46,11 @@ The next benchmark should be one mixed run:
 | Group | Source | Expected |
 | --- | --- | --- |
 | 143 Datadog replay samples | `bench/dataset/manifest.v3.json` | `DANGEROUS` |
-| 28 locked seed packages | `bench/src/seeds/catalog.ts` | `SAFE` |
+| 57 locked seed packages | `bench/src/seeds/catalog.ts` | `SAFE` |
 
 `npm run -w @npmguard/bench manifest:v1.1` generates
 `bench/dataset/manifest.v1.1.json` with dataset version
-`0.4.0-v1.1-datadog-143-safe-28`.
+`0.4.0-v1.1-datadog-143-safe-57`, for 200 total rows.
 
 ## Next Run
 
