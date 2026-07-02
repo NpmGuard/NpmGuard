@@ -3,7 +3,7 @@ import { CapabilityEnum, Finding, Proof, type AuditReport, type FileVerdict, typ
 import type { ClaimKind, Hypothesis, HypothesisSeverity } from "@npmguard/shared";
 import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
-import { extractIntent } from "./phases/intent-extraction.js";
+import { extractIntent, fallbackIntent, type PackageIntent } from "./phases/intent-extraction.js";
 import { runTriage, type FileSummary } from "./phases/triage.js";
 import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { deriveGraphVerdict } from "./orchestrator/verdict.js";
@@ -331,18 +331,42 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
     // Phase 1a: Intent extraction — derives the stated-purpose baseline
     // that MAP uses to reason about capability mismatch.
-    const { result: intent, log: intentLog } = await timedPhase(
-      "intent-extraction",
-      () => extractIntent(resolved.path, inventory),
-      60_000,
-      { packageName: inventory.metadata.name, description: inventory.metadata.description },
-      (i) => ({
-        statedPurpose: i.statedPurpose,
-        expectedCapabilities: i.expectedCapabilities,
-        rationale: i.rationale,
-      }),
-      emit,
-    );
+    const intentInput = { packageName: inventory.metadata.name, description: inventory.metadata.description };
+    const summarizeIntent = (i: PackageIntent) => ({
+      statedPurpose: i.statedPurpose,
+      expectedCapabilities: i.expectedCapabilities,
+      rationale: i.rationale,
+    });
+    let intent: PackageIntent;
+    let intentLog: PhaseLog;
+    try {
+      const timed = await timedPhase(
+        "intent-extraction",
+        () => extractIntent(resolved.path, inventory),
+        60_000,
+        intentInput,
+        summarizeIntent,
+        emit,
+      );
+      intent = timed.result;
+      intentLog = timed.log;
+    } catch (err) {
+      if (!isTimeoutError(err, "intent-extraction")) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[intent] ${message}; using fallback intent`);
+      intent = fallbackIntent(inventory);
+      intentLog = {
+        phase: "intent-extraction",
+        durationMs: 60_000,
+        input: intentInput,
+        output: {
+          ...summarizeIntent(intent),
+          fallback: true,
+          error: message,
+        },
+      };
+      emit?.("phase_completed", { phase: "intent-extraction", durationMs: 60_000 });
+    }
     trace.push(intentLog);
     log.writeLog("intent.json", intent);
     emit?.("intent_extracted", {

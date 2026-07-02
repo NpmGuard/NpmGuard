@@ -1,7 +1,8 @@
 # Real package audit runs
 
 This runbook tracks production-like audits against currently published npm
-packages. It complements the mutation benchmark in `METHODOLOGY.md`.
+packages. It complements Datadog replay and mutation testing by measuring
+precision: these packages are expected to remain `SAFE`.
 
 ## Watchlists
 
@@ -10,6 +11,20 @@ packages. It complements the mutation benchmark in `METHODOLOGY.md`.
   historically interesting packages.
 - `engine/config/watchlist-packages.json`: larger watchlist for 100+ package
   runs.
+- `zod` is a named regression case. It produced a historical false positive in
+  an earlier smoke run and must remain `SAFE`.
+
+## Precision gate
+
+A SAFE watchlist run is healthy when:
+
+- every completed row is `SAFE`
+- timeout count is 0 for smoke and investigated for larger batches
+- failed row count is 0
+- unexpected `DANGEROUS` count is 0
+
+For the V3 benchmark, report both strict precision and precision excluding
+infrastructure failures. Do not hide timeouts inside the security score.
 
 ## Smoke run
 
@@ -63,6 +78,18 @@ npm run audit:latest -- \
 Increase `--limit` in batches so cost, latency, and failures stay visible.
 Use `--result-limit` when a benchmark should stop after an exact number of
 result rows, including already-audited packages and timeouts.
+
+## V3 summary
+
+Once a watchlist run exists, include it in the V3 summary:
+
+```bash
+npm run -w @npmguard/bench summarize:v3 -- \
+  --audits-dir bench/results/audits \
+  --watchlist bench/results/watchlist-smoke-clean-20260612T194126Z.json \
+  --out-json bench/results/v3-summary.json \
+  --out-md bench/results/v3-summary.md
+```
 
 ## Model comparison
 

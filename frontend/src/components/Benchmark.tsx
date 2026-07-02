@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 type BenchSource = "public" | "datadog";
@@ -52,6 +52,7 @@ type BenchResponse = {
 
 type Outcome = "SAFE" | "DANGEROUS" | "timeout" | "failed" | "detected" | "missed" | "unknown";
 type Filter = "all" | Outcome;
+type ExpectedGroup = "DANGEROUS" | "SAFE";
 
 const PUBLIC_FILTERS: Filter[] = ["all", "SAFE", "DANGEROUS", "timeout", "failed"];
 const DATADOG_FILTERS: Filter[] = ["all", "detected", "missed", "timeout", "failed"];
@@ -69,6 +70,11 @@ const FILTER_LABELS: Record<Filter, string> = {
 
 function runSource(run: BenchRun): BenchSource {
   return run.source ?? run.rows[0]?.source ?? "public";
+}
+
+function benchmarkName(file: string): string {
+  if (file === "v1.json") return "Benchmark v1";
+  return file.replace(/\.json$/i, "");
 }
 
 function formatDuration(ms: number | null | undefined): string {
@@ -111,6 +117,14 @@ function rowOutcome(row: BenchRow, source: BenchSource): Outcome {
   return row.status === "failed" ? "failed" : "unknown";
 }
 
+function expectedGroup(row: BenchRow): ExpectedGroup {
+  return row.source === "datadog" ? "DANGEROUS" : "SAFE";
+}
+
+function expectedGroupLabel(group: ExpectedGroup): string {
+  return group === "DANGEROUS" ? "Expected dangerous" : "Expected safe";
+}
+
 function badgeColors(outcome: Outcome) {
   if (outcome === "SAFE" || outcome === "detected") {
     return { color: "var(--safe)", bg: "var(--safe-bg)" };
@@ -138,18 +152,24 @@ function countOutcomes(rows: BenchRow[], source: BenchSource): Record<string, nu
   }, {});
 }
 
-function sourceSummary(runs: BenchRun[], source: BenchSource) {
-  const matching = runs.filter((run) => runSource(run) === source);
-  return {
-    runs: matching.length,
-    rows: matching.reduce((sum, run) => sum + run.totalRows, 0),
+function groupRowsByExpectation(rows: BenchRow[]): Array<{ group: ExpectedGroup; rows: BenchRow[] }> {
+  const groups: Record<ExpectedGroup, BenchRow[]> = {
+    DANGEROUS: [],
+    SAFE: [],
   };
+
+  for (const row of rows) {
+    groups[expectedGroup(row)].push(row);
+  }
+
+  return (["DANGEROUS", "SAFE"] as ExpectedGroup[])
+    .filter((group) => groups[group].length > 0)
+    .map((group) => ({ group, rows: groups[group] }));
 }
 
 export function Benchmark() {
   const [data, setData] = useState<BenchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeSource, setActiveSource] = useState<BenchSource>("datadog");
   const [activeRunFile, setActiveRunFile] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -162,27 +182,24 @@ export function Benchmark() {
       .then((payload) => {
         setData(payload);
         const preferred =
+          payload.runs.find((run) => run.file === "v1.json") ??
           payload.runs.find((run) => runSource(run) === "datadog" && run.totalRows > 0) ??
           payload.runs.find((run) => run.totalRows > 0) ??
           payload.runs[0] ??
           null;
         if (preferred) {
-          setActiveSource(runSource(preferred));
           setActiveRunFile(preferred.file);
         }
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
-  const runsForSource = useMemo(() => {
-    if (!data) return [];
-    return data.runs.filter((run) => runSource(run) === activeSource);
-  }, [activeSource, data]);
+  const selectableRuns = useMemo(() => data?.runs.filter((run) => run.totalRows > 0) ?? [], [data]);
 
   const activeRun = useMemo(() => {
     if (!data) return null;
-    return runsForSource.find((run) => run.file === activeRunFile) ?? runsForSource[0] ?? data.runs[0] ?? null;
-  }, [activeRunFile, data, runsForSource]);
+    return data.runs.find((run) => run.file === activeRunFile) ?? selectableRuns[0] ?? data.runs[0] ?? null;
+  }, [activeRunFile, data, selectableRuns]);
 
   const rows = useMemo(() => {
     if (!activeRun) return [];
@@ -191,6 +208,8 @@ export function Benchmark() {
       : activeRun.rows.filter((row) => rowOutcome(row, runSource(activeRun)) === filter);
   }, [activeRun, filter]);
 
+  const groupedRows = useMemo(() => groupRowsByExpectation(rows), [rows]);
+
   if (error) return <StateMessage tone="var(--danger)" message={`Benchmark unavailable: ${error}`} />;
   if (!data) return <StateMessage message="Loading benchmark results..." />;
   if (!activeRun) return <StateMessage message="No benchmark result files found yet." />;
@@ -198,15 +217,16 @@ export function Benchmark() {
   const source = runSource(activeRun);
   const filterOptions = source === "datadog" ? DATADOG_FILTERS : PUBLIC_FILTERS;
   const outcomes = countOutcomes(activeRun.rows, source);
-  const datadogSummary = sourceSummary(data.runs, "datadog");
-  const publicSummary = sourceSummary(data.runs, "public");
-  const confirmedRows = activeRun.rows.filter((row) => (row.confirmedProofs ?? 0) > 0).length;
+  const expectedDangerous = activeRun.rows.filter((row) => expectedGroup(row) === "DANGEROUS").length;
+  const expectedSafe = activeRun.rows.filter((row) => expectedGroup(row) === "SAFE").length;
+  const positiveCount = source === "datadog" ? outcomes.detected ?? 0 : outcomes.DANGEROUS ?? 0;
+  const negativeCount = source === "datadog" ? outcomes.missed ?? 0 : outcomes.SAFE ?? 0;
+  const positiveLabel = expectedDangerous > 0 ? "Detected" : "Flagged";
+  const negativeLabel = expectedDangerous > 0 ? "Missed" : "Clean";
   const compromised = activeRun.categoryCounts?.["datadog-compromised"] ?? 0;
   const malicious = activeRun.categoryCounts?.["datadog-malicious-intent"] ?? 0;
   const subtitle =
-    source === "datadog"
-      ? "Known malicious npm packages from Datadog's public corpus. Each row asks: did NpmGuard flag it, and how much evidence came back?"
-      : "Production-like audits against currently published npm packages, used to watch latency and false positive risk.";
+    "One benchmark run, grouped by expected package behavior. Dangerous samples measure recall; safe samples measure false-positive risk.";
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "28px", minWidth: 0 }}>
@@ -252,58 +272,19 @@ export function Benchmark() {
             </div>
 
             <div style={{ minWidth: 280, maxWidth: 430, flex: "1 1 300px" }}>
-              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                <SourceButton
-                  label="Malware corpus"
-                  detail={`${datadogSummary.rows} rows`}
-                  active={source === "datadog"}
-                  onClick={() => {
-                    const next = data.runs.find((run) => runSource(run) === "datadog");
-                    setActiveSource("datadog");
-                    setActiveRunFile(next?.file ?? null);
-                    setFilter("all");
-                  }}
-                />
-                <SourceButton
-                  label="Public packages"
-                  detail={`${publicSummary.rows} rows`}
-                  active={source === "public"}
-                  onClick={() => {
-                    const next = data.runs.find((run) => runSource(run) === "public");
-                    setActiveSource("public");
-                    setActiveRunFile(next?.file ?? null);
-                    setFilter("all");
-                  }}
-                />
-              </div>
-              <select
-                value={activeRun.file}
-                onChange={(e) => {
-                  setActiveRunFile(e.target.value);
+              <RunPicker
+                runs={selectableRuns.length > 0 ? selectableRuns : data.runs}
+                activeFile={activeRun.file}
+                onSelect={(file) => {
+                  setActiveRunFile(file);
                   setFilter("all");
                 }}
-                style={{
-                  width: "100%",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "0.75rem",
-                  color: "var(--text)",
-                  background: "var(--bg-secondary)",
-                  border: "1px solid var(--border-strong)",
-                  borderRadius: 4,
-                  padding: "8px 9px",
-                }}
-              >
-                {runsForSource.map((run) => (
-                  <option key={run.file} value={run.file}>
-                    {run.file}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
           </div>
 
           <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-muted)" }}>
-            Updated {formatDate(activeRun.updatedAt)} - file {activeRun.file}
+            Updated {formatDate(activeRun.updatedAt)} - {benchmarkName(activeRun.file)}
             {activeRun.datasetVersion ? ` - dataset ${activeRun.datasetVersion}` : ""}
             {activeRun.engineSha ? ` - engine ${activeRun.engineSha.slice(0, 12)}` : ""}
             {activeRun.watchlist ? ` - watchlist ${activeRun.watchlist}` : ""}
@@ -319,25 +300,12 @@ export function Benchmark() {
             marginBottom: 20,
           }}
         >
-          {source === "datadog" ? (
-            <>
-              <Metric label="Rows" value={String(activeRun.totalRows)} />
-              <Metric label="Detected" value={String(outcomes.detected ?? 0)} tone="var(--safe)" />
-              <Metric label="Missed" value={String(outcomes.missed ?? 0)} tone="var(--danger)" />
-              <Metric label="Test-confirmed" value={String(confirmedRows)} tone="var(--accent-light)" />
-              <Metric label="Timeout" value={String(outcomes.timeout ?? 0)} tone="var(--warning)" />
-              <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
-            </>
-          ) : (
-            <>
-              <Metric label="Rows" value={String(activeRun.totalRows)} />
-              <Metric label="Safe" value={String(outcomes.SAFE ?? 0)} tone="var(--safe)" />
-              <Metric label="Dangerous" value={String(outcomes.DANGEROUS ?? 0)} tone="var(--danger)" />
-              <Metric label="Timeout" value={String(outcomes.timeout ?? 0)} tone="var(--warning)" />
-              <Metric label="Failed" value={String(outcomes.failed ?? 0)} tone="var(--text-muted)" />
-              <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
-            </>
-          )}
+          <Metric label="Rows" value={String(activeRun.totalRows)} />
+          <Metric label="Expected dangerous" value={String(expectedDangerous)} tone="var(--danger)" />
+          <Metric label="Expected safe" value={String(expectedSafe)} tone="var(--safe)" />
+          <Metric label={positiveLabel} value={String(positiveCount)} tone="var(--safe)" />
+          <Metric label={negativeLabel} value={String(negativeCount)} tone="var(--danger)" />
+          <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
         </section>
 
         <section style={{ marginBottom: 22 }}>
@@ -356,7 +324,7 @@ export function Benchmark() {
         </section>
 
         <section>
-          <SectionHeader title="Result rows" right={`${rows.length}/${activeRun.rows.length} shown`} />
+          <SectionHeader title="Benchmark rows" right={`${rows.length}/${activeRun.rows.length} shown`} />
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             {filterOptions.map((item) => (
               <button
@@ -378,7 +346,15 @@ export function Benchmark() {
             ))}
           </div>
 
-          <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 6 }}>
+          <div
+            style={{
+              overflow: "auto",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              maxHeight: "min(560px, calc(100vh - 430px))",
+              minHeight: 260,
+            }}
+          >
             <table
               style={{
                 width: "100%",
@@ -399,19 +375,43 @@ export function Benchmark() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={rowKey(row)} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <Td strong style={{ maxWidth: 340, overflowWrap: "anywhere" }}>
-                      {row.packageName}
-                    </Td>
-                    <Td>{source === "datadog" ? categoryLabel(row.category) : row.version ?? "-"}</Td>
-                    <Td><OutcomeBadge row={row} source={source} /></Td>
-                    <Td>{evidenceText(row, source)}</Td>
-                    <Td style={{ textAlign: "right" }}>{formatDuration(row.durationMs)}</Td>
-                    <Td muted style={{ maxWidth: 340, overflowWrap: "anywhere" }}>
-                      {notesText(row, source)}
-                    </Td>
-                  </tr>
+                {groupedRows.map(({ group, rows: groupItems }) => (
+                  <Fragment key={group}>
+                    <tr>
+                      <td
+                        colSpan={6}
+                        style={{
+                          position: "sticky",
+                          top: 34,
+                          zIndex: 1,
+                          background: "var(--bg-tertiary)",
+                          borderBottom: "1px solid var(--border)",
+                          padding: "7px 10px",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: "0.7rem",
+                          fontWeight: 800,
+                          color: group === "DANGEROUS" ? "var(--danger)" : "var(--safe)",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {expectedGroupLabel(group)} - {groupItems.length} rows
+                      </td>
+                    </tr>
+                    {groupItems.map((row) => (
+                      <tr key={rowKey(row)} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <Td strong style={{ maxWidth: 340, overflowWrap: "anywhere" }}>
+                          {row.packageName}
+                        </Td>
+                        <Td>{row.source === "datadog" ? categoryLabel(row.category) : row.version ?? "-"}</Td>
+                        <Td><OutcomeBadge row={row} source={source} /></Td>
+                        <Td>{evidenceText(row, source)}</Td>
+                        <Td style={{ textAlign: "right" }}>{formatDuration(row.durationMs)}</Td>
+                        <Td muted style={{ maxWidth: 340, overflowWrap: "anywhere" }}>
+                          {notesText(row, source)}
+                        </Td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -439,40 +439,68 @@ function notesText(row: BenchRow, source: BenchSource): string {
   return caps.slice(0, 4).join(", ");
 }
 
-function SourceButton({
-  label,
-  detail,
-  active,
-  onClick,
+function RunPicker({
+  runs,
+  activeFile,
+  onSelect,
 }: {
-  label: string;
-  detail: string;
-  active: boolean;
-  onClick: () => void;
+  runs: BenchRun[];
+  activeFile: string;
+  onSelect: (file: string) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       style={{
-        flex: 1,
-        minWidth: 0,
-        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-        background: active ? "var(--accent-bg)" : "var(--bg-secondary)",
-        color: active ? "var(--accent-light)" : "var(--text)",
+        border: "1px solid var(--border-strong)",
         borderRadius: 6,
-        padding: "9px 10px",
-        cursor: "pointer",
-        textAlign: "left",
+        background: "var(--bg-secondary)",
+        overflow: "hidden",
       }}
     >
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", fontWeight: 800 }}>
-        {label}
+      <div
+        style={{
+          padding: "8px 10px",
+          borderBottom: "1px solid var(--border)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "0.68rem",
+          color: "var(--text-muted)",
+          textTransform: "uppercase",
+        }}
+      >
+        Benchmark
       </div>
-      <div style={{ marginTop: 4, fontFamily: "var(--font-mono)", fontSize: "0.66rem", color: "var(--text-muted)" }}>
-        {detail}
+      <div style={{ maxHeight: 154, overflowY: "auto" }}>
+        {runs.map((run) => {
+          const active = run.file === activeFile;
+          return (
+            <button
+              key={run.file}
+              type="button"
+              onClick={() => onSelect(run.file)}
+              style={{
+                width: "100%",
+                border: 0,
+                borderBottom: "1px solid var(--border)",
+                background: active ? "var(--accent-bg)" : "transparent",
+                color: active ? "var(--accent-light)" : "var(--text)",
+                cursor: "pointer",
+                textAlign: "left",
+                padding: "9px 10px",
+              }}
+            >
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.76rem", fontWeight: 800 }}>
+                {benchmarkName(run.file)}
+              </div>
+              <div style={{ marginTop: 4, fontFamily: "var(--font-mono)", fontSize: "0.66rem", color: "var(--text-muted)" }}>
+                {run.totalRows} rows
+                {run.counts.detected != null ? ` - ${run.counts.detected} detected` : ""}
+                {run.counts.missed != null ? ` - ${run.counts.missed} missed` : ""}
+              </div>
+            </button>
+          );
+        })}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -540,7 +568,23 @@ function SectionHeader({ title, right }: { title: string; right?: string }) {
 }
 
 function Th({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return <th style={{ padding: "9px 10px", color: "var(--text-muted)", textAlign: "left", fontWeight: 700, ...style }}>{children}</th>;
+  return (
+    <th
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 2,
+        background: "var(--bg-secondary)",
+        padding: "9px 10px",
+        color: "var(--text-muted)",
+        textAlign: "left",
+        fontWeight: 700,
+        ...style,
+      }}
+    >
+      {children}
+    </th>
+  );
 }
 
 function Td({
