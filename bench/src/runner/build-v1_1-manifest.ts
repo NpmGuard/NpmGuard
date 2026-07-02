@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BENCH_ROOT = resolve(__dirname, "..", "..");
 const DEFAULT_DATADOG_MANIFEST = join(BENCH_ROOT, "dataset", "manifest.v3.json");
 const DEFAULT_OUT = join(BENCH_ROOT, "dataset", "manifest.v1.1.json");
-const DEFAULT_DATASET_VERSION = "0.4.0-v1.1-datadog-143-safe-28";
+const DEFAULT_DATASET_VERSION = "0.4.0-v1.1-datadog-143-safe-57";
 
 interface CliArgs {
   datadogManifest: string;
