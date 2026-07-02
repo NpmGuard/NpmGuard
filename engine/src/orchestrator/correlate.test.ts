@@ -10,6 +10,7 @@ import {
   bestMatch,
   correlateAfterInvestigation,
   correlateAfterVerify,
+  normalizeCapabilityLabel,
 } from "./correlate.js";
 
 // ---------------------------------------------------------------------------
@@ -93,6 +94,22 @@ describe("claimMatchesCapability", () => {
     expect(claimMatchesCapability("obfuscation", "EVAL")).toBe(true);
     expect(claimMatchesCapability("obfuscation", "ENCRYPTED_PAYLOAD")).toBe(true);
   });
+
+  it("normalizes LLM alias and composite capability labels", () => {
+    expect(normalizeCapabilityLabel("CREDENTIAL_ACCESS")).toBe("CREDENTIAL_THEFT");
+    expect(normalizeCapabilityLabel("CREDENTIAL_THEFT / NETWORK")).toBe("CREDENTIAL_THEFT");
+    expect(claimMatchesCapability("cred_theft", "CREDENTIAL_ACCESS")).toBe(true);
+    expect(claimMatchesCapability("cred_theft", "CREDENTIAL_THEFT / NETWORK")).toBe(true);
+  });
+
+  it("can infer UNKNOWN capability from evidence text", () => {
+    expect(
+      normalizeCapabilityLabel(
+        "UNKNOWN",
+        "fetches TruffleHog and exfiltrates hardcoded secrets from .npmrc",
+      ),
+    ).toBe("NPM_TOKEN_ABUSE");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -157,6 +174,17 @@ describe("fileOverlapScore", () => {
 
   it("returns 1 when finding has no line numbers", () => {
     expect(fileOverlapScore({ file: "lib/setup.js", startLine: null, endLine: null }, h)).toBe(1);
+  });
+
+  it("matches fuzzy file references emitted by the investigation agent", () => {
+    expect(fileOverlapScore({ file: "bundle.js lines ~3732562-3734822", startLine: null, endLine: null }, hyp({
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }))).toBe(1);
+    expect(fileOverlapScore({ file: "package.json preinstall hook -> setup_bun.js lines 28-39", startLine: null, endLine: null }, hyp({
+      focusFiles: ["setup_bun.js"],
+      focusLines: [{ file: "setup_bun.js", range: "28-39" }],
+    }))).toBe(1);
   });
 });
 
@@ -299,6 +327,66 @@ describe("correlateAfterInvestigation", () => {
     });
     expect(result.matched.length).toBe(0);
     expect(g.get("trg-0001").state).toBe("REFUTED");
+  });
+
+  it("promotes confirmed dangerous unmatched findings into graph hypotheses", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["setup_bun.js"],
+      focusLines: [{ file: "setup_bun.js", range: "1-10" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "UNKNOWN",
+          confidence: "CONFIRMED",
+          fileLine: "",
+          evidence: "The payload obtains GitHub runner tokens and exfiltrates secrets with TruffleHog.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.matched).toHaveLength(0);
+    expect(result.promoted).toHaveLength(1);
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("CONFIRMED");
+    expect(["cred_theft", "env_exfil"]).toContain(g.get(result.promoted[0]!.hypId).claim.kind);
+    expect(g.get("h1").state).toBe("REFUTED");
+  });
+
+  it("promotes suspected credential theft findings when triage only had obfuscation", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "CREDENTIAL_THEFT",
+          confidence: "SUSPECTED",
+          fileLine: "bundle.js:3334624-3337091",
+          evidence: "GitHubModule reads GITHUB_TOKEN and runs gh auth token.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(1);
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("IN_PROGRESS");
+    expect(g.get(result.promoted[0]!.hypId).claim.kind).toBe("cred_theft");
   });
 });
 

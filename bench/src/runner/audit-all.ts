@@ -41,6 +41,13 @@ interface CliArgs {
   /** Per-audit timeout in ms. Verify phase can take 5+ minutes, so we
    *  allow generous headroom. */
   timeoutMs: number;
+  /**
+   * CRE mode is fire-and-forget: POST /audit returns 202 and the runner polls
+   * for a persisted report. If the engine fails before writing a report, the
+   * runner cannot observe that failure through the public API and would
+   * otherwise keep queuing artificial 30-minute "timeouts".
+   */
+  maxConsecutiveTimeouts: number;
 }
 
 function parseCli(): CliArgs {
@@ -53,6 +60,7 @@ function parseCli(): CliArgs {
       out: { type: "string" },
       "api-key": { type: "string" },
       timeout: { type: "string", default: "1800000" }, // 30 min — with bounded triage concurrency (8) and the new prompt, no fixture should take >25min. v3 hit 90min only because rate-limited triage failures crashed the queue silently and polling waited the full deadline.
+      "max-consecutive-timeouts": { type: "string", default: "3" },
     },
     strict: true,
   });
@@ -61,8 +69,9 @@ function parseCli(): CliArgs {
     runs: parseInt(values.runs as string, 10),
     limit: values.limit ? parseInt(values.limit as string, 10) : null,
     out: (values.out as string) || defaultOutPath(),
-    apiKey: (values["api-key"] as string) || null,
+    apiKey: (values["api-key"] as string) || process.env.NPMGUARD_CRE_API_KEY || null,
     timeoutMs: parseInt(values.timeout as string, 10),
+    maxConsecutiveTimeouts: parseInt(values["max-consecutive-timeouts"] as string, 10),
   };
 }
 
@@ -223,6 +232,10 @@ async function pollForReport(
   };
 }
 
+function isPollingTimeout(result: SingleAuditResult): boolean {
+  return typeof result.error === "string" && result.error.startsWith("polling timed out after ");
+}
+
 function reportToResult(
   report: AuditReportShape,
   durationMs: number,
@@ -378,6 +391,11 @@ async function main(): Promise<void> {
   const engineSha = readEngineSha();
   const version = await fetchEngineVersion(args.api);
   console.log(`[runner] engine sha=${engineSha.slice(0, 12)} model=${version.modelId} dataset=${manifest.datasetVersion}`);
+  if (args.apiKey && args.maxConsecutiveTimeouts > 0) {
+    console.log(
+      `[runner] timeout circuit breaker: stop after ${args.maxConsecutiveTimeouts} consecutive polling timeouts`,
+    );
+  }
 
   const entries = args.limit ? manifest.entries.slice(0, args.limit) : manifest.entries;
   console.log(`[runner] processing ${entries.length} fixtures × ${args.runs} runs = ${entries.length * args.runs} audits`);
@@ -396,6 +414,7 @@ async function main(): Promise<void> {
   };
 
   let auditCount = 0;
+  let consecutivePollingTimeouts = 0;
   const total = entries.length * args.runs;
 
   for (const entry of entries) {
@@ -412,12 +431,31 @@ async function main(): Promise<void> {
         ? `ERROR: ${result.error.slice(0, 80)}`
         : `${result.verdict} · caps=[${result.capabilities.join(",")}] proofs=[${result.proofKinds.join(",")}]`;
       console.log(`[runner] [${auditCount}/${total}]   ${elapsed}s ${tag}`);
+      if (isPollingTimeout(result)) {
+        consecutivePollingTimeouts++;
+      } else {
+        consecutivePollingTimeouts = 0;
+      }
       runs.push(result);
       archiveAudit(args.out, entry, i, result);
     }
     results.push({ fixtureName: entry.fixtureName, runs });
     run.completedAt = new Date().toISOString();
     persistRun(args.out, run);
+
+    if (
+      args.apiKey &&
+      args.maxConsecutiveTimeouts > 0 &&
+      consecutivePollingTimeouts >= args.maxConsecutiveTimeouts
+    ) {
+      console.error(
+        `[runner] stopping after ${consecutivePollingTimeouts} consecutive polling timeouts. ` +
+          `CRE /audit returned 202 but no report was persisted; continuing would create artificial timeout rows. ` +
+          `Partial results were saved to ${args.out}.`,
+      );
+      process.exitCode = 2;
+      return;
+    }
   }
 
   console.log(`[runner] done — ${results.length} fixtures, ${auditCount} audits → ${args.out}`);

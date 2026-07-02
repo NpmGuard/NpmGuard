@@ -36,6 +36,13 @@ type DatadogRun = {
 
 type DatadogResult = {
   fixtureName?: string;
+  entry?: {
+    pkg?: {
+      name?: string;
+      version?: string;
+    };
+    category?: "datadog-compromised" | "datadog-malicious-intent";
+  };
   runs?: DatadogRun[];
 };
 
@@ -258,12 +265,13 @@ function summarizeDatadogPayload(
     const runs = Array.isArray(item.runs) && item.runs.length > 0 ? item.runs : [{ error: "No run result" }];
     runs.forEach((run, index) => {
       const proofKinds = Array.isArray(run.proofKinds) ? run.proofKinds.filter((v): v is string => typeof v === "string") : [];
+      const category = item.entry?.category ?? fixtureCategory(item.fixtureName!);
       rows.push({
         source: "datadog",
-        packageName: item.fixtureName!,
-        version: fixtureVersion(item.fixtureName!),
+        packageName: item.entry?.pkg?.name ?? item.fixtureName!,
+        version: item.entry?.pkg?.version ?? fixtureVersion(item.fixtureName!),
         fixtureName: item.fixtureName!,
-        category: fixtureCategory(item.fixtureName!),
+        category,
         status: datadogStatus(run),
         verdict: typeof run.verdict === "string" ? run.verdict : null,
         durationMs: typeof run.durationMs === "number" ? run.durationMs : 0,

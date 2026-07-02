@@ -6,7 +6,7 @@ import type {
 } from "@npmguard/shared";
 import type { HypothesisGraph } from "../graph/hypothesis-graph.js";
 import type { InvestigationResult } from "../phases/investigate.js";
-import type { Finding, Proof } from "../models.js";
+import { CapabilityEnum, type Finding, type Proof } from "../models.js";
 
 // ---------------------------------------------------------------------------
 // Claim ↔ Capability mapping
@@ -41,8 +41,63 @@ export function claimMatchesCapability(
     return false;
   }
 
+  const normalized = normalizeCapabilityLabel(capability);
+  if (!normalized) {
+    return false;
+  }
+
   const caps = CLAIM_TO_CAPABILITIES[claim];
-  return caps ? caps.includes(capability) : false;
+  return caps ? caps.includes(normalized) : false;
+}
+
+/**
+ * LLMs often emit labels outside CapabilityEnum, or composite labels such as
+ * "CREDENTIAL_THEFT / NETWORK". Normalize those labels before graph
+ * correlation so otherwise good findings do not get dropped as UNKNOWN.
+ */
+export function normalizeCapabilityLabel(
+  capability: string | null | undefined,
+  context = "",
+): string | null {
+  const raw = `${capability ?? ""} ${context}`.toUpperCase();
+  if (!raw.trim() || raw.includes("CLEAN")) return null;
+
+  for (const token of raw.split(/[^A-Z0-9_]+/)) {
+    const parsed = CapabilityEnum.safeParse(token);
+    if (parsed.success) return parsed.data;
+  }
+
+  if (raw.includes("NPM_TOKEN") || raw.includes("NPMRC")) return "NPM_TOKEN_ABUSE";
+  if (
+    raw.includes("CREDENTIAL") ||
+    raw.includes("SECRET") ||
+    raw.includes("TOKEN") ||
+    raw.includes("AUTH") ||
+    raw.includes("TRUFFLEHOG")
+  ) return "CREDENTIAL_THEFT";
+  if (raw.includes("DNS") && raw.includes("EXFIL")) return "DNS_EXFIL";
+  if (raw.includes("EXFIL") || raw.includes("EXPORT") || raw.includes("LEAK")) return "DATA_EXFILTRATION";
+  if (raw.includes("ENV")) return "ENV_VARS";
+  if (raw.includes("BINARY") || raw.includes("DOWNLOAD") || raw.includes("BUN.SH")) return "BINARY_DOWNLOAD";
+  if (
+    raw.includes("PROCESS") ||
+    raw.includes("SPAWN") ||
+    raw.includes("EXEC") ||
+    raw.includes("POWERSHELL") ||
+    raw.includes("BASH")
+  ) return "PROCESS_SPAWN";
+  if (raw.includes("FILE") || raw.includes("FS") || raw.includes("DISK") || raw.includes("PERSIST")) return "FILESYSTEM";
+  if (raw.includes("EVAL") || raw.includes("FUNCTION_CONSTRUCTOR") || raw.includes("CODE_EXECUTION")) return "EVAL";
+  if (raw.includes("OBFUSC") || raw.includes("ENCRYPT")) return "OBFUSCATION";
+  if (raw.includes("LIFECYCLE") || raw.includes("POSTINSTALL") || raw.includes("PREINSTALL")) return "LIFECYCLE_HOOK";
+  if (raw.includes("WORM") || raw.includes("PROPAGAT")) return "WORM_PROPAGATION";
+  if (raw.includes("CLIPBOARD")) return "CLIPBOARD_HIJACK";
+  if (raw.includes("DOM")) return "DOM_INJECT";
+  if (raw.includes("TELEMETRY")) return "TELEMETRY_RAT";
+  if (raw.includes("BUILD") && raw.includes("PLUGIN")) return "BUILD_PLUGIN_EXFIL";
+  if (raw.includes("NETWORK") || raw.includes("HTTP") || raw.includes("FETCH")) return "NETWORK";
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +165,9 @@ export function fileOverlapScore(
   finding: ParsedFileLine,
   hypothesis: Hypothesis,
 ): number {
-  const matchesFile = hypothesis.focusFiles.includes(finding.file);
+  const matchesFile = hypothesis.focusFiles.some((focusFile) =>
+    fileReferencesOverlap(finding.file, focusFile),
+  );
   if (!matchesFile) return 0;
 
   if (finding.startLine === null || finding.endLine === null) return 1;
@@ -125,6 +182,15 @@ export function fileOverlapScore(
   }
 
   return 1; // same file, different lines
+}
+
+function fileReferencesOverlap(findingFile: string, focusFile: string): boolean {
+  const finding = findingFile.replaceAll("\\", "/").replaceAll("`", "");
+  const focus = focusFile.replaceAll("\\", "/").replaceAll("`", "");
+  if (!finding || !focus) return false;
+  if (finding === focus) return true;
+  if (finding.endsWith(`/${focus}`) || focus.endsWith(`/${finding}`)) return true;
+  return finding.includes(focus);
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +277,7 @@ function investigationRef(hypothesis: Hypothesis, investigation: InvestigationRe
 
 export interface CorrelationResult {
   matched: Array<{ hypId: string; findingIndex: number; score: number }>;
+  promoted: Array<{ hypId: string; findingIndex: number; capability: string }>;
   unmatched: number[];
 }
 
@@ -224,7 +291,7 @@ export function correlateAfterInvestigation(
   graph: HypothesisGraph,
   investigation: InvestigationResult,
 ): CorrelationResult {
-  const result: CorrelationResult = { matched: [], unmatched: [] };
+  const result: CorrelationResult = { matched: [], promoted: [], unmatched: [] };
   const openHyps = graph.filterByState("OPEN");
 
   if (openHyps.length === 0) {
@@ -242,6 +309,7 @@ export function correlateAfterInvestigation(
       return;
     }
 
+    const preexistingMatch = bestMatch(f, openHyps);
     const candidates = openHyps.filter((h) => !claimed.has(h.hypId));
     const match = bestMatch(f, candidates);
 
@@ -276,9 +344,19 @@ export function correlateAfterInvestigation(
         `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}, ${f.confidence}) → ${match.hypothesis.hypId} (score=${match.score.score})`,
       );
     } else {
+      const promoted = preexistingMatch && claimed.has(preexistingMatch.hypothesis.hypId)
+        ? null
+        : promoteUnmatchedFinding(graph, f, i);
+      if (promoted) {
+        result.promoted.push({
+          hypId: promoted.hypId,
+          findingIndex: i,
+          capability: promoted.capability,
+        });
+      }
       result.unmatched.push(i);
       console.log(
-        `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}) → no match`,
+        `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}) → ${promoted ? `promoted ${promoted.hypId}` : "no match"}`,
       );
     }
   });
@@ -295,6 +373,148 @@ export function correlateAfterInvestigation(
   }
 
   return result;
+}
+
+function promoteUnmatchedFinding(
+  graph: HypothesisGraph,
+  finding: Finding,
+  index: number,
+): { hypId: string; capability: string } | null {
+  const capability = normalizeCapabilityLabel(
+    finding.capability,
+    `${finding.problem} ${finding.evidence}`,
+  );
+  if (!capability || !shouldPromoteUnmatchedFinding(finding, capability)) {
+    return null;
+  }
+
+  const parsed = parseFileLine(finding.fileLine);
+  const focusFiles = parsed.file ? [parsed.file] : [];
+  const focusLines =
+    parsed.file && parsed.startLine !== null && parsed.endLine !== null
+      ? [{ file: parsed.file, range: `${parsed.startLine}-${parsed.endLine}` }]
+      : [];
+  const hypId = uniqueInvestigationHypId(graph, index);
+  const ref = findingRef(
+    {
+      ...finding,
+      capability,
+      problem: finding.problem || finding.evidence.slice(0, 160),
+      fileLine: finding.fileLine || parsed.file,
+    },
+    index,
+  );
+
+  graph.add({
+    hypId,
+    description: finding.problem || finding.evidence.slice(0, 240),
+    claim: { kind: claimForCapability(capability), gating: null },
+    focusFiles,
+    focusLines,
+    severity: severityForFinding(finding, capability),
+    parentHypId: null,
+    childHypIds: [],
+    state: "OPEN",
+    createdBy: "correlator:investigation",
+    evidenceRefs: [],
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+    resolution: null,
+  });
+
+  if (finding.confidence === "CONFIRMED") {
+    graph.transition(hypId, {
+      to: "CONFIRMED",
+      by: "correlator:investigation",
+      evidenceRefs: [ref],
+    });
+  } else {
+    graph.addEvidence(hypId, [ref]);
+    graph.transition(hypId, {
+      to: "IN_PROGRESS",
+      by: "correlator:investigation",
+    });
+  }
+
+  return { hypId, capability };
+}
+
+function uniqueInvestigationHypId(graph: HypothesisGraph, index: number): string {
+  const base = `inv-${String(index + 1).padStart(4, "0")}`;
+  let candidate = base;
+  let suffix = 2;
+  while (graph.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix++;
+  }
+  return candidate;
+}
+
+function shouldPromoteUnmatchedFinding(finding: Finding, capability: string): boolean {
+  if (finding.confidence === "CONFIRMED" || finding.confidence === "LIKELY") {
+    return capability !== "NETWORK" && capability !== "FILESYSTEM";
+  }
+  return new Set([
+    "CREDENTIAL_THEFT",
+    "DATA_EXFILTRATION",
+    "NPM_TOKEN_ABUSE",
+    "DNS_EXFIL",
+    "BUILD_PLUGIN_EXFIL",
+    "WORM_PROPAGATION",
+    "CLIPBOARD_HIJACK",
+  ]).has(capability);
+}
+
+function claimForCapability(capability: string): ClaimKind {
+  switch (capability) {
+    case "ENV_VARS":
+    case "DATA_EXFILTRATION":
+    case "NPM_TOKEN_ABUSE":
+      return "env_exfil";
+    case "CREDENTIAL_THEFT":
+      return "cred_theft";
+    case "BINARY_DOWNLOAD":
+    case "PROCESS_SPAWN":
+      return "binary_drop";
+    case "OBFUSCATION":
+    case "ENCRYPTED_PAYLOAD":
+    case "EVAL":
+      return "obfuscation";
+    case "FILESYSTEM":
+    case "LIFECYCLE_HOOK":
+      return "persistence";
+    case "WORM_PROPAGATION":
+      return "propagation";
+    case "DOS_LOOP":
+      return "dos_loop";
+    case "CLIPBOARD_HIJACK":
+      return "clipboard_hijack";
+    case "DOM_INJECT":
+      return "dom_inject";
+    case "TELEMETRY_RAT":
+      return "telemetry";
+    case "DNS_EXFIL":
+      return "dns_exfil";
+    case "BUILD_PLUGIN_EXFIL":
+      return "build_plugin_exfil";
+    default:
+      return "obfuscation";
+  }
+}
+
+function severityForFinding(
+  finding: Finding,
+  capability: string,
+): Hypothesis["severity"] {
+  if (
+    finding.confidence === "CONFIRMED" &&
+    ["CREDENTIAL_THEFT", "DATA_EXFILTRATION", "NPM_TOKEN_ABUSE", "DNS_EXFIL"].includes(capability)
+  ) return "critical";
+  if (
+    finding.confidence === "CONFIRMED" ||
+    ["CREDENTIAL_THEFT", "DATA_EXFILTRATION", "NPM_TOKEN_ABUSE", "WORM_PROPAGATION"].includes(capability)
+  ) return "high";
+  return "medium";
 }
 
 // ---------------------------------------------------------------------------

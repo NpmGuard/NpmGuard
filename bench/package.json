@@ -12,7 +12,10 @@
     "datadog:fetch": "tsx src/datadog/fetch.ts",
     "datadog:manifest": "tsx src/datadog/manifest.ts",
     "run": "tsx src/runner/audit-all.ts",
+    "aggregate:v3": "tsx src/runner/aggregate-audits.ts",
     "analyze": "tsx src/runner/analyze.ts",
+    "manifest:v3": "tsx src/runner/manifest-from-audits.ts",
+    "summarize:v3": "tsx src/runner/summarize-v3.ts",
     "build": "tsc --noEmit"
   },
   "dependencies": {
