@@ -6,7 +6,7 @@ import type {
 } from "@npmguard/shared";
 import type { HypothesisGraph } from "../graph/hypothesis-graph.js";
 import type { InvestigationResult } from "../phases/investigate.js";
-import type { Finding, Proof } from "../models.js";
+import { CapabilityEnum, type Finding, type Proof } from "../models.js";
 
 // ---------------------------------------------------------------------------
 // Claim ↔ Capability mapping
@@ -37,8 +37,100 @@ export function claimMatchesCapability(
   claim: ClaimKind,
   capability: string,
 ): boolean {
+  if (capability === "CLEAN") {
+    return false;
+  }
+
+  const normalized = normalizeCapabilityLabel(capability);
+  if (!normalized) {
+    return false;
+  }
+
   const caps = CLAIM_TO_CAPABILITIES[claim];
-  return caps ? caps.includes(capability) : false;
+  return caps ? caps.includes(normalized) : false;
+}
+
+/**
+ * LLMs often emit labels outside CapabilityEnum, or composite labels such as
+ * "CREDENTIAL_THEFT / NETWORK". Normalize those labels before graph
+ * correlation so otherwise good findings do not get dropped as UNKNOWN.
+ */
+export function normalizeCapabilityLabel(
+  capability: string | null | undefined,
+  context = "",
+): string | null {
+  const raw = `${capability ?? ""} ${context}`.toUpperCase();
+  if (!raw.trim() || raw.includes("CLEAN")) return null;
+
+  const enumTokens: string[] = [];
+  for (const token of raw.split(/[^A-Z0-9_]+/)) {
+    const parsed = CapabilityEnum.safeParse(token);
+    if (parsed.success) enumTokens.push(parsed.data);
+  }
+
+  const tokenSet = new Set(enumTokens);
+  const highSignalTokenOrder = [
+    "NPM_TOKEN_ABUSE",
+    "CREDENTIAL_THEFT",
+    "DATA_EXFILTRATION",
+    "DNS_EXFIL",
+    "WORM_PROPAGATION",
+    "BUILD_PLUGIN_EXFIL",
+    "CLIPBOARD_HIJACK",
+    "LIFECYCLE_HOOK",
+    "BINARY_DOWNLOAD",
+    "PROCESS_SPAWN",
+    "ENV_VARS",
+    "DOS_LOOP",
+    "DOM_INJECT",
+    "TELEMETRY_RAT",
+  ];
+  for (const token of highSignalTokenOrder) {
+    if (tokenSet.has(token)) return token;
+  }
+
+  if (raw.includes("NPM_TOKEN") || raw.includes("NPMRC")) return "NPM_TOKEN_ABUSE";
+  if (
+    raw.includes("CREDENTIAL") ||
+    raw.includes("SECRET") ||
+    raw.includes("TOKEN") ||
+    raw.includes("AUTH") ||
+    raw.includes("TRUFFLEHOG")
+  ) return "CREDENTIAL_THEFT";
+  if (raw.includes("DNS") && raw.includes("EXFIL")) return "DNS_EXFIL";
+  if (raw.includes("EXFIL") || raw.includes("EXPORT") || raw.includes("LEAK")) return "DATA_EXFILTRATION";
+  if (raw.includes("ENV")) return "ENV_VARS";
+  if (
+    raw.includes("SELF-PROPAGAT") ||
+    raw.includes("WORM") ||
+    (raw.includes("NPM PUBLISH") && raw.includes("PACKAGE.JSON")) ||
+    (raw.includes("PUBLISH") && raw.includes("PRIVATE") && raw.includes("PACKAGE.JSON"))
+  ) return "WORM_PROPAGATION";
+  if (raw.includes("BINARY") || raw.includes("DOWNLOAD") || raw.includes("BUN.SH")) return "BINARY_DOWNLOAD";
+  if (raw.includes("LIFECYCLE") || raw.includes("POSTINSTALL") || raw.includes("PREINSTALL")) return "LIFECYCLE_HOOK";
+  if (
+    raw.includes("PROCESS") ||
+    raw.includes("SPAWN") ||
+    raw.includes("EXEC") ||
+    raw.includes("POWERSHELL") ||
+    raw.includes("BASH")
+  ) return "PROCESS_SPAWN";
+  if (raw.includes("FILE") || raw.includes("FS") || raw.includes("DISK") || raw.includes("PERSIST")) return "FILESYSTEM";
+  if (raw.includes("EVAL") || raw.includes("FUNCTION_CONSTRUCTOR") || raw.includes("CODE_EXECUTION")) return "EVAL";
+  if (raw.includes("OBFUSC") || raw.includes("ENCRYPT")) return "OBFUSCATION";
+  if (raw.includes("WORM") || raw.includes("PROPAGAT")) return "WORM_PROPAGATION";
+  if (raw.includes("CLIPBOARD")) return "CLIPBOARD_HIJACK";
+  if (raw.includes("DOM")) return "DOM_INJECT";
+  if (raw.includes("TELEMETRY")) return "TELEMETRY_RAT";
+  if (raw.includes("BUILD") && raw.includes("PLUGIN")) return "BUILD_PLUGIN_EXFIL";
+  if (tokenSet.has("EVAL")) return "EVAL";
+  if (tokenSet.has("OBFUSCATION")) return "OBFUSCATION";
+  if (tokenSet.has("ENCRYPTED_PAYLOAD")) return "ENCRYPTED_PAYLOAD";
+  if (tokenSet.has("FILESYSTEM")) return "FILESYSTEM";
+  if (tokenSet.has("NETWORK")) return "NETWORK";
+  if (raw.includes("NETWORK") || raw.includes("HTTP") || raw.includes("FETCH")) return "NETWORK";
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +198,9 @@ export function fileOverlapScore(
   finding: ParsedFileLine,
   hypothesis: Hypothesis,
 ): number {
-  const matchesFile = hypothesis.focusFiles.includes(finding.file);
+  const matchesFile = hypothesis.focusFiles.some((focusFile) =>
+    fileReferencesOverlap(finding.file, focusFile),
+  );
   if (!matchesFile) return 0;
 
   if (finding.startLine === null || finding.endLine === null) return 1;
@@ -121,6 +215,15 @@ export function fileOverlapScore(
   }
 
   return 1; // same file, different lines
+}
+
+function fileReferencesOverlap(findingFile: string, focusFile: string): boolean {
+  const finding = findingFile.replaceAll("\\", "/").replaceAll("`", "");
+  const focus = focusFile.replaceAll("\\", "/").replaceAll("`", "");
+  if (!finding || !focus) return false;
+  if (finding === focus) return true;
+  if (finding.endsWith(`/${focus}`) || focus.endsWith(`/${finding}`)) return true;
+  return finding.includes(focus);
 }
 
 // ---------------------------------------------------------------------------
@@ -155,18 +258,21 @@ export function scoreFindingHypothesis(
 
 /**
  * Find the best-matching hypothesis for a finding. Returns null if no
- * match scores above the minimum threshold (file must at least match).
+ * match scores above the minimum threshold. A finding must match both file
+ * location and claim capability; file-only matches are often benign reviews
+ * of a triage false positive.
  */
 export function bestMatch(
   finding: Finding,
   hypotheses: readonly Hypothesis[],
-  minScore = 1,
+  minScore = 4,
 ): { hypothesis: Hypothesis; score: CorrelationScore } | null {
   let best: { hypothesis: Hypothesis; score: CorrelationScore } | null = null;
   for (const h of hypotheses) {
     const score = scoreFindingHypothesis(finding, h);
-    // File overlap is mandatory — claim-only matches across different files are noise
+    // File overlap and claim match are both mandatory: either alone is noise.
     if (score.fileScore === 0) continue;
+    if (score.claimScore === 0) continue;
     if (score.score >= minScore && (!best || score.score > best.score.score)) {
       best = { hypothesis: h, score };
     }
@@ -192,34 +298,51 @@ function proofRef(proof: Proof, index: number): EvidenceRef {
   return { kind: "run", id: `proof_${index}`, hash };
 }
 
+function investigationRef(hypothesis: Hypothesis, investigation: InvestigationResult): EvidenceRef {
+  const content = `${hypothesis.hypId}|${hypothesis.description}|${investigation.agentText}`;
+  const hash = createHash("sha256").update(content).digest("hex");
+  return { kind: "run", id: `investigation_refuted_${hypothesis.hypId}`, hash };
+}
+
 // ---------------------------------------------------------------------------
 // Stage 1: After investigation — findings → IN_PROGRESS transitions
 // ---------------------------------------------------------------------------
 
 export interface CorrelationResult {
   matched: Array<{ hypId: string; findingIndex: number; score: number }>;
+  promoted: Array<{ hypId: string; findingIndex: number; capability: string }>;
   unmatched: number[];
 }
 
 /**
  * After investigation: correlate findings to hypotheses. Matched hypotheses
- * transition OPEN → IN_PROGRESS with the finding as evidence. Unmatched
- * hypotheses stay OPEN (the experimenter worker or manual review will handle them).
+ * transition OPEN → IN_PROGRESS with the finding as evidence. Hypotheses that
+ * the investigation does not support are refuted so benign capability findings
+ * do not force expensive proof generation or public DANGEROUS verdicts.
  */
 export function correlateAfterInvestigation(
   graph: HypothesisGraph,
   investigation: InvestigationResult,
 ): CorrelationResult {
-  const result: CorrelationResult = { matched: [], unmatched: [] };
+  const result: CorrelationResult = { matched: [], promoted: [], unmatched: [] };
   const openHyps = graph.filterByState("OPEN");
 
-  if (openHyps.length === 0 || investigation.findings.length === 0) {
+  if (openHyps.length === 0) {
     return result;
   }
 
   const claimed = new Set<string>();
 
   investigation.findings.forEach((f, i) => {
+    if (f.capability === "CLEAN") {
+      result.unmatched.push(i);
+      console.log(
+        `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}) → no match (clean finding)`,
+      );
+      return;
+    }
+
+    const preexistingMatch = bestMatch(f, openHyps);
     const candidates = openHyps.filter((h) => !claimed.has(h.hypId));
     const match = bestMatch(f, candidates);
 
@@ -254,14 +377,216 @@ export function correlateAfterInvestigation(
         `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}, ${f.confidence}) → ${match.hypothesis.hypId} (score=${match.score.score})`,
       );
     } else {
+      const promoted = preexistingMatch && claimed.has(preexistingMatch.hypothesis.hypId)
+        ? null
+        : promoteUnmatchedFinding(graph, f, i);
+      if (promoted) {
+        result.promoted.push({
+          hypId: promoted.hypId,
+          findingIndex: i,
+          capability: promoted.capability,
+        });
+      }
       result.unmatched.push(i);
       console.log(
-        `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}) → no match`,
+        `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}) → ${promoted ? `promoted ${promoted.hypId}` : "no match"}`,
       );
     }
   });
 
+  for (const h of openHyps) {
+    if (claimed.has(h.hypId)) continue;
+    graph.transition(h.hypId, {
+      to: "REFUTED",
+      by: "correlator:investigation",
+      reason: "Investigation completed without evidence matching this hypothesis.",
+      evidenceRefs: [investigationRef(h, investigation)],
+    });
+    console.log(`[correlate] ${h.hypId} → REFUTED (no matching investigation finding)`);
+  }
+
   return result;
+}
+
+function promoteUnmatchedFinding(
+  graph: HypothesisGraph,
+  finding: Finding,
+  index: number,
+): { hypId: string; capability: string } | null {
+  const capability = normalizeCapabilityLabel(
+    finding.capability,
+    `${finding.problem} ${finding.evidence}`,
+  );
+  if (!capability || !shouldPromoteUnmatchedFinding(finding, capability)) {
+    return null;
+  }
+
+  const parsed = parseFileLine(finding.fileLine);
+  const focusFiles = parsed.file ? [parsed.file] : [];
+  const focusLines =
+    parsed.file && parsed.startLine !== null && parsed.endLine !== null
+      ? [{ file: parsed.file, range: `${parsed.startLine}-${parsed.endLine}` }]
+      : [];
+  const hypId = uniqueInvestigationHypId(graph, index);
+  const ref = findingRef(
+    {
+      ...finding,
+      capability,
+      problem: finding.problem || finding.evidence.slice(0, 160),
+      fileLine: finding.fileLine || parsed.file,
+    },
+    index,
+  );
+
+  graph.add({
+    hypId,
+    description: finding.problem || finding.evidence.slice(0, 240),
+    claim: { kind: claimForCapability(capability), gating: null },
+    focusFiles,
+    focusLines,
+    severity: severityForFinding(finding, capability),
+    parentHypId: null,
+    childHypIds: [],
+    state: "OPEN",
+    createdBy: "correlator:investigation",
+    evidenceRefs: [],
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+    resolution: null,
+  });
+
+  if (finding.confidence === "CONFIRMED") {
+    graph.transition(hypId, {
+      to: "CONFIRMED",
+      by: "correlator:investigation",
+      evidenceRefs: [ref],
+    });
+  } else {
+    graph.addEvidence(hypId, [ref]);
+    graph.transition(hypId, {
+      to: "IN_PROGRESS",
+      by: "correlator:investigation",
+    });
+  }
+
+  return { hypId, capability };
+}
+
+function uniqueInvestigationHypId(graph: HypothesisGraph, index: number): string {
+  const base = `inv-${String(index + 1).padStart(4, "0")}`;
+  let candidate = base;
+  let suffix = 2;
+  while (graph.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix++;
+  }
+  return candidate;
+}
+
+function shouldPromoteUnmatchedFinding(finding: Finding, capability: string): boolean {
+  if (finding.confidence === "CONFIRMED" || finding.confidence === "LIKELY") {
+    if (capability === "NETWORK" || capability === "FILESYSTEM") {
+      return hasDangerousFindingContext(finding);
+    }
+    return true;
+  }
+  if ((capability === "NETWORK" || capability === "FILESYSTEM") && hasDangerousFindingContext(finding)) {
+    return true;
+  }
+  return new Set([
+    "CREDENTIAL_THEFT",
+    "DATA_EXFILTRATION",
+    "NPM_TOKEN_ABUSE",
+    "DNS_EXFIL",
+    "BUILD_PLUGIN_EXFIL",
+    "WORM_PROPAGATION",
+    "CLIPBOARD_HIJACK",
+  ]).has(capability);
+}
+
+function hasDangerousFindingContext(finding: Finding): boolean {
+  const text = [
+    finding.capability,
+    finding.problem,
+    finding.evidence,
+    finding.reproductionStrategy,
+    finding.fileLine,
+  ].join("\n").toLowerCase();
+
+  return [
+    /\bcredential(?:s)?\b/,
+    /\bsecret(?:s)?\b/,
+    /\btoken(?:s)?\b/,
+    /\bexfiltrat(?:e|es|ion|ing)\b/,
+    /\bsteals?\b/,
+    /\bmalicious\b/,
+    /\bmalware\b/,
+    /\bpostinstall\b/,
+    /\bpreinstall\b/,
+    /\blifecycle\b/,
+    /\bnpm\s+install\s+-g\b/,
+    /\bnpm\s+publish\b/,
+    /\bself-propagat(?:e|es|ion|ing)\b/,
+    /\bworm\b/,
+    /\bwebhook\b/,
+    /\bdiscord\.com\/api\/webhooks\b/,
+    /\bbun\.sh\b/,
+    /\bcurl\s+-/,
+    /\bprocess\.env\b/,
+    /\bpackage\.json\b.*\bprivate\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
+function claimForCapability(capability: string): ClaimKind {
+  switch (capability) {
+    case "ENV_VARS":
+    case "DATA_EXFILTRATION":
+    case "NPM_TOKEN_ABUSE":
+      return "env_exfil";
+    case "CREDENTIAL_THEFT":
+      return "cred_theft";
+    case "BINARY_DOWNLOAD":
+    case "PROCESS_SPAWN":
+      return "binary_drop";
+    case "OBFUSCATION":
+    case "ENCRYPTED_PAYLOAD":
+    case "EVAL":
+      return "obfuscation";
+    case "FILESYSTEM":
+    case "LIFECYCLE_HOOK":
+      return "persistence";
+    case "WORM_PROPAGATION":
+      return "propagation";
+    case "DOS_LOOP":
+      return "dos_loop";
+    case "CLIPBOARD_HIJACK":
+      return "clipboard_hijack";
+    case "DOM_INJECT":
+      return "dom_inject";
+    case "TELEMETRY_RAT":
+      return "telemetry";
+    case "DNS_EXFIL":
+      return "dns_exfil";
+    case "BUILD_PLUGIN_EXFIL":
+      return "build_plugin_exfil";
+    default:
+      return "obfuscation";
+  }
+}
+
+function severityForFinding(
+  finding: Finding,
+  capability: string,
+): Hypothesis["severity"] {
+  if (
+    finding.confidence === "CONFIRMED" &&
+    ["CREDENTIAL_THEFT", "DATA_EXFILTRATION", "NPM_TOKEN_ABUSE", "DNS_EXFIL"].includes(capability)
+  ) return "critical";
+  if (
+    finding.confidence === "CONFIRMED" ||
+    ["CREDENTIAL_THEFT", "DATA_EXFILTRATION", "NPM_TOKEN_ABUSE", "WORM_PROPAGATION"].includes(capability)
+  ) return "high";
+  return "medium";
 }
 
 // ---------------------------------------------------------------------------

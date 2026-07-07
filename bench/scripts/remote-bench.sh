@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-HOST="${BENCH_HOST:-root@209.38.42.28}"
+HOST="${BENCH_HOST:-root@91.99.207.103}"
 REPO="${BENCH_REPO:-/root/NpmGuard}"
 LOG="${BENCH_LOG:-/tmp/bench-run.log}"
 PID_FILE="${BENCH_PID_FILE:-/tmp/bench-run.pid}"

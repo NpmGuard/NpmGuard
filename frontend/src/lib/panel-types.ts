@@ -1,0 +1,81 @@
+// Types for the repo panel API (engine/src/routes/panel.ts).
+// Spec: docs/specs/2026-07-07-github-repo-panel.md
+
+export interface PanelUser {
+  id: number;
+  login: string;
+  name: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+}
+
+export interface Installation {
+  id: number;
+  accountLogin: string;
+  accountType: string;
+  suspended: boolean;
+}
+
+export interface ScanSummary {
+  id: number;
+  status: "running" | "done" | "failed";
+  trigger: string;
+  total: number;
+  cached: number;
+  audited: number;
+  failed: number;
+  startedAt: string;
+  finishedAt: string | null;
+  verdict?: string | null;
+}
+
+export interface RepoSummary {
+  id: number;
+  installationId: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  private: boolean;
+  defaultBranch: string;
+  protected: boolean;
+  lastScan: ScanSummary | null;
+}
+
+export interface RepoDep {
+  name: string;
+  version: string;
+  direct: boolean;
+  range: string | null;
+  verdict: string | null; // null = not audited yet (pending or queued)
+  auditedAt: string | null;
+  jobState: string | null; // 'queued' | 'running' | 'failed' when verdict is null
+}
+
+export interface RepoRollup {
+  verdict: string | null; // DANGEROUS > SUSPECT > UNKNOWN > SAFE, null = no deps
+  dangerous: number;
+  suspect: number;
+  unknown: number;
+  safe: number;
+}
+
+export interface PanelAlert {
+  id: number;
+  org: string;
+  repoId: number | null;
+  packageName: string;
+  version: string;
+  verdict: string;
+  kind: string;
+  message: string | null;
+  seen: boolean;
+  createdAt: string;
+}
+
+export interface RepoDetailPayload {
+  repo: RepoSummary;
+  deps: RepoDep[];
+  rollup: RepoRollup;
+  scan: ScanSummary | null;
+  alerts: PanelAlert[];
+}

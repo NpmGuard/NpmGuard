@@ -145,6 +145,13 @@ interface AnalyzeOutput {
     verifiability: WilsonCI;
     failedRuns: number;
   };
+  safeControls: {
+    clean: number;
+    falsePositives: number;
+    total: number;
+    precision: WilsonCI;
+    failedRuns: number;
+  };
 }
 
 function quantile(values: number[], q: number): number {
@@ -180,6 +187,11 @@ function analyse(run: BenchmarkRun, manifest: Manifest): AnalyzeOutput {
   let overallVerified = 0;
   let overallTotal = 0;
   let overallFailed = 0;
+  let totalAudits = 0;
+  let safeClean = 0;
+  let safeFalsePositives = 0;
+  let safeTotal = 0;
+  let safeFailed = 0;
 
   for (const fixture of run.results) {
     const entry = lookup.get(fixture.fixtureName);
@@ -204,20 +216,39 @@ function analyse(run: BenchmarkRun, manifest: Manifest): AnalyzeOutput {
     bucket.entries.add(fixture.fixtureName);
     for (const r of fixture.runs) {
       bucket.totalRuns++;
-      overallTotal++;
+      totalAudits++;
       if (r.error) {
         bucket.failedRuns++;
-        overallFailed++;
+        if (entry.expected.verdict === "SAFE") {
+          safeFailed++;
+        } else {
+          overallFailed++;
+        }
         continue;
       }
       bucket.latenciesSec.push(r.durationMs / 1000);
       if (isDetected(entry, r)) {
         bucket.detectedRuns++;
-        overallDetected++;
       }
       if (isVerified(entry, r)) {
         bucket.verifiedRuns++;
-        overallVerified++;
+      }
+
+      if (entry.expected.verdict === "SAFE") {
+        safeTotal++;
+        if (r.verdict === "SAFE") {
+          safeClean++;
+        } else if (r.verdict === "DANGEROUS") {
+          safeFalsePositives++;
+        }
+      } else {
+        overallTotal++;
+        if (isDetected(entry, r)) {
+          overallDetected++;
+        }
+        if (isVerified(entry, r)) {
+          overallVerified++;
+        }
       }
     }
   }
@@ -264,17 +295,24 @@ function analyse(run: BenchmarkRun, manifest: Manifest): AnalyzeOutput {
     modelId: run.modelId,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
-    totalAudits: overallTotal,
+    totalAudits,
     perCategory,
     overall: {
       detected: overallDetected,
-      total: overallTotal - overallFailed,
-      recall: wilson(overallDetected, overallTotal - overallFailed),
+      total: overallTotal,
+      recall: wilson(overallDetected, overallTotal),
       verifiability:
         overallDetected === 0
           ? wilson(0, 0)
           : wilson(overallVerified, overallDetected),
       failedRuns: overallFailed,
+    },
+    safeControls: {
+      clean: safeClean,
+      falsePositives: safeFalsePositives,
+      total: safeTotal,
+      precision: wilson(safeClean, safeTotal),
+      failedRuns: safeFailed,
     },
   };
 }
@@ -307,8 +345,11 @@ function markdownReport(out: AnalyzeOutput, runFile: string): string {
   lines.push("");
   lines.push(`- **Detection recall**: ${ci(out.overall.recall)}`);
   lines.push(`- **Verifiability** (TEST_CONFIRMED proofs among detections): ${ci(out.overall.verifiability)}`);
+  lines.push(`- **SAFE precision**: ${ci(out.safeControls.precision)}`);
+  lines.push(`- SAFE false positives: ${out.safeControls.falsePositives}`);
   lines.push(`- Total audits: ${out.totalAudits}`);
-  lines.push(`- Failed audits (engine errors, excluded from rates): ${out.overall.failedRuns}`);
+  lines.push(`- Failed dangerous audits (engine errors, excluded from recall): ${out.overall.failedRuns}`);
+  lines.push(`- Failed SAFE audits (engine errors, excluded from precision): ${out.safeControls.failedRuns}`);
   lines.push("");
 
   lines.push("## Per-category");

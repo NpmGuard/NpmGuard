@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { resolveTarballUrl } from "../phases/resolve.js";
 import { listReports, loadReport } from "../report-store.js";
+import { loadStoragePublication } from "../storage-store.js";
 import { PackageName, SemverVersion } from "./validation.js";
 
 export const registryRoutes = new Hono();
@@ -35,6 +36,39 @@ registryRoutes.get("/package/:name{.+}/report", (c) => {
   }
 
   return c.json({ report: result.report, version: result.version, packageName });
+});
+
+registryRoutes.get("/package/:name{.+}/storage", (c) => {
+  const packageName = c.req.param("name");
+  const version = c.req.query("version");
+  const nameCheck = PackageName.safeParse(packageName);
+  if (!nameCheck.success) {
+    return c.json({ error: "Invalid package name" }, 400);
+  }
+  if (version) {
+    const versionCheck = SemverVersion.safeParse(version);
+    if (!versionCheck.success) {
+      return c.json({ error: "Invalid semver version" }, 400);
+    }
+  }
+
+  const report = loadReport(packageName, version || undefined);
+  if (!report) {
+    return c.json(
+      { error: `No audit report found for ${packageName}${version ? `@${version}` : ""}` },
+      404,
+    );
+  }
+
+  const storage = loadStoragePublication(packageName, report.version);
+  if (!storage) {
+    return c.json(
+      { error: `No storage publication found for ${packageName}@${report.version}` },
+      404,
+    );
+  }
+
+  return c.json({ packageName, version: report.version, storage });
 });
 
 // Resolve "latest" (or a dist-tag) to a concrete semver — used by the frontend

@@ -10,6 +10,7 @@ import {
   bestMatch,
   correlateAfterInvestigation,
   correlateAfterVerify,
+  normalizeCapabilityLabel,
 } from "./correlate.js";
 
 // ---------------------------------------------------------------------------
@@ -93,6 +94,44 @@ describe("claimMatchesCapability", () => {
     expect(claimMatchesCapability("obfuscation", "EVAL")).toBe(true);
     expect(claimMatchesCapability("obfuscation", "ENCRYPTED_PAYLOAD")).toBe(true);
   });
+
+  it("normalizes LLM alias and composite capability labels", () => {
+    expect(normalizeCapabilityLabel("CREDENTIAL_ACCESS")).toBe("CREDENTIAL_THEFT");
+    expect(normalizeCapabilityLabel("CREDENTIAL_THEFT / NETWORK")).toBe("CREDENTIAL_THEFT");
+    expect(normalizeCapabilityLabel("NETWORK, CREDENTIAL_THEFT")).toBe("CREDENTIAL_THEFT");
+    expect(claimMatchesCapability("cred_theft", "CREDENTIAL_ACCESS")).toBe(true);
+    expect(claimMatchesCapability("cred_theft", "CREDENTIAL_THEFT / NETWORK")).toBe(true);
+  });
+
+  it("can infer UNKNOWN capability from evidence text", () => {
+    expect(
+      normalizeCapabilityLabel(
+        "UNKNOWN",
+        "fetches TruffleHog and exfiltrates hardcoded secrets from .npmrc",
+      ),
+    ).toBe("NPM_TOKEN_ABUSE");
+  });
+
+  it("uses dangerous context to refine broad capability labels", () => {
+    expect(
+      normalizeCapabilityLabel(
+        "NETWORK",
+        "postinstall executes npm install -g openclaw@latest during install",
+      ),
+    ).toBe("LIFECYCLE_HOOK");
+    expect(
+      normalizeCapabilityLabel(
+        "FILESYSTEM",
+        "auto.js removes private from package.json and runs npm publish as a self-propagating worm",
+      ),
+    ).toBe("WORM_PROPAGATION");
+    expect(
+      normalizeCapabilityLabel(
+        "EVAL",
+        "prepareWriter exfiltrates process.env to a remote collector",
+      ),
+    ).toBe("DATA_EXFILTRATION");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -158,6 +197,17 @@ describe("fileOverlapScore", () => {
   it("returns 1 when finding has no line numbers", () => {
     expect(fileOverlapScore({ file: "lib/setup.js", startLine: null, endLine: null }, h)).toBe(1);
   });
+
+  it("matches fuzzy file references emitted by the investigation agent", () => {
+    expect(fileOverlapScore({ file: "bundle.js lines ~3732562-3734822", startLine: null, endLine: null }, hyp({
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }))).toBe(1);
+    expect(fileOverlapScore({ file: "package.json preinstall hook -> setup_bun.js lines 28-39", startLine: null, endLine: null }, hyp({
+      focusFiles: ["setup_bun.js"],
+      focusLines: [{ file: "setup_bun.js", range: "28-39" }],
+    }))).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -220,6 +270,22 @@ describe("bestMatch", () => {
     const f = finding({ fileLine: "lib/setup.js:42-67" });
     expect(bestMatch(f, [h])).toBeNull();
   });
+
+  it("returns null for same-file findings when the capability does not match", () => {
+    const h = hyp({
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["index.js"],
+      focusLines: [{ file: "index.js", range: "1-1" }],
+    });
+    const f = finding({
+      capability: "UNKNOWN",
+      confidence: "CONFIRMED",
+      fileLine: "index.js:1-1",
+      problem: "Prior triage flag was a false positive",
+    });
+
+    expect(bestMatch(f, [h])).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -249,7 +315,7 @@ describe("correlateAfterInvestigation", () => {
     expect(result.matched[0]!.hypId).toBe("h1");
     expect(g.get("h1").state).toBe("IN_PROGRESS");
     expect(g.get("h1").evidenceRefs.length).toBe(1);
-    expect(g.get("h2").state).toBe("OPEN"); // unmatched stays OPEN
+    expect(g.get("h2").state).toBe("REFUTED");
   });
 
   it("does not match the same hypothesis twice", () => {
@@ -282,7 +348,187 @@ describe("correlateAfterInvestigation", () => {
       agentText: "",
     });
     expect(result.matched.length).toBe(0);
-    expect(g.get("trg-0001").state).toBe("OPEN");
+    expect(g.get("trg-0001").state).toBe("REFUTED");
+  });
+
+  it("promotes confirmed dangerous unmatched findings into graph hypotheses", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["setup_bun.js"],
+      focusLines: [{ file: "setup_bun.js", range: "1-10" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "UNKNOWN",
+          confidence: "CONFIRMED",
+          fileLine: "",
+          evidence: "The payload obtains GitHub runner tokens and exfiltrates secrets with TruffleHog.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.matched).toHaveLength(0);
+    expect(result.promoted).toHaveLength(1);
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("CONFIRMED");
+    expect(["cred_theft", "env_exfil"]).toContain(g.get(result.promoted[0]!.hypId).claim.kind);
+    expect(g.get("h1").state).toBe("REFUTED");
+  });
+
+  it("promotes suspected credential theft findings when triage only had obfuscation", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "CREDENTIAL_THEFT",
+          confidence: "SUSPECTED",
+          fileLine: "bundle.js:3334624-3337091",
+          evidence: "GitHubModule reads GITHUB_TOKEN and runs gh auth token.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(1);
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("IN_PROGRESS");
+    expect(g.get(result.promoted[0]!.hypId).claim.kind).toBe("cred_theft");
+  });
+
+  it("promotes confirmed broad network findings when context is clearly malicious", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "NETWORK",
+          confidence: "CONFIRMED",
+          fileLine: "package.json:36",
+          problem: "Malicious postinstall hook executes npm install -g openclaw@latest.",
+          evidence: "The postinstall script runs automatically on package install.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(1);
+    expect(result.promoted[0]!.capability).toBe("LIFECYCLE_HOOK");
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("CONFIRMED");
+  });
+
+  it("promotes suspected broad filesystem findings when they describe npm publish propagation", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["index.js"],
+      focusLines: [{ file: "index.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "FILESYSTEM",
+          confidence: "SUSPECTED",
+          fileLine: "auto.js:1-128",
+          problem: "Run auto.js; it removes private from package.json and runs npm publish.",
+          evidence: "The script renames the package, rewrites package.json, and self-propagates as a worm.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(1);
+    expect(result.promoted[0]!.capability).toBe("WORM_PROPAGATION");
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("IN_PROGRESS");
+  });
+
+  it("does not promote broad network findings without dangerous context", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "NETWORK",
+          confidence: "CONFIRMED",
+          fileLine: "client.js:10",
+          problem: "HTTP client sends a request to the documented API endpoint.",
+          evidence: "The request carries a normal JSON query payload for the package's documented API.",
+          reproductionStrategy: "Call the public API helper.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(0);
+    expect(g.all().map((h) => h.hypId)).toEqual(["h1"]);
+    expect(g.get("h1").state).toBe("REFUTED");
+  });
+
+  it("does not promote benchmark marker findings by themselves", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["bundle.js"],
+      focusLines: [{ file: "bundle.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "FILESYSTEM",
+          confidence: "CONFIRMED",
+          fileLine: ".datadog-bench-stamp.json",
+          problem: "Package appears in a benchmark marker file.",
+          evidence: "The marker contains a dataset class label.",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.promoted).toHaveLength(0);
+    expect(g.get("h1").state).toBe("REFUTED");
   });
 });
 
@@ -397,6 +643,36 @@ describe("correlateAfterInvestigation — agent CONFIRMED findings", () => {
     expect(result.matched.length).toBe(1);
     expect(g.get("h1").state).toBe("CONFIRMED");
     expect(g.get("h1").evidenceRefs.length).toBeGreaterThan(0);
+  });
+
+  it("does not confirm hypotheses from CLEAN findings", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(hyp({
+      hypId: "h1",
+      claim: { kind: "obfuscation", gating: null },
+      focusFiles: ["index.js"],
+      focusLines: [{ file: "index.js", range: "1-1" }],
+    }));
+
+    const result = correlateAfterInvestigation(g, {
+      capabilities: [],
+      proofs: [],
+      findings: [
+        finding({
+          capability: "CLEAN",
+          confidence: "CONFIRMED",
+          fileLine: "index.js",
+          problem: "Prior triage flag was a false positive",
+          evidence: "index.js is a standard re-export",
+        }),
+      ],
+      toolCalls: [],
+      agentText: "",
+    });
+
+    expect(result.matched).toHaveLength(0);
+    expect(result.unmatched).toEqual([0]);
+    expect(g.get("h1").state).toBe("REFUTED");
   });
 
   it("stays IN_PROGRESS for LIKELY/SUSPECTED findings", () => {

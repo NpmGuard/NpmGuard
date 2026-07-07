@@ -3,6 +3,7 @@ import type { Hypothesis, RunArtifact, Event } from "@npmguard/shared";
 import {
   strategyForClaim,
   pickTriggerTarget,
+  inferExperimentClaim,
   eventsContainDnsWithPayload,
 } from "./experimenter.js";
 
@@ -120,17 +121,54 @@ describe("strategyForClaim", () => {
   it("returns a strategy for telemetry", () => {
     const s = strategyForClaim("telemetry", hyp({ claim: { kind: "telemetry", gating: null } }), "index.js");
     expect(s).not.toBeNull();
+    expect(s!.trigger.kind).toBe("subpath");
     expect(s!.observe?.network).toBe(true);
+    expect(s!.setup.length).toBeGreaterThan(1);
   });
 
   it("returns a strategy for build_plugin_exfil", () => {
     const s = strategyForClaim("build_plugin_exfil", hyp({ claim: { kind: "build_plugin_exfil", gating: null } }), "index.js");
     expect(s).not.toBeNull();
+    expect(s!.trigger.kind).toBe("subpath");
     expect(s!.setup.length).toBeGreaterThan(0);
   });
 
   it("returns a strategy for destructive with fs diff enabled", () => {
     const s = strategyForClaim("destructive", hyp({ claim: { kind: "destructive", gating: null } }), "index.js");
+    expect(s).not.toBeNull();
+    expect(s!.observe?.fsDiff).toBe(true);
+    expect(s!.setup.length).toBeGreaterThan(1);
+  });
+
+  it("routes generic credential hypotheses about build plugins to the build-plugin driver", () => {
+    const h = hyp({
+      description: "Webpack plugin apply hook reads NPM_TOKEN and posts it during compilation.",
+      focusFiles: ["src/BuildOptimizerPlugin.js"],
+    });
+    const s = strategyForClaim("cred_theft", h, "index.js");
+    expect(inferExperimentClaim("cred_theft", h)).toBe("build_plugin_exfil");
+    expect(s).not.toBeNull();
+    expect(s!.trigger.kind).toBe("subpath");
+  });
+
+  it("routes generic env exfil hypotheses about analytics clients to telemetry", () => {
+    const h = hyp({
+      description: "Analytics client track/flush path sends process.env values to a metrics endpoint.",
+      focusFiles: ["lib/posthog.js"],
+    });
+    const s = strategyForClaim("env_exfil", h, "index.js");
+    expect(inferExperimentClaim("env_exfil", h)).toBe("telemetry");
+    expect(s).not.toBeNull();
+    expect(s!.trigger.kind).toBe("subpath");
+  });
+
+  it("routes generic credential hypotheses about destructive file operations to destructive", () => {
+    const h = hyp({
+      description: "Geo-gated payload unlinks project files and overwrites user data.",
+      focusFiles: ["setup.js"],
+    });
+    const s = strategyForClaim("cred_theft", h, "index.js");
+    expect(inferExperimentClaim("cred_theft", h)).toBe("destructive");
     expect(s).not.toBeNull();
     expect(s!.observe?.fsDiff).toBe(true);
   });
@@ -271,21 +309,21 @@ describe("destructive confirmation", () => {
 
   it("confirms on file deletion", () => {
     const art = baseArtifact({
-      events: [makeEvent({ kind: "file_deleted", stream: "L3:fsDiff" })],
+      events: [makeEvent({ kind: "file_deleted", stream: "L3:fsDiff", normalized: { path: "/pkg/sandbox-test/file1.txt" } })],
     });
     expect(strategy.confirm(art).confirmed).toBe(true);
   });
 
-  it("confirms on unlink syscall", () => {
+  it("confirms on planted file modification", () => {
     const art = baseArtifact({
-      events: [makeEvent({ kind: "unlink", stream: "L1:seccomp" })],
+      events: [makeEvent({ kind: "file_modified", stream: "L3:fsDiff", normalized: { path: "/pkg/sandbox-test/file1.txt" } })],
     });
     expect(strategy.confirm(art).confirmed).toBe(true);
   });
 
-  it("does not confirm on harmless fs writes", () => {
+  it("does not confirm on harmless fs writes outside the planted canary dir", () => {
     const art = baseArtifact({
-      events: [makeEvent({ kind: "file_created", stream: "L3:fsDiff" })],
+      events: [makeEvent({ kind: "file_created", stream: "L3:fsDiff", normalized: { path: "/pkg/cache/file.txt" } })],
     });
     expect(strategy.confirm(art).confirmed).toBe(false);
   });

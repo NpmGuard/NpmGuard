@@ -24,6 +24,45 @@ export interface PackageReport {
   [key: string]: unknown;
 }
 
+export interface StoragePublication {
+  packageName: string;
+  version: string;
+  storage: {
+    tarball?: {
+      gatewayUrl?: string;
+      ipfsUri?: string;
+      cid?: string;
+    } | null;
+    manifest?: {
+      gatewayUrl?: string;
+      value?: {
+        tarball?: {
+          gatewayUrl?: string;
+          ipfsUri?: string;
+          cid?: string;
+        } | null;
+      };
+    };
+    ens?: {
+      recordName?: string;
+      registryVersion?: string;
+    } | null;
+  };
+}
+
+export interface PublicConfig {
+  paymentRequired: boolean;
+  paymentEnabled: boolean;
+  stripeEnabled: boolean;
+  priceCents: number;
+  crypto: {
+    chain: "base-sepolia";
+    chainId: 84532;
+    contract: string;
+    auditFeeWei: string | null;
+  } | null;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
   if (!res.ok) {
@@ -35,6 +74,10 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(`Expected JSON but got ${contentType || "unknown content type"}`);
   }
   return res.json() as Promise<T>;
+}
+
+export async function getPublicConfig(apiUrl: string): Promise<PublicConfig> {
+  return request<PublicConfig>(`${apiUrl}/config/public`);
 }
 
 export async function checkout(
@@ -133,6 +176,24 @@ export async function getPackageReport(
     return await request<PackageReport>(url);
   } catch (err) {
     if (err instanceof Error && (err.message.startsWith("HTTP 404") || err.message.startsWith("Expected JSON"))) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function getPackageStorage(
+  apiUrl: string,
+  packageName: string,
+  version: string,
+): Promise<StoragePublication | null> {
+  const query = `?version=${encodeURIComponent(version)}`;
+  const url = `${apiUrl}/package/${encodeURIComponent(packageName)}/storage${query}`;
+
+  try {
+    return await request<StoragePublication>(url);
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("HTTP 404")) {
       return null;
     }
     throw err;
