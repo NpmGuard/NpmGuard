@@ -37,7 +37,7 @@ function DependencyList() {
         }}
       >
         <span style={{
-          fontSize: "0.55rem",
+          fontSize: "0.6rem",
           color: "var(--text-muted)",
           transition: "transform 0.15s",
           transform: expanded ? "rotate(90deg)" : "none",
@@ -72,7 +72,7 @@ function DependencyList() {
             <>
               <div style={{
                 fontFamily: "var(--font-mono)",
-                fontSize: "0.55rem",
+                fontSize: "0.6rem",
                 color: "var(--text-muted)",
                 marginTop: prodEntries.length > 0 ? 6 : 0,
                 marginBottom: 2,

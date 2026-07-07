@@ -318,12 +318,12 @@ export function Benchmark() {
           }}
         >
           <Metric label="Rows" value={String(activeRun.totalRows)} />
-          <Metric label="Expected dangerous" value={String(expectedDangerous)} tone="var(--danger)" />
-          <Metric label="Detected" value={String(detectedCount)} tone="var(--safe)" />
-          <Metric label="Missed" value={String(missedCount)} tone="var(--danger)" />
-          <Metric label="Expected safe" value={String(expectedSafe)} tone="var(--safe)" />
-          <Metric label="False positives" value={String(falsePositiveCount)} tone="var(--danger)" />
-          <Metric label="Clean safe" value={String(cleanCount)} tone="var(--safe)" />
+          <Metric label="Expected dangerous" value={String(expectedDangerous)} tone={expectedDangerous ? "var(--danger)" : undefined} />
+          <Metric label="Detected" value={String(detectedCount)} tone={detectedCount ? "var(--safe)" : undefined} />
+          <Metric label="Missed" value={String(missedCount)} tone={missedCount ? "var(--danger)" : undefined} />
+          <Metric label="Expected safe" value={String(expectedSafe)} tone={expectedSafe ? "var(--safe)" : undefined} />
+          <Metric label="False positives" value={String(falsePositiveCount)} tone={falsePositiveCount ? "var(--danger)" : undefined} />
+          <Metric label="Clean safe" value={String(cleanCount)} tone={cleanCount ? "var(--safe)" : undefined} />
           <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
         </section>
 
@@ -531,7 +531,7 @@ function Metric({ label, value, tone = "var(--text)" }: { label: string; value: 
       <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-muted)", marginBottom: 8 }}>
         {label}
       </div>
-      <div style={{ fontFamily: "var(--font-heading)", fontSize: "1.45rem", fontWeight: 750, color: tone }}>
+      <div style={{ fontFamily: "var(--font-heading)", fontSize: "1.45rem", fontWeight: 750, color: tone, fontVariantNumeric: "tabular-nums" }}>
         {value}
       </div>
     </div>

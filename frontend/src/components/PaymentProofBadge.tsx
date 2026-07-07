@@ -63,11 +63,11 @@ export function PaymentProofBadge({ txHash, chain, stripeSessionId }: PaymentPro
           letterSpacing: "0.03em",
         }}
       >
-        <span style={{ fontSize: "0.55rem", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        <span style={{ fontSize: "0.6rem", textTransform: "uppercase", letterSpacing: "0.08em" }}>
           On-chain proof
         </span>
         <span>{short}</span>
-        <span style={{ fontSize: "0.55rem", opacity: 0.7 }}>↗</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.7 }}>↗</span>
       </a>
     );
   }
@@ -91,7 +91,7 @@ export function PaymentProofBadge({ txHash, chain, stripeSessionId }: PaymentPro
           letterSpacing: "0.03em",
         }}
       >
-        <span style={{ fontSize: "0.55rem", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        <span style={{ fontSize: "0.6rem", textTransform: "uppercase", letterSpacing: "0.08em" }}>
           Stripe verified
         </span>
         <span>{stripe.slice(-8)}</span>

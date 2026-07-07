@@ -35,18 +35,19 @@ export interface ReportViewProps {
 interface VerdictDisplay {
   label: string;
   color: string;
+  bg: string;
 }
 
 function deriveVerdict(verdict: ReportViewProps["verdict"], findings: Finding[], proofs: Proof[]): VerdictDisplay {
   if (verdict === "SAFE") {
-    return { label: "SAFE", color: "var(--safe)" };
+    return { label: "SAFE", color: "var(--safe)", bg: "var(--safe-bg)" };
   }
   const { verified, observed, dealbreaker } = computeProofStats(findings, proofs);
-  if (dealbreaker) return { label: "DANGEROUS", color: "var(--danger)" };
-  if (verified > 0) return { label: "DANGEROUS", color: "var(--danger)" };
-  if (observed > 0) return { label: "SUSPICIOUS", color: "var(--suspected)" };
-  if (verdict === "DANGEROUS") return { label: "DANGEROUS", color: "var(--danger)" };
-  return { label: "REVIEW", color: "var(--text-muted)" };
+  if (dealbreaker) return { label: "DANGEROUS", color: "var(--danger)", bg: "var(--danger-bg)" };
+  if (verified > 0) return { label: "DANGEROUS", color: "var(--danger)", bg: "var(--danger-bg)" };
+  if (observed > 0) return { label: "SUSPICIOUS", color: "var(--suspected)", bg: "var(--suspected-bg)" };
+  if (verdict === "DANGEROUS") return { label: "DANGEROUS", color: "var(--danger)", bg: "var(--danger-bg)" };
+  return { label: "REVIEW", color: "var(--text-muted)", bg: "var(--bg-tertiary)" };
 }
 
 function statsLine(findings: Finding[], proofs: Proof[]): string {
@@ -464,23 +465,26 @@ export function ReportView({
           </span>
         </div>
 
-        {/* Verdict line */}
+        {/* Verdict line — the answer leads; package name above is the context */}
         <div
           style={{
             marginTop: 10,
             display: "flex",
-            alignItems: "center",
+            alignItems: "baseline",
             gap: 14,
             flexWrap: "wrap",
-            paddingLeft: 12,
+            padding: "8px 12px",
             borderLeft: `3px solid ${display.color}`,
+            background: display.bg,
+            borderRadius: "0 var(--radius-sm) var(--radius-sm) 0",
           }}
         >
           <span
             style={{
               fontFamily: "var(--font-heading)",
               fontWeight: 800,
-              fontSize: "1rem",
+              fontSize: "1.3rem",
+              lineHeight: 1,
               letterSpacing: "0.04em",
               color: display.color,
             }}
@@ -538,13 +542,13 @@ export function ReportView({
         )}
       </div>
 
-      {/* Two-pane: findings list | proof detail */}
+      {/* Two-pane: findings list | proof detail — stacks on mobile (index.css) */}
       <div
-        className="flex-1 flex min-h-0"
+        className="report-panes flex-1 flex min-h-0"
         style={{ background: "var(--bg-secondary)" }}
       >
         <div
-          className="shrink-0 flex flex-col"
+          className="report-findings-pane shrink-0 flex flex-col"
           style={{
             width: 320,
             minWidth: 280,

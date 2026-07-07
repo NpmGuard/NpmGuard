@@ -196,11 +196,31 @@ export function PackageSearch() {
           }}
         >
           {[
-            ["Total", packages.length.toLocaleString(), "Reports written"],
-            ["Safe", stats.safe.toLocaleString(), "No confirmed threat"],
-            ["Dangerous", stats.dangerous.toLocaleString(), "Blocked verdicts"],
-            ["Latest", stats.latestAudit ? formatDate(stats.latestAudit) : "None", "Most recent audit"],
-          ].map(([label, value, caption]) => (
+            {
+              label: "Total",
+              value: packages.length.toLocaleString(),
+              caption: "Reports written",
+              showBar: true,
+            },
+            {
+              label: "Safe",
+              value: stats.safe.toLocaleString(),
+              caption: "No confirmed threat",
+              color: stats.safe > 0 ? "var(--safe)" : undefined,
+            },
+            {
+              label: "Dangerous",
+              value: stats.dangerous.toLocaleString(),
+              caption: "Blocked verdicts",
+              color: stats.dangerous > 0 ? "var(--danger)" : undefined,
+            },
+            {
+              label: "Latest",
+              value: stats.latestAudit ? formatDate(stats.latestAudit) : "None",
+              caption: "Most recent audit",
+              demoted: true,
+            },
+          ].map(({ label, value, caption, color, showBar, demoted }) => (
             <div
               key={label}
               style={{
@@ -223,25 +243,66 @@ export function PackageSearch() {
                 {label}
               </div>
               <div
-                style={{
-                  marginTop: 9,
-                  fontFamily: "var(--font-heading)",
-                  fontSize: "1.35rem",
-                  fontWeight: 750,
-                  lineHeight: 1,
-                }}
+                style={
+                  demoted
+                    ? {
+                        marginTop: 13,
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.95rem",
+                        fontWeight: 400,
+                        lineHeight: 1.2,
+                        color: "var(--text-dim)",
+                      }
+                    : {
+                        marginTop: 9,
+                        fontFamily: "var(--font-heading)",
+                        fontSize: "1.35rem",
+                        fontWeight: 750,
+                        lineHeight: 1,
+                        color: color ?? "var(--text)",
+                        fontVariantNumeric: "tabular-nums",
+                      }
+                }
               >
                 {value}
               </div>
-              <div
-                style={{
-                  marginTop: 8,
-                  color: "var(--text-dim)",
-                  fontSize: "0.78rem",
-                }}
-              >
-                {caption}
-              </div>
+              {showBar && packages.length > 0 ? (
+                <div
+                  className="verdict-bar"
+                  style={{ marginTop: 10 }}
+                  role="img"
+                  aria-label={`${stats.safe} safe, ${stats.dangerous} dangerous, ${stats.unknown} unknown`}
+                >
+                  <span
+                    style={{
+                      width: `${(stats.safe / packages.length) * 100}%`,
+                      background: "var(--safe)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      width: `${(stats.dangerous / packages.length) * 100}%`,
+                      background: "var(--danger)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      width: `${(stats.unknown / packages.length) * 100}%`,
+                      background: "var(--pending)",
+                    }}
+                  />
+                </div>
+              ) : (
+                <div
+                  style={{
+                    marginTop: 8,
+                    color: "var(--text-dim)",
+                    fontSize: "0.78rem",
+                  }}
+                >
+                  {caption}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -399,7 +460,6 @@ export function PackageSearch() {
                       padding: "13px 16px",
                       border: "none",
                       borderBottom: "1px solid var(--border)",
-                      background: "transparent",
                       color: "var(--text)",
                       cursor: "pointer",
                       textAlign: "left",
@@ -491,6 +551,7 @@ export function PackageSearch() {
                       borderRadius: 6,
                       background: "var(--bg)",
                       color: currentPage === 1 ? "var(--text-muted)" : "var(--text)",
+                      opacity: currentPage === 1 ? 0.5 : 1,
                       cursor: currentPage === 1 ? "not-allowed" : "pointer",
                       fontFamily: "var(--font-mono)",
                       fontSize: "0.72rem",
@@ -520,6 +581,7 @@ export function PackageSearch() {
                       borderRadius: 6,
                       background: "var(--bg)",
                       color: currentPage === pageCount ? "var(--text-muted)" : "var(--text)",
+                      opacity: currentPage === pageCount ? 0.5 : 1,
                       cursor: currentPage === pageCount ? "not-allowed" : "pointer",
                       fontFamily: "var(--font-mono)",
                       fontSize: "0.72rem",
