@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect } from "react";
+import { Route, Routes, useNavigate, useParams } from "react-router";
 import { useAuditStore } from "./stores/auditStore";
-import { AUDIT_PATH_RE } from "./lib/types";
 import { Header } from "./components/Header";
 import { Landing } from "./components/Landing";
 import { AuditView } from "./components/AuditView";
@@ -9,103 +9,107 @@ import { PackageLookup } from "./components/PackageLookup";
 import { Benchmark } from "./components/Benchmark";
 import { CliInstall } from "./components/CliInstall";
 import { WebWalletCheckout } from "./components/WebWalletCheckout";
+import { Dashboard } from "./pages/Dashboard";
+import { RepoDetail } from "./pages/RepoDetail";
 
-const PACKAGES_PATH_RE = /^\/packages\/?$/;
-const PACKAGE_PATH_RE_LOOKUP = /^\/package\/(.+)$/;
-const BENCHMARK_PATH_RE = /^\/benchmark\/?$/;
-const CLI_PATH_RE = /^\/cli\/?$/;
-const PAY_PATH_RE = /^\/pay\/?$/;
+const AUDIT_PATH_RE = /^\/audit\/([0-9a-f-]{36})$/;
+const KEEP_STATE_RE = /^\/(audit|packages|package|benchmark|cli|pay|dashboard|repo)(\/|$)/;
+
+/** Landing vs live audit — same decision the old regex router made. */
+function HomeOrAudit() {
+  const isRunning = useAuditStore((s) => s.isRunning);
+  const verdict = useAuditStore((s) => s.verdict);
+  const hasStarted = useAuditStore((s) => s.hasStarted);
+  const hasAudit = hasStarted || isRunning || !!verdict;
+  return hasAudit ? <AuditView /> : <Landing />;
+}
+
+/** /audit/:auditId — reconnect to the session, then render like home. */
+function AuditRoute() {
+  const { auditId: routeAuditId } = useParams<{ auditId: string }>();
+  const auditId = useAuditStore((s) => s.auditId);
+  const connectToSession = useAuditStore((s) => s.connectToSession);
+
+  useEffect(() => {
+    if (routeAuditId && routeAuditId !== auditId) {
+      connectToSession(routeAuditId);
+    }
+  }, [routeAuditId, auditId, connectToSession]);
+
+  return <HomeOrAudit />;
+}
+
+/** /pay — browser-wallet checkout until an audit is live, then the audit view
+ *  (the pay flow transitions into an audit, mirroring the pre-router logic). */
+function PayRoute() {
+  const isRunning = useAuditStore((s) => s.isRunning);
+  const verdict = useAuditStore((s) => s.verdict);
+  const hasStarted = useAuditStore((s) => s.hasStarted);
+  const hasAudit = hasStarted || isRunning || !!verdict;
+  return hasAudit ? <AuditView /> : <WebWalletCheckout />;
+}
+
+/** /package/* — splat route so scoped names (@scope/pkg) keep their slash;
+ *  ?version= narrows to a specific report. */
+function PackageLookupRoute() {
+  const params = useParams();
+  const pkgName = params["*"] ?? "";
+  const version = new URLSearchParams(window.location.search).get("version") ?? undefined;
+  return <PackageLookup packageName={decodeURIComponent(pkgName)} version={version} />;
+}
 
 function App() {
-  const isRunning = useAuditStore((s) => s.isRunning);
   const verdict = useAuditStore((s) => s.verdict);
   const auditId = useAuditStore((s) => s.auditId);
   const packageName = useAuditStore((s) => s.packageName);
-  const connectToSession = useAuditStore((s) => s.connectToSession);
   const startAuditFromCheckout = useAuditStore((s) => s.startAuditFromCheckout);
   const reset = useAuditStore((s) => s.reset);
-  const hasStarted = useAuditStore((s) => s.hasStarted);
-  const hasAudit = hasStarted || isRunning || !!verdict;
-
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const navigate = useNavigate();
 
   // On mount: if returning from Stripe checkout with ?session_id, start audit
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session_id");
     if (sessionId && !auditId) {
-      history.replaceState(null, "", "/audit");
+      navigate("/audit", { replace: true });
       startAuditFromCheckout(sessionId);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // On mount: if URL is /audit/<uuid>, reconnect to that session
-  useEffect(() => {
-    const match = window.location.pathname.match(AUDIT_PATH_RE);
-    if (match && !auditId) {
-      connectToSession(match[1]);
-    }
-  }, [auditId, connectToSession]);
-
   // Update URL when an audit starts from the landing page
   useEffect(() => {
     if (auditId && !window.location.pathname.includes(auditId)) {
-      history.pushState(null, "", `/audit/${auditId}`);
-      setCurrentPath(`/audit/${auditId}`);
+      navigate(`/audit/${auditId}`);
     }
-  }, [auditId]);
+  }, [auditId, navigate]);
 
   // When an audit reaches a verdict, canonicalize the URL from the ephemeral
-  // /audit/<id> or /pay route to the durable /package/<name> route.
+  // /audit/<id> or /pay route to the durable /package/<name> route, preserving
+  // ?version=. Deliberately raw history.replaceState — the router doesn't
+  // observe it, so the live AuditView stays mounted (same trick as the
+  // pre-router App, where currentPath state was intentionally not updated).
   useEffect(() => {
     const path = window.location.pathname;
     if (verdict && packageName && (path.startsWith("/audit/") || path.startsWith("/pay"))) {
       const version = new URLSearchParams(window.location.search).get("version");
       const href = `/package/${encodeURIComponent(packageName)}${version ? `?version=${encodeURIComponent(version)}` : ""}`;
       history.replaceState(null, "", href);
-      setCurrentPath(`/package/${encodeURIComponent(packageName)}`);
     }
   }, [verdict, packageName]);
 
-  // Handle browser back/forward
+  // Handle browser back/forward: leaving the audit-ish routes resets the store
   const onPopState = useCallback(() => {
     const path = window.location.pathname;
-    setCurrentPath(path);
-
     const match = path.match(AUDIT_PATH_RE);
-    if (match) {
-      if (match[1] !== auditId) connectToSession(match[1]);
-    } else if (!PACKAGES_PATH_RE.test(path) && !PACKAGE_PATH_RE_LOOKUP.test(path) && !BENCHMARK_PATH_RE.test(path) && !CLI_PATH_RE.test(path) && !PAY_PATH_RE.test(path)) {
+    if (!match && !KEEP_STATE_RE.test(path)) {
       reset();
     }
-  }, [auditId, connectToSession, reset]);
+  }, [reset]);
 
   useEffect(() => {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [onPopState]);
-
-  // Determine which view to render
-  let content: React.ReactNode;
-
-  const packageMatch = currentPath.match(PACKAGE_PATH_RE_LOOKUP);
-
-  if (PACKAGES_PATH_RE.test(currentPath)) {
-    content = <PackageSearch />;
-  } else if (packageMatch) {
-    const version = new URLSearchParams(window.location.search).get("version") ?? undefined;
-    content = <PackageLookup packageName={decodeURIComponent(packageMatch[1])} version={version} />;
-  } else if (BENCHMARK_PATH_RE.test(currentPath)) {
-    content = <Benchmark />;
-  } else if (CLI_PATH_RE.test(currentPath)) {
-    content = <CliInstall />;
-  } else if (PAY_PATH_RE.test(currentPath) && !hasAudit) {
-    content = <WebWalletCheckout />;
-  } else if (hasAudit) {
-    content = <AuditView />;
-  } else {
-    content = <Landing />;
-  }
 
   return (
     <div
@@ -114,7 +118,17 @@ function App() {
     >
       <Header />
       <main className="flex-1 flex flex-col min-h-0">
-        {content}
+        <Routes>
+          <Route path="/packages" element={<PackageSearch />} />
+          <Route path="/package/*" element={<PackageLookupRoute />} />
+          <Route path="/benchmark" element={<Benchmark />} />
+          <Route path="/cli" element={<CliInstall />} />
+          <Route path="/pay" element={<PayRoute />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/repo/:owner/:name" element={<RepoDetail />} />
+          <Route path="/audit/:auditId" element={<AuditRoute />} />
+          <Route path="*" element={<HomeOrAudit />} />
+        </Routes>
       </main>
     </div>
   );

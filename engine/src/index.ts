@@ -6,13 +6,22 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { cleanupOldChainPayments } from "./chain-payment-map.js";
-import { config } from "./config.js";
+import { config, GITHUB_APP_ENABLED } from "./config.js";
+import { startReconcile } from "./jobs/reconcile.js";
+import { resetStaleRunningJobs } from "./jobs/queue.js";
+import { startWorkers } from "./jobs/workers.js";
 import { cleanupOldPayments } from "./payment-map.js";
+import { authRoutes } from "./routes/auth.js";
 import { auditRoutes } from "./routes/audit.js";
 import { benchRoutes } from "./routes/bench.js";
 import { demoRoutes } from "./routes/demo.js";
+import { ghWebhookRoutes } from "./routes/gh-webhooks.js";
+import { panelRoutes } from "./routes/panel.js";
 import { paymentRoutes } from "./routes/payment.js";
 import { registryRoutes } from "./routes/registry.js";
+import { cleanupExpiredSessions } from "./session.js";
+import { installReportHook, rebuildVerdictIndex } from "./verdict-index.js";
+import { startRegistryWatch } from "./watch/poller.js";
 
 const app = new Hono();
 
@@ -30,6 +39,9 @@ app.route("/", paymentRoutes);
 app.route("/", demoRoutes);
 app.route("/", registryRoutes);
 app.route("/", benchRoutes);
+app.route("/", authRoutes);
+app.route("/", panelRoutes);
+app.route("/", ghWebhookRoutes);
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -72,6 +84,18 @@ if (fs.existsSync(frontendDist)) {
 // Periodic cleanup of expired payment records
 setInterval(cleanupOldPayments, 10 * 60_000);
 setInterval(cleanupOldChainPayments, 10 * 60_000);
+
+// Panel machinery (spec §8): verdict index, durable job workers, registry
+// watch, daily reconcile. All gated on the GitHub App being configured.
+if (GITHUB_APP_ENABLED) {
+  installReportHook();
+  rebuildVerdictIndex();
+  resetStaleRunningJobs();
+  startWorkers();
+  startRegistryWatch();
+  startReconcile();
+  setInterval(cleanupExpiredSessions, 60 * 60_000);
+}
 
 console.log(`NpmGuard Engine starting on ${config.apiHost}:${config.apiPort}`);
 serve({ fetch: app.fetch, hostname: config.apiHost, port: config.apiPort });

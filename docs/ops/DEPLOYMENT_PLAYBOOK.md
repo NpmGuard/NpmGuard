@@ -95,6 +95,49 @@ bash deploy/setup-droplet.sh
 
 This runs 8 steps: system packages, Node.js 22, firewall (UFW), fail2ban, nginx, Docker, app build, webhook service.
 
+## GitHub App (repo panel) setup
+
+The repo panel (spec: `docs/specs/2026-07-07-github-repo-panel.md`) needs a
+GitHub App registered under the NpmGuard org:
+
+1. **Register** at github.com → Settings → Developer settings → GitHub Apps:
+   - Homepage: `https://npmguard.com`
+   - Callback URL: `https://npmguard.com/api/auth/github/callback`
+   - Webhook URL: `https://npmguard.com/webhooks/github` + a fresh secret
+     (`openssl rand -hex 32`). This is NpmGuard's *App* webhook — distinct
+     from the deploy webhook on :9000 below.
+   - Permissions: **Contents: read**, **Checks: write**, **Metadata: read**,
+     Account → **Email addresses: read** (optional, for alert emails)
+   - Events: **push**, **installation**, **installation repositories**
+   - "Where can this app be installed?" → Any account
+2. **Generate a private key**, copy it to the server (e.g.
+   `/root/npmguard-github-app.pem`, mode 600 — outside the repo).
+3. **Provision `engine/.env`:**
+
+```bash
+NPMGUARD_GITHUB_APP_ID=<app id>
+NPMGUARD_GITHUB_APP_PRIVATE_KEY_PATH=/root/npmguard-github-app.pem
+NPMGUARD_GITHUB_CLIENT_ID=<client id>
+NPMGUARD_GITHUB_CLIENT_SECRET=<client secret>
+NPMGUARD_GITHUB_WEBHOOK_SECRET=<webhook secret>
+NPMGUARD_ENCRYPTION_KEY=$(openssl rand -hex 32)   # user tokens at rest
+NPMGUARD_PANEL_BASE_URL=https://npmguard.com
+# optional
+NPMGUARD_SMTP_URL=smtp://user:pass@host:587       # DANGEROUS alert emails
+NPMGUARD_ALERT_FROM="NpmGuard <alerts@npmguard.com>"
+NPMGUARD_SCAN_CONCURRENCY=4
+NPMGUARD_WATCH_INTERVAL_MIN=15
+NPMGUARD_BETA_MAX_PROTECTED_REPOS=10
+NPMGUARD_BETA_MAX_AUDITS_MONTH=5000
+```
+
+All five required vars must be present or the engine boots with the panel
+disabled (503 on `/auth/*` + `/panel/*`, warning in the log listing what's
+missing). Panel state lives in `data/npmguard.db` (SQLite, WAL) — include it
+in any backup that covers `data/reports/`. `better-sqlite3` is a native
+module: deploys must run `npm install` with build tools present (already
+covered by setup-droplet.sh).
+
 ## Webhook setup
 
 ### 1. Generate a secret on the server
