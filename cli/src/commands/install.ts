@@ -31,15 +31,37 @@ function runInstall(packageSpec: string): number {
   return res.status ?? 1;
 }
 
-function extractVerdict(report: api.PackageReport): string {
-  const nested = (report as { report?: { verdict?: string } }).report?.verdict;
-  return (nested ?? report.verdict ?? "UNKNOWN").toUpperCase();
+/** Read a field off a report that may be flat or wrapped in `{ report: {...} }`. */
+function reportField<T>(report: api.PackageReport, key: string): T | undefined {
+  const r = report as Record<string, unknown> & { report?: Record<string, unknown> };
+  return (r?.report?.[key] ?? r?.[key]) as T | undefined;
 }
 
-function extractCapabilities(report: api.PackageReport): string[] {
-  const nested = (report as { report?: { capabilities?: string[] } }).report
-    ?.capabilities;
-  return nested ?? (report.capabilities as string[] | undefined) ?? [];
+function extractVerdict(report: api.PackageReport): string {
+  return (reportField<string>(report, "verdict") ?? "UNKNOWN").toUpperCase();
+}
+
+function extractRationale(report: api.PackageReport): string {
+  return reportField<string>(report, "rationale") ?? "";
+}
+
+interface HypLite {
+  claim?: { kind?: string };
+  state?: string;
+  description?: string;
+  severity?: string;
+}
+
+/** Print the CONFIRMED hypotheses (the reproduced threats) that justify DANGEROUS. */
+function printConfirmed(report: api.PackageReport): void {
+  const hyps = reportField<HypLite[]>(report, "hypotheses") ?? [];
+  const confirmed = hyps.filter((h) => (h.state ?? "").toUpperCase() === "CONFIRMED");
+  for (const h of confirmed) {
+    console.log(
+      chalk.red.bold("  ! ") +
+        chalk.white(h.description ?? h.claim?.kind ?? "confirmed threat"),
+    );
+  }
 }
 
 export async function installCommand(
@@ -131,41 +153,56 @@ function handleExistingReport(
   opts: InstallOpts,
 ): void {
   const verdict = extractVerdict(report);
-  const capabilities = extractCapabilities(report);
+  const rationale = extractRationale(report);
+  const reportUrl = `${apiUrl}/package/${encodeURIComponent(name)}/report`;
 
+  // SAFE — the only silent-install path.
   if (verdict === "SAFE") {
     console.log(chalk.green("  ✓ SAFE — audited by NpmGuard"));
-    if (capabilities.length > 0) {
-      console.log(chalk.gray(`  Capabilities: ${capabilities.join(", ")}`));
-    }
+    if (rationale) console.log(chalk.gray(`  ${rationale}`));
     process.exit(runInstall(fullSpec));
   }
 
-  if (verdict === "DANGEROUS" || verdict === "CRITICAL" || verdict === "WARNING") {
-    console.log(chalk.bgRed.white.bold(`  ${verdict}  `));
-    if (capabilities.length > 0) {
-      console.log(
-        chalk.red("  Capabilities: ") +
-          capabilities.map((c) => chalk.yellow(c)).join(", "),
-      );
-    }
-    console.log(
-      chalk.dim(
-        `  Full report: ${apiUrl}/package/${encodeURIComponent(name)}/report`,
-      ),
-    );
+  // DANGEROUS — the only hard block. A CONFIRMED hypothesis with reproduced
+  // evidence. --force overrides.
+  if (verdict === "DANGEROUS") {
+    console.log(chalk.bgRed.white.bold("  DANGEROUS  "));
+    if (rationale) console.log(chalk.red(`  ${rationale}`));
+    printConfirmed(report);
+    console.log(chalk.dim(`  Full report: ${reportUrl}`));
     console.log();
 
     if (opts.force) {
       console.log(chalk.yellow("  --force passed, installing anyway..."));
       process.exit(runInstall(fullSpec));
     }
-
-    promptAndInstallIfAccepted(fullSpec, "  Install anyway? This package is flagged. (y/N) ");
+    promptAndInstallIfAccepted(
+      fullSpec,
+      "  Install anyway? This package has confirmed malicious behavior. (y/N) ",
+    );
     return;
   }
 
-  console.log(chalk.yellow(`  Verdict: ${verdict}`));
+  // SUSPECT / UNKNOWN — do not block, but warn honestly and prompt. UNKNOWN is
+  // called out loudly: "couldn't analyze" must never read as a clean pass.
+  console.log(chalk.bgYellow.black.bold(`  ${verdict}  `));
+  if (verdict === "UNKNOWN") {
+    console.log(
+      chalk.yellow(
+        "  Coverage gap — NpmGuard could not analyze part of this package. This is NOT a clean bill of health.",
+      ),
+    );
+  } else {
+    console.log(chalk.yellow("  Some hypotheses are still unresolved."));
+  }
+  if (rationale) console.log(chalk.yellow(`  ${rationale}`));
+  console.log(chalk.dim(`  Full report: ${reportUrl}`));
+  console.log();
+
+  if (opts.force) {
+    console.log(chalk.yellow("  --force passed, installing anyway..."));
+    process.exit(runInstall(fullSpec));
+  }
   promptAndInstallIfAccepted(fullSpec, "  Proceed with install? (y/N) ");
 }
 
@@ -280,15 +317,7 @@ async function finalizeAfterAudit(
     console.log(chalk.red("  Audit finished but report not found."));
     process.exit(1);
   }
-  const verdict = extractVerdict(freshReport);
-  if (verdict === "SAFE") {
-    console.log(chalk.green("\n  ✓ SAFE — proceeding with install"));
-    process.exit(runInstall(fullSpec));
-  }
-  console.log(chalk.red(`\n  Audit verdict: ${verdict}`));
-  const confirm = await prompt(chalk.red.bold("  Install anyway? (y/N) "));
-  if (confirm === "y" || confirm === "yes") {
-    process.exit(runInstall(fullSpec));
-  }
-  process.exit(1);
+  // Same 4-state gate as a pre-existing report: SAFE installs, DANGEROUS blocks
+  // (prompt), SUSPECT/UNKNOWN warn + prompt.
+  handleExistingReport(freshReport, name, fullSpec, apiUrl, { api: apiUrl });
 }

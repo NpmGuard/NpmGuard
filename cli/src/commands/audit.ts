@@ -3,9 +3,14 @@ import ora from "ora";
 import qrcode from "qrcode-terminal";
 import EventSource from "eventsource";
 import * as api from "../api.js";
-import { renderVerdict, renderFinding, renderPhase } from "../render.js";
-import type { Finding } from "../render.js";
+import { renderVerdict, renderHypothesisResolved, renderPhase } from "../render.js";
 import { parsePackageArg } from "../utils.js";
+
+/** Read a field off a report that may be flat or wrapped in `{ report: {...} }`. */
+function reportField<T>(report: unknown, key: string): T | undefined {
+  const r = report as Record<string, unknown> & { report?: Record<string, unknown> };
+  return (r?.report?.[key] ?? r?.[key]) as T | undefined;
+}
 
 export async function auditCommand(
   pkg: string,
@@ -38,11 +43,11 @@ export async function auditCommand(
   if (existing) {
     console.log(chalk.yellow("This package has already been audited."));
     console.log();
-    const verdict = (existing as { report?: { verdict?: string } }).report?.verdict ?? existing.verdict ?? "UNKNOWN";
+    const verdict = (reportField<string>(existing, "verdict") ?? "UNKNOWN").toUpperCase();
     renderVerdict(
       verdict,
-      (existing as { report?: { capabilities?: string[] } }).report?.capabilities ?? [],
-      (existing as { report?: { proofs?: unknown[] } }).report?.proofs?.length ?? 0,
+      reportField<string>(existing, "rationale") ?? "",
+      reportField(existing, "counts"),
     );
     console.log();
     console.log(chalk.dim(`View full report: ${apiUrl}/package/${encodeURIComponent(parsed.name)}/report`));
@@ -151,12 +156,12 @@ export async function auditCommand(
       }
     });
 
-    es.addEventListener("finding_discovered", (event) => {
+    es.addEventListener("hypothesis_resolved", (event) => {
       try {
         const data = JSON.parse(event.data);
-        const finding: Finding = data.finding ?? data;
+        if ((data.state ?? "").toString().toUpperCase() !== "CONFIRMED") return;
         spinner.stop();
-        renderFinding(finding);
+        renderHypothesisResolved(data);
         spinner.start();
       } catch {
         // ignore parse errors
@@ -167,11 +172,7 @@ export async function auditCommand(
       try {
         const data = JSON.parse(event.data);
         spinner.stop();
-        renderVerdict(
-          data.verdict ?? "UNKNOWN",
-          data.capabilities ?? [],
-          data.proofCount ?? data.findings?.length ?? 0,
-        );
+        renderVerdict(data.verdict ?? "UNKNOWN", data.rationale ?? "", data.counts);
         exitCode = data.verdict?.toUpperCase() === "SAFE" ? 0 : 1;
       } catch {
         spinner.stop();

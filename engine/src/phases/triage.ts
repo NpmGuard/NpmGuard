@@ -4,6 +4,7 @@ import { z } from "zod";
 import { generateObject } from "ai";
 import { config, SOURCE_FILE_TYPES } from "../config.js";
 import { getModel } from "../llm.js";
+import { numberLines } from "../util.js";
 import type { InventoryReport } from "../models.js";
 import {
   ClaimKind,
@@ -233,13 +234,6 @@ export function buildMapPrompt(args: {
   );
 
   return sections.join("\n\n");
-}
-
-function numberLines(contents: string): string {
-  return contents
-    .split("\n")
-    .map((line, i) => `${i + 1}: ${line}`)
-    .join("\n");
 }
 
 // ---------------------------------------------------------------------------

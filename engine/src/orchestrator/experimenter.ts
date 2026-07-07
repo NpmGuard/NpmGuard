@@ -8,7 +8,7 @@ import type {
 } from "@npmguard/shared";
 import type { Manipulation } from "../manipulation/types.js";
 import { setEnv } from "../manipulation/env.js";
-import { plantFiles, type PlantFileSpec } from "../manipulation/plant-files.js";
+import { plantFiles } from "../manipulation/plant-files.js";
 import { runUnderObservation, type RunRequest } from "../evidence/run-under-observation.js";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,23 @@ export function eventsContainDnsWithPayload(events: readonly Event[]): boolean {
     const hasLongLabel = /\b[a-z0-9]{20,}\./i.test(raw);
     return hasLongLabel;
   });
+}
+
+/**
+ * Whether a claim kind has an automated dynamic experiment. The orchestrator
+ * routes dynamic claims to the experimenter (reproduce → CONFIRMED with a
+ * RunArtifact) and static claims to the code-reader. Kept in lockstep with the
+ * `null`-returning cases of `strategyForClaim`.
+ */
+export function claimHasDynamicStrategy(claim: ClaimKind): boolean {
+  switch (claim) {
+    case "dom_inject":
+    case "clipboard_hijack":
+    case "propagation":
+      return false;
+    default:
+      return true;
+  }
 }
 
 // ---------------------------------------------------------------------------

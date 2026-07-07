@@ -5,13 +5,13 @@ import type {
   FileStatus,
   PhaseInfo,
   AgentStep,
-  Finding,
-  FocusArea,
-  Proof,
   SSEEvent,
   PipelineLogEntry,
   InventoryMeta,
-  InstrumentationLog,
+  VerdictEnum,
+  Hypothesis,
+  HypothesisCounts,
+  LiveHypothesis,
 } from "../lib/types";
 import { PHASE_ORDER, PHASE_LABELS, LIFECYCLE_SCRIPTS, RISK_SUSPICIOUS_THRESHOLD, riskContributionToStatus, readFileArg } from "../lib/types";
 
@@ -34,24 +34,20 @@ interface AuditState {
   fileStatuses: Record<string, FileStatus>;
   fileVerdicts: Record<string, FileVerdict>;
 
-  // Triage
-  riskScore: number | null;
-  riskSummary: string | null;
-  focusAreas: FocusArea[];
-
   // Pipeline activity (early phases)
   pipelineLog: PipelineLogEntry[];
 
-  // Investigation
+  // Investigation (agent reasoning/tool trace)
   agentSteps: AgentStep[];
-  findings: Finding[];
 
-  // Verdict
-  verdict: "SAFE" | "DANGEROUS" | null;
-  capabilities: string[];
-  proofCount: number;
-  proofs: Proof[];
-  runtimeEvidence: InstrumentationLog | null;
+  // Hypothesis graph (engine v2) — the finding surface
+  liveHypotheses: LiveHypothesis[];
+  hypotheses: Hypothesis[];
+
+  // Verdict (4-state)
+  verdict: VerdictEnum | null;
+  rationale: string | null;
+  counts: HypothesisCounts | null;
 
   // Inventory metadata
   inventoryMeta: InventoryMeta | null;
@@ -94,17 +90,13 @@ const initialState = {
   files: [],
   fileStatuses: {},
   fileVerdicts: {},
-  riskScore: null,
-  riskSummary: null,
-  focusAreas: [],
   pipelineLog: [],
   agentSteps: [],
-  findings: [],
+  liveHypotheses: [],
+  hypotheses: [],
   verdict: null,
-  capabilities: [],
-  proofCount: 0,
-  proofs: [],
-  runtimeEvidence: null,
+  rationale: null,
+  counts: null,
   inventoryMeta: null,
   selectedFile: null,
   selectedFileContent: null,
@@ -178,6 +170,7 @@ function connectSSE(
       "triage_complete", "triage_progress", "inventory_meta",
       "agent_thinking", "agent_tool_call", "agent_tool_result",
       "agent_reasoning", "finding_discovered",
+      "hypothesis_emitted", "hypothesis_resolved",
       "verify_started", "verify_test_result",
       "verdict_reached", "audit_error",
     ] as const;
@@ -557,12 +550,9 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       }
 
       case "triage_complete": {
-        set({
-          riskScore: event.riskScore,
-          riskSummary: event.riskSummary,
-          focusAreas: event.focusAreas,
-          triageProgress: null,
-        });
+        // Engine v2: triage now emits hypotheses (via hypothesis_emitted), not a
+        // riskScore/riskSummary/focusAreas triad — just clear the progress meter.
+        set({ triageProgress: null });
         break;
       }
 
@@ -615,8 +605,37 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         break;
       }
 
-      case "finding_discovered": {
-        set({ findings: [...state.findings, event.finding] });
+      case "hypothesis_emitted": {
+        // Skip if we've already seen this hypId (resolved may arrive first on replay)
+        if (state.liveHypotheses.some((h) => h.hypId === event.hypId)) break;
+        set({
+          liveHypotheses: [...state.liveHypotheses, {
+            hypId: event.hypId,
+            claim: event.claim,
+            severity: event.severity,
+            file: event.file,
+            state: "OPEN",
+          }],
+        });
+        break;
+      }
+
+      case "hypothesis_resolved": {
+        const existing = state.liveHypotheses.find((h) => h.hypId === event.hypId);
+        const resolved: LiveHypothesis = {
+          hypId: event.hypId,
+          claim: event.claim,
+          severity: event.severity,
+          file: existing?.file,
+          state: event.state,
+          by: event.by,
+          reason: event.reason,
+        };
+        set({
+          liveHypotheses: existing
+            ? state.liveHypotheses.map((h) => (h.hypId === event.hypId ? resolved : h))
+            : [...state.liveHypotheses, resolved],
+        });
         break;
       }
 
@@ -646,12 +665,12 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       case "verdict_reached": {
         set({
           verdict: event.verdict,
-          capabilities: event.capabilities,
-          proofCount: event.proofCount,
+          rationale: event.rationale,
+          counts: event.counts,
           isRunning: false,
           agentThinking: false,
         });
-        // Fetch full report to hydrate proof details (non-blocking)
+        // Fetch full report to hydrate the hypothesis list (non-blocking)
         const { auditId } = get();
         if (auditId) {
           fetch(`${API_BASE}/audit/${auditId}/report`)
@@ -659,8 +678,10 @@ export const useAuditStore = create<AuditState>((set, get) => ({
             .then((report) => {
               if (!report) return;
               const update: Partial<AuditState> = {};
-              if (report.proofs) update.proofs = report.proofs;
-              if ("runtimeEvidence" in report) update.runtimeEvidence = report.runtimeEvidence;
+              if (Array.isArray(report.hypotheses)) update.hypotheses = report.hypotheses;
+              if (report.counts) update.counts = report.counts;
+              if (typeof report.rationale === "string") update.rationale = report.rationale;
+              if (report.verdict) update.verdict = report.verdict;
               set(update);
             })
             .catch(() => { });

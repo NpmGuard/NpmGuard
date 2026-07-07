@@ -1,8 +1,7 @@
 import chalk from "chalk";
 import ora from "ora";
 import EventSource from "eventsource";
-import { renderVerdict, renderFinding, renderPhase } from "./render.js";
-import type { Finding } from "./render.js";
+import { renderVerdict, renderHypothesisResolved, renderPhase } from "./render.js";
 
 export interface StreamResult {
   verdict: string;
@@ -34,12 +33,12 @@ export async function streamAuditEvents(
       }
     });
 
-    es.addEventListener("finding_discovered", (event) => {
+    es.addEventListener("hypothesis_resolved", (event) => {
       try {
         const data = JSON.parse(event.data);
-        const finding: Finding = data.finding ?? data;
+        if ((data.state ?? "").toString().toUpperCase() !== "CONFIRMED") return;
         spinner.stop();
-        renderFinding(finding);
+        renderHypothesisResolved(data);
         spinner.start();
       } catch {
         // ignore
@@ -51,11 +50,9 @@ export async function streamAuditEvents(
         const data = JSON.parse(event.data);
         spinner.stop();
         verdict = (data.verdict ?? "UNKNOWN").toString().toUpperCase();
-        renderVerdict(
-          verdict,
-          data.capabilities ?? [],
-          data.proofCount ?? data.findings?.length ?? 0,
-        );
+        renderVerdict(verdict, data.rationale ?? "", data.counts);
+        // Only DANGEROUS is a hard failure for scripting; SUSPECT/UNKNOWN are
+        // non-zero too so a CI gate treats "not verified clean" as non-success.
         exitCode = verdict === "SAFE" ? 0 : 1;
       } catch {
         spinner.stop();

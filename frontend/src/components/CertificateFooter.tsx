@@ -16,7 +16,7 @@ export interface CertificateFooterProps {
 export function CertificateFooter({ report }: CertificateFooterProps) {
   const [cert, setCert] = useState<AuditCertificate | null>(null);
   // Cheap content signal — only re-hash when the report shape actually shifts.
-  const signature = report.proofs.length + ":" + report.findings.length + ":" + (report.verdict ?? "");
+  const signature = report.hypotheses.length + ":" + (report.verdict ?? "") + ":" + (report.counts?.confirmed ?? 0);
   const [prevSignature, setPrevSignature] = useState<string | null>(null);
 
   // Adjust state during render so we re-trigger the async hash on signature change

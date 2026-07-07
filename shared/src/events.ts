@@ -1,4 +1,5 @@
-import type { FileRecord, FileVerdict, Finding, FocusArea } from "./models.js";
+import type { FileRecord, FileVerdict, Finding, VerdictEnum } from "./models.js";
+import type { ClaimKind, HypothesisCounts, HypothesisSeverity, HypothesisState } from "./graph.js";
 
 // ---------------------------------------------------------------------------
 // Base — every SSE event carries these fields
@@ -49,9 +50,13 @@ export interface FileVerdictEvent extends BaseAuditEvent {
 
 export interface TriageCompleteEvent extends BaseAuditEvent {
   type: "triage_complete";
-  riskScore: number;
-  riskSummary: string;
-  focusAreas: FocusArea[];
+  hypothesisCount: number;
+  hypotheses: Array<{
+    hypId: string;
+    claim: ClaimKind;
+    severity: HypothesisSeverity;
+    description: string;
+  }>;
 }
 
 export interface TriageProgressEvent extends BaseAuditEvent {
@@ -92,11 +97,34 @@ export interface FindingDiscoveredEvent extends BaseAuditEvent {
   finding: Finding;
 }
 
+export interface HypothesisEmittedEvent extends BaseAuditEvent {
+  type: "hypothesis_emitted";
+  hypId: string;
+  claim: ClaimKind;
+  severity: HypothesisSeverity;
+  file: string;
+}
+
+export interface HypothesisResolvedEvent extends BaseAuditEvent {
+  type: "hypothesis_resolved";
+  hypId: string;
+  claim: ClaimKind;
+  severity: HypothesisSeverity;
+  /** Terminal state the orchestrator moved the hypothesis into. */
+  state: HypothesisState;
+  /** Worker that resolved it: "worker:experimenter" | "worker:code-reader" | "orchestrator". */
+  by: string;
+  reason: string;
+}
+
 export interface VerdictReachedEvent extends BaseAuditEvent {
   type: "verdict_reached";
-  verdict: "SAFE" | "DANGEROUS";
-  capabilities: string[];
-  proofCount: number;
+  verdict: VerdictEnum;
+  /** One-line explanation suitable for a report header. */
+  rationale: string;
+  counts: HypothesisCounts;
+  /** Number of CONFIRMED hypotheses (each backed by a RunArtifact). */
+  confirmedCount: number;
 }
 
 export interface InventoryMetaEvent extends BaseAuditEvent {
@@ -150,6 +178,8 @@ export type AuditEventUnion =
   | AgentReasoningEvent
   | AgentThinkingEvent
   | FindingDiscoveredEvent
+  | HypothesisEmittedEvent
+  | HypothesisResolvedEvent
   | VerdictReachedEvent
   | InventoryMetaEvent
   | VerifyStartedEvent
@@ -171,6 +201,8 @@ export const EVENT_TYPES = [
   "agent_reasoning",
   "agent_thinking",
   "finding_discovered",
+  "hypothesis_emitted",
+  "hypothesis_resolved",
   "verdict_reached",
   "inventory_meta",
   "verify_started",

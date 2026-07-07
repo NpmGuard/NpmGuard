@@ -2,20 +2,19 @@ import { z } from "zod";
 
 // Shared cross-process types — single source of truth lives in @npmguard/shared.
 // Re-exported so existing engine imports of `./models.js` continue to resolve.
+// Cross-process types the engine re-exposes so internal modules can import from
+// "./models.js". The retired v1 detection vocabulary (Finding, Proof, Confidence,
+// ProofKind, AttackPathway, TriageResult, FocusArea) is intentionally NOT
+// re-exported — the engine deals in Hypotheses now. Those still live in
+// @npmguard/shared for the SSE event types + frontend.
 export {
   // Enums
   VerdictEnum,
   CapabilityEnum,
-  Confidence,
-  ProofKind,
-  AttackPathway,
   Severity,
   // Models
-  FocusArea,
-  TriageResult,
   FileVerdict,
-  Finding,
-  Proof,
+  FileSummary,
   FileRecord,
   // Instrumentation
   NetworkCall,
@@ -29,68 +28,20 @@ export {
 
 import {
   VerdictEnum,
-  CapabilityEnum,
-  Confidence,
   Severity,
-  FocusArea,
-  TriageResult,
-  FileVerdict,
-  Finding,
-  Proof,
   FileRecord,
-  InstrumentationLog,
+  FileSummary,
+  Hypothesis,
+  HypothesisCounts,
 } from "@npmguard/shared";
 
 // ---------------------------------------------------------------------------
-// Investigation — engine-internal, not sent over the wire
-// ---------------------------------------------------------------------------
-
-export const InvestigationInput = z.object({
-  packagePath: z.string(),
-  packageName: z.string().default(""),
-  version: z.string().default(""),
-  description: z.string().default(""),
-  flags: z.array(z.string()).default([]),
-  staticCaps: z.array(z.string()).default([]),
-  staticProofSummaries: z.array(z.string()).default([]),
-  // Populated before the agent runs by an early observation pass
-  // (require + lifecycle hooks under instrumentation). Lets the agent see
-  // runtime evidence (network, eval, fs, env) up front instead of grinding
-  // chunked-evalJs against obfuscated bundles to discover the same facts.
-  runtimeObservation: InstrumentationLog.nullable().default(null),
-});
-export type InvestigationInput = z.infer<typeof InvestigationInput>;
-
-export const InvestigationOutput = z.object({
-  findings: z.array(Finding).default([]),
-  summary: z.string().default(""),
-});
-export type InvestigationOutput = z.infer<typeof InvestigationOutput>;
-
-export const ToolCallRecord = z.object({
-  tool: z.string(),
-  args: z.record(z.unknown()),
-  resultPreview: z.string().default(""),
-  timestamp: z.string().default(() => new Date().toISOString()),
-  injectionDetected: z.boolean().default(false),
-});
-export type ToolCallRecord = z.infer<typeof ToolCallRecord>;
-
-/** Extended output from the agent runner — includes tool call trace for observability. */
-export const InvestigationAgentOutput = InvestigationOutput.extend({
-  toolCalls: z.array(ToolCallRecord).default([]),
-  agentText: z.string().default(""),
-});
-export type InvestigationAgentOutput = z.infer<typeof InvestigationAgentOutput>;
-
-// ---------------------------------------------------------------------------
-// Instrumentation — dynamic analysis observations, engine-internal
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Report — sent to consumers via /audit/:id/report, but only a subset of its
-// fields is referenced by the frontend (verdict, capabilities, proofs, findings).
-// The `trace` (PhaseLog) field is engine-internal detail.
+// Report — sent to consumers via /audit/:id/report. The hypothesis graph is
+// the single truth-producing artifact: the report is a snapshot of its nodes
+// (each a Hypothesis carrying its own state + evidence refs + resolution) plus
+// the derived 4-state verdict. There is no separate Finding/Proof model — a
+// finding IS a hypothesis with a state. The `trace` (PhaseLog) field is
+// engine-internal detail.
 // ---------------------------------------------------------------------------
 
 export const PhaseLog = z.object({
@@ -101,14 +52,34 @@ export const PhaseLog = z.object({
 });
 export type PhaseLog = z.infer<typeof PhaseLog>;
 
+/** A structural short-circuit — a finding so unambiguous it blocks without the
+ *  graph (e.g. a `curl | sh` install hook). The one non-dynamic blocker, by
+ *  design. */
+export const DealBreaker = z.object({
+  check: z.string(),
+  detail: z.string(),
+});
+export type DealBreaker = z.infer<typeof DealBreaker>;
+
 export const AuditReport = z.object({
+  /** Bumped from the implicit v1 shape; 4-state verdict + hypothesis graph. */
+  schemaVersion: z.literal(2).default(2),
+  /** The authoritative `deriveGraphVerdict` output — only DANGEROUS blocks. */
   verdict: VerdictEnum,
-  capabilities: z.array(CapabilityEnum).default([]),
-  proofs: z.array(Proof).default([]),
-  triage: TriageResult.nullable().default(null),
-  findings: z.array(Finding).default([]),
+  /** One-line explanation suitable for a report header. */
+  rationale: z.string().default(""),
+  /** Per-state tally of the resolved graph, for the coverage picture. */
+  counts: HypothesisCounts,
+  /** hypIds of CONFIRMED nodes — the ones justifying DANGEROUS. */
+  confirmedHypIds: z.array(z.string()).default([]),
+  /** The resolved graph nodes. Each carries claim, severity, state, evidence
+   *  refs, and resolution — this is the full finding surface. */
+  hypotheses: z.array(Hypothesis).default([]),
+  /** Per-file one-liners from triage, for the code-viewer. */
+  fileSummaries: z.array(FileSummary).default([]),
+  /** Set only on the structural short-circuit path. */
+  dealbreaker: DealBreaker.nullable().default(null),
   trace: z.array(PhaseLog).default([]),
-  runtimeEvidence: InstrumentationLog.nullable().default(null),
 });
 export type AuditReport = z.infer<typeof AuditReport>;
 
@@ -130,12 +101,6 @@ export const InventoryFlag = z.object({
   file: z.string().nullable().default(null),
 });
 export type InventoryFlag = z.infer<typeof InventoryFlag>;
-
-export const DealBreaker = z.object({
-  check: z.string(),
-  detail: z.string(),
-});
-export type DealBreaker = z.infer<typeof DealBreaker>;
 
 export const EntryPoints = z.object({
   install: z.array(z.string()),

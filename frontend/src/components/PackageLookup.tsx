@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { ReportView } from "./ReportView";
 import { trailFromTrace } from "../lib/report-helpers";
-import type { Finding, Proof, InstrumentationLog } from "../lib/types";
+import type { VerdictEnum, Hypothesis, HypothesisCounts } from "../lib/types";
 
 function navigate(href: string) {
   history.pushState(null, "", href);
@@ -12,17 +12,16 @@ interface ReportData {
   packageName: string;
   version: string;
   report: {
-    verdict: "SAFE" | "DANGEROUS";
-    capabilities: string[];
-    findings: Finding[];
-    proofs: Proof[];
+    verdict: VerdictEnum;
+    rationale?: string;
+    counts?: HypothesisCounts | null;
+    hypotheses?: Hypothesis[];
     trace?: Array<{
       phase: string;
       durationMs: number;
       input?: Record<string, unknown>;
       output?: Record<string, unknown>;
     }>;
-    runtimeEvidence?: InstrumentationLog | null;
   };
 }
 
@@ -113,11 +112,10 @@ export function PackageLookup({ packageName }: { packageName: string }) {
       packageName={packageName}
       version={version}
       verdict={report.verdict}
-      capabilities={report.capabilities}
-      findings={report.findings}
-      proofs={report.proofs}
+      rationale={report.rationale ?? null}
+      counts={report.counts ?? null}
+      hypotheses={report.hypotheses ?? []}
       trail={trail}
-      runtimeEvidence={report.runtimeEvidence ?? null}
     />
   );
 }

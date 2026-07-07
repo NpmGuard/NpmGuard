@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuditStore } from "../stores/auditStore";
+import { verdictDisplay } from "../lib/types";
 import { PhaseProgress } from "./PhaseProgress";
 
 const NAV_LINKS = [
@@ -27,11 +28,8 @@ export function Header() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const statusColor = verdict
-    ? verdict === "DANGEROUS"
-      ? "var(--danger)"
-      : "var(--safe)"
-    : "var(--investigating)";
+  // 4-state: SAFE→safe, DANGEROUS→danger, SUSPECT/UNKNOWN→warning; investigating while running
+  const statusColor = verdict ? verdictDisplay(verdict).color : "var(--investigating)";
 
   const goHome = () => {
     reset();

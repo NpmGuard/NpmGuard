@@ -18,9 +18,12 @@ export interface StartAuditResponse {
 export interface PackageReport {
   packageName: string;
   version: string;
+  // 4-state graph verdict: SAFE | SUSPECT | DANGEROUS | UNKNOWN. Only DANGEROUS blocks.
   verdict: string;
-  score?: number;
-  findings?: unknown[];
+  rationale?: string;
+  counts?: Record<string, number>;
+  hypotheses?: unknown[];
+  confirmedHypIds?: string[];
   [key: string]: unknown;
 }
 

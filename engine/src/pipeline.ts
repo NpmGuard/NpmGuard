@@ -1,21 +1,19 @@
 import { SOURCE_FILE_TYPES } from "./config.js";
-import { Finding, Proof, type AuditReport, type FileVerdict, type PhaseLog } from "./models.js";
-import type { Hypothesis, HypothesisSeverity } from "@npmguard/shared";
+import type { AuditReport, DealBreaker, FileVerdict, PhaseLog } from "./models.js";
+import type { FileSummary, Hypothesis, HypothesisSeverity } from "@npmguard/shared";
 import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
 import { extractIntent } from "./phases/intent-extraction.js";
-import { runTriage, type FileSummary } from "./phases/triage.js";
+import { runTriage } from "./phases/triage.js";
 import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
-import { deriveGraphVerdict } from "./orchestrator/verdict.js";
-import { correlateAfterInvestigation, correlateAfterVerify } from "./orchestrator/correlate.js";
-import { runExperiment } from "./orchestrator/experimenter.js";
-import { investigate } from "./phases/investigate.js";
-import { generateTests } from "./phases/test-gen.js";
-import { verifyProofs } from "./phases/verify.js";
-import { startAuditLog, type AuditLogger } from "./audit-log.js";
+import { deriveGraphVerdict, type GraphVerdictReport } from "./orchestrator/verdict.js";
+import { runOrchestrator } from "./orchestrator/orchestrator.js";
+import type { HypothesisGraph } from "./graph/hypothesis-graph.js";
+import { startAuditLog } from "./audit-log.js";
 import { ArtifactStore } from "./evidence/artifact-store.js";
 import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
+import { withTimeout } from "./util.js";
 
 // ---------------------------------------------------------------------------
 // Legacy file_verdict SSE adapter (kept for frontend code-viewer compat)
@@ -28,10 +26,19 @@ const SEVERITY_TO_SCORE: Record<HypothesisSeverity, number> = {
   critical: 10,
 };
 
+const EMPTY_COUNTS: GraphVerdictReport["counts"] = {
+  total: 0,
+  open: 0,
+  inProgress: 0,
+  confirmed: 0,
+  refuted: 0,
+  inconclusive: 0,
+  deferred: 0,
+};
+
 /**
- * Reconstruct per-file FileVerdict records from the new triage output so
- * the existing `file_verdict` SSE event and frontend code-viewer continue
- * to work. Phase B will replace the SSE vocabulary with hypothesis events.
+ * Reconstruct per-file FileVerdict records from the triage output so the
+ * existing `file_verdict` SSE event and frontend code-viewer continue to work.
  */
 function emitLegacyFileVerdicts(
   fileSummaries: FileSummary[],
@@ -72,14 +79,6 @@ function emitLegacyFileVerdicts(
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
 async function timedPhase<T>(
   name: string,
   fn: () => Promise<T>,
@@ -108,6 +107,36 @@ async function timedPhase<T>(
   console.log(`${"=".repeat(60)}\n`);
   emit?.("phase_completed", { phase: name, durationMs });
   return { result, log };
+}
+
+/** Assemble the shipped report from a derived graph verdict. */
+function buildReport(
+  graphVerdict: GraphVerdictReport,
+  graph: HypothesisGraph,
+  fileSummaries: FileSummary[],
+  trace: PhaseLog[],
+  dealbreaker: DealBreaker | null = null,
+): AuditReport {
+  return {
+    schemaVersion: 2,
+    verdict: graphVerdict.verdict,
+    rationale: graphVerdict.rationale,
+    counts: graphVerdict.counts,
+    confirmedHypIds: graphVerdict.confirmedHypIds,
+    hypotheses: graph.all(),
+    fileSummaries,
+    dealbreaker,
+    trace,
+  };
+}
+
+function emitVerdict(emit: EmitFn | undefined, report: AuditReport): void {
+  emit?.("verdict_reached", {
+    verdict: report.verdict,
+    rationale: report.rationale,
+    counts: report.counts,
+    confirmedCount: report.counts.confirmed,
+  });
 }
 
 export interface AuditResult {
@@ -192,39 +221,27 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
         `count=${countScale.toFixed(2)}× size=${sizeScale.toFixed(2)}× → scale ${timeoutScale.toFixed(2)}×`,
     );
 
-    // Dealbreaker -> immediate DANGEROUS
+    // Dealbreaker -> immediate DANGEROUS. Structural short-circuit: an
+    // unambiguous install-time threat blocks without the hypothesis graph.
+    // This is the one non-dynamic blocker, by design.
     if (inventory.dealbreaker) {
-      // Mirror the structural proof 1:1 as a Finding so frontend finding-list
-      // components (which iterate `findings`, not `proofs`) render the threat
-      // instead of an empty "appears safe to install" panel under a DANGEROUS
-      // header. Use a broad structural capability — a dealbreaker can originate
-      // from any script (shell-pipe, missing install file, etc.), so a specific
-      // label like LIFECYCLE_HOOK would over-claim.
-      const finding = Finding.parse({
-        capability: "OBFUSCATION",
-        confidence: "CONFIRMED",
-        fileLine: "",
-        problem: inventory.dealbreaker.detail,
-        evidence: `Dealbreaker: ${inventory.dealbreaker.check}`,
-      });
-      const report: AuditReport = {
-        verdict: "DANGEROUS",
-        capabilities: [],
-        proofs: [Proof.parse({
-          confidence: "CONFIRMED",
-          fileLine: "",
-          problem: inventory.dealbreaker.detail,
-          evidence: `Dealbreaker: ${inventory.dealbreaker.check}`,
-          kind: "STRUCTURAL",
-          reproducible: true,
-        })],
-        triage: null,
-        findings: [finding],
-        trace,
-        runtimeEvidence: null,
+      const dealbreaker: DealBreaker = {
+        check: inventory.dealbreaker.check,
+        detail: inventory.dealbreaker.detail,
       };
-      emit?.("finding_discovered", { finding });
-      emit?.("verdict_reached", { verdict: report.verdict, capabilities: [], proofCount: report.proofs.length });
+      const report: AuditReport = {
+        schemaVersion: 2,
+        verdict: "DANGEROUS",
+        rationale: `Dealbreaker: ${dealbreaker.check} — ${dealbreaker.detail}`,
+        counts: EMPTY_COUNTS,
+        confirmedHypIds: [],
+        hypotheses: [],
+        fileSummaries: [],
+        dealbreaker,
+        trace,
+      };
+      log.writeLog("report.json", report);
+      emitVerdict(emit, report);
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
     }
 
@@ -295,7 +312,6 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
     // Phase 1c: Build hypothesis graph from triage output. Jaro-Winkler dedup
     // folds near-duplicate hypotheses emitted across files into a single node.
-    // No workers yet — every node stays OPEN until Phase B orchestration.
     const { graph, mergedCount, addedCount } = buildGraphFromHypotheses(
       auditId ?? "audit_unknown",
       triageOutput.hypotheses,
@@ -310,221 +326,50 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       mergedCount,
     });
 
+    // No hypotheses → nothing to suspect → SAFE (empty graph).
     if (triageOutput.hypotheses.length === 0) {
-      console.log(`[pipeline] no hypotheses from triage — returning SAFE`);
-      const report: AuditReport = {
-        verdict: "SAFE",
-        capabilities: [],
-        proofs: [],
-        triage: null,
-        findings: [],
-        trace,
-        runtimeEvidence: null,
-      };
-      emit?.("verdict_reached", { verdict: "SAFE", capabilities: [], proofCount: 0 });
+      console.log(`[pipeline] no hypotheses from triage — SAFE`);
+      const graphVerdict = deriveGraphVerdict(graph);
+      const report = buildReport(graphVerdict, graph, triageOutput.fileSummaries, trace);
+      log.writeLog("report.json", report);
+      emitVerdict(emit, report);
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
     }
 
-    // Phase 1c: Investigation — agentic LLM with read tools, given the
-    // triage hypotheses as a starting list of suspicious sites to verify.
-    const { result: investigationResult, log: investigateLog } = await timedPhase(
-      "investigation",
-      () => investigate(resolved.path, inventory, triageOutput.hypotheses, triageOutput.fileSummaries, emit, log),
-      5 * 60_000 * timeoutScale,
-      {
-        hypothesisCount: triageOutput.hypotheses.length,
-        packagePath: resolved.path,
-      },
-      (inv) => ({
-        capabilityCount: inv.capabilities.length,
-        capabilities: inv.capabilities,
-        findingCount: inv.findings.length,
-        findings: inv.findings.map((f) => ({
-          capability: f.capability,
-          confidence: f.confidence,
-          fileLine: f.fileLine,
-          problem: f.problem,
-        })),
-        proofCount: inv.proofs.length,
-        toolCalls: inv.toolCalls.map((tc) => ({
-          tool: tc.tool,
-          args: tc.args,
-          resultPreview: tc.resultPreview,
-          timestamp: tc.timestamp,
-          injectionDetected: tc.injectionDetected,
-        })),
-        agentText: inv.agentText.slice(0, 2000),
-      }),
+    // Phase 2: Orchestrator dispatch loop — resolve every OPEN hypothesis to a
+    // terminal state via the experimenter (dynamic) or code-reader (static)
+    // workers. This is what lets the graph produce its own verdict.
+    emit?.("phase_started", { phase: "orchestrator" });
+    const orchStart = Date.now();
+    const orchSummary = await runOrchestrator(graph, {
+      packagePath: resolved.path,
+      entryPoints: inventory.entryPoints,
+      artifactStore,
+      log,
       emit,
-    );
-    trace.push(investigateLog);
-    log.writeLog("investigation.json", investigationResult);
-
-    // Correlate investigation findings → hypothesis graph transitions
-    const invCorrelation = correlateAfterInvestigation(graph, investigationResult);
-    log.writeLog("correlation-investigate.json", invCorrelation);
-    console.log(
-      `[pipeline] investigation→graph: ${invCorrelation.matched.length} matched, ${invCorrelation.unmatched.length} unmatched findings`,
-    );
-
-    // Phase 1d: Experimenter — run dynamic observation for IN_PROGRESS hypotheses.
-    // This is the first use of Phase A's runUnderObservation in the live pipeline.
-    const inProgressHyps = graph.filterByState("IN_PROGRESS");
-    if (inProgressHyps.length > 0) {
-      const mainEntry = inventory.entryPoints.runtime[0] ?? "index.js";
-      console.log(
-        `[pipeline] experimenter: running dynamic observation for ${inProgressHyps.length} IN_PROGRESS hypothes${inProgressHyps.length === 1 ? "is" : "es"}`,
-      );
-      emit?.("phase_started", { phase: "experimenter" });
-      const expStart = Date.now();
-      // Per-hypothesis cap (90s) prevents one stuck experiment from burning
-      // the whole budget; global cap (10min × scale) bounds the loop overall.
-      const PER_HYP_MS = 90_000;
-      const GLOBAL_BUDGET_MS = 10 * 60_000 * timeoutScale;
-
-      for (const h of inProgressHyps) {
-        if (Date.now() - expStart > GLOBAL_BUDGET_MS) {
-          console.warn(
-            `[experimenter] global budget ${GLOBAL_BUDGET_MS}ms exceeded — skipping remaining ${inProgressHyps.length - inProgressHyps.indexOf(h)} hypothes${inProgressHyps.length - inProgressHyps.indexOf(h) === 1 ? "is" : "es"}`,
-          );
-          break;
-        }
-        try {
-          const result = await withTimeout(
-            runExperiment(h, resolved.path, mainEntry, inventory.entryPoints.install),
-            PER_HYP_MS,
-            `experiment:${h.hypId}`,
-          );
-          if (result) {
-            const { contentHash: artifactContentHash, ...artifactWithoutHash } = result.artifact;
-            const artifactHash = artifactStore.writeArtifact(artifactWithoutHash);
-            if (artifactHash !== artifactContentHash) {
-              console.warn(
-                `[experimenter] artifact hash mismatch for ${result.artifact.runId}: ` +
-                  `artifact=${artifactContentHash} store=${artifactHash}`,
-              );
-            }
-
-            if (result.confirmed) {
-              graph.addEvidence(h.hypId, [result.evidenceRef]);
-              graph.transition(h.hypId, {
-                to: "CONFIRMED",
-                by: "worker:experimenter",
-                evidenceRefs: [result.evidenceRef],
-              });
-              emit?.("experiment_confirmed", { hypId: h.hypId, reason: result.reason });
-            }
-            log.writeLog(`experiment-${h.hypId}.json`, {
-              hypId: h.hypId,
-              confirmed: result.confirmed,
-              reason: result.reason,
-              runId: result.artifact.runId,
-              artifactHash,
-              evidenceRef: result.evidenceRef,
-              wallMs: result.artifact.wallMs,
-              eventCount: result.artifact.events.length,
-              eventSummary: result.artifact.eventSummary,
-              error: result.artifact.error,
-            });
-          }
-        } catch (err) {
-          console.error(
-            `[experimenter] ${h.hypId} failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-
-      const expDuration = Date.now() - expStart;
-      console.log(`[pipeline] experimenter completed in ${expDuration}ms`);
-      emit?.("phase_completed", { phase: "experimenter", durationMs: expDuration });
-      trace.push({ phase: "experimenter", durationMs: expDuration, input: { hypotheses: inProgressHyps.length }, output: {} });
-    }
-
-    // Phase 1e: Test generation
-    const { result: proofs, log: testGenLog } = await timedPhase(
-      "test-gen",
-      () => generateTests(investigationResult, resolved.path),
-      5 * 60_000 * timeoutScale,
-      { proofCount: investigationResult.proofs.length, findingCount: investigationResult.findings.length },
-      (p) => ({
-        proofCount: p.length,
-        withTests: p.filter((x) => x.testFile).length,
-      }),
-      emit,
-    );
-    trace.push(testGenLog);
-
-    // Phase 2: Proof verification (with retry loop — up to 3 attempts per failed test)
-    const { result: verifiedProofs, log: verifyLog } = await timedPhase(
-      "verify",
-      () => verifyProofs(proofs, resolved.path, emit, investigationResult.findings),
-      15 * 60_000 * timeoutScale,
-      { proofCount: proofs.length, withTests: proofs.filter((x) => x.testFile).length },
-      (p) => ({
-        verifiedCount: p.length,
-        confirmed: p.filter((x) => x.kind === "TEST_CONFIRMED").length,
-        unconfirmed: p.filter((x) => x.kind === "TEST_UNCONFIRMED").length,
-      }),
-      emit,
-    );
-    trace.push(verifyLog);
-
-    // Correlate verified proofs → hypothesis graph terminal transitions
-    const verifyCorrelation = correlateAfterVerify(
-      graph,
-      verifiedProofs,
-      investigationResult.findings,
-    );
-    log.writeLog("correlation-verify.json", verifyCorrelation);
-    console.log(
-      `[pipeline] verify→graph: ${verifyCorrelation.confirmed.length} confirmed, ${verifyCorrelation.inconclusive.length} inconclusive`,
-    );
-
-    // Persist final graph state
+      globalBudgetMs: 10 * 60_000 * timeoutScale,
+    });
+    const orchDuration = Date.now() - orchStart;
+    emit?.("phase_completed", { phase: "orchestrator", durationMs: orchDuration });
+    trace.push({
+      phase: "orchestrator",
+      durationMs: orchDuration,
+      input: { hypotheses: graph.size },
+      output: { ...orchSummary },
+    });
     log.writeLog("graph-final.json", graph.serialize());
 
-    // Graph-derived verdict is authoritative. Until AuditReport/CLI/frontend
-    // grow the richer 4-state vocabulary, keep the public 2-state mapping
-    // conservative: only graph SAFE with no confirmed proof maps to SAFE.
-    // SUSPECT/UNKNOWN become DANGEROUS so the CLI warns instead of silently
-    // installing an under-investigated package.
-    //
-    // Fallback: if the graph didn't reach DANGEROUS (typical when triage
-    // produced no hypothesis matching the actual finding, so all findings
-    // ended unmatched in correlate.ts), trust a TEST_CONFIRMED proof as
-    // sufficient evidence. This prevents the v2 graph from reporting SAFE
-    // on packages where the sandbox-verified test reproduced the malicious
-    // behavior. The proper fix (correlator creating new hypotheses for
-    // unmatched findings) lives in a separate PR.
+    // Verdict is the pure function of the resolved graph — no collapse, no
+    // fallback. Only a CONFIRMED hypothesis (dynamic RunArtifact) → DANGEROUS.
     const graphVerdict = deriveGraphVerdict(graph);
-    const hasConfirmedProof = verifiedProofs.some((p) => p.kind === "TEST_CONFIRMED");
-    const verdict =
-      graphVerdict.verdict === "SAFE" && !hasConfirmedProof
-        ? "SAFE"
-        : "DANGEROUS";
-    console.log(
-      `[pipeline] graph verdict: ${graphVerdict.verdict} → report verdict: ${verdict} — ${graphVerdict.rationale}`,
-    );
+    console.log(`[pipeline] verdict: ${graphVerdict.verdict} — ${graphVerdict.rationale}`);
     log.writeLog("graph-verdict.json", graphVerdict);
-    emit?.("graph_verdict", { ...graphVerdict });
 
-    const report: AuditReport = {
-      verdict,
-      capabilities: investigationResult.capabilities,
-      proofs: verifiedProofs,
-      triage: null,
-      findings: investigationResult.findings,
-      trace,
-      runtimeEvidence: null,
-    };
+    const report = buildReport(graphVerdict, graph, triageOutput.fileSummaries, trace);
     log.writeLog("report.json", report);
     console.log(`[pipeline] full logs saved to ${log.runDir}`);
 
-    emit?.("verdict_reached", {
-      verdict: report.verdict,
-      capabilities: report.capabilities,
-      proofCount: report.proofs.length,
-    });
+    emitVerdict(emit, report);
 
     return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
   } catch (err) {
