@@ -222,6 +222,10 @@ export type SingleAuditResult = z.infer<typeof SingleAuditResult>;
 
 export const MutationRunResult = z.object({
   fixtureName: z.string(),
+  /** Manifest entry used for this fixture. Persisted so consumers can
+   *  classify SAFE controls without re-reading the manifest that produced
+   *  the run. */
+  entry: ManifestEntry.optional(),
   /** N audits — typically 3 for variance characterization. */
   runs: z.array(SingleAuditResult),
 });

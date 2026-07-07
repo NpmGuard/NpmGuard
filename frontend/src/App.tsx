@@ -7,11 +7,13 @@ import { AuditView } from "./components/AuditView";
 import { PackageSearch } from "./components/PackageSearch";
 import { PackageLookup } from "./components/PackageLookup";
 import { Benchmark } from "./components/Benchmark";
+import { CliInstall } from "./components/CliInstall";
+import { WebWalletCheckout } from "./components/WebWalletCheckout";
 import { Dashboard } from "./pages/Dashboard";
 import { RepoDetail } from "./pages/RepoDetail";
 
 const AUDIT_PATH_RE = /^\/audit\/([0-9a-f-]{36})$/;
-const KEEP_STATE_RE = /^\/(audit|packages|package|benchmark|dashboard|repo)(\/|$)/;
+const KEEP_STATE_RE = /^\/(audit|packages|package|benchmark|cli|pay|dashboard|repo)(\/|$)/;
 
 /** Landing vs live audit — same decision the old regex router made. */
 function HomeOrAudit() {
@@ -37,11 +39,23 @@ function AuditRoute() {
   return <HomeOrAudit />;
 }
 
-/** /package/* — splat route so scoped names (@scope/pkg) keep their slash. */
+/** /pay — browser-wallet checkout until an audit is live, then the audit view
+ *  (the pay flow transitions into an audit, mirroring the pre-router logic). */
+function PayRoute() {
+  const isRunning = useAuditStore((s) => s.isRunning);
+  const verdict = useAuditStore((s) => s.verdict);
+  const hasStarted = useAuditStore((s) => s.hasStarted);
+  const hasAudit = hasStarted || isRunning || !!verdict;
+  return hasAudit ? <AuditView /> : <WebWalletCheckout />;
+}
+
+/** /package/* — splat route so scoped names (@scope/pkg) keep their slash;
+ *  ?version= narrows to a specific report. */
 function PackageLookupRoute() {
   const params = useParams();
   const pkgName = params["*"] ?? "";
-  return <PackageLookup packageName={decodeURIComponent(pkgName)} />;
+  const version = new URLSearchParams(window.location.search).get("version") ?? undefined;
+  return <PackageLookup packageName={decodeURIComponent(pkgName)} version={version} />;
 }
 
 function App() {
@@ -70,13 +84,16 @@ function App() {
   }, [auditId, navigate]);
 
   // When an audit reaches a verdict, canonicalize the URL from the ephemeral
-  // /audit/<id> to the durable /package/<name> route. Deliberately raw
-  // history.replaceState — the router doesn't observe it, so the live
-  // AuditView stays mounted (same trick as the pre-router App, where
-  // currentPath state was intentionally not updated).
+  // /audit/<id> or /pay route to the durable /package/<name> route, preserving
+  // ?version=. Deliberately raw history.replaceState — the router doesn't
+  // observe it, so the live AuditView stays mounted (same trick as the
+  // pre-router App, where currentPath state was intentionally not updated).
   useEffect(() => {
-    if (verdict && packageName && window.location.pathname.startsWith("/audit/")) {
-      history.replaceState(null, "", `/package/${encodeURIComponent(packageName)}`);
+    const path = window.location.pathname;
+    if (verdict && packageName && (path.startsWith("/audit/") || path.startsWith("/pay"))) {
+      const version = new URLSearchParams(window.location.search).get("version");
+      const href = `/package/${encodeURIComponent(packageName)}${version ? `?version=${encodeURIComponent(version)}` : ""}`;
+      history.replaceState(null, "", href);
     }
   }, [verdict, packageName]);
 
@@ -105,6 +122,8 @@ function App() {
           <Route path="/packages" element={<PackageSearch />} />
           <Route path="/package/*" element={<PackageLookupRoute />} />
           <Route path="/benchmark" element={<Benchmark />} />
+          <Route path="/cli" element={<CliInstall />} />
+          <Route path="/pay" element={<PayRoute />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/repo/:owner/:name" element={<RepoDetail />} />
           <Route path="/audit/:auditId" element={<AuditRoute />} />

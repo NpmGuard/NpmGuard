@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 
 export function parsePackageArg(pkg: string): { name: string; version?: string } {
   if (pkg.startsWith("@")) {
@@ -55,4 +56,28 @@ export function detectPackageManager(cwd: string = process.cwd()): "npm" | "pnpm
   if (existsSync(join(cwd, "pnpm-lock.yaml"))) return "pnpm";
   if (existsSync(join(cwd, "yarn.lock"))) return "yarn";
   return "npm";
+}
+
+export function openExternalUrl(url: string): boolean {
+  try {
+    const platform = process.platform;
+    const command = platform === "darwin"
+      ? "open"
+      : platform === "win32"
+        ? "cmd"
+        : "xdg-open";
+    const args = platform === "win32"
+      ? ["/c", "start", "", url]
+      : [url];
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.on("error", () => {});
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
 }

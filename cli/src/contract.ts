@@ -3,7 +3,7 @@
 // Source: contracts/src/NpmGuardAuditRequest.sol
 
 export const AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA =
-  "0xBF562626e4Afb883423Ec719e0270DB232bcB9eD" as `0x${string}`;
+  "0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7" as `0x${string}`;
 
 // Base mainnet — not deployed yet
 export const AUDIT_REQUEST_ADDRESS_BASE = "0x" as `0x${string}`;

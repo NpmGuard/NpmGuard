@@ -38,9 +38,17 @@ interface CliArgs {
   limit: number | null;
   out: string;
   apiKey: string | null;
+  concurrency: number;
   /** Per-audit timeout in ms. Verify phase can take 5+ minutes, so we
    *  allow generous headroom. */
   timeoutMs: number;
+  /**
+   * CRE mode is fire-and-forget: POST /audit returns 202 and the runner polls
+   * for a persisted report. If the engine fails before writing a report, the
+   * runner cannot observe that failure through the public API and would
+   * otherwise keep queuing artificial 30-minute "timeouts".
+   */
+  maxConsecutiveTimeouts: number;
 }
 
 function parseCli(): CliArgs {
@@ -52,17 +60,22 @@ function parseCli(): CliArgs {
       limit: { type: "string" },
       out: { type: "string" },
       "api-key": { type: "string" },
+      concurrency: { type: "string", default: "1" },
       timeout: { type: "string", default: "1800000" }, // 30 min — with bounded triage concurrency (8) and the new prompt, no fixture should take >25min. v3 hit 90min only because rate-limited triage failures crashed the queue silently and polling waited the full deadline.
+      "max-consecutive-timeouts": { type: "string", default: "3" },
     },
     strict: true,
   });
+  const concurrency = parseInt(values.concurrency as string, 10);
   return {
     api: values.api as string,
     runs: parseInt(values.runs as string, 10),
     limit: values.limit ? parseInt(values.limit as string, 10) : null,
     out: (values.out as string) || defaultOutPath(),
-    apiKey: (values["api-key"] as string) || null,
+    apiKey: (values["api-key"] as string) || process.env.NPMGUARD_CRE_API_KEY || null,
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 1,
     timeoutMs: parseInt(values.timeout as string, 10),
+    maxConsecutiveTimeouts: parseInt(values["max-consecutive-timeouts"] as string, 10),
   };
 }
 
@@ -135,11 +148,25 @@ async function checkEngineHealth(api: string): Promise<void> {
 
 const REPORTS_DIR = join(REPO_ROOT, "data", "reports");
 
-function deleteExistingReport(fixtureName: string): void {
-  const dir = join(REPORTS_DIR, fixtureName);
-  if (!existsSync(dir)) return;
+function isLocalFixture(entry: ManifestEntry): boolean {
+  return entry.fixtureName.startsWith("test-pkg-") || entry.fixtureName.includes("-bench-");
+}
+
+function auditPackageName(entry: ManifestEntry): string {
+  return isLocalFixture(entry) ? entry.fixtureName : entry.pkg.name;
+}
+
+function auditPackageVersion(entry: ManifestEntry): string | null {
+  return isLocalFixture(entry) ? null : entry.pkg.version;
+}
+
+function deleteExistingReport(entry: ManifestEntry): void {
+  const packageName = auditPackageName(entry);
+  const version = auditPackageVersion(entry);
+  const target = version ? join(REPORTS_DIR, packageName, `${version}.json`) : join(REPORTS_DIR, packageName);
+  if (!existsSync(target)) return;
   try {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(target, { recursive: true, force: true });
   } catch {
     /* best-effort cleanup */
   }
@@ -149,12 +176,15 @@ const POLL_INTERVAL_MS = 10_000;
 
 async function fetchReportOnce(
   args: CliArgs,
-  fixtureName: string,
+  entry: ManifestEntry,
 ): Promise<AuditReportShape | null> {
+  const packageName = auditPackageName(entry);
+  const version = auditPackageVersion(entry);
+  const versionQuery = version ? `?version=${encodeURIComponent(version)}` : "";
   let resp: Response;
   try {
     resp = await fetch(
-      `${args.api}/package/${encodeURIComponent(fixtureName)}/report`,
+      `${args.api}/package/${encodeURIComponent(packageName)}/report${versionQuery}`,
       { signal: AbortSignal.timeout(15_000) },
     );
   } catch {
@@ -174,10 +204,18 @@ async function fetchReportOnce(
  *  the report (verdict in queue logs) but the HTTP fetch raced or 404'd
  *  for some reason — the file is still authoritative.
  *  Only safe when the bench runs on the same host as the engine. */
-function loadReportFromDisk(fixtureName: string): AuditReportShape | null {
-  const dir = join(REPORTS_DIR, fixtureName);
+function loadReportFromDisk(entry: ManifestEntry): AuditReportShape | null {
+  const packageName = auditPackageName(entry);
+  const version = auditPackageVersion(entry);
+  const dir = join(REPORTS_DIR, packageName);
   if (!existsSync(dir)) return null;
   try {
+    if (version) {
+      const versionedPath = join(dir, `${version}.json`);
+      if (existsSync(versionedPath)) {
+        return JSON.parse(readFileSync(versionedPath, "utf-8")) as AuditReportShape;
+      }
+    }
     const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
     if (files.length === 0) return null;
     const sorted = files
@@ -197,7 +235,7 @@ async function pollForReport(
   const deadline = start + args.timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    const report = await fetchReportOnce(args, entry.fixtureName);
+    const report = await fetchReportOnce(args, entry);
     if (report) {
       return reportToResult(report, Date.now() - start);
     }
@@ -206,7 +244,7 @@ async function pollForReport(
   // saved the report but HTTP polling missed it (rare race, but accounts
   // for ~20 of the 26 v3 timeouts where engine logs show completion but
   // the report endpoint never returned 200 to the runner).
-  const diskReport = loadReportFromDisk(entry.fixtureName);
+  const diskReport = loadReportFromDisk(entry);
   if (diskReport) {
     console.log(`[runner] disk-fallback recovered report for ${entry.fixtureName}`);
     return reportToResult(diskReport, Date.now() - start);
@@ -221,6 +259,10 @@ async function pollForReport(
     auditId: null,
     error: `polling timed out after ${args.timeoutMs}ms`,
   };
+}
+
+function isPollingTimeout(result: SingleAuditResult): boolean {
+  return typeof result.error === "string" && result.error.startsWith("polling timed out after ");
 }
 
 function reportToResult(
@@ -268,10 +310,11 @@ async function runSingleAudit(
   // report appears. To distinguish "fresh" from "previous-run report",
   // we delete the existing report file before submitting.
   if (args.apiKey) {
-    deleteExistingReport(entry.fixtureName);
+    deleteExistingReport(entry);
   }
 
   const start = Date.now();
+  const version = auditPackageVersion(entry);
   let resp: Response;
   try {
     resp = await fetch(`${args.api}/audit`, {
@@ -280,7 +323,10 @@ async function runSingleAudit(
         "Content-Type": "application/json",
         ...(args.apiKey ? { "X-API-Key": args.apiKey } : {}),
       },
-      body: JSON.stringify({ packageName: entry.fixtureName }),
+      body: JSON.stringify({
+        packageName: auditPackageName(entry),
+        ...(version ? { version } : {}),
+      }),
       signal: AbortSignal.timeout(args.timeoutMs),
     });
   } catch (err) {
@@ -369,7 +415,9 @@ function archiveAudit(
 
 async function main(): Promise<void> {
   const args = parseCli();
-  console.log(`[runner] config: api=${args.api} runs=${args.runs} limit=${args.limit ?? "all"} out=${args.out}`);
+  console.log(
+    `[runner] config: api=${args.api} runs=${args.runs} limit=${args.limit ?? "all"} concurrency=${args.concurrency} out=${args.out}`,
+  );
 
   await checkEngineHealth(args.api);
   console.log(`[runner] engine reachable`);
@@ -378,11 +426,20 @@ async function main(): Promise<void> {
   const engineSha = readEngineSha();
   const version = await fetchEngineVersion(args.api);
   console.log(`[runner] engine sha=${engineSha.slice(0, 12)} model=${version.modelId} dataset=${manifest.datasetVersion}`);
+  if (args.apiKey && args.maxConsecutiveTimeouts > 0) {
+    console.log(
+      `[runner] timeout circuit breaker: stop after ${args.maxConsecutiveTimeouts} consecutive polling timeouts`,
+    );
+  }
+  if (args.apiKey && args.concurrency > 1) {
+    console.log(
+      "[runner] CRE queue note: the public engine may still serialize audits; increase concurrency only after a canary.",
+    );
+  }
 
   const entries = args.limit ? manifest.entries.slice(0, args.limit) : manifest.entries;
   console.log(`[runner] processing ${entries.length} fixtures × ${args.runs} runs = ${entries.length * args.runs} audits`);
 
-  const results: MutationRunResult[] = [];
   const startedAt = new Date().toISOString();
   const run: BenchmarkRun = {
     datasetVersion: manifest.datasetVersion,
@@ -392,35 +449,81 @@ async function main(): Promise<void> {
     runsPerMutation: args.runs,
     startedAt,
     completedAt: startedAt,
-    results,
+    results: [],
   };
 
   let auditCount = 0;
+  let consecutivePollingTimeouts = 0;
+  let stopRequested = false;
+  let nextEntryIndex = 0;
   const total = entries.length * args.runs;
+  const resultsByFixture = new Map<string, SingleAuditResult[]>();
 
-  for (const entry of entries) {
+  function refreshRunResults(): void {
+    run.results = entries.flatMap((entry): MutationRunResult[] => {
+      const runs = resultsByFixture.get(entry.fixtureName) ?? [];
+      return runs.length > 0 ? [{ fixtureName: entry.fixtureName, entry, runs }] : [];
+    });
+    run.completedAt = new Date().toISOString();
+    persistRun(args.out, run);
+  }
+
+  async function processEntry(entry: ManifestEntry): Promise<void> {
     const runs: SingleAuditResult[] = [];
+    resultsByFixture.set(entry.fixtureName, runs);
     for (let i = 0; i < args.runs; i++) {
       auditCount++;
+      const currentAudit = auditCount;
       const t0 = Date.now();
       console.log(
-        `[runner] [${auditCount}/${total}] ${entry.fixtureName} run ${i + 1}/${args.runs} → starting`,
+        `[runner] [${currentAudit}/${total}] ${entry.fixtureName} run ${i + 1}/${args.runs} → starting`,
       );
       const result = await runSingleAudit(args, entry);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
       const tag = result.error
         ? `ERROR: ${result.error.slice(0, 80)}`
         : `${result.verdict} · caps=[${result.capabilities.join(",")}] proofs=[${result.proofKinds.join(",")}]`;
-      console.log(`[runner] [${auditCount}/${total}]   ${elapsed}s ${tag}`);
+      console.log(`[runner] [${currentAudit}/${total}]   ${elapsed}s ${tag}`);
+      if (isPollingTimeout(result)) {
+        consecutivePollingTimeouts++;
+      } else {
+        consecutivePollingTimeouts = 0;
+      }
       runs.push(result);
       archiveAudit(args.out, entry, i, result);
+      refreshRunResults();
+
+      if (
+        args.apiKey &&
+        args.maxConsecutiveTimeouts > 0 &&
+        consecutivePollingTimeouts >= args.maxConsecutiveTimeouts
+      ) {
+        console.error(
+          `[runner] stopping after ${consecutivePollingTimeouts} consecutive polling timeouts. ` +
+            `CRE /audit returned 202 but no report was persisted; continuing would create artificial timeout rows. ` +
+            `Partial results were saved to ${args.out}.`,
+        );
+        stopRequested = true;
+        process.exitCode = 2;
+        return;
+      }
     }
-    results.push({ fixtureName: entry.fixtureName, runs });
-    run.completedAt = new Date().toISOString();
-    persistRun(args.out, run);
   }
 
-  console.log(`[runner] done — ${results.length} fixtures, ${auditCount} audits → ${args.out}`);
+  async function worker(): Promise<void> {
+    while (!stopRequested && nextEntryIndex < entries.length) {
+      const entry = entries[nextEntryIndex++]!;
+      await processEntry(entry);
+    }
+  }
+
+  const workerCount = Math.min(args.concurrency, entries.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  refreshRunResults();
+
+  if (stopRequested) return;
+
+  console.log(`[runner] done — ${run.results.length} fixtures, ${auditCount} audits → ${args.out}`);
 }
 
 main().catch((err) => {

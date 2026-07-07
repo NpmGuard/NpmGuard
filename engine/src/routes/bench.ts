@@ -36,6 +36,16 @@ type DatadogRun = {
 
 type DatadogResult = {
   fixtureName?: string;
+  entry?: {
+    pkg?: {
+      name?: string;
+      version?: string;
+    };
+    category?: "datadog-compromised" | "datadog-malicious-intent" | "baseline";
+    expected?: {
+      verdict?: "SAFE" | "DANGEROUS";
+    };
+  };
   runs?: DatadogRun[];
 };
 
@@ -53,7 +63,8 @@ type BenchRow = {
   packageName: string;
   version: string | null;
   fixtureName: string | null;
-  category: "public" | "datadog-compromised" | "datadog-malicious-intent";
+  category: "public" | "datadog-compromised" | "datadog-malicious-intent" | "baseline";
+  expectedVerdict: "SAFE" | "DANGEROUS" | null;
   status: string;
   verdict: string | null;
   durationMs: number;
@@ -198,6 +209,7 @@ function summarizeAuditLatestPayload(
       version: row.latestVersion ?? row.version ?? null,
       fixtureName: null,
       category: "public" as const,
+      expectedVerdict: "SAFE" as const,
       status: row.status!,
       verdict: row.verdict ?? null,
       durationMs: typeof row.durationMs === "number" ? row.durationMs : 0,
@@ -236,9 +248,13 @@ function fixtureVersion(fixtureName: string): string | null {
   return fixtureName.slice(marker + 2) || null;
 }
 
-function datadogStatus(run: DatadogRun): string {
+function benchmarkStatus(run: DatadogRun, expectedVerdict: "SAFE" | "DANGEROUS"): string {
   if (run.error) {
     return /time(?:d)? out|timeout/i.test(run.error) ? "timeout" : "failed";
+  }
+  if (expectedVerdict === "SAFE") {
+    if (run.verdict === "SAFE") return "clean";
+    if (run.verdict === "DANGEROUS") return "false_positive";
   }
   if (run.verdict === "DANGEROUS") return "detected";
   if (run.verdict === "SAFE") return "missed";
@@ -258,13 +274,16 @@ function summarizeDatadogPayload(
     const runs = Array.isArray(item.runs) && item.runs.length > 0 ? item.runs : [{ error: "No run result" }];
     runs.forEach((run, index) => {
       const proofKinds = Array.isArray(run.proofKinds) ? run.proofKinds.filter((v): v is string => typeof v === "string") : [];
+      const category = item.entry?.category ?? fixtureCategory(item.fixtureName!);
+      const expectedVerdict = item.entry?.expected?.verdict ?? "DANGEROUS";
       rows.push({
         source: "datadog",
-        packageName: item.fixtureName!,
-        version: fixtureVersion(item.fixtureName!),
+        packageName: item.entry?.pkg?.name ?? item.fixtureName!,
+        version: item.entry?.pkg?.version ?? fixtureVersion(item.fixtureName!),
         fixtureName: item.fixtureName!,
-        category: fixtureCategory(item.fixtureName!),
-        status: datadogStatus(run),
+        category,
+        expectedVerdict,
+        status: benchmarkStatus(run, expectedVerdict),
         verdict: typeof run.verdict === "string" ? run.verdict : null,
         durationMs: typeof run.durationMs === "number" ? run.durationMs : 0,
         error: run.error ?? null,

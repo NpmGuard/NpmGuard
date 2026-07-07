@@ -64,6 +64,160 @@ const FileAnalysisResponse = z.object({
 });
 type FileAnalysisResponse = z.infer<typeof FileAnalysisResponse>;
 
+const SUMMARY_CRITICAL_PATTERNS = [
+  /\bcredential(?:s)?\s+(?:theft|stealer|harvesting|exfiltration)\b/i,
+  /\b(?:steals?|harvests?|exfiltrat(?:es|ed|ing|ion))\b.*\b(?:credentials?|secrets?|tokens?|keys?|env(?:ironment)?|npm|aws|ssh|kube|docker|metadata|imds)\b/i,
+  /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|cloud\s+metadata|imds)\b/i,
+  /\b(?:malware|trojan|supply\s+chain\s+attack)\b/i,
+];
+
+const SUMMARY_CREDENTIAL_PATTERNS = [
+  /\bcredential(?:s)?\b/i,
+  /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|secrets?|tokens?)\b/i,
+];
+
+const SUSPICIOUS_LINE_PATTERNS = [
+  /\b(?:process\.env|SENSITIVE_KEYS|NPM_TOKEN|AWS_|GITHUB_TOKEN|SECRET|TOKEN|credential)\b/i,
+  /\.(?:npmrc|yarnrc|ssh|aws|docker|kube)|readFileSync|homedir/i,
+  /169\.254\.169\.254|\bIMDS\b|metadata/i,
+  /\b(?:EXFIL|exfiltrate|http\.request|fetch|axios|POST|localhost:9999)\b/i,
+];
+
+function withAbortTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+  return Promise.race([run(controller.signal), timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function summaryImpliesCriticalRisk(summary: string): boolean {
+  return SUMMARY_CRITICAL_PATTERNS.some((pattern) => pattern.test(summary));
+}
+
+function inferSummaryClaim(summary: string): "cred_theft" | "env_exfil" {
+  return SUMMARY_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(summary))
+    ? "cred_theft"
+    : "env_exfil";
+}
+
+function inferSummaryCapabilities(summary: string): string[] {
+  const capabilities = new Set<string>();
+  if (/\b(?:credential|secret|token|key|ssh|aws|npm|github)\b/i.test(summary)) {
+    capabilities.add("CREDENTIAL_THEFT");
+    capabilities.add("ENV_VARS");
+  }
+  if (/\b(?:exfiltrat|http|post|network|imds|metadata)\b/i.test(summary)) {
+    capabilities.add("NETWORK");
+  }
+  if (/\b(?:filesystem|file|\.npmrc|\.ssh|\.aws|docker|kube)\b/i.test(summary)) {
+    capabilities.add("FILESYSTEM");
+  }
+  return [...capabilities];
+}
+
+function suspiciousLineRanges(contents: string): string[] {
+  const lines = contents.split("\n");
+  const hits: Array<{ start: number; end: number }> = [];
+
+  for (const [index, line] of lines.entries()) {
+    if (!SUSPICIOUS_LINE_PATTERNS.some((pattern) => pattern.test(line))) continue;
+    hits.push({
+      start: Math.max(1, index + 1 - 1),
+      end: Math.min(lines.length, index + 1 + 1),
+    });
+  }
+
+  if (hits.length === 0) return ["1-1"];
+
+  hits.sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const hit of hits) {
+    const previous = merged.at(-1);
+    if (previous && hit.start <= previous.end + 1) {
+      previous.end = Math.max(previous.end, hit.end);
+    } else {
+      merged.push({ ...hit });
+    }
+  }
+
+  return merged.slice(0, 8).map((range) =>
+    range.start === range.end ? String(range.start) : `${range.start}-${range.end}`,
+  );
+}
+
+function hasSuspiciousStaticSignals(contents: string): boolean {
+  return SUSPICIOUS_LINE_PATTERNS.some((pattern) => pattern.test(contents));
+}
+
+function synthesizeAnalysisFailureFallback(args: {
+  file: string;
+  contents: string;
+  fileFlags: string[];
+  reason: string;
+}): FileAnalysisResponse {
+  const { file, contents, fileFlags, reason } = args;
+  const suspicious = fileFlags.length > 0 || hasSuspiciousStaticSignals(contents);
+  if (!suspicious) {
+    return {
+      summary: `LLM triage failed for this file (${reason}); static fallback found no suspicious indicators.`,
+      capabilities: [],
+      hypotheses: [],
+    };
+  }
+
+  return {
+    summary: `LLM triage failed for this file (${reason}); static fallback found suspicious indicators.`,
+    capabilities: inferSummaryCapabilities(contents),
+    hypotheses: [
+      {
+        description: `Triage LLM failed on ${file}; static fallback found suspicious indicators requiring review.`,
+        claim: { kind: "obfuscation", gating: null },
+        severity: "medium",
+        rangesInFile: suspiciousLineRanges(contents),
+      },
+    ],
+  };
+}
+
+export function synthesizeSummaryFallback(args: {
+  summary: string;
+  contents: string;
+}): { capabilities: string[]; hypotheses: HypothesisDraft[] } {
+  const { summary, contents } = args;
+  if (!summaryImpliesCriticalRisk(summary)) {
+    return { capabilities: [], hypotheses: [] };
+  }
+
+  const claimKind = inferSummaryClaim(summary);
+  const behavior =
+    claimKind === "cred_theft"
+      ? "credential theft or secret harvesting"
+      : "environment or data exfiltration";
+
+  return {
+    capabilities: inferSummaryCapabilities(summary),
+    hypotheses: [
+      {
+        description: `Model summary describes ${behavior}: ${summary.slice(0, 240)}`,
+        claim: { kind: claimKind, gating: null },
+        severity: "critical",
+        rangesInFile: suspiciousLineRanges(contents),
+      },
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public return shape
 // ---------------------------------------------------------------------------
@@ -78,6 +232,8 @@ export interface TriageOutput {
   hypotheses: Hypothesis[];
   fileSummaries: FileSummary[];
 }
+
+type TriageFileCandidate = InventoryReport["files"][number];
 
 // ---------------------------------------------------------------------------
 // Prompt builders (pure)
@@ -139,6 +295,43 @@ function numberLines(contents: string): string {
     .join("\n");
 }
 
+function entryPointScore(file: string, inventory: InventoryReport): number {
+  const entryPoints = [
+    ...inventory.entryPoints.install,
+    ...inventory.entryPoints.runtime,
+    ...inventory.entryPoints.bin,
+  ];
+  if (entryPoints.includes(file)) return 100;
+  if (file === "package.json") return 90;
+  if (/^(index|main)\.(js|ts|mjs|cjs)$/.test(file)) return 80;
+  if (/^(dist|lib|src)\//.test(file)) return 20;
+  return 0;
+}
+
+export function selectTriageFiles(args: {
+  files: TriageFileCandidate[];
+  inventory: InventoryReport;
+  flagsByFile: Map<string, string[]>;
+  maxFiles: number;
+}): TriageFileCandidate[] {
+  const { files, inventory, flagsByFile, maxFiles } = args;
+  if (files.length <= maxFiles) return files;
+
+  return [...files]
+    .map((file, index) => {
+      const flagged = flagsByFile.has(file.path) ? 1 : 0;
+      const score =
+        flagged * 1000 +
+        entryPointScore(file.path, inventory) +
+        Math.max(0, 20 - Math.floor(file.sizeBytes / 10_000));
+      return { file, index, score };
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, maxFiles)
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.file);
+}
+
 // ---------------------------------------------------------------------------
 // Draft → Hypothesis (pure)
 // ---------------------------------------------------------------------------
@@ -169,6 +362,92 @@ export function draftToHypothesis(args: {
     resolvedAt: null,
     resolution: null,
   };
+}
+
+function scriptLooksLikeNetworkExfil(script: string): boolean {
+  return /\b(curl|wget|Invoke-WebRequest|iwr|fetch|nc|netcat)\b/i.test(script) &&
+    /(https?:\/\/|webhook\.site|oast\.|burpcollaborator|interact\.sh|requestbin|\.xyz\b)/i.test(script);
+}
+
+function scriptCapturesHostData(script: string): boolean {
+  return /\$\((?:hostname|whoami|pwd|id|uname|date)\b/i.test(script) ||
+    /\$(?:PWD|HOME|USER|USERNAME|HOSTNAME|COMPUTERNAME|npm_config_[A-Z0-9_]+)/i.test(script) ||
+    /%(?:USERNAME|COMPUTERNAME|CD|TIME)%/i.test(script) ||
+    /\b(process\.env|env\b|printenv\b|\.npmrc|NPM_TOKEN|AWS_|GITHUB_TOKEN)\b/i.test(script);
+}
+
+function packageJsonLineForScript(packagePath: string, hook: string): string {
+  try {
+    const contents = fs.readFileSync(path.join(packagePath, "package.json"), "utf-8");
+    const lines = contents.split("\n");
+    const idx = lines.findIndex((line) => line.includes(`"${hook}"`) || line.includes(`'${hook}'`));
+    return idx >= 0 ? String(idx + 1) : "1";
+  } catch {
+    return "1";
+  }
+}
+
+export function synthesizeInventoryHypotheses(args: {
+  packagePath: string;
+  inventory: InventoryReport;
+  now: string;
+  startCounter: number;
+}): Hypothesis[] {
+  const { packagePath, inventory, now } = args;
+  let counter = args.startCounter;
+  const hypotheses: Hypothesis[] = [];
+
+  for (const flag of inventory.flags) {
+    if (flag.check === "non-node-script") {
+      const match = /^Lifecycle script '([^']+)' is not a node command: (.+)$/.exec(flag.detail);
+      if (!match) continue;
+      const [, hook, script] = match;
+      if (!hook || !script || !scriptLooksLikeNetworkExfil(script)) continue;
+
+      counter += 1;
+      const capturesHostData = scriptCapturesHostData(script);
+      const claim = capturesHostData ? "env_exfil" : "telemetry";
+      const range = packageJsonLineForScript(packagePath, hook);
+      hypotheses.push({
+        hypId: `trg-${counter.toString().padStart(4, "0")}`,
+        description:
+          `Lifecycle script '${hook}' runs a shell network command during install: ${script}`,
+        claim: { kind: claim, gating: null },
+        focusFiles: ["package.json"],
+        focusLines: [{ file: "package.json", range }],
+        severity: capturesHostData ? "critical" : "high",
+        parentHypId: null,
+        childHypIds: [],
+        state: "OPEN",
+        createdBy: "inventory",
+        evidenceRefs: [],
+        createdAt: now,
+        resolvedAt: null,
+        resolution: null,
+      });
+    } else if (flag.check === "dependency-url" && /\buses URL specifier: http:\/\//i.test(flag.detail)) {
+      counter += 1;
+      hypotheses.push({
+        hypId: `trg-${counter.toString().padStart(4, "0")}`,
+        description:
+          `Package manifest declares an HTTP dependency URL outside the npm registry: ${flag.detail}`,
+        claim: { kind: "binary_drop", gating: null },
+        focusFiles: ["package.json"],
+        focusLines: [{ file: "package.json", range: "1" }],
+        severity: "high",
+        parentHypId: null,
+        childHypIds: [],
+        state: "OPEN",
+        createdBy: "inventory",
+        evidenceRefs: [],
+        createdAt: now,
+        resolvedAt: null,
+        resolution: null,
+      });
+    }
+  }
+
+  return hypotheses;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,14 +510,55 @@ async function analyzeFile(args: {
   emit?.("file_analyzing", { file });
 
   const model = getModel(config.triageModel);
-  const result = await generateObject({
-    model,
-    schema: FileAnalysisResponse,
-    system: MAP_SYSTEM,
-    prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
-  });
+  const llmTimeoutMs = config.llmTimeoutSeconds * 1000;
+  let result: Awaited<ReturnType<typeof generateObject<typeof FileAnalysisResponse>>>;
+  try {
+    result = await withAbortTimeout(
+      (abortSignal) => generateObject({
+        model,
+        schema: FileAnalysisResponse,
+        system: MAP_SYSTEM,
+        prompt: buildMapPrompt({ fileName: file, contents, fileFlags, intent }),
+        timeout: llmTimeoutMs,
+        abortSignal,
+        maxRetries: 1,
+      }),
+      llmTimeoutMs + 5000,
+      `triage MAP ${file}`,
+    );
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`[triage:map] ${file} LLM failed; using static fallback: ${reason}`);
+    return {
+      response: synthesizeAnalysisFailureFallback({
+        file,
+        contents,
+        fileFlags,
+        reason,
+      }),
+      skipped: false,
+    };
+  }
 
-  return { response: result.object, skipped: false };
+  const response = result.object;
+  if (response.hypotheses.length === 0) {
+    const fallback = synthesizeSummaryFallback({
+      summary: response.summary,
+      contents,
+    });
+    if (fallback.hypotheses.length > 0) {
+      response.hypotheses = fallback.hypotheses;
+      response.capabilities = [...new Set([
+        ...response.capabilities,
+        ...fallback.capabilities,
+      ])];
+      console.warn(
+        `[triage:map] ${file} summary described critical risk but emitted no hypotheses; synthesized ${fallback.hypotheses.length}`,
+      );
+    }
+  }
+
+  return { response, skipped: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -264,12 +584,8 @@ export async function runTriage(
   const allCandidates = inventory.files.filter(
     (f) => SOURCE_FILE_TYPES.has(f.fileType) && !f.isBinary,
   );
-  const sourceFiles = allCandidates.filter((f) => !isTriageNoise(f.path));
-  const skippedNoise = allCandidates.length - sourceFiles.length;
-
-  console.log(
-    `[triage] analyzing ${sourceFiles.length} source files for ${inventory.metadata.name ?? "unknown"}${skippedNoise > 0 ? ` (skipped ${skippedNoise} .d.ts/test files)` : ""} (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
-  );
+  const sourceFileCandidates = allCandidates.filter((f) => !isTriageNoise(f.path));
+  const skippedNoise = allCandidates.length - sourceFileCandidates.length;
 
   const flagsByFile = new Map<string, string[]>();
   for (const flag of inventory.flags) {
@@ -279,6 +595,21 @@ export async function runTriage(
       flagsByFile.set(flag.file, existing);
     }
   }
+
+  const sourceFiles = selectTriageFiles({
+    files: sourceFileCandidates,
+    inventory,
+    flagsByFile,
+    maxFiles: config.triageMaxFiles,
+  });
+  const skippedByCap = sourceFileCandidates.length - sourceFiles.length;
+
+  console.log(
+    `[triage] analyzing ${sourceFiles.length}/${sourceFileCandidates.length} source files for ${inventory.metadata.name ?? "unknown"}` +
+      `${skippedNoise > 0 ? ` (skipped ${skippedNoise} .d.ts/test files)` : ""}` +
+      `${skippedByCap > 0 ? ` (capped ${skippedByCap} low-priority files)` : ""}` +
+      ` (intent: "${intent.statedPurpose.slice(0, 60)}…")`,
+  );
 
   // Bounded concurrency. Unbounded Promise.all hammered MiniMax's Token
   // Plan rate limit on packages with 100+ files (every triage call would
@@ -361,6 +692,29 @@ export async function runTriage(
         claim: hyp.claim.kind,
         severity: hyp.severity,
         file,
+      });
+    }
+  }
+
+  const inventoryHypotheses = synthesizeInventoryHypotheses({
+    packagePath,
+    inventory,
+    now,
+    startCounter: counter,
+  });
+  if (inventoryHypotheses.length > 0) {
+    hypotheses.push(...inventoryHypotheses);
+    fileSummaries.push({
+      file: "package.json",
+      summary: "Package manifest contains suspicious lifecycle script behavior.",
+      capabilities: ["LIFECYCLE_HOOK", "NETWORK", "ENV_VARS", "BINARY_DOWNLOAD"],
+    });
+    for (const hyp of inventoryHypotheses) {
+      emit?.("hypothesis_emitted", {
+        hypId: hyp.hypId,
+        claim: hyp.claim.kind,
+        severity: hyp.severity,
+        file: "package.json",
       });
     }
   }
