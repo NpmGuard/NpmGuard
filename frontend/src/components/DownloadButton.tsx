@@ -64,10 +64,10 @@ export function DownloadButton({ report }: DownloadButtonProps) {
           cursor: "pointer",
         }}
       >
-        <span style={{ fontSize: "0.55rem", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        <span style={{ fontSize: "0.6rem", textTransform: "uppercase", letterSpacing: "0.08em" }}>
           Download
         </span>
-        <span style={{ fontSize: "0.55rem", opacity: 0.6 }}>{open ? "▴" : "▾"}</span>
+        <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{open ? "▴" : "▾"}</span>
       </button>
 
       {open && (

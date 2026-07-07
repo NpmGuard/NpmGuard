@@ -133,26 +133,27 @@ export function Header() {
           onClick={() =>
             document.documentElement.classList.toggle("urushi")
           }
-          className="flex items-center gap-1"
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.7rem",
-            color: "var(--text-muted)",
-            padding: 0,
-          }}
-          aria-label="Toggle theme"
+          className="theme-toggle no-print"
+          aria-label="Toggle light/dark theme"
+          title="Toggle theme"
         >
-          <div
-            style={{
-              width: 5,
-              height: 5,
-              borderRadius: "50%",
-              background: "var(--accent)",
-            }}
-          />
+          {/* Half-filled circle: reads as "contrast" in either theme */}
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <circle
+              cx="8"
+              cy="8"
+              r="6.25"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+            <path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor" />
+          </svg>
         </button>
       </div>
     </header>

@@ -322,19 +322,19 @@ export function Benchmark() {
           {source === "datadog" ? (
             <>
               <Metric label="Rows" value={String(activeRun.totalRows)} />
-              <Metric label="Detected" value={String(outcomes.detected ?? 0)} tone="var(--safe)" />
-              <Metric label="Missed" value={String(outcomes.missed ?? 0)} tone="var(--danger)" />
-              <Metric label="Test-confirmed" value={String(confirmedRows)} tone="var(--accent-light)" />
-              <Metric label="Timeout" value={String(outcomes.timeout ?? 0)} tone="var(--warning)" />
+              <Metric label="Detected" value={String(outcomes.detected ?? 0)} tone={outcomes.detected ? "var(--safe)" : undefined} />
+              <Metric label="Missed" value={String(outcomes.missed ?? 0)} tone={outcomes.missed ? "var(--danger)" : undefined} />
+              <Metric label="Test-confirmed" value={String(confirmedRows)} tone={confirmedRows ? "var(--accent-light)" : undefined} />
+              <Metric label="Timeout" value={String(outcomes.timeout ?? 0)} tone={outcomes.timeout ? "var(--warning)" : undefined} />
               <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
             </>
           ) : (
             <>
               <Metric label="Rows" value={String(activeRun.totalRows)} />
-              <Metric label="Safe" value={String(outcomes.SAFE ?? 0)} tone="var(--safe)" />
-              <Metric label="Dangerous" value={String(outcomes.DANGEROUS ?? 0)} tone="var(--danger)" />
-              <Metric label="Timeout" value={String(outcomes.timeout ?? 0)} tone="var(--warning)" />
-              <Metric label="Failed" value={String(outcomes.failed ?? 0)} tone="var(--text-muted)" />
+              <Metric label="Safe" value={String(outcomes.SAFE ?? 0)} tone={outcomes.SAFE ? "var(--safe)" : undefined} />
+              <Metric label="Dangerous" value={String(outcomes.DANGEROUS ?? 0)} tone={outcomes.DANGEROUS ? "var(--danger)" : undefined} />
+              <Metric label="Timeout" value={String(outcomes.timeout ?? 0)} tone={outcomes.timeout ? "var(--warning)" : undefined} />
+              <Metric label="Failed" value={String(outcomes.failed ?? 0)} tone={outcomes.failed ? "var(--text-muted)" : undefined} />
               <Metric label="P95" value={formatDuration(activeRun.p95DurationMs)} />
             </>
           )}
@@ -482,7 +482,7 @@ function Metric({ label, value, tone = "var(--text)" }: { label: string; value: 
       <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-muted)", marginBottom: 8 }}>
         {label}
       </div>
-      <div style={{ fontFamily: "var(--font-heading)", fontSize: "1.45rem", fontWeight: 750, color: tone }}>
+      <div style={{ fontFamily: "var(--font-heading)", fontSize: "1.45rem", fontWeight: 750, color: tone, fontVariantNumeric: "tabular-nums" }}>
         {value}
       </div>
     </div>

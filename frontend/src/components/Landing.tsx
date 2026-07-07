@@ -102,7 +102,7 @@ export function Landing() {
   };
 
   return (
-    <div className="landing-scroll-wrap flex-1 flex items-center justify-center">
+    <div className="landing-scroll-wrap flex-1 flex flex-col items-center">
       <div className="landing-page">
 
         {/* Left / top: pitch + search */}
@@ -191,6 +191,14 @@ export function Landing() {
         </div>
 
       </div>
+
+      <footer className="landing-footer" aria-label="How NpmGuard works">
+        <span>Static analysis + sandboxed execution</span>
+        <span aria-hidden="true">·</span>
+        <span>Evidence-backed verdicts</span>
+        <span aria-hidden="true">·</span>
+        <span>Full audit trail</span>
+      </footer>
       {pendingPayment && (
         <PaymentModal
           packageName={pendingPayment.pkg}

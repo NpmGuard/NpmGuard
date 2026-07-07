@@ -129,7 +129,7 @@ function TreeNodeComponent({ node, depth }: { node: TreeNode; depth: number }) {
         {node.isDir ? (
           <span
             style={{
-              fontSize: "0.55rem",
+              fontSize: "0.6rem",
               color: "var(--text-muted)",
               transition: "transform 0.15s",
               transform: expanded ? "rotate(90deg)" : "none",
@@ -155,7 +155,7 @@ function TreeNodeComponent({ node, depth }: { node: TreeNode; depth: number }) {
         {!node.isDir && node.file?.isBinary && (
           <span
             style={{
-              fontSize: "0.55rem",
+              fontSize: "0.6rem",
               fontWeight: 700,
               padding: "0 4px",
               borderRadius: 2,
@@ -171,7 +171,7 @@ function TreeNodeComponent({ node, depth }: { node: TreeNode; depth: number }) {
         {!node.isDir && node.file && !node.file.isBinary && node.file.permissions.startsWith("7") && (
           <span
             style={{
-              fontSize: "0.55rem",
+              fontSize: "0.6rem",
               fontWeight: 700,
               padding: "0 3px",
               borderRadius: 2,
@@ -186,7 +186,7 @@ function TreeNodeComponent({ node, depth }: { node: TreeNode; depth: number }) {
         {entryKind && (
           <span
             style={{
-              fontSize: "0.5rem",
+              fontSize: "0.6rem",
               fontWeight: 700,
               padding: "0 4px",
               borderRadius: 2,
