@@ -144,6 +144,22 @@ npx npmguard-cli check
 
 Walks `package.json` and reports every dependency's audit status.
 
+### Repo panel (beta)
+
+Sign in with GitHub at [npmguard.com/dashboard](https://npmguard.com/dashboard),
+install the NpmGuard GitHub App on your org, and per repo:
+
+- **Audit** — scan the full lockfile (direct + transitive) once. Cached
+  verdicts are instant; unknown packages run through the pipeline.
+- **Protect** — continuous: pushes that change npm deps get delta-scanned
+  with a GitHub check on the commit (fails only on DANGEROUS), and every
+  package you depend on is registry-watched — new versions published to npm
+  are audited *before* anyone installs them, with dashboard + email alerts.
+
+The CLI guards the install moment; Protect guards the publish moment.
+Setup: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md)
+(§ GitHub App setup) · Spec: [docs/specs/2026-07-07-github-repo-panel.md](docs/specs/2026-07-07-github-repo-panel.md)
+
 ### Query the API directly
 
 ```bash

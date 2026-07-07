@@ -1,18 +1,18 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { useAuditStore } from "../stores/auditStore";
+import { usePanelStore } from "../stores/panelStore";
 import { PhaseProgress } from "./PhaseProgress";
+
+const API_BASE = "/api";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/packages", label: "Packages" },
   { href: "/benchmark", label: "Benchmark" },
   { href: "/cli", label: "CLI" },
 ];
-
-function navigate(href: string) {
-  history.pushState(null, "", href);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
 
 export function Header() {
   const isRunning = useAuditStore((s) => s.isRunning);
@@ -20,13 +20,17 @@ export function Header() {
   const verdict = useAuditStore((s) => s.verdict);
   const reset = useAuditStore((s) => s.reset);
 
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const user = usePanelStore((s) => s.user);
+  const userLoaded = usePanelStore((s) => s.userLoaded);
+  const fetchMe = usePanelStore((s) => s.fetchMe);
+  const logout = usePanelStore((s) => s.logout);
+
+  const navigate = useNavigate();
+  const { pathname: currentPath } = useLocation();
 
   useEffect(() => {
-    const onPopState = () => setCurrentPath(window.location.pathname);
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+    if (!userLoaded) void fetchMe();
+  }, [userLoaded, fetchMe]);
 
   const statusColor = verdict
     ? verdict === "DANGEROUS"
@@ -130,6 +134,54 @@ export function Header() {
 
       <div className="ml-auto flex items-center gap-3">
         {(isRunning || verdict) && <PhaseProgress />}
+
+        {user ? (
+          <div className="flex items-center gap-2">
+            {user.avatarUrl && (
+              <img
+                src={user.avatarUrl}
+                alt={user.login}
+                style={{ width: 20, height: 20, borderRadius: "50%", border: "1px solid var(--border)" }}
+              />
+            )}
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+              {user.login}
+            </span>
+            <button
+              onClick={() => void logout()}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.68rem",
+                color: "var(--text-muted)",
+                background: "none",
+                border: "1px solid var(--border)",
+                borderRadius: 4,
+                padding: "2px 8px",
+                cursor: "pointer",
+              }}
+            >
+              sign out
+            </button>
+          </div>
+        ) : (
+          userLoaded && (
+            <a
+              href={`${API_BASE}/auth/github/login`}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.72rem",
+                color: "var(--accent-light)",
+                border: "1px solid var(--accent)",
+                borderRadius: 4,
+                padding: "3px 10px",
+                textDecoration: "none",
+              }}
+            >
+              Sign in
+            </a>
+          )
+        )}
+
         <button
           onClick={() =>
             document.documentElement.classList.toggle("urushi")

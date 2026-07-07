@@ -55,6 +55,22 @@ const ConfigSchema = z.object({
   sandboxCpus: z.coerce.number().positive().max(4).default(1),
   sandboxNetwork: z.string().default("none"),
   maxDockerExecTimeoutSec: z.coerce.number().int().min(5).max(300).default(30),
+
+  // GitHub App + repo panel (spec: docs/specs/2026-07-07-github-repo-panel.md)
+  githubAppId: z.string().optional(),
+  githubAppPrivateKeyPath: z.string().optional(),
+  githubClientId: z.string().optional(),
+  githubClientSecret: z.string().optional(),
+  githubWebhookSecret: z.string().optional(),
+  /** 32-byte hex key for AES-256-GCM encryption of stored user tokens. */
+  encryptionKey: z.string().regex(/^[0-9a-f]{64}$/i).optional(),
+  smtpUrl: z.string().optional(),
+  alertFrom: z.string().default("NpmGuard <alerts@npmguard.com>"),
+  panelBaseUrl: z.string().url().default("http://localhost:3000"),
+  scanConcurrency: z.coerce.number().int().min(1).max(16).default(4),
+  watchIntervalMin: z.coerce.number().int().min(1).default(15),
+  betaMaxProtectedRepos: z.coerce.number().int().min(0).default(10),
+  betaMaxAuditsMonth: z.coerce.number().int().min(0).default(5000),
 });
 
 function loadConfig() {
@@ -87,6 +103,19 @@ function loadConfig() {
     sandboxCpus: env.NPMGUARD_SANDBOX_CPUS,
     sandboxNetwork: env.NPMGUARD_SANDBOX_NETWORK,
     maxDockerExecTimeoutSec: env.NPMGUARD_MAX_DOCKER_EXEC_TIMEOUT_SEC,
+    githubAppId: env.NPMGUARD_GITHUB_APP_ID,
+    githubAppPrivateKeyPath: env.NPMGUARD_GITHUB_APP_PRIVATE_KEY_PATH,
+    githubClientId: env.NPMGUARD_GITHUB_CLIENT_ID,
+    githubClientSecret: env.NPMGUARD_GITHUB_CLIENT_SECRET,
+    githubWebhookSecret: env.NPMGUARD_GITHUB_WEBHOOK_SECRET,
+    encryptionKey: env.NPMGUARD_ENCRYPTION_KEY,
+    smtpUrl: env.NPMGUARD_SMTP_URL,
+    alertFrom: env.NPMGUARD_ALERT_FROM,
+    panelBaseUrl: env.NPMGUARD_PANEL_BASE_URL,
+    scanConcurrency: env.NPMGUARD_SCAN_CONCURRENCY,
+    watchIntervalMin: env.NPMGUARD_WATCH_INTERVAL_MIN,
+    betaMaxProtectedRepos: env.NPMGUARD_BETA_MAX_PROTECTED_REPOS,
+    betaMaxAuditsMonth: env.NPMGUARD_BETA_MAX_AUDITS_MONTH,
   };
 
   // Strip undefined keys so Zod defaults apply
@@ -111,6 +140,26 @@ export const config = loadConfig();
 export type Config = z.infer<typeof ConfigSchema>;
 export const PAYMENT_REQUIRED = config.paymentRequired;
 export const STRIPE_ENABLED = !!config.stripeSecretKey;
+/**
+ * Panel + GitHub App features require the full App credential set, including
+ * the encryption key (user tokens are stored encrypted — spec §5.9).
+ */
+const GITHUB_APP_VARS: Record<string, string | undefined> = {
+  NPMGUARD_GITHUB_APP_ID: config.githubAppId,
+  NPMGUARD_GITHUB_APP_PRIVATE_KEY_PATH: config.githubAppPrivateKeyPath,
+  NPMGUARD_GITHUB_CLIENT_ID: config.githubClientId,
+  NPMGUARD_GITHUB_CLIENT_SECRET: config.githubClientSecret,
+  NPMGUARD_ENCRYPTION_KEY: config.encryptionKey,
+};
+export const GITHUB_APP_ENABLED = Object.values(GITHUB_APP_VARS).every(Boolean);
+{
+  const missing = Object.entries(GITHUB_APP_VARS)
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+  if (missing.length > 0 && missing.length < Object.keys(GITHUB_APP_VARS).length) {
+    console.warn(`[config] GitHub App partially configured — missing: ${missing.join(", ")}`);
+  }
+}
 
 export const SKIP_DIRS = new Set(["node_modules", ".git", ".svn"]);
 
