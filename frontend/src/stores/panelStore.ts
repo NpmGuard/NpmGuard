@@ -30,6 +30,7 @@ interface PanelState {
   setProtect: (repoId: number, on: boolean) => Promise<boolean>;
   resync: (repoId: number) => Promise<boolean>;
   fetchRepoDetail: (owner: string, name: string) => Promise<RepoDetailPayload | null>;
+  markAlertsSeen: () => Promise<void>;
 }
 
 async function jsonOrNull<T>(res: Response): Promise<T | null> {
@@ -140,5 +141,10 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     );
     if (!res.ok) return null;
     return (await res.json()) as RepoDetailPayload;
+  },
+
+  markAlertsSeen: async () => {
+    await fetch(`${API_BASE}/panel/alerts/seen`, { method: "POST" });
+    set({ alerts: get().alerts.map((a) => ({ ...a, seen: true })) });
   },
 }));

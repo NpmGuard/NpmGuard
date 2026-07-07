@@ -39,6 +39,23 @@ function extractReportVersion(report: unknown): string | null {
 }
 
 /**
+ * Optional observer invoked after every successful saveReport. Used by the
+ * panel's verdict index (verdict-index.ts) to stay in sync without this
+ * module depending on the DB — report files remain the source of truth.
+ */
+export type ReportSavedHook = (
+  packageName: string,
+  version: string,
+  report: AuditReport,
+) => void;
+
+let reportSavedHook: ReportSavedHook | null = null;
+
+export function setReportSavedHook(hook: ReportSavedHook | null): void {
+  reportSavedHook = hook;
+}
+
+/**
  * Save a report under the package's real version. Preference order:
  *   1. Version extracted from report metadata (authoritative — read from tarball)
  *   2. Requested version passed by caller (may be "latest" or semver)
@@ -57,6 +74,13 @@ export function saveReport(
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(reportPath(packageName, realVersion), JSON.stringify(report, null, 2));
   console.log(`[report-store] saved ${packageName}@${realVersion}`);
+
+  try {
+    reportSavedHook?.(packageName, realVersion, report);
+  } catch (err) {
+    // Observer failures must never break report persistence
+    console.error("[report-store] saved-hook failed:", err instanceof Error ? err.message : err);
+  }
 
   // Backward compat: if caller passed a different version than what the
   // tarball actually contains, also clean up any stale file under the
@@ -196,5 +220,49 @@ export function listReports(): PackageSummary[] {
   walkDir(DATA_DIR, "");
   // Sort by most recently audited
   results.sort((a, b) => new Date(b.auditedAt).getTime() - new Date(a.auditedAt).getTime());
+  return results;
+}
+
+/**
+ * Every report on disk — one entry per (package, version) file, unlike
+ * listReports which returns only the latest per package. Feeds the panel's
+ * verdict-index rebuild; includes test packages (the index is internal).
+ */
+export function listAllReports(): Array<{
+  packageName: string;
+  version: string;
+  verdict: string;
+  auditedAt: string;
+}> {
+  if (!fs.existsSync(DATA_DIR)) return [];
+  const results: Array<{ packageName: string; version: string; verdict: string; auditedAt: string }> = [];
+
+  function walkAll(dir: string, prefix: string) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const name = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.name.startsWith("@")) {
+        walkAll(path.join(dir, entry.name), entry.name);
+        continue;
+      }
+      const pkgDir = assertUnderDataDir(path.join(dir, entry.name));
+      for (const file of fs.readdirSync(pkgDir).filter((f) => f.endsWith(".json"))) {
+        try {
+          const filePath = assertUnderDataDir(path.join(pkgDir, file));
+          const report = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+          results.push({
+            packageName: name,
+            version: extractReportVersion(report) ?? file.replace(/\.json$/, ""),
+            verdict: report.verdict ?? "UNKNOWN",
+            auditedAt: fs.statSync(filePath).mtime.toISOString(),
+          });
+        } catch {
+          // Skip corrupted files
+        }
+      }
+    }
+  }
+
+  walkAll(DATA_DIR, "");
   return results;
 }

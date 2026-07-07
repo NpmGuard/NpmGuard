@@ -86,10 +86,23 @@ CREATE TABLE scans (
   audited INTEGER NOT NULL DEFAULT 0,
   failed INTEGER NOT NULL DEFAULT 0,
   error TEXT,
+  check_run_id INTEGER,                   -- GitHub check run (push-triggered scans)
   started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   finished_at TEXT
 );
 CREATE INDEX idx_scans_repo ON scans(repo_id, started_at);
+
+-- The exact (pkg, version) set a scan covers. Progress and check conclusions
+-- compute from this — not from repo_deps, which can move under a live scan
+-- (another push) and which delta scans deliberately don't touch.
+CREATE TABLE scan_items (
+  scan_id INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  version TEXT NOT NULL,
+  cached INTEGER NOT NULL DEFAULT 0,      -- verdict existed before this scan
+  PRIMARY KEY (scan_id, name, version)
+);
+CREATE INDEX idx_scan_items_pkg ON scan_items(name, version);
 
 -- Durable audit-job queue. Survives restarts (spec §5.4).
 CREATE TABLE jobs (
