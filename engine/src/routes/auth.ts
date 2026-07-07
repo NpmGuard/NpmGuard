@@ -56,6 +56,16 @@ authRoutes.get("/auth/github/callback", async (c) => {
   deleteCookie(c, STATE_COOKIE, { path: "/" });
 
   if (!code || !state || !expectedState || state !== expectedState) {
+    // Install-initiated authorization: GitHub Apps with "Request user
+    // authorization during installation" redirect here with
+    // code+installation_id+setup_action and NO state — the flow started on
+    // github.com, so no state cookie exists. Restart a clean state-protected
+    // login round-trip; GitHub auto-approves silently (already authorized).
+    // Login-initiated callbacks never carry setup params, so a broken-cookie
+    // browser still terminates at the error below instead of looping.
+    if (c.req.query("setup_action") || c.req.query("installation_id")) {
+      return c.redirect(`${config.panelBaseUrl}/api/auth/github/login`);
+    }
     return c.json({ error: "OAuth state mismatch — restart the sign-in flow" }, 400);
   }
 
