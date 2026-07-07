@@ -70,6 +70,308 @@ function capabilityCounts(findings: Finding[]): Record<string, number> {
   return counts;
 }
 
+function formatDuration(ms: number | null | undefined): string {
+  if (ms == null) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function totalTrailDuration(trail: TrailEntry[]): number {
+  return trail.reduce((acc, entry) => acc + (entry.durationMs ?? 0), 0);
+}
+
+function outputOf(entry: TrailEntry | undefined): Record<string, unknown> {
+  return entry?.output ?? {};
+}
+
+function numberField(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function arrayLength(value: unknown): number | null {
+  return Array.isArray(value) ? value.length : null;
+}
+
+function entryPointCount(value: unknown, key: string): number | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = (value as Record<string, unknown>)[key];
+  return Array.isArray(entry) ? entry.length : null;
+}
+
+function safeInstallCommand(packageName: string, version?: string | null): string {
+  return `npx npmguard-cli@latest install ${packageName}${version ? `@${version}` : ""}`;
+}
+
+function SafeReportDetail({
+  packageName,
+  version,
+  trail,
+  findings,
+  proofs,
+}: {
+  packageName: string;
+  version?: string | null;
+  trail: TrailEntry[];
+  findings: Finding[];
+  proofs: Proof[];
+}) {
+  const inventory = outputOf(trail.find((entry) => entry.phase === "inventory"));
+  const triage = outputOf(trail.find((entry) => entry.phase === "triage"));
+  const fileCount = numberField(inventory.fileCount);
+  const sourceFiles = numberField(inventory.sourceFiles);
+  const flagCount = numberField(inventory.flagCount);
+  const installEntrypoints = entryPointCount(inventory.entryPoints, "install");
+  const runtimeEntrypoints = entryPointCount(inventory.entryPoints, "runtime");
+  const hypothesisCount = numberField(triage.hypothesisCount);
+  const summarizedFiles = arrayLength(triage.fileSummaries);
+  const totalMs = totalTrailDuration(trail);
+  const completedPhases = trail.filter((entry) => entry.status === "done").length;
+  const verifyRan = trail.some((entry) => entry.phase === "verify");
+  const installCommand = safeInstallCommand(packageName, version);
+  const [copied, setCopied] = useState(false);
+
+  async function copyInstallCommand() {
+    try {
+      await navigator.clipboard.writeText(installCommand);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const checks = [
+    {
+      label: "Package inventory",
+      value: fileCount !== null
+        ? `${fileCount} files · ${sourceFiles ?? 0} source`
+        : "Completed",
+      detail: `${flagCount ?? 0} structural flags found`,
+    },
+    {
+      label: "Install surface",
+      value: installEntrypoints === 0 ? "No install hooks" : `${installEntrypoints ?? 0} install hook(s)`,
+      detail: `${runtimeEntrypoints ?? 0} runtime entrypoint(s) inventoried`,
+    },
+    {
+      label: "Static triage",
+      value: `${hypothesisCount ?? 0} hypotheses`,
+      detail: summarizedFiles !== null ? `${summarizedFiles} source summary` : "Source reviewed",
+    },
+    {
+      label: "Exploit proof",
+      value: verifyRan ? `${proofs.length} proof(s)` : "Not required",
+      detail: verifyRan
+        ? "Verification phase completed"
+        : "No reportable finding reached proof generation",
+    },
+  ];
+
+  return (
+    <div className="flex-1 overflow-y-auto" style={{ background: "var(--bg)" }}>
+      <div style={{ maxWidth: 920, margin: "0 auto", padding: "34px 32px 40px" }}>
+        <section
+          style={{
+            border: "1px solid var(--border)",
+            borderLeft: "4px solid var(--safe)",
+            borderRadius: 8,
+            background: "var(--bg-secondary)",
+            padding: 20,
+            marginBottom: 16,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 18,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "0.66rem",
+                  fontWeight: 800,
+                  color: "var(--safe)",
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  marginBottom: 8,
+                }}
+              >
+                Install gate cleared
+              </div>
+              <h2
+                style={{
+                  fontFamily: "var(--font-heading)",
+                  fontSize: "1.55rem",
+                  fontWeight: 800,
+                  letterSpacing: 0,
+                  margin: 0,
+                  color: "var(--text)",
+                }}
+              >
+                No reportable suspicious behavior
+              </h2>
+              <p
+                style={{
+                  maxWidth: 640,
+                  margin: "10px 0 0",
+                  color: "var(--text-dim)",
+                  lineHeight: 1.55,
+                  fontSize: "0.9rem",
+                }}
+              >
+                NpmGuard inspected this package version and produced no findings.
+                The install gate can continue without a security prompt.
+              </p>
+            </div>
+            <div
+              style={{
+                minWidth: 170,
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg)",
+                padding: "12px 14px",
+              }}
+            >
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.62rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Audit time
+              </div>
+              <div style={{ fontFamily: "var(--font-heading)", fontSize: "1.4rem", color: "var(--text)", marginTop: 3 }}>
+                {formatDuration(totalMs)}
+              </div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-dim)", marginTop: 2 }}>
+                {completedPhases} phase{completedPhases === 1 ? "" : "s"} completed
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 10,
+            marginBottom: 16,
+          }}
+        >
+          {[
+            { label: "Verdict", value: "SAFE", tone: "var(--safe)" },
+            { label: "Findings", value: String(findings.length), tone: "var(--text)" },
+            { label: "Confirmed exploits", value: "0", tone: "var(--text)" },
+            { label: "Structural flags", value: String(flagCount ?? 0), tone: "var(--text)" },
+          ].map((metric) => (
+            <div
+              key={metric.label}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg-secondary)",
+                padding: "12px 14px",
+              }}
+            >
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.62rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                {metric.label}
+              </div>
+              <div style={{ fontFamily: "var(--font-heading)", fontSize: "1.25rem", fontWeight: 800, color: metric.tone, marginTop: 4 }}>
+                {metric.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <section
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            background: "var(--bg-secondary)",
+            overflow: "hidden",
+            marginBottom: 16,
+          }}
+        >
+          <div
+            style={{
+              padding: "12px 16px",
+              borderBottom: "1px solid var(--border)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.68rem",
+              fontWeight: 800,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            Safe decision evidence
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+            {checks.map((check) => (
+              <div
+                key={check.label}
+                style={{
+                  padding: "14px 16px",
+                  borderRight: "1px solid var(--border)",
+                  borderBottom: "1px solid var(--border)",
+                  minHeight: 104,
+                }}
+              >
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.64rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  {check.label}
+                </div>
+                <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text)", marginTop: 8 }}>
+                  {check.value}
+                </div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-dim)", marginTop: 6, lineHeight: 1.45 }}>
+                  {check.detail}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            background: "var(--bg-code)",
+            padding: 16,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.62rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                Continue install
+              </div>
+              <code style={{ fontFamily: "var(--font-mono)", color: "var(--text)", fontSize: "0.86rem", wordBreak: "break-word" }}>
+                {installCommand}
+              </code>
+            </div>
+            <button
+              type="button"
+              onClick={copyInstallCommand}
+              style={{
+                border: "1px solid var(--border-strong)",
+                borderRadius: 5,
+                background: copied ? "var(--safe-bg)" : "var(--bg)",
+                color: copied ? "var(--safe)" : "var(--text)",
+                cursor: "pointer",
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                padding: "8px 12px",
+              }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -262,12 +564,22 @@ export function ReportView({
           />
         </div>
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <ProofDetail
-            finding={safeIndex !== null ? findings[safeIndex] : null}
-            proof={safeIndex !== null ? proofs[safeIndex] : undefined}
-            fetchSource={fetchSource}
-            runtimeEvidence={runtimeEvidence}
-          />
+          {findings.length === 0 && verdict === "SAFE" ? (
+            <SafeReportDetail
+              packageName={packageName}
+              version={version}
+              trail={trail}
+              findings={findings}
+              proofs={proofs}
+            />
+          ) : (
+            <ProofDetail
+              finding={safeIndex !== null ? findings[safeIndex] : null}
+              proof={safeIndex !== null ? proofs[safeIndex] : undefined}
+              fetchSource={fetchSource}
+              runtimeEvidence={runtimeEvidence}
+            />
+          )}
         </div>
       </div>
 

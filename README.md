@@ -7,8 +7,12 @@ public API — plus a CLI that gates `npm install` behind those verdicts.
 Users install packages with `npx npmguard-cli install express`. If the
 package already has an audit → install happens immediately (or is blocked
 if DANGEROUS). If not → the user pays for an audit with a credit card
-(Stripe) or a mobile wallet (WalletConnect on Base Sepolia), the pipeline
-runs, and the verdict decides whether the install proceeds.
+(Stripe), a browser wallet (MetaMask/Rabby), or a mobile wallet
+(WalletConnect on Base Sepolia), the pipeline runs, and the verdict
+decides whether the install proceeds. SAFE packages install from an ENS
+announced Pinata tarball by default when publication is available; the CLI
+falls back to npm only when no publication exists yet or when explicitly
+configured.
 
 ## How it works
 
@@ -20,20 +24,22 @@ flowchart TD
 
     subgraph LOOKUP["Lookup"]
         GET[GET /package/express/report]
-        GET -->|SAFE| SAFE_INSTALL[npm install directly]
+        GET -->|SAFE| SAFE_INSTALL[Install from npm / Pinata / ENS]
         GET -->|DANGEROUS| WARN[Warn + prompt y/N]
         GET -->|not found| PAY
     end
 
     subgraph PAY["Pay for audit"]
-        PAY[Stripe or WalletConnect?]
+        PAY[Stripe or crypto wallet?]
         PAY -->|Stripe| STRIPE[Stripe Checkout<br/>card payment]
+        PAY -->|Browser wallet| BROWSER_WALLET[Open npmguard.com/pay<br/>sign with MetaMask/Rabby]
         PAY -->|WalletConnect| WC[Scan QR with mobile wallet<br/>sign tx on Base Sepolia<br/>0.0001 ETH]
     end
 
     subgraph VERIFY["Engine verification"]
         STRIPE --> STRIPE_VERIFY[Verify Stripe session]
-        WC --> CHAIN_VERIFY[Verify tx receipt<br/>via Alchemy Base Sepolia]
+        BROWSER_WALLET --> CHAIN_VERIFY[Verify tx receipt<br/>via Alchemy Base Sepolia]
+        WC --> CHAIN_VERIFY
         STRIPE_VERIFY --> PIPELINE
         CHAIN_VERIFY --> PIPELINE
     end
@@ -52,6 +58,7 @@ flowchart TD
 
     U --> GET
     PIPELINE -->|persist| DB[(data/reports/<br/>pkg/version.json)]
+    PIPELINE -->|optional publish| STORE[(Pinata tarball + manifest<br/>ENS text records)]
     VERDICT -->|SAFE| SAFE_INSTALL
     VERDICT -->|DANGEROUS| WARN
     WARN -->|force| SAFE_INSTALL
@@ -70,7 +77,7 @@ flowchart TD
 | Frontend Dashboard | [https://npmguard.com](https://npmguard.com) |
 | Audit Engine API | [https://npmguard.com/health](https://npmguard.com/health) |
 | CLI on npm | [`npmguard-cli`](https://www.npmjs.com/package/npmguard-cli) |
-| Audit Contract (Base Sepolia) | [`0xBF56...B9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed) |
+| Audit Contract (Base Sepolia) | [`0x5288...02B7`](https://sepolia.basescan.org/address/0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7) |
 
 ## Quick Start
 
@@ -84,14 +91,47 @@ npx npmguard-cli install express
 - If **DANGEROUS**, it warns and asks before installing (or `--force`)
 - If there's no audit yet, you get a menu:
   1. **Stripe** — pay by card in the browser
-  2. **WalletConnect** — scan a QR from your mobile wallet, sign a
+  2. **Browser wallet** — open `npmguard.com/pay`, connect MetaMask/Rabby,
+     and sign a `0.0001 ETH` transaction on **Base Sepolia**
+  3. **WalletConnect** — scan a QR from your mobile wallet, sign a
      `0.0001 ETH` transaction on **Base Sepolia**
-  3. Install without audit
-  4. Cancel
+  4. Install without audit
+  5. Cancel
 
-After payment, the audit runs end-to-end and you see the events live in
-your terminal. Open `https://npmguard.com/audit/<auditId>` for the web
-dashboard view.
+After payment, the audit runs end-to-end. Stripe and WalletConnect stream
+events in the terminal; the browser-wallet flow shows the live audit in the
+web app while the CLI waits for the persisted report.
+
+The audit and install steps are deliberately separate:
+
+1. **Resolve** the concrete npm tarball and extract package metadata.
+2. **Inventory** files, lifecycle scripts, entry points, dependency surface,
+   and structural dealbreakers.
+3. **Triage** source files with the configured OpenAI-compatible model and
+   produce hypotheses/capabilities.
+4. **Investigate** suspicious hypotheses with an agentic pass when static
+   risk warrants deeper analysis.
+5. **Generate and run proof tests** in the sandbox for high-risk findings.
+6. **Persist the verdict** under `data/reports/<pkg>/<version>.json`.
+7. **Publish demo artefacts** best-effort when configured: report JSON,
+   installable package tarball, optional package folder, manifest, and ENS
+   `npmguard.*` records on the package subdomain when ENS v2 is available.
+   Publication failure never changes the verdict.
+
+Install source is a CLI policy decision after the server verdict:
+
+```bash
+npx npmguard-cli@latest install express --install-source auto
+npx npmguard-cli@latest install express --install-source npm
+npx npmguard-cli@latest install express --install-source pinata
+npx npmguard-cli@latest install express --install-source ens
+```
+
+`auto` is the default: after a SAFE verdict it waits briefly for publication,
+then tries ENS text records, then the NpmGuard storage API, and finally npm
+as a fallback. `pinata` asks the NpmGuard API for the stored tarball URL.
+`ens` resolves Sepolia ENS text records such as `npmguard.tarball_uri` /
+`npmguard.latest_tarball_uri`, then installs that Pinata tarball.
 
 See [cli/README.md](cli/README.md) for the full CLI reference.
 
@@ -103,6 +143,22 @@ npx npmguard-cli check
 ```
 
 Walks `package.json` and reports every dependency's audit status.
+
+### Repo panel (beta)
+
+Sign in with GitHub at [npmguard.com/dashboard](https://npmguard.com/dashboard),
+install the NpmGuard GitHub App on your org, and per repo:
+
+- **Audit** — scan the full lockfile (direct + transitive) once. Cached
+  verdicts are instant; unknown packages run through the pipeline.
+- **Protect** — continuous: pushes that change npm deps get delta-scanned
+  with a GitHub check on the commit (fails only on DANGEROUS), and every
+  package you depend on is registry-watched — new versions published to npm
+  are audited *before* anyone installs them, with dashboard + email alerts.
+
+The CLI guards the install moment; Protect guards the publish moment.
+Setup: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md)
+(§ GitHub App setup) · Spec: [docs/specs/2026-07-07-github-repo-panel.md](docs/specs/2026-07-07-github-repo-panel.md)
 
 ### Query the API directly
 
@@ -119,11 +175,17 @@ curl -X POST https://npmguard.com/audit \
 ## Payment — Base Sepolia contract
 
 The audit engine is gated behind a small payment so that the LLM and
-sandbox compute is paid for. Two options are live:
+sandbox compute is paid for. Three options are live:
 
 ### Stripe
 Existing Stripe Checkout flow. The engine has a webhook that marks the
 session paid and triggers the audit.
+
+### Browser wallet (on Base Sepolia)
+The CLI can print and open a `https://npmguard.com/pay?...` URL. The user
+connects MetaMask/Rabby in Brave or Chrome, signs
+`NpmGuardAuditRequest.requestAudit(pkg, version)`, and the web app submits
+the tx hash to the engine.
 
 ### WalletConnect (on Base Sepolia)
 Users sign a transaction to `NpmGuardAuditRequest.requestAudit(pkg, version)`
@@ -133,7 +195,7 @@ requested `(packageName, version)` before running the audit.
 
 - **Fee**: `0.0001 ETH` (set in contract constructor, updatable by owner)
 - **Chain**: Base Sepolia (chain id 84532)
-- **Contract**: [`0xBF562626e4Afb883423Ec719e0270DB232bcB9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed)
+- **Contract**: [`0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7`](https://sepolia.basescan.org/address/0x52885aCfC973E5e4cba81a2e0Aab2FFf68b002B7)
 
 Anti-replay: the engine maintains a `(chain, txHash)` dedup map so a single
 payment can only launch one audit. The contract itself also prevents
@@ -197,12 +259,12 @@ Full playbook: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md
 |---|---|
 | Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) + [Tailwind](https://tailwindcss.com/) — real-time SSE dashboard |
 | Audit pipeline | TypeScript + [Hono](https://hono.dev/) — inventory, LLM static analysis, Docker sandbox |
-| LLM | [Gemini 2.5 Flash](https://ai.google.dev/) via OpenRouter (OpenAI-compatible) |
+| LLM | [DeepSeek V4 Flash](https://openrouter.ai/deepseek/deepseek-v4-flash) via OpenRouter (OpenAI-compatible) |
 | Fiat payment | [Stripe](https://stripe.com/) checkout + webhook |
 | Crypto payment | Solidity contract on [Base Sepolia](https://docs.base.org/chain/base-contracts) + WalletConnect v2 |
 | Contract tooling | [Foundry](https://book.getfoundry.sh/) — compile, test (fuzz), deploy, Basescan verification |
 | Chain RPC | [Alchemy](https://alchemy.com/) Base Sepolia (+ public fallback) |
-| Storage | Local filesystem (`data/reports/<pkg>/<version>.json`) — no IPFS, no RPC writes |
+| Storage | Local filesystem (`data/reports/<pkg>/<version>.json`) as source of truth, with optional Pinata + ENS publication for demos |
 | CLI | TypeScript, zero blockchain deps in the binary — wallet signs, engine verifies |
 | Hosting | [DigitalOcean](https://www.digitalocean.com/) + nginx + Let's Encrypt |
 

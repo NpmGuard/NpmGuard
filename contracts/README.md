@@ -117,8 +117,9 @@ View it: `https://sepolia.basescan.org/address/0xYOUR_CONTRACT_ADDRESS`
 
 Copy the deployed address into:
 
-- `engine/.env` → `AUDIT_CONTRACT_ADDRESS=0x...`
-- `cli/src/contract.ts` → `AUDIT_REQUEST_ADDRESS` constant
+- `engine/.env` → `NPMGUARD_BASE_SEPOLIA_CONTRACT=0x...`
+- `frontend/src/lib/contract.ts` → `AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA` constant
+- `cli/src/contract.ts` → `AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA` constant
 
 ## Deploy to Base mainnet (later)
 
