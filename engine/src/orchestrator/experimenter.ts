@@ -9,6 +9,7 @@ import type {
 import type { Manipulation } from "../manipulation/types.js";
 import { setEnv } from "../manipulation/env.js";
 import { plantFiles, type PlantFileSpec } from "../manipulation/plant-files.js";
+import { preload } from "../manipulation/preload.js";
 import { runUnderObservation, type RunRequest } from "../evidence/run-under-observation.js";
 
 // ---------------------------------------------------------------------------
@@ -33,6 +34,59 @@ export interface ConfirmationCheck {
 // ---------------------------------------------------------------------------
 
 const PLANTED_TOKEN = "NPMGUARD_CANARY_TOKEN_f8e2d91a";
+const TELEMETRY_DRIVER = "/tmp/npmguard-telemetry-driver.js";
+const BUILD_PLUGIN_DRIVER = "/tmp/npmguard-build-plugin-driver.js";
+
+const TELEMETRY_DRIVER_CODE = `
+const pkg = require("/pkg/index.js");
+const client = typeof pkg.init === "function"
+  ? pkg.init({ appId: "npmguard", endpoint: "http://localhost:9999/analytics" })
+  : null;
+if (client && typeof client.track === "function") {
+  client.track("npmguard_probe", { token: process.env.NPM_TOKEN });
+}
+if (client && typeof client.flush === "function") {
+  client.flush();
+}
+setTimeout(() => process.exit(0), 1000);
+`;
+
+const BUILD_PLUGIN_DRIVER_CODE = `
+const mod = require("/pkg/index.js");
+const Plugin = mod.BuildOptimizerPlugin || mod.default || mod;
+const plugin = typeof Plugin === "function" ? new Plugin() : null;
+if (plugin && typeof plugin.apply === "function") {
+  plugin.apply({
+    hooks: {
+      compile: { tap: (_name, cb) => cb() },
+      done: { tap: () => {} },
+    },
+  });
+}
+setTimeout(() => process.exit(0), 1000);
+`;
+
+const GEO_RU_PRELOAD = `
+const http = require("http");
+const { Readable } = require("stream");
+const originalGet = http.get;
+http.get = function npmguardGeoGet(input, options, cb) {
+  const target = typeof input === "string" ? input : String(input && (input.href || input));
+  if (target.includes("localhost:9999/ipgeo")) {
+    const callback = typeof options === "function" ? options : cb;
+    const res = Readable.from(['{"country":"RU"}']);
+    res.statusCode = 200;
+    res.headers = { "content-type": "application/json" };
+    process.nextTick(() => callback && callback(res));
+    return {
+      on() { return this; },
+      setTimeout() { return this; },
+      end() { return this; },
+    };
+  }
+  return originalGet.apply(this, arguments);
+};
+`;
 
 function eventsContainTokenExfil(events: readonly Event[]): boolean {
   for (const e of events) {
@@ -74,13 +128,15 @@ function eventsContainFsWrite(events: readonly Event[]): boolean {
   );
 }
 
-function eventsContainFsDelete(events: readonly Event[]): boolean {
-  return events.some(
-    (e) =>
-      e.kind === "file_deleted" ||
-      e.kind === "unlink" ||
-      e.kind === "rename",
-  );
+function eventsContainCanaryFileMutation(events: readonly Event[]): boolean {
+  return events.some((e) => {
+    if (e.kind !== "file_modified" && e.kind !== "file_deleted" && e.kind !== "unlink" && e.kind !== "rename") {
+      return false;
+    }
+    const raw = typeof e.raw === "string" ? e.raw : JSON.stringify(e.raw ?? "");
+    const path = typeof e.normalized?.path === "string" ? e.normalized.path : raw;
+    return path.includes("sandbox-test");
+  });
 }
 
 function eventsContainEval(events: readonly Event[]): boolean {
@@ -123,6 +179,47 @@ export function pickTriggerTarget(
 }
 
 /**
+ * Triage sometimes emits a broad env/credential hypothesis even when the file
+ * shape clearly points to a narrower proof driver. Keep the claim taxonomy
+ * stable, but route the dynamic experiment toward the behavior-specific
+ * strategy so benchmark runs get a chance to reproduce the payload.
+ */
+export function inferExperimentClaim(
+  claim: ClaimKind,
+  hypothesis: Hypothesis,
+): ClaimKind {
+  if (claim !== "env_exfil" && claim !== "cred_theft") return claim;
+
+  const haystack = [
+    hypothesis.description,
+    ...hypothesis.focusFiles,
+    ...hypothesis.focusLines.map((fl) => `${fl.file}:${fl.range}`),
+  ].join("\n").toLowerCase();
+
+  if (
+    /\b(webpack|rollup|vite|babel|esbuild|swc|compiler|compilation|loader|plugin|apply\s*\(|tap\s*\()\b/.test(
+      haystack,
+    )
+  ) {
+    return "build_plugin_exfil";
+  }
+
+  if (
+    /\b(telemetry|analytics|posthog|segment|sentry|mixpanel|datadog|track|identify|capture|flush|metrics?)\b/.test(
+      haystack,
+    )
+  ) {
+    return "telemetry";
+  }
+
+  if (/\b(rm\s+-rf|unlink\w*|rmdir|rename\w*|delet\w*|wipe\w*|destroy\w*|remove\w*|overwrit\w*|filesystem mutation)\b/.test(haystack)) {
+    return "destructive";
+  }
+
+  return claim;
+}
+
+/**
  * Build an experiment strategy for the given claim kind. Uses the hypothesis's
  * focusFiles to select the right trigger target (main entry point or lifecycle
  * hook). Returns null for claim kinds with no automated experiment yet.
@@ -134,7 +231,8 @@ export function strategyForClaim(
   installEntries: readonly string[] = [],
 ): ExperimentStrategy | null {
   const { target, kind } = pickTriggerTarget(hypothesis, entryTarget, installEntries);
-  switch (claim) {
+  const experimentClaim = inferExperimentClaim(claim, hypothesis);
+  switch (experimentClaim) {
     case "env_exfil":
     case "cred_theft":
       return {
@@ -244,9 +342,8 @@ export function strategyForClaim(
       };
 
     case "telemetry":
-    case "build_plugin_exfil":
       return {
-        trigger: { kind, target, argv: [], stdin: null },
+        trigger: { kind: "subpath", target: TELEMETRY_DRIVER, argv: [], stdin: null },
         setup: [
           setEnv({
             NPM_TOKEN: PLANTED_TOKEN,
@@ -257,6 +354,43 @@ export function strategyForClaim(
             {
               path: "/home/node/.npmrc",
               content: `//registry.npmjs.org/:_authToken=${PLANTED_TOKEN}\n`,
+            },
+            {
+              path: TELEMETRY_DRIVER,
+              content: TELEMETRY_DRIVER_CODE,
+            },
+          ]),
+        ],
+        observe: { kernel: true, network: true, node: true, fsDiff: false, inspector: false },
+        budget: { wallMs: 20_000 },
+        confirm(artifact) {
+          if (eventsContainTokenExfil(artifact.events)) {
+            return { confirmed: true, reason: "Canary credential appeared in outbound telemetry traffic." };
+          }
+          if (eventsContainNetwork(artifact.events)) {
+            return { confirmed: true, reason: "Outbound telemetry activity detected from package API driver." };
+          }
+          return { confirmed: false, reason: "No outbound telemetry observed." };
+        },
+      };
+
+    case "build_plugin_exfil":
+      return {
+        trigger: { kind: "subpath", target: BUILD_PLUGIN_DRIVER, argv: [], stdin: null },
+        setup: [
+          setEnv({
+            NPM_TOKEN: PLANTED_TOKEN,
+            CI: "true",
+            HOME: "/home/node",
+          }),
+          plantFiles([
+            {
+              path: "/home/node/.npmrc",
+              content: `//registry.npmjs.org/:_authToken=${PLANTED_TOKEN}\n`,
+            },
+            {
+              path: BUILD_PLUGIN_DRIVER,
+              content: BUILD_PLUGIN_DRIVER_CODE,
             },
           ]),
         ],
@@ -277,6 +411,7 @@ export function strategyForClaim(
       return {
         trigger: { kind, target, argv: [], stdin: null },
         setup: [
+          preload(GEO_RU_PRELOAD),
           plantFiles([
             { path: "/pkg/sandbox-test/file1.txt", content: "NPMGUARD_CANARY_DELETE_TARGET\n" },
             { path: "/pkg/sandbox-test/file2.txt", content: "NPMGUARD_CANARY_DELETE_TARGET\n" },
@@ -285,8 +420,8 @@ export function strategyForClaim(
         observe: { kernel: true, network: false, node: true, fsDiff: true, inspector: false },
         budget: { wallMs: 20_000 },
         confirm(artifact) {
-          if (eventsContainFsDelete(artifact.events)) {
-            return { confirmed: true, reason: "Deletion or rename activity detected against planted files." };
+          if (eventsContainCanaryFileMutation(artifact.events)) {
+            return { confirmed: true, reason: "Destructive mutation detected against planted canary files." };
           }
           return { confirmed: false, reason: "No destructive filesystem activity observed." };
         },

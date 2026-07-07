@@ -4,15 +4,20 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { config } from "./config.js";
 
+function isOpenRouterBaseUrl(baseUrl: string | undefined): boolean {
+  return baseUrl?.includes("openrouter.ai") ?? false;
+}
+
 /**
- * When the backend is openai_compatible (e.g. OpenRouter) and the model name
- * is a bare Anthropic/Google model ID without a provider prefix, prepend the
- * provider so the router resolves it correctly.
+ * OpenRouter expects provider-prefixed model IDs. Keep direct provider
+ * endpoints untouched, e.g. api.deepseek.com accepts `deepseek-v4-flash`.
  */
-function normalizeForOpenAICompat(modelName: string): string {
+function normalizeForOpenAICompat(modelName: string, baseUrl: string): string {
   if (modelName.includes("/")) return modelName;
+  if (!isOpenRouterBaseUrl(baseUrl)) return modelName;
   if (modelName.startsWith("claude-")) return `anthropic/${modelName}`;
   if (modelName.startsWith("gemini-")) return `google/${modelName}`;
+  if (modelName.startsWith("deepseek-")) return `deepseek/${modelName}`;
   return modelName;
 }
 
@@ -39,6 +44,7 @@ function normalizeForOpenAICompat(modelName: string): string {
 // The wrapper is only attached when `baseURL` looks like MiniMax — other
 // providers (OpenRouter, OpenAI, etc.) bypass it entirely.
 const isMiniMax = config.llmBaseUrl?.includes("minimax.io") ?? false;
+const isDeepSeek = config.llmBaseUrl?.includes("api.deepseek.com") ?? false;
 
 interface ChatBody {
   model?: string;
@@ -112,6 +118,24 @@ const minimaxFetch: typeof fetch = async (input, init) => {
   return resp;
 };
 
+const deepseekFetch: typeof fetch = async (input, init) => {
+  if (init?.body && typeof init.body === "string") {
+    try {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      body.thinking = {
+        type: config.deepseekThinkingEnabled ? "enabled" : "disabled",
+      };
+      if (!config.deepseekThinkingEnabled) {
+        delete body.reasoning_effort;
+      }
+      init = { ...init, body: JSON.stringify(body) };
+    } catch {
+      // Body wasn't JSON — leave it alone
+    }
+  }
+  return fetch(input, init);
+};
+
 export function getModel(modelName: string): LanguageModel {
   if (config.llmBackend === "anthropic") {
     return anthropic(modelName);
@@ -129,6 +153,7 @@ export function getModel(modelName: string): LanguageModel {
     baseURL: config.llmBaseUrl,
     apiKey: config.llmApiKey ?? "",
     ...(isMiniMax ? { fetch: minimaxFetch } : {}),
+    ...(isDeepSeek ? { fetch: deepseekFetch } : {}),
   });
-  return openai.chat(normalizeForOpenAICompat(modelName));
+  return openai.chat(normalizeForOpenAICompat(modelName, config.llmBaseUrl));
 }

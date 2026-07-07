@@ -11,6 +11,7 @@ const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/packages", label: "Packages" },
   { href: "/benchmark", label: "Benchmark" },
+  { href: "/cli", label: "CLI" },
 ];
 
 export function Header() {

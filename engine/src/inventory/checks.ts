@@ -201,6 +201,25 @@ function flagHiddenDotfiles(files: FileRecord[]): InventoryFlag[] {
   return flags;
 }
 
+function flagSuspiciousDependencyUrls(
+  dependencies: Record<string, Record<string, string>>,
+): InventoryFlag[] {
+  const flags: InventoryFlag[] = [];
+  for (const [scope, deps] of Object.entries(dependencies)) {
+    for (const [name, spec] of Object.entries(deps)) {
+      if (!/^https?:\/\//i.test(spec)) continue;
+      const severity = /^http:\/\//i.test(spec) ? "warn" : "info";
+      flags.push({
+        severity,
+        check: "dependency-url",
+        detail: `${scope} dependency '${name}' uses URL specifier: ${spec}`,
+        file: "package.json",
+      });
+    }
+  }
+  return flags;
+}
+
 // ---------------------------------------------------------------------------
 // Main entry
 // ---------------------------------------------------------------------------
@@ -210,6 +229,7 @@ export function runInventoryChecks(
   entryPoints: EntryPoints,
   files: FileRecord[],
   packagePath: string,
+  dependencies: Record<string, Record<string, string>> = {},
 ): { flags: InventoryFlag[]; dealbreaker: DealBreaker | null } {
   // Dealbreakers first
   let dealbreaker = checkShellPipe(scripts);
@@ -228,6 +248,7 @@ export function runInventoryChecks(
     ...flagEncodedContent(files, packagePath),
     ...flagMinifiedInstallScript(entryPoints, packagePath),
     ...flagHiddenDotfiles(files),
+    ...flagSuspiciousDependencyUrls(dependencies),
   ];
 
   return { flags, dealbreaker: null };

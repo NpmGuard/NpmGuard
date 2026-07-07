@@ -9,6 +9,7 @@ import {
   verifyAuditPayment,
   type SupportedChain,
 } from "../chain.js";
+import { persistAuditReport, publishStorageArtifactsAfterAudit } from "../audit-persistence.js";
 import { getChainPayment, recordChainPayment } from "../chain-payment-map.js";
 import { config, PAYMENT_REQUIRED, STRIPE_ENABLED } from "../config.js";
 import { NpmGuardError, QueueFullError } from "../errors.js";
@@ -21,7 +22,6 @@ import {
 } from "../events.js";
 import { getPayment, recordPayment } from "../payment-map.js";
 import { runAudit } from "../pipeline.js";
-import { saveReport } from "../report-store.js";
 import { verifyCheckoutSession } from "../stripe.js";
 import type { AuditReport } from "../models.js";
 import { AuditRequest, StreamAuditRequest } from "./validation.js";
@@ -50,9 +50,15 @@ async function processQueue(): Promise<void> {
   console.log(`[queue] starting ${item.packageName} (${auditQueue.length} queued)`);
 
   try {
-    const { report, cleanup } = await runAudit(item.packageName, undefined, undefined, item.version);
-    saveReport(item.packageName, item.version || "latest", report);
-    cleanup();
+    const { report, cleanup, packagePath } = await runAudit(item.packageName, undefined, undefined, item.version);
+    const realVersion = persistAuditReport(item.packageName, item.version || "latest", report);
+    publishStorageArtifactsAfterAudit({
+      packageName: item.packageName,
+      version: realVersion,
+      report,
+      packagePath,
+      cleanup,
+    });
     item.resolve(report);
   } catch (err) {
     item.reject(err);
@@ -304,10 +310,16 @@ auditRoutes.post("/audit/stream", async (c) => {
 
   // Run audit in background — don't await
   runAudit(packageName, emit, session.auditId, version)
-    .then(({ report, cleanup }) => {
+    .then(({ report, cleanup, packagePath }) => {
+      const realVersion = persistAuditReport(packageName, version || "latest", report);
       finalizeSession(session.auditId, report);
-      saveReport(packageName, version || "latest", report);
-      cleanup();
+      publishStorageArtifactsAfterAudit({
+        packageName,
+        version: realVersion,
+        report,
+        packagePath,
+        cleanup,
+      });
     })
     .catch((err) => {
       console.error("[api] streaming audit failed:", err);

@@ -9,7 +9,7 @@ import { LIFECYCLE_SCRIPTS } from "../inventory/parse-manifest.js";
 import type { EmitFn } from "../events.js";
 import type { AuditLogger } from "../audit-log.js";
 import type { FileSummary } from "./triage.js";
-import { CLAIM_TO_CAPABILITIES } from "../orchestrator/correlate.js";
+import { CLAIM_TO_CAPABILITIES, normalizeCapabilityLabel } from "../orchestrator/correlate.js";
 
 /**
  * Run the package once under instrumentation BEFORE the LLM agent starts.
@@ -55,6 +55,129 @@ export interface InvestigationResult {
   findings: Finding[];
   toolCalls: ToolCallRecord[];
   agentText: string;
+}
+
+const BENIGN_FINDING_PATTERNS = [
+  /\bnot (?:a )?security (?:issue|risk|problem)\b/,
+  /\bnot security[- ]sensitive\b/,
+  /\bperformance concern,? not security\b/,
+  /\btype(?:s)? only\b/,
+  /\btype-only\b/,
+  /\bstandard typescript declaration\b/,
+  /\blegitimate (?:library )?(?:feature|use|usage|behavior|code|documentation)\b/,
+  /\bintentional feature detection\b/,
+  /\bcontrolled and gated\b/,
+  /\bsafe recursive traversal\b/,
+  /\bzero (?:http|https|network|fetch)\b/,
+];
+
+const ABSENCE_PROBLEM_PATTERN =
+  /^(?:no|none)\b.*\b(?:present|observed|detected|mechanisms?|operations?|calls?|requests?|hooks?|network|credential|theft|obfuscation|payloads?|eval|filesystem|spawn|exfiltration)\b/;
+
+const BENIGN_SUMMARY_PATTERNS = [
+  /\bno malicious behavior\b/,
+  /\bno suspicious behavior\b/,
+  /\bno evidence of (?:malicious|suspicious)\b/,
+  /\bfalse positives?\b/,
+  /\bbenign\b/,
+  /\bsafe\b/,
+];
+
+const MALICIOUS_SUMMARY_PATTERNS = [
+  /\bconfirmed malicious\b/,
+  /\bmalicious\b/,
+  /\bmalware\b/,
+  /\btrojan\b/,
+  /\bcredential theft\b/,
+  /\bsteals?\b.*\b(?:credentials?|secrets?|tokens?|environment variables?)\b/,
+  /\bexfiltrat(?:e|es|ion|ing)\b/,
+  /\bself-propagat(?:e|es|ion|ing)\b/,
+  /\bworm\b/,
+  /\bshai-hulud\b/,
+];
+
+export function isBenignFinding(finding: Finding): boolean {
+  const problem = finding.problem.trim().toLowerCase();
+  const text = [
+    finding.problem,
+    finding.evidence,
+    finding.reproductionStrategy,
+  ].join(" ").toLowerCase();
+
+  if (finding.capability === "CLEAN") return true;
+  if (ABSENCE_PROBLEM_PATTERN.test(problem)) return true;
+  return BENIGN_FINDING_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function filterActionableFindings(findings: Finding[]): Finding[] {
+  return findings.filter((finding) => !isBenignFinding(finding));
+}
+
+export function isBenignInvestigationSummary(summary: string): boolean {
+  const text = summary.trim().toLowerCase();
+  return BENIGN_SUMMARY_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+export function buildAgentTextFallbackFinding(
+  summary: string,
+  agentText: string,
+  hypotheses: readonly Hypothesis[],
+): Finding | null {
+  const text = `${summary}\n${agentText}`.trim();
+  const lower = text.toLowerCase();
+  if (!text || isBenignInvestigationSummary(text)) return null;
+  if (!MALICIOUS_SUMMARY_PATTERNS.some((pattern) => pattern.test(lower))) return null;
+
+  const cap = normalizeCapabilityLabel("UNKNOWN", text) ?? "OBFUSCATION";
+  const focus = hypotheses.find((h) => h.severity === "critical" || h.severity === "high") ?? hypotheses[0];
+  const fileLine = focus?.focusLines[0]
+    ? `${focus.focusLines[0].file}:${focus.focusLines[0].range}`
+    : focus?.focusFiles[0] ?? "";
+  const confidence = /\bconfirmed malicious\b|\bconfirmed\b.*\bmalicious\b/.test(lower)
+    ? "CONFIRMED"
+    : "LIKELY";
+
+  return {
+    capability: cap,
+    confidence,
+    fileLine,
+    problem: summary || text.slice(0, 240),
+    evidence: text.slice(0, 500),
+    reproductionStrategy: "Fallback from investigation agent text after structured extraction returned zero findings.",
+  };
+}
+
+export function normalizeInvestigationFinding(
+  finding: Finding,
+  summary: string,
+  agentText: string,
+  hypotheses: readonly Hypothesis[],
+): Finding {
+  const context = [
+    finding.problem,
+    finding.evidence,
+    finding.reproductionStrategy,
+    summary,
+    agentText,
+  ].join("\n");
+  const capability = normalizeCapabilityLabel(finding.capability, context);
+  if (!capability) return finding;
+
+  const focus = hypotheses.find((h) => h.severity === "critical" || h.severity === "high") ?? hypotheses[0];
+  const fallbackFileLine = focus?.focusLines[0]
+    ? `${focus.focusLines[0].file}:${focus.focusLines[0].range}`
+    : focus?.focusFiles[0] ?? "";
+  const fileLine = finding.fileLine && !/^\d+$/.test(finding.fileLine.trim())
+    ? finding.fileLine
+    : fallbackFileLine;
+
+  return {
+    ...finding,
+    capability,
+    fileLine,
+    problem: finding.problem || summary || finding.reproductionStrategy.slice(0, 240),
+    evidence: finding.evidence || finding.reproductionStrategy || summary.slice(0, 500),
+  };
 }
 
 export async function investigate(
@@ -137,8 +260,21 @@ export async function investigate(
     // → false SAFE). When the agent extracts nothing, fall back to the triage
     // hypotheses themselves so the pipeline doesn't silently drop the signal.
     // Only high/critical severity to avoid promoting noisy medium hypotheses.
-    let agentFindings = output.findings;
-    if (agentFindings.length === 0) {
+    const filteredFindings = filterActionableFindings(output.findings);
+    if (filteredFindings.length !== output.findings.length) {
+      console.warn(
+        `[investigate] filtered ${output.findings.length - filteredFindings.length} benign/non-actionable ${output.findings.length - filteredFindings.length === 1 ? "finding" : "findings"} from investigation output`,
+      );
+    }
+
+    let agentFindings = filteredFindings.map((finding) =>
+      normalizeInvestigationFinding(finding, output.summary, output.agentText, hypotheses),
+    );
+    if (
+      output.findings.length === 0 &&
+      agentFindings.length === 0 &&
+      !isBenignInvestigationSummary(output.summary)
+    ) {
       const strongHyps = hypotheses.filter(
         (h) => h.severity === "high" || h.severity === "critical",
       );
@@ -156,7 +292,15 @@ export async function investigate(
           evidence: `Triage emitted this ${h.severity} hypothesis (claim=${h.claim.kind}). Investigation agent did not extract corroborating findings, but the static signal alone is strong enough to flag.`,
           reproductionStrategy: `Static-signal proof. Inspect the focus file(s): ${h.focusFiles.join(", ")}`,
         }));
+      } else {
+        const fallback = buildAgentTextFallbackFinding(output.summary, output.agentText, hypotheses);
+        if (fallback) {
+          console.warn("[investigate] agent extracted 0 findings; falling back to malicious investigation summary");
+          agentFindings = [fallback];
+        }
       }
+    } else if (output.findings.length === 0 && isBenignInvestigationSummary(output.summary)) {
+      console.log("[investigate] agent found no actionable findings and summary refutes the triage signal; skipping static fallback");
     }
 
     // Emit findings for frontend visualization
@@ -169,23 +313,15 @@ export async function investigate(
     const proofs: Proof[] = [];
 
     for (const finding of agentFindings) {
-      const capParsed = CapabilityEnum.safeParse(finding.capability);
       // Safety net: LLMs sometimes invent labels ("CRYPTO_THEFT", "SECRET_LEAK")
       // outside the strict enum. Without this, capability ends up null and the
       // verdict logic ignores otherwise-valid TEST_CONFIRMED proofs.
-      let cap = capParsed.success ? capParsed.data : null;
-      if (!cap && finding.capability) {
-        const raw = finding.capability.toUpperCase();
-        if (raw.includes("CREDENTIAL") || raw.includes("SECRET") || raw.includes("TOKEN")) cap = "CREDENTIAL_THEFT";
-        else if (raw.includes("EXFIL") || raw.includes("EXPORT")) cap = "DATA_EXFILTRATION";
-        else if (raw.includes("ENV")) cap = "ENV_VARS";
-        else if (raw.includes("PROC") || raw.includes("SPAWN") || raw.includes("EXEC")) cap = "PROCESS_SPAWN";
-        else if (raw.includes("FILE") || raw.includes("FS") || raw.includes("DISK")) cap = "FILESYSTEM";
-        else if (raw.includes("EVAL") || raw.includes("FUNCTION_CONSTRUCTOR")) cap = "EVAL";
-        else if (raw.includes("OBFUSC") || raw.includes("PACK") || raw.includes("MINIF")) cap = "OBFUSCATION";
-        else if (raw.includes("LIFECYCLE") || raw.includes("POSTINSTALL") || raw.includes("PREINSTALL")) cap = "LIFECYCLE_HOOK";
-        else if (raw.includes("NETWORK") || raw.includes("HTTP") || raw.includes("FETCH")) cap = "NETWORK";
-        if (cap) console.log(`[investigate] normalized "${finding.capability}" → ${cap}`);
+      const cap = normalizeCapabilityLabel(
+        finding.capability,
+        `${finding.problem} ${finding.evidence} ${finding.reproductionStrategy} ${output.summary} ${output.agentText}`,
+      ) as CapabilityEnum | null;
+      if (cap && cap !== finding.capability) {
+        console.log(`[investigate] normalized "${finding.capability}" → ${cap}`);
       }
       if (cap) capabilities.add(cap);
 
