@@ -6,13 +6,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { cleanupOldChainPayments } from "./chain-payment-map.js";
-import { config } from "./config.js";
+import { config, GITHUB_APP_ENABLED } from "./config.js";
 import { cleanupOldPayments } from "./payment-map.js";
+import { authRoutes } from "./routes/auth.js";
 import { auditRoutes } from "./routes/audit.js";
 import { benchRoutes } from "./routes/bench.js";
 import { demoRoutes } from "./routes/demo.js";
+import { panelRoutes } from "./routes/panel.js";
 import { paymentRoutes } from "./routes/payment.js";
 import { registryRoutes } from "./routes/registry.js";
+import { cleanupExpiredSessions } from "./session.js";
 
 const app = new Hono();
 
@@ -30,6 +33,8 @@ app.route("/", paymentRoutes);
 app.route("/", demoRoutes);
 app.route("/", registryRoutes);
 app.route("/", benchRoutes);
+app.route("/", authRoutes);
+app.route("/", panelRoutes);
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 
@@ -72,6 +77,9 @@ if (fs.existsSync(frontendDist)) {
 // Periodic cleanup of expired payment records
 setInterval(cleanupOldPayments, 10 * 60_000);
 setInterval(cleanupOldChainPayments, 10 * 60_000);
+if (GITHUB_APP_ENABLED) {
+  setInterval(cleanupExpiredSessions, 60 * 60_000);
+}
 
 console.log(`NpmGuard Engine starting on ${config.apiHost}:${config.apiPort}`);
 serve({ fetch: app.fetch, hostname: config.apiHost, port: config.apiPort });
