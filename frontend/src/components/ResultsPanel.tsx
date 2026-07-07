@@ -84,7 +84,7 @@ function FindingCard({
         <span
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: "0.55rem",
+            fontSize: "0.6rem",
             fontWeight: 700,
             textTransform: "uppercase",
             letterSpacing: "0.05em",
@@ -193,7 +193,7 @@ function FindingCard({
               <div
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: "0.55rem",
+                  fontSize: "0.6rem",
                   textTransform: "uppercase",
                   letterSpacing: "0.1em",
                   color: "var(--text-muted)",
@@ -218,7 +218,7 @@ function FindingCard({
               <div
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: "0.55rem",
+                  fontSize: "0.6rem",
                   textTransform: "uppercase",
                   letterSpacing: "0.1em",
                   color: "var(--text-muted)",
@@ -279,7 +279,7 @@ function FindingCard({
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: "0.55rem",
+                    fontSize: "0.6rem",
                     fontWeight: 700,
                     padding: "1px 6px",
                     borderRadius: 3,
@@ -294,7 +294,7 @@ function FindingCard({
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: "0.55rem",
+                    fontSize: "0.6rem",
                     fontWeight: 700,
                     padding: "1px 6px",
                     borderRadius: 3,
@@ -310,7 +310,7 @@ function FindingCard({
                   style={{
                     marginLeft: "auto",
                     fontFamily: "var(--font-mono)",
-                    fontSize: "0.55rem",
+                    fontSize: "0.6rem",
                     color: "var(--text-muted)",
                   }}
                 >

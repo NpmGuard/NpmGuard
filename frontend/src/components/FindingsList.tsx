@@ -158,11 +158,11 @@ export function FindingsList({ findings, proofs, selectedIndex, onSelect }: Find
                   <span
                     style={{
                       fontFamily: "var(--font-mono)",
-                      fontSize: "0.52rem",
+                      fontSize: "0.6rem",
                       fontWeight: 700,
                       textTransform: "uppercase",
                       letterSpacing: "0.05em",
-                      padding: "1px 5px",
+                      padding: "2px 6px",
                       borderRadius: 3,
                       flexShrink: 0,
                       background: status.bg,
@@ -189,7 +189,7 @@ export function FindingsList({ findings, proofs, selectedIndex, onSelect }: Find
                     style={{
                       marginTop: 4,
                       fontFamily: "var(--font-mono)",
-                      fontSize: "0.55rem",
+                      fontSize: "0.6rem",
                       color: "var(--text-muted)",
                       letterSpacing: "0.05em",
                     }}
