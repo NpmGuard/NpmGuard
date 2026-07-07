@@ -60,6 +60,7 @@ export function Dashboard() {
     refresh,
     triggerScan,
     setProtect,
+    markAlertsSeen,
   } = usePanelStore();
 
   useEffect(() => {
@@ -231,6 +232,22 @@ export function Dashboard() {
           <strong>{unseenAlerts.length} alert{unseenAlerts.length > 1 ? "s" : ""}:</strong>{" "}
           {unseenAlerts.slice(0, 3).map((a) => `${a.packageName}@${a.version} is ${a.verdict}`).join(" · ")}
           {unseenAlerts.length > 3 ? " · …" : ""}
+          <button
+            onClick={() => void markAlertsSeen()}
+            style={{
+              marginLeft: 12,
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.68rem",
+              color: "var(--text-muted)",
+              background: "none",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              padding: "1px 8px",
+              cursor: "pointer",
+            }}
+          >
+            dismiss
+          </button>
         </div>
       )}
 
