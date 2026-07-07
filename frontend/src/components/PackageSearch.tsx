@@ -7,7 +7,7 @@ interface PackageSummary {
   auditedAt: string;
 }
 
-type VerdictFilter = "ALL" | "SAFE" | "DANGEROUS" | "UNKNOWN";
+type VerdictFilter = "ALL" | "SAFE" | "SUSPECT" | "DANGEROUS" | "UNKNOWN";
 type SortKey = "auditedAt" | "packageName" | "verdict";
 const PAGE_SIZE = 10;
 
@@ -40,6 +40,14 @@ function verdictColor(verdict: string) {
       color: "var(--danger)",
       background: "var(--danger-bg)",
       borderColor: "rgba(220, 38, 38, 0.22)",
+    };
+  }
+  // SUSPECT (unresolved) and UNKNOWN (coverage gap) both read as amber warnings.
+  if (verdict === "SUSPECT" || verdict === "UNKNOWN") {
+    return {
+      color: "var(--suspected)",
+      background: "var(--suspected-bg)",
+      borderColor: "rgba(202, 138, 4, 0.22)",
     };
   }
   return {
@@ -124,7 +132,7 @@ export function PackageSearch() {
   const showingFrom = filtered.length === 0 ? 0 : pageStart + 1;
   const showingTo = Math.min(pageStart + PAGE_SIZE, filtered.length);
 
-  const filters: VerdictFilter[] = ["ALL", "SAFE", "DANGEROUS", "UNKNOWN"];
+  const filters: VerdictFilter[] = ["ALL", "SAFE", "SUSPECT", "DANGEROUS", "UNKNOWN"];
 
   return (
     <div

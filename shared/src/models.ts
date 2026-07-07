@@ -4,7 +4,10 @@ import { z } from "zod";
 // Enums — cross-process audit vocabulary
 // ---------------------------------------------------------------------------
 
-export const VerdictEnum = z.enum(["SAFE", "DANGEROUS"]);
+// The cross-process verdict is the 4-state hypothesis-graph verdict — the same
+// values `deriveGraphVerdict` produces. Only DANGEROUS (a CONFIRMED hypothesis
+// with a cited RunArtifact) blocks an install; SUSPECT/UNKNOWN inform loudly.
+export const VerdictEnum = z.enum(["SAFE", "SUSPECT", "DANGEROUS", "UNKNOWN"]);
 export type VerdictEnum = z.infer<typeof VerdictEnum>;
 
 export const CapabilityEnum = z.enum([
@@ -99,6 +102,15 @@ export const FileVerdict = z.object({
   riskContribution: z.number().int().min(0).max(10),
 });
 export type FileVerdict = z.infer<typeof FileVerdict>;
+
+// One-line per-file summary emitted by triage MAP. Carried on the report so
+// the frontend code-viewer can label files without re-deriving from hypotheses.
+export const FileSummary = z.object({
+  file: z.string(),
+  summary: z.string().default(""),
+  capabilities: z.array(z.string()).default([]),
+});
+export type FileSummary = z.infer<typeof FileSummary>;
 
 export const Finding = z.object({
   // Defaults are friendly to non-deterministic LLM outputs (MiniMax sometimes

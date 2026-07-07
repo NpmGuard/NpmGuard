@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import { useAuditStore } from "../stores/auditStore";
-import { computeProofStats } from "../lib/types";
+import { verdictDisplay, countsSummary } from "../lib/types";
 
 export function VerdictBanner() {
   const verdict = useAuditStore((s) => s.verdict);
-  const capabilities = useAuditStore((s) => s.capabilities);
-  const findings = useAuditStore((s) => s.findings);
-  const proofs = useAuditStore((s) => s.proofs);
+  const rationale = useAuditStore((s) => s.rationale);
+  const counts = useAuditStore((s) => s.counts);
 
-  // Staged reveal: 0=hidden, 1=verdict word, 2=stats, 3=caps
+  // Staged reveal: 0=hidden, 1=verdict word, 2=rationale, 3=counts/coverage note
   const [stage, setStage] = useState(0);
 
   useEffect(() => {
@@ -25,40 +24,8 @@ export function VerdictBanner() {
 
   if (!verdict) return null;
 
-  const { verified, observed, rest, dealbreaker } = computeProofStats(findings, proofs);
-
-  // Derive display label + color from what was actually proven
-  let displayLabel: string;
-  let displayColor: string;
-  if (verdict === "SAFE") {
-    displayLabel = "SAFE";
-    displayColor = "var(--safe)";
-  } else if (dealbreaker) {
-    displayLabel = "DANGEROUS";
-    displayColor = "var(--danger)";
-  } else if (verified > 0) {
-    displayLabel = "DANGEROUS";
-    displayColor = "var(--danger)";
-  } else if (observed > 0) {
-    displayLabel = "SUSPICIOUS";
-    displayColor = "var(--suspected)";
-  } else {
-    displayLabel = "REVIEW";
-    displayColor = "var(--text-muted)";
-  }
-
-  let statsText: string;
-  if (dealbreaker) {
-    statsText = `DEALBREAKER: ${dealbreaker.problem}`;
-  } else if (verified > 0) {
-    statsText = `${verified} verified${rest > 0 ? ` · ${rest} flagged` : ""}`;
-  } else if (observed > 0) {
-    statsText = `${observed} observed · ${rest} unverified`;
-  } else if (findings.length > 0) {
-    statsText = `${findings.length} flagged · none verified`;
-  } else {
-    statsText = verdict === "SAFE" ? "No issues found" : "Analysis complete";
-  }
+  const display = verdictDisplay(verdict);
+  const stats = countsSummary(counts);
 
   return (
     <div
@@ -66,7 +33,7 @@ export function VerdictBanner() {
       className="verdict-banner animate-slide-down flex items-center gap-4 shrink-0"
       style={{
         padding: "12px var(--header-px)",
-        borderTop: `2px solid ${displayColor}`,
+        borderTop: `2px solid ${display.color}`,
         background: "var(--bg)",
       }}
     >
@@ -79,51 +46,52 @@ export function VerdictBanner() {
             fontWeight: 800,
             fontSize: "1.1rem",
             letterSpacing: "0.04em",
-            color: displayColor,
+            color: display.color,
           }}
         >
-          {displayLabel}
+          {display.label}
         </span>
       )}
 
-      {/* Stats */}
+      {/* Rationale / one-line explanation */}
       {stage >= 2 && (
+        <span
+          className="fade-in"
+          style={{ fontSize: "0.78rem", color: "var(--text-dim)", lineHeight: 1.4 }}
+        >
+          {rationale || display.note}
+        </span>
+      )}
+
+      {/* Coverage-gap pill — UNKNOWN must be loud, never a quiet pass */}
+      {stage >= 3 && display.isCoverageGap && (
         <span
           className="fade-in"
           style={{
             fontFamily: "var(--font-mono)",
-            fontSize: "0.72rem",
-            color: dealbreaker ? "var(--danger)" : "var(--text-dim)",
-            fontWeight: dealbreaker ? 700 : 400,
+            fontSize: "0.62rem",
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 3,
+            background: "var(--suspected-bg)",
+            color: "var(--warning)",
+            border: "1px solid var(--warning)",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
           }}
         >
-          {statsText}
+          Coverage gap — could not analyze
         </span>
       )}
 
-      {/* Capability tags — neutral, not severity indicators */}
-      {stage >= 3 && capabilities.length > 0 && (
-        <div className="verdict-caps ml-auto flex gap-1">
-          {capabilities.map((cap, i) => (
-            <span
-              key={cap}
-              className="cap-pop"
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "0.6rem",
-                padding: "1px 6px",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--border)",
-                color: "var(--text-dim)",
-                opacity: 0,
-                animationDelay: `${i * 150}ms`,
-                animationFillMode: "forwards",
-              }}
-            >
-              {cap}
-            </span>
-          ))}
-        </div>
+      {/* Counts summary */}
+      {stage >= 3 && stats && (
+        <span
+          className="fade-in ml-auto"
+          style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-muted)" }}
+        >
+          {stats}
+        </span>
       )}
     </div>
   );

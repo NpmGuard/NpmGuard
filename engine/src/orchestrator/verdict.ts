@@ -1,30 +1,21 @@
 import type { HypothesisGraph } from "../graph/hypothesis-graph.js";
-import type { Hypothesis } from "@npmguard/shared";
+import type { Hypothesis, HypothesisCounts, VerdictEnum } from "@npmguard/shared";
 
 /**
- * The hypothesis-graph-derived verdict. Distinct from the cross-process
- * `VerdictEnum` (SAFE | DANGEROUS) which is exposed on AuditReport today;
- * this one is richer and will replace it once the workers land and the
- * graph starts containing terminal states.
+ * The hypothesis-graph-derived verdict. This IS the cross-process verdict now
+ * (`VerdictEnum` is the same 4-state enum) — the graph is the single truth-
+ * producing artifact and this pure function is the authoritative reducer.
  */
-export type GraphVerdict = "SAFE" | "SUSPECT" | "DANGEROUS" | "UNKNOWN";
+export type GraphVerdict = VerdictEnum;
 
 export interface GraphVerdictReport {
   verdict: GraphVerdict;
   rationale: string;
-  counts: {
-    total: number;
-    open: number;
-    inProgress: number;
-    confirmed: number;
-    refuted: number;
-    inconclusive: number;
-    deferred: number;
-  };
+  counts: HypothesisCounts;
   confirmedHypIds: string[];
 }
 
-function bucket(hypotheses: readonly Hypothesis[]): GraphVerdictReport["counts"] {
+function bucket(hypotheses: readonly Hypothesis[]): HypothesisCounts {
   const counts = {
     total: hypotheses.length,
     open: 0,

@@ -97,3 +97,19 @@ export const HypothesisGraphSnapshot = z.object({
   updatedAt: z.string(),
 });
 export type HypothesisGraphSnapshot = z.infer<typeof HypothesisGraphSnapshot>;
+
+// ---------------------------------------------------------------------------
+// Per-state tally of a resolved graph — the shape carried on a graph verdict
+// and on the shipped AuditReport so consumers can render the coverage picture.
+// ---------------------------------------------------------------------------
+
+export const HypothesisCounts = z.object({
+  total: z.number().int().nonnegative(),
+  open: z.number().int().nonnegative(),
+  inProgress: z.number().int().nonnegative(),
+  confirmed: z.number().int().nonnegative(),
+  refuted: z.number().int().nonnegative(),
+  inconclusive: z.number().int().nonnegative(),
+  deferred: z.number().int().nonnegative(),
+});
+export type HypothesisCounts = z.infer<typeof HypothesisCounts>;

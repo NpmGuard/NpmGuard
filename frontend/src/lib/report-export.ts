@@ -1,18 +1,18 @@
-import type { Finding, Proof, InstrumentationLog } from "./types";
+import type { VerdictEnum, Hypothesis, HypothesisCounts } from "./types";
+import { HYP_STATE_META, claimKindLabel, countsSummary } from "./types";
 
 // ---------------------------------------------------------------------------
-// Shared input shape for the 3 export formats. Mirrors what PackageLookup and
-// AuditView already build — kept loose so callers don't need to import zod.
+// Shared input shape for the 3 export formats. Mirrors the engine v2 AuditReport
+// surface — the hypothesis graph is the finding surface now.
 // ---------------------------------------------------------------------------
 
 export interface ExportableReport {
   packageName: string;
   version?: string | null;
-  verdict: "SAFE" | "DANGEROUS" | null;
-  capabilities: string[];
-  findings: Finding[];
-  proofs: Proof[];
-  runtimeEvidence?: InstrumentationLog | null;
+  verdict: VerdictEnum | null;
+  rationale: string;
+  counts: HypothesisCounts | null;
+  hypotheses: Hypothesis[];
 }
 
 export interface PaymentProof {
@@ -66,23 +66,15 @@ function safeFilename(part: string): string {
   return part.replace(/[^a-zA-Z0-9._-]+/g, "_");
 }
 
-// ---------------------------------------------------------------------------
-// Stats — same logic the verdict header uses, copied here so we don't take a
-// dep on the React component code.
-// ---------------------------------------------------------------------------
-
-interface ReportStats {
-  verified: number;
-  observed: number;
-  flagged: number;
-  total: number;
-}
-
-function statsOf(report: ExportableReport): ReportStats {
-  const verified = report.proofs.filter((p) => p.kind === "TEST_CONFIRMED").length;
-  const observed = report.proofs.filter((p) => p.kind === "AI_DYNAMIC").length;
-  const total = report.findings.length;
-  return { verified, observed, flagged: total - verified - observed, total };
+/** Plain-text verdict badge for the markdown export. */
+export function verdictBadge(verdict: VerdictEnum | null): string {
+  switch (verdict) {
+    case "SAFE": return "✓ SAFE";
+    case "DANGEROUS": return "⚠ DANGEROUS";
+    case "SUSPECT": return "◐ SUSPECT";
+    case "UNKNOWN": return "? UNKNOWN (coverage gap)";
+    default: return "PENDING";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,106 +129,38 @@ export function exportAsJson(report: ExportableReport): void {
 // Markdown export — for PR comments, Slack, Linear.
 // ---------------------------------------------------------------------------
 
-function mdEscape(text: string): string {
-  return text.replace(/\|/g, "\\|").replace(/\n/g, " ");
-}
-
-function findingHeader(proof: Proof | undefined): string {
-  if (!proof) return "FLAGGED";
-  switch (proof.kind) {
-    case "TEST_CONFIRMED": return "✓ VERIFIED";
-    case "AI_DYNAMIC": return "OBSERVED";
-    case "TEST_UNCONFIRMED": return proof.verifyError ? "INFRA ERROR" : "UNVERIFIED";
-    case "AI_STATIC": return "STATIC";
-    case "STRUCTURAL": return "STRUCTURAL";
-    default: return "FLAGGED";
-  }
-}
-
-function groupByCapability(report: ExportableReport): Map<string, Array<{ finding: Finding; proof: Proof | undefined }>> {
-  const map = new Map<string, Array<{ finding: Finding; proof: Proof | undefined }>>();
-  for (let i = 0; i < report.findings.length; i++) {
-    const f = report.findings[i];
-    const cap = (f.capability.split(",")[0] || "OTHER").trim();
-    if (!map.has(cap)) map.set(cap, []);
-    map.get(cap)!.push({ finding: f, proof: report.proofs[i] });
-  }
-  return map;
-}
-
 export async function exportAsMarkdown(report: ExportableReport): Promise<void> {
   const cert = await buildCertificate(report);
-  const stats = statsOf(report);
 
   const lines: string[] = [];
   lines.push(`# NpmGuard audit: \`${report.packageName}@${report.version ?? "unknown"}\``);
   lines.push("");
-  const verdictBadge = report.verdict === "SAFE" ? "✓ SAFE" : report.verdict === "DANGEROUS" ? "⚠ DANGEROUS" : "REVIEW";
-  lines.push(`**Verdict: ${verdictBadge}** · ${stats.verified} verified · ${stats.observed} observed · ${stats.flagged} flagged`);
+  lines.push(`**Verdict: ${verdictBadge(report.verdict)}**${report.rationale ? ` — ${report.rationale}` : ""}`);
   lines.push("");
-
-  // Capability summary
-  if (report.capabilities.length > 0) {
-    lines.push("## Capabilities");
-    lines.push("");
-    for (const cap of report.capabilities) {
-      lines.push(`- \`${cap}\``);
-    }
+  if (report.counts) {
+    lines.push(`_${countsSummary(report.counts)}_`);
     lines.push("");
   }
 
-  // Findings, grouped by capability
-  const groups = groupByCapability(report);
-  if (groups.size > 0) {
-    lines.push("## Findings");
+  // Hypotheses, grouped/sorted by state (confirmed first)
+  if (report.hypotheses.length > 0) {
+    const sorted = [...report.hypotheses].sort(
+      (a, b) => HYP_STATE_META[a.state].order - HYP_STATE_META[b.state].order,
+    );
+    lines.push("## Hypotheses");
     lines.push("");
-    for (const [cap, items] of groups) {
-      lines.push(`### ${cap.replace(/_/g, " ")}`);
-      lines.push("");
-      for (const { finding, proof } of items) {
-        const status = findingHeader(proof);
-        lines.push(`- **${status}** — \`${finding.fileLine}\``);
-        lines.push(`  ${finding.problem}`);
-        if (finding.evidence) lines.push(`  > ${finding.evidence.slice(0, 400).replace(/\n/g, " ")}`);
-        if (proof?.testHash) lines.push(`  _proof hash:_ \`${proof.testHash.slice(0, 16)}\``);
-      }
-      lines.push("");
+    for (const h of sorted) {
+      const label = HYP_STATE_META[h.state].label.toUpperCase();
+      lines.push(`- **${label}** — ${h.description || claimKindLabel(h.claim.kind)}`);
+      lines.push(
+        `  - claim: \`${h.claim.kind}\`${h.claim.gating ? ` · gating: \`${h.claim.gating}\`` : ""} · severity: ${h.severity}`,
+      );
+      if (h.focusFiles.length) lines.push(`  - files: ${h.focusFiles.map((f) => `\`${f}\``).join(", ")}`);
+      if (h.resolution?.reason) lines.push(`  - resolution: ${h.resolution.reason.replace(/\n/g, " ")}`);
+      const run = h.evidenceRefs.find((r) => r.kind === "run");
+      if (run) lines.push(`  - evidence: reproduced in run \`${run.id}\``);
     }
-  }
-
-  // Runtime evidence
-  const re = report.runtimeEvidence;
-  if (re && (re.networkCalls.length || re.envAccess.length || re.fsOperations.length || re.processSpawns.length)) {
-    lines.push("## Runtime evidence");
     lines.push("");
-    if (re.networkCalls.length) {
-      lines.push("### Network calls");
-      lines.push("");
-      lines.push("| Method | URL |");
-      lines.push("|---|---|");
-      for (const c of re.networkCalls) lines.push(`| \`${mdEscape(c.method)}\` | \`${mdEscape(c.url)}\` |`);
-      lines.push("");
-    }
-    if (re.envAccess.length) {
-      lines.push("### Environment variables read");
-      lines.push("");
-      lines.push(re.envAccess.map((k) => `\`${k}\``).join(", "));
-      lines.push("");
-    }
-    if (re.fsOperations.length) {
-      lines.push("### Filesystem operations");
-      lines.push("");
-      lines.push("| Op | Path |");
-      lines.push("|---|---|");
-      for (const op of re.fsOperations) lines.push(`| \`${mdEscape(op.op)}\` | \`${mdEscape(op.path)}\` |`);
-      lines.push("");
-    }
-    if (re.processSpawns.length) {
-      lines.push("### Process spawns");
-      lines.push("");
-      for (const s of re.processSpawns) lines.push(`- \`${mdEscape(s.cmd)} ${s.args.map(mdEscape).join(" ")}\``);
-      lines.push("");
-    }
   }
 
   // Audit certificate

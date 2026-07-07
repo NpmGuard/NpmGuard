@@ -3,11 +3,9 @@ import { config } from "../config.js";
 /**
  * Declarative description of how a sandbox container should be launched.
  *
- * Phase A uses a slice of this (image/memory/cpus/networkMode) via a
- * thin launcher. Phase A Sprint 3 (manipulation primitives) and Sprint 4
- * (kernel sensors) will contribute additional fields (envs, volumes,
- * capAdd, ldPreload, etc.), at which point `engine/src/sandbox/controller.ts`
- * is refactored to consume the full spec.
+ * Consumed by `run-under-observation.ts` (via `specToDockerArgs`), which
+ * launches the sandbox for the experimenter worker. Manipulation primitives
+ * and sensors contribute additional fields (envs, volumes, capAdd, ldPreload).
  */
 export interface ContainerSpec {
   image: string;

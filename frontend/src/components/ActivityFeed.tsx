@@ -1,9 +1,15 @@
 import { useEffect, useRef, useMemo } from "react";
 import { useAuditStore } from "../stores/auditStore";
 import { useTypewriter } from "../hooks/useTypewriter";
-import { useCountUp } from "../hooks/useCountUp";
-import { PHASE_WAIT_LABELS, LIFECYCLE_SCRIPTS, readFileArg, fileFromFileLine, computeProofStats } from "../lib/types";
-import type { AgentStep, Finding, PipelineLogEntry } from "../lib/types";
+import { PHASE_WAIT_LABELS, LIFECYCLE_SCRIPTS, readFileArg } from "../lib/types";
+import {
+  HYP_STATE_META,
+  hypSeverityColor,
+  claimKindLabel,
+  verdictDisplay,
+  countsSummary,
+} from "../lib/types";
+import type { AgentStep, LiveHypothesis, PipelineLogEntry, VerdictEnum } from "../lib/types";
 
 // ── Sub-components ──
 
@@ -129,7 +135,7 @@ function ToolResultItem({ step }: { step: AgentStep }) {
           .slice(0, 3)
           .map((line, i) => (
             <div key={i} className="truncate">
-              {line || "\u00A0"}
+              {line || " "}
             </div>
           ))}
       </div>
@@ -137,118 +143,57 @@ function ToolResultItem({ step }: { step: AgentStep }) {
   );
 }
 
-const CONFIDENCE_STYLE: Record<
-  string,
-  { color: string; bg: string; border: string }
-> = {
-  CONFIRMED: {
-    color: "var(--suspected)",
-    bg: "var(--suspected-bg)",
-    border: "var(--suspected)",
-  },
-  LIKELY: {
-    color: "var(--suspected)",
-    bg: "var(--suspected-bg)",
-    border: "var(--suspected)",
-  },
-  SUSPECTED: {
-    color: "var(--text-muted)",
-    bg: "var(--bg-secondary)",
-    border: "var(--text-muted)",
-  },
-};
-
-function FindingItem({ finding }: { finding: Finding }) {
+// A single hypothesis in the live feed — raised during triage, then resolved to
+// a terminal state by the orchestrator. "A finding with a state."
+function HypothesisFeedItem({ hyp }: { hyp: LiveHypothesis }) {
   const selectFile = useAuditStore((s) => s.selectFile);
-  const style = CONFIDENCE_STYLE[finding.confidence] ?? CONFIDENCE_STYLE.SUSPECTED;
+  const meta = HYP_STATE_META[hyp.state];
 
   return (
     <div
       className="feed-item finding-slam"
-      style={{
-        borderLeft: `3px solid ${style.border}`,
-        background: style.bg,
-      }}
+      style={{ borderLeft: `3px solid ${meta.color}`, background: meta.isGap ? meta.bg : undefined }}
     >
-      <div
-        style={{
-          fontWeight: 700,
-          fontSize: "0.85rem",
-          color: style.color,
-          marginBottom: 2,
-        }}
-      >
-        {finding.capability}
+      <div className="feed-meta">
         <span
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.65rem",
-            color: style.color,
-            opacity: 0.8,
-            marginLeft: 8,
-            fontWeight: 400,
+            padding: "1px 5px",
+            borderRadius: 3,
+            fontSize: "0.6rem",
+            fontWeight: 700,
+            background: meta.bg,
+            color: meta.color,
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
           }}
         >
-          {finding.confidence === "CONFIRMED" ? "CAPABILITY CONFIRMED" : finding.confidence}
+          {hyp.state === "CONFIRMED" ? "✓ " : ""}{meta.label}
         </span>
+        <span style={{ color: hypSeverityColor(hyp.severity), fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase" }}>
+          {hyp.severity}
+        </span>
+        {hyp.by && <span style={{ color: "var(--text-muted)" }}>{hyp.by}</span>}
       </div>
-      <div className="feed-body">{finding.problem}</div>
-      {finding.evidence && finding.evidence !== finding.problem && (
-        <div
-          className="feed-body"
-          style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 2 }}
-        >
-          {finding.evidence.length > 180
-            ? finding.evidence.slice(0, 180) + "..."
-            : finding.evidence}
+      <div className="feed-body" style={{ fontWeight: 600 }}>
+        {claimKindLabel(hyp.claim)}
+        {hyp.file && (
+          <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> · {hyp.file}</span>
+        )}
+      </div>
+      {hyp.reason && (
+        <div className="feed-body" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 2 }}>
+          {hyp.reason}
         </div>
       )}
-      {finding.fileLine && (
+      {hyp.file && (
         <button
           className="feed-file-ref"
-          onClick={() => {
-            const file = fileFromFileLine(finding.fileLine);
-            if (file) selectFile(file);
-          }}
-          aria-label={`Open ${finding.fileLine}`}
+          onClick={() => hyp.file && selectFile(hyp.file)}
+          aria-label={`Open ${hyp.file}`}
         >
-          → {finding.fileLine}
+          → {hyp.file}
         </button>
       )}
-    </div>
-  );
-}
-
-function TriageItem({ summary }: { summary: string }) {
-  const riskScore = useAuditStore((s) => s.riskScore);
-  const displayScore = useCountUp(riskScore ?? 0, 1200);
-
-  return (
-    <div className="feed-item">
-      <div className="feed-meta">
-        <FeedTag type="triage">triage</FeedTag>
-      </div>
-      <div className="feed-body">
-        {riskScore !== null && (
-          <>
-            Risk score:{" "}
-            <strong
-              style={{
-                color:
-                  riskScore >= 7
-                    ? "var(--danger)"
-                    : riskScore >= 3
-                      ? "var(--suspected)"
-                      : "var(--safe)",
-              }}
-            >
-              {displayScore} / 10
-            </strong>
-            <br />
-          </>
-        )}
-        {summary}
-      </div>
     </div>
   );
 }
@@ -373,67 +318,40 @@ function PipelineLogItem({ entry }: { entry: PipelineLogEntry }) {
   }
 }
 
-function CompletionItem({ verdict }: { verdict: "SAFE" | "DANGEROUS" }) {
-  const proofs = useAuditStore((s) => s.proofs);
-  const findings = useAuditStore((s) => s.findings);
-  const { verified, observed, dealbreaker } = computeProofStats(findings, proofs);
-
-  let summary: string;
-  let color: string;
-  let bg: string;
-  let icon: string;
-
-  if (verdict === "SAFE") {
-    summary = "No malicious behavior detected. Package appears safe to install.";
-    color = "var(--safe)";
-    bg = "var(--safe-bg)";
-    icon = "\u2713";
-  } else if (dealbreaker) {
-    summary = `Dealbreaker detected — ${dealbreaker.problem}. Skipped to DANGEROUS.`;
-    color = "var(--danger)";
-    bg = "var(--danger-bg)";
-    icon = "\u2717";
-  } else if (verified > 0) {
-    const rest = findings.length - verified;
-    summary = `${verified} finding${verified !== 1 ? "s" : ""} verified by exploit tests.${rest > 0 ? ` ${rest} additional flagged.` : ""}`;
-    color = "var(--danger)";
-    bg = "var(--danger-bg)";
-    icon = "\u2717";
-  } else if (observed > 0) {
-    summary = `${observed} finding${observed !== 1 ? "s" : ""} observed at runtime but not verified by tests. Review recommended.`;
-    color = "var(--suspected)";
-    bg = "var(--suspected-bg)";
-    icon = "?";
-  } else if (findings.length > 0) {
-    summary = `${findings.length} finding${findings.length !== 1 ? "s" : ""} flagged by static analysis but none verified. Manual review recommended.`;
-    color = "var(--text-muted)";
-    bg = "var(--bg-secondary)";
-    icon = "?";
-  } else {
-    summary = "Analysis complete. No findings.";
-    color = "var(--safe)";
-    bg = "var(--safe-bg)";
-    icon = "\u2713";
-  }
+function CompletionItem({ verdict }: { verdict: VerdictEnum }) {
+  const rationale = useAuditStore((s) => s.rationale);
+  const counts = useAuditStore((s) => s.counts);
+  const display = verdictDisplay(verdict);
+  const stats = countsSummary(counts);
+  const icon =
+    verdict === "SAFE" ? "✓" : verdict === "DANGEROUS" ? "✗" : display.isCoverageGap ? "⚠" : "?";
 
   return (
     <div
       className="feed-item"
       style={{
-        borderLeft: `3px solid ${color}`,
-        background: bg,
+        borderLeft: `3px solid ${display.color}`,
+        background: display.bg,
         marginTop: 8,
       }}
     >
-      <div style={{
-        fontWeight: 700,
-        fontSize: "0.85rem",
-        color,
-        marginBottom: 2,
-      }}>
-        {icon} Audit complete
+      <div style={{ fontWeight: 700, fontSize: "0.85rem", color: display.color, marginBottom: 2 }}>
+        {icon} {display.label}
       </div>
-      <div className="feed-body">{summary}</div>
+      <div className="feed-body">{rationale || display.note}</div>
+      {display.isCoverageGap && (
+        <div className="feed-body" style={{ color: "var(--warning)", fontWeight: 600, marginTop: 2 }}>
+          Coverage gap — treat as unreviewed, not safe.
+        </div>
+      )}
+      {stats && (
+        <div
+          className="feed-body"
+          style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 2 }}
+        >
+          {stats}
+        </div>
+      )}
     </div>
   );
 }
@@ -458,8 +376,7 @@ function ThinkingIndicator() {
 export function ActivityFeed() {
   const pipelineLog = useAuditStore((s) => s.pipelineLog);
   const agentSteps = useAuditStore((s) => s.agentSteps);
-  const findings = useAuditStore((s) => s.findings);
-  const riskSummary = useAuditStore((s) => s.riskSummary);
+  const liveHypotheses = useAuditStore((s) => s.liveHypotheses);
   const verdict = useAuditStore((s) => s.verdict);
   const agentThinking = useAuditStore((s) => s.agentThinking);
   const isRunning = useAuditStore((s) => s.isRunning);
@@ -483,10 +400,10 @@ export function ActivityFeed() {
     if (!userScrolledUp.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [pipelineLog.length, agentSteps.length, findings.length, agentThinking]);
+  }, [pipelineLog.length, agentSteps.length, liveHypotheses.length, agentThinking]);
 
   const hasContent =
-    pipelineLog.length > 0 || agentSteps.length > 0 || findings.length > 0 || riskSummary;
+    pipelineLog.length > 0 || agentSteps.length > 0 || liveHypotheses.length > 0;
 
   // Determine if a tool call is pending (last tool_call with no following tool_result)
   const lastToolCallIndex = useMemo(() => {
@@ -547,8 +464,6 @@ export function ActivityFeed() {
           <PipelineLogItem key={`pl-${i}`} entry={entry} />
         ))}
 
-        {riskSummary && <TriageItem summary={riskSummary} />}
-
         {agentSteps.map((step, i) => {
           switch (step.type) {
             case "tool_call":
@@ -568,8 +483,8 @@ export function ActivityFeed() {
           }
         })}
 
-        {findings.map((f, i) => (
-          <FindingItem key={`f-${i}`} finding={f} />
+        {liveHypotheses.map((h) => (
+          <HypothesisFeedItem key={h.hypId} hyp={h} />
         ))}
 
         {isRunning && !agentThinking && !lastToolCallPending && !verdict && phase && PHASE_WAIT_LABELS[phase] && (

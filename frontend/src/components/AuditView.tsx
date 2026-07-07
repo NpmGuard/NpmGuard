@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useAuditStore } from "../stores/auditStore";
 import { ActivityFeed } from "./ActivityFeed";
 import { CodeViewer } from "./CodeViewer";
@@ -47,38 +47,20 @@ export function AuditView() {
   const error = useAuditStore((s) => s.error);
   const isRunning = useAuditStore((s) => s.isRunning);
   const reconnecting = useAuditStore((s) => s.reconnecting);
-  const auditId = useAuditStore((s) => s.auditId);
   const packageName = useAuditStore((s) => s.packageName);
-  const findings = useAuditStore((s) => s.findings);
-  const proofs = useAuditStore((s) => s.proofs);
-  const capabilities = useAuditStore((s) => s.capabilities);
+  const rationale = useAuditStore((s) => s.rationale);
+  const counts = useAuditStore((s) => s.counts);
+  const hypotheses = useAuditStore((s) => s.hypotheses);
   const phases = useAuditStore((s) => s.phases);
-  const runtimeEvidence = useAuditStore((s) => s.runtimeEvidence);
-
-  const fetchSource = useCallback(
-    async (path: string): Promise<string | null> => {
-      if (!auditId) return null;
-      try {
-        const res = await fetch(`/api/audit/${auditId}/file/${path}`);
-        if (!res.ok) return null;
-        return await res.text();
-      } catch {
-        return null;
-      }
-    },
-    [auditId],
-  );
 
   const reportElement = (
     <ReportView
       packageName={packageName}
       verdict={verdict}
-      capabilities={capabilities}
-      findings={findings}
-      proofs={proofs}
+      rationale={rationale}
+      counts={counts}
+      hypotheses={hypotheses}
       trail={trailFromPhases(phases)}
-      fetchSource={fetchSource}
-      runtimeEvidence={runtimeEvidence}
     />
   );
 
