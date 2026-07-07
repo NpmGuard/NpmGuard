@@ -38,43 +38,44 @@ function FeedTag({
   );
 }
 
+// Tool calls are subordinate actions under the agent's reasoning — one
+// compact mono row, not a full-weight feed entry (reasoning leads).
 function ToolCallItem({ step, isPending }: { step: AgentStep; isPending: boolean }) {
   const selectFile = useAuditStore((s) => s.selectFile);
   const filePath = step.tool === "readFile" ? readFileArg(step.args) : undefined;
 
   return (
-    <div className="feed-item">
-      <div className="feed-meta">
+    <div className="feed-item feed-item--sub">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          minWidth: 0,
+          fontFamily: "var(--font-mono)",
+          fontSize: "0.72rem",
+          color: "var(--text-muted)",
+        }}
+      >
         <FeedTag type="tool">{step.tool || "tool"}</FeedTag>
-        <span>step {step.step}</span>
-        {isPending && <span className="tool-spinner" />}
+        {filePath ? (
+          <button
+            className="feed-file-ref"
+            style={{ marginTop: 0, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            onClick={() => selectFile(filePath)}
+            aria-label={`Open file ${filePath}`}
+          >
+            {filePath}
+          </button>
+        ) : step.args ? (
+          <span
+            style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          >
+            {Object.values(step.args).join(", ").slice(0, 80)}
+          </span>
+        ) : null}
+        {isPending && <span className="tool-spinner" style={{ marginLeft: 0 }} />}
       </div>
-      <div className="feed-body">
-        {step.tool === "readFile" && filePath ? (
-          <>
-            Reading <code>{filePath}</code>
-          </>
-        ) : (
-          <>
-            {step.tool}
-            {step.args && (
-              <span style={{ color: "var(--text-muted)" }}>
-                {" "}
-                ({Object.values(step.args).join(", ").slice(0, 80)})
-              </span>
-            )}
-          </>
-        )}
-      </div>
-      {filePath && (
-        <button
-          className="feed-file-ref"
-          onClick={() => selectFile(filePath)}
-          aria-label={`Open file ${filePath}`}
-        >
-          → {filePath}
-        </button>
-      )}
     </div>
   );
 }
@@ -99,7 +100,7 @@ function ReasoningItem({ step }: { step: AgentStep }) {
 function ToolResultItem({ step }: { step: AgentStep }) {
   if (!step.resultPreview) return null;
   return (
-    <div className="feed-item" style={{ paddingLeft: 32, opacity: 0.7 }}>
+    <div className="feed-item feed-item--sub" style={{ opacity: 0.7 }}>
       {step.injectionDetected && (
         <span
           style={{

@@ -69,9 +69,11 @@ export function PaymentModal({
           ×
         </button>
 
-        <h2 style={{ margin: 0, fontSize: "1.2rem" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", fontFamily: "var(--font-heading)", fontWeight: 700 }}>
           Audit {packageName}
-          <span style={{ color: "var(--text-dim)" }}>@{version}</span>
+          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "0.9rem", fontWeight: 400 }}>
+            @{version}
+          </span>
         </h2>
 
         {mode === "choose" && (
@@ -80,7 +82,7 @@ export function PaymentModal({
               Choose a payment method
             </p>
             <div style={buttonCol}>
-              <button style={primaryBtn} onClick={handleStripe} disabled={!stripeEnabled}>
+              <button className="payment-option" onClick={handleStripe} disabled={!stripeEnabled}>
                 Pay with Stripe
                 <span style={subLabel}>
                   {stripeEnabled && priceCents != null
@@ -89,7 +91,7 @@ export function PaymentModal({
                 </span>
               </button>
               <button
-                style={primaryBtn}
+                className="payment-option"
                 onClick={handleMetaMask}
                 disabled={!injected || !cryptoFeeWei}
               >
@@ -124,6 +126,7 @@ const overlayStyle: React.CSSProperties = {
   position: "fixed",
   inset: 0,
   background: "rgba(0,0,0,0.5)",
+  backdropFilter: "blur(2px)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -135,7 +138,7 @@ const modalStyle: React.CSSProperties = {
   background: "var(--bg)",
   color: "var(--text)",
   padding: "1.5rem",
-  borderRadius: "0.5rem",
+  borderRadius: "var(--radius)",
   border: "1px solid var(--border-strong)",
   minWidth: 340,
   maxWidth: 420,
@@ -158,21 +161,6 @@ const buttonCol: React.CSSProperties = {
   flexDirection: "column",
   gap: "0.75rem",
   marginTop: "1rem",
-};
-
-const primaryBtn: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  gap: "0.25rem",
-  padding: "0.75rem 1rem",
-  background: "var(--bg-secondary)",
-  border: "1px solid var(--border-strong)",
-  borderRadius: "0.375rem",
-  color: "var(--text)",
-  cursor: "pointer",
-  textAlign: "left",
-  fontSize: "0.95rem",
 };
 
 const subLabel: React.CSSProperties = {

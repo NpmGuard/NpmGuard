@@ -109,7 +109,7 @@ export function CertificateFooter({ report }: CertificateFooterProps) {
 function CertField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "baseline", gap: 5 }}>
-      <span style={{ color: "var(--text-muted)", textTransform: "uppercase", fontSize: "0.55rem", letterSpacing: "0.08em" }}>
+      <span style={{ color: "var(--text-muted)", textTransform: "uppercase", fontSize: "0.6rem", letterSpacing: "0.08em" }}>
         {label}
       </span>
       {children}

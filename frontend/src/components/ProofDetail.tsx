@@ -106,7 +106,7 @@ function TabButton({
       {badge && (
         <span
           style={{
-            fontSize: "0.55rem",
+            fontSize: "0.6rem",
             padding: "0 5px",
             borderRadius: 3,
             background: "var(--bg-tertiary)",
@@ -130,7 +130,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: "0.55rem",
+        fontSize: "0.6rem",
         fontWeight: 700,
         textTransform: "uppercase",
         letterSpacing: "0.1em",
@@ -322,7 +322,7 @@ function ProofTab({ proof }: { proof: Proof | undefined }) {
           <span
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: "0.55rem",
+              fontSize: "0.6rem",
               fontWeight: 700,
               padding: "2px 7px",
               borderRadius: 3,
@@ -338,7 +338,7 @@ function ProofTab({ proof }: { proof: Proof | undefined }) {
           <span
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: "0.55rem",
+              fontSize: "0.6rem",
               fontWeight: 700,
               padding: "2px 7px",
               borderRadius: 3,
@@ -353,7 +353,7 @@ function ProofTab({ proof }: { proof: Proof | undefined }) {
           <span
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: "0.55rem",
+              fontSize: "0.6rem",
               color: "var(--text-muted)",
               marginLeft: "auto",
             }}
@@ -387,7 +387,7 @@ function ProofTab({ proof }: { proof: Proof | undefined }) {
             lineHeight: 1.5,
           }}
         >
-          <div style={{ fontSize: "0.55rem", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 4 }}>
+          <div style={{ fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 4 }}>
             VERIFICATION FAILED
           </div>
           {proof.verifyError}
@@ -760,13 +760,16 @@ function WhyTab({ finding, proof }: { finding: Finding; proof: Proof | undefined
 // ---------------------------------------------------------------------------
 
 export function ProofDetail({ finding, proof, fetchSource, runtimeEvidence }: ProofDetailProps) {
-  const [tab, setTab] = useState<Tab>("source");
-  // Reset to Source tab whenever a new finding is selected — adjust state
+  // Cached reports have no source fetcher — landing on an empty Source tab
+  // reads as broken, so lead with the explanation instead.
+  const defaultTab: Tab = fetchSource ? "source" : "why";
+  const [tab, setTab] = useState<Tab>(defaultTab);
+  // Reset to the default tab whenever a new finding is selected — adjust state
   // during render so we avoid the cascading-render warning.
   const [prevFinding, setPrevFinding] = useState(finding);
   if (finding !== prevFinding) {
     setPrevFinding(finding);
-    setTab("source");
+    setTab(defaultTab);
   }
 
   if (!finding) {
