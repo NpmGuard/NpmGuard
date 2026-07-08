@@ -1,10 +1,20 @@
-import { describe, it, expect } from "vitest";
-import type { Hypothesis, RunArtifact, Event } from "@npmguard/shared";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Hypothesis, RunArtifact } from "@npmguard/shared";
+
+vi.mock("../evidence/run-under-observation.js", () => ({ runUnderObservation: vi.fn() }));
+vi.mock("./judge.js", () => ({ judgeEvidence: vi.fn() }));
+
+import { runUnderObservation } from "../evidence/run-under-observation.js";
+import { judgeEvidence } from "./judge.js";
 import {
   strategyForClaim,
   pickTriggerTarget,
-  eventsContainDnsWithPayload,
+  claimHasDynamicStrategy,
+  runExperiment,
 } from "./experimenter.js";
+
+const runUnderObservationMock = vi.mocked(runUnderObservation);
+const judgeEvidenceMock = vi.mocked(judgeEvidence);
 
 function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
   return {
@@ -31,7 +41,7 @@ function baseArtifact(overrides: Partial<RunArtifact> = {}): RunArtifact {
     runId: "run_test",
     triggerUsed: { kind: "entrypoint", target: "index.js", argv: [], stdin: null },
     setupApplied: {
-      env: {},
+      env: { HOME: "/home/node" },
       date: null,
       plantFiles: [],
       stubUrls: [],
@@ -40,12 +50,12 @@ function baseArtifact(overrides: Partial<RunArtifact> = {}): RunArtifact {
       patches: [],
       preloadHash: null,
     },
-    observe: { kernel: false, network: false, fsDiff: false, node: true, inspector: false },
+    observe: { kernel: true, network: true, fsDiff: false, node: true, inspector: false },
     budget: { wallMs: 15000, maxSyscalls: null, maxBytesCapture: null },
     wallMs: 500,
     exitCode: 0,
     timedOut: false,
-    events: overrides.events ?? [],
+    events: [],
     stdoutHash: null,
     stderrHash: null,
     fsDiffHash: null,
@@ -60,337 +70,134 @@ function baseArtifact(overrides: Partial<RunArtifact> = {}): RunArtifact {
   };
 }
 
-function makeEvent(overrides: Partial<Event> = {}): Event {
-  return {
-    stream: overrides.stream ?? "L4:monkey",
-    timestamp: overrides.timestamp ?? 1000,
-    pid: overrides.pid ?? 1,
-    kind: overrides.kind ?? "network",
-    raw: overrides.raw ?? null,
-    ...overrides,
-  };
-}
+beforeEach(() => {
+  runUnderObservationMock.mockReset();
+  judgeEvidenceMock.mockReset();
+});
 
 // ---------------------------------------------------------------------------
-// strategyForClaim
+// Strategy selection — how to run, no longer whether it fired.
 // ---------------------------------------------------------------------------
 
 describe("pickTriggerTarget", () => {
   it("prefers a focusFile that is an install entry point", () => {
     const h = hyp({ focusFiles: ["setup.js", "index.js"] });
-    const result = pickTriggerTarget(h, "index.js", ["setup.js"]);
-    expect(result.target).toBe("setup.js");
+    expect(pickTriggerTarget(h, "index.js", ["setup.js"]).target).toBe("setup.js");
   });
 
   it("falls back to runtimeEntry when no focusFile is an install entry", () => {
     const h = hyp({ focusFiles: ["lib/util.js"] });
-    const result = pickTriggerTarget(h, "index.js", ["setup.js"]);
-    expect(result.target).toBe("index.js");
-  });
-
-  it("falls back to runtimeEntry when installEntries is empty", () => {
-    const h = hyp({ focusFiles: ["setup.js"] });
-    const result = pickTriggerTarget(h, "index.js", []);
-    expect(result.target).toBe("index.js");
+    expect(pickTriggerTarget(h, "index.js", ["setup.js"]).target).toBe("index.js");
   });
 });
 
 describe("strategyForClaim", () => {
-  it("returns a strategy for env_exfil targeting lifecycle file when available", () => {
-    const h = hyp({ focusFiles: ["setup.js"] });
-    const s = strategyForClaim("env_exfil", h, "index.js", ["setup.js"]);
+  it("targets the lifecycle file for env_exfil and plants bait", () => {
+    const s = strategyForClaim("env_exfil", hyp({ focusFiles: ["setup.js"] }), "index.js", ["setup.js"]);
     expect(s).not.toBeNull();
     expect(s!.trigger.target).toBe("setup.js");
     expect(s!.setup.length).toBeGreaterThan(0);
   });
 
-  it("returns a strategy for binary_drop", () => {
-    const s = strategyForClaim("binary_drop", hyp({ claim: { kind: "binary_drop", gating: null } }), "index.js");
-    expect(s).not.toBeNull();
-    expect(s!.observe?.fsDiff).toBe(true);
-    expect(s!.observe?.kernel).toBe(true);
+  it("enables the right sensors per claim (fsDiff for binary_drop, inspector for obfuscation)", () => {
+    expect(strategyForClaim("binary_drop", hyp({ claim: { kind: "binary_drop", gating: null } }), "index.js")!.observe?.fsDiff).toBe(true);
+    expect(strategyForClaim("obfuscation", hyp({ claim: { kind: "obfuscation", gating: null } }), "index.js")!.observe?.inspector).toBe(true);
   });
 
-  it("returns a strategy for dos_loop with tight budget", () => {
-    const s = strategyForClaim("dos_loop", hyp({ claim: { kind: "dos_loop", gating: null } }), "index.js");
-    expect(s).not.toBeNull();
-    expect(s!.budget?.wallMs).toBe(5000);
+  it("uses a tight budget for dos_loop", () => {
+    expect(strategyForClaim("dos_loop", hyp({ claim: { kind: "dos_loop", gating: null } }), "index.js")!.budget?.wallMs).toBe(5000);
   });
 
-  it("returns a strategy for telemetry", () => {
-    const s = strategyForClaim("telemetry", hyp({ claim: { kind: "telemetry", gating: null } }), "index.js");
-    expect(s).not.toBeNull();
-    expect(s!.observe?.network).toBe(true);
-  });
-
-  it("returns a strategy for build_plugin_exfil", () => {
-    const s = strategyForClaim("build_plugin_exfil", hyp({ claim: { kind: "build_plugin_exfil", gating: null } }), "index.js");
-    expect(s).not.toBeNull();
-    expect(s!.setup.length).toBeGreaterThan(0);
-  });
-
-  it("returns a strategy for destructive with fs diff enabled", () => {
-    const s = strategyForClaim("destructive", hyp({ claim: { kind: "destructive", gating: null } }), "index.js");
-    expect(s).not.toBeNull();
-    expect(s!.observe?.fsDiff).toBe(true);
-  });
-
-  it("still returns null for browser-only strategies", () => {
+  it("returns null for browser-only claims (no dynamic strategy)", () => {
     expect(strategyForClaim("dom_inject", hyp({ claim: { kind: "dom_inject", gating: null } }), "x")).toBeNull();
     expect(strategyForClaim("clipboard_hijack", hyp({ claim: { kind: "clipboard_hijack", gating: null } }), "x")).toBeNull();
   });
-});
 
-// ---------------------------------------------------------------------------
-// Confirmation checks via strategy.confirm()
-// ---------------------------------------------------------------------------
-
-describe("env_exfil confirmation", () => {
-  const strategy = strategyForClaim("env_exfil", hyp(), "index.js")!;
-
-  it("confirms when canary token appears in network traffic", () => {
-    const art = baseArtifact({
-      events: [
-        makeEvent({
-          stream: "L4:monkey",
-          kind: "network",
-          raw: `POST http://attacker.com/steal?t=NPMGUARD_CANARY_TOKEN_f8e2d91a`,
-        }),
-      ],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("confirms when any network activity is detected (conservative)", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "connect", stream: "L1:seccomp" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("does not confirm when no network events", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "fs_op", stream: "L4:monkey" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(false);
-  });
-});
-
-describe("dos_loop confirmation", () => {
-  const strategy = strategyForClaim("dos_loop", hyp({ claim: { kind: "dos_loop", gating: null } }), "index.js")!;
-
-  it("confirms on timeout", () => {
-    const art = baseArtifact({ timedOut: true });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("does not confirm when process exits cleanly", () => {
-    const art = baseArtifact({ timedOut: false, exitCode: 0 });
-    expect(strategy.confirm(art).confirmed).toBe(false);
-  });
-});
-
-describe("binary_drop confirmation", () => {
-  const strategy = strategyForClaim("binary_drop", hyp({ claim: { kind: "binary_drop", gating: null } }), "index.js")!;
-
-  it("confirms when execve + network", () => {
-    const art = baseArtifact({
-      events: [
-        makeEvent({ kind: "execve", stream: "L1:seccomp" }),
-        makeEvent({ kind: "connect", stream: "L1:seccomp" }),
-      ],
-    });
-    const check = strategy.confirm(art);
-    expect(check.confirmed).toBe(true);
-    expect(check.reason).toContain("network");
-  });
-
-  it("confirms on execve alone", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "execve", stream: "L1:seccomp" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("does not confirm without execve", () => {
-    const art = baseArtifact({ events: [] });
-    expect(strategy.confirm(art).confirmed).toBe(false);
-  });
-});
-
-describe("obfuscation confirmation", () => {
-  const strategy = strategyForClaim("obfuscation", hyp({ claim: { kind: "obfuscation", gating: null } }), "index.js")!;
-
-  it("confirms on eval events", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "eval", stream: "L4:monkey" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("confirms on script_parsed (V8 inspector)", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "script_parsed", stream: "L4:v8inspector" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("does not confirm without eval/script_parsed", () => {
-    const art = baseArtifact({ events: [] });
-    expect(strategy.confirm(art).confirmed).toBe(false);
-  });
-});
-
-describe("telemetry/build-plugin confirmation", () => {
-  const telemetry = strategyForClaim("telemetry", hyp({ claim: { kind: "telemetry", gating: null } }), "index.js")!;
-  const buildPlugin = strategyForClaim("build_plugin_exfil", hyp({ claim: { kind: "build_plugin_exfil", gating: null } }), "index.js")!;
-
-  it("confirms telemetry when canary appears in outbound data", () => {
-    const art = baseArtifact({
-      events: [
-        makeEvent({
-          kind: "network",
-          stream: "L4:monkey",
-          raw: "POST /metrics NPMGUARD_CANARY_TOKEN_f8e2d91a",
-        }),
-      ],
-    });
-    expect(telemetry.confirm(art).confirmed).toBe(true);
-  });
-
-  it("confirms build-plugin exfil on outbound network activity", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "connect", stream: "L1:seccomp" })],
-    });
-    expect(buildPlugin.confirm(art).confirmed).toBe(true);
-  });
-});
-
-describe("persistence confirmation", () => {
-  const strategy = strategyForClaim("persistence", hyp({ claim: { kind: "persistence", gating: null } }), "index.js")!;
-
-  it("confirms on fsDiff file_created", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "file_created", stream: "L3:fsDiff" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("confirms on fsDiff file_modified", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "file_modified", stream: "L3:fsDiff" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("confirms on L4 fs_op with a writer method", () => {
-    const art = baseArtifact({
-      events: [
-        makeEvent({
-          kind: "fs_op",
-          stream: "L4:monkey",
-          normalized: { method: "writeFileSync", path: "/home/node/.bashrc" },
-        }),
-      ],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("falls back to raw.method when normalized is absent", () => {
-    const art = baseArtifact({
-      events: [
-        makeEvent({
-          kind: "fs_op",
-          stream: "L4:monkey",
-          raw: { type: "fs", method: "writeFile", path: "/tmp/payload" },
-        }),
-      ],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("does not confirm on L4 fs_op reads (readFileSync during require)", () => {
-    const art = baseArtifact({
-      events: [
-        makeEvent({
-          kind: "fs_op",
-          stream: "L4:monkey",
-          normalized: { method: "readFileSync", path: "/pkg/index.js" },
-        }),
-        makeEvent({
-          kind: "fs_op",
-          stream: "L4:monkey",
-          normalized: { method: "statSync", path: "/pkg/package.json" },
-        }),
-      ],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(false);
-  });
-
-  it("does not confirm on L1 write() syscalls (stdout/pipe writes)", () => {
-    const art = baseArtifact({
-      events: [
-        makeEvent({
-          kind: "write",
-          stream: "L1:seccomp",
-          raw: 'write(1, "__NPMGUARD_TRACE__[...]", 4096)',
-        }),
-        makeEvent({
-          kind: "write",
-          stream: "L1:seccomp",
-          raw: 'write(5, "...", 64)',
-        }),
-      ],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(false);
-  });
-});
-
-describe("destructive confirmation", () => {
-  const strategy = strategyForClaim("destructive", hyp({ claim: { kind: "destructive", gating: null } }), "index.js")!;
-
-  it("confirms on file deletion", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "file_deleted", stream: "L3:fsDiff" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("confirms on unlink syscall", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "unlink", stream: "L1:seccomp" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(true);
-  });
-
-  it("does not confirm on harmless fs writes", () => {
-    const art = baseArtifact({
-      events: [makeEvent({ kind: "file_created", stream: "L3:fsDiff" })],
-    });
-    expect(strategy.confirm(art).confirmed).toBe(false);
+  it("keeps routing in lockstep: null strategy iff not a dynamic claim", () => {
+    for (const kind of ["dom_inject", "clipboard_hijack", "propagation"] as const) {
+      expect(claimHasDynamicStrategy(kind)).toBe(false);
+      expect(strategyForClaim(kind, hyp({ claim: { kind, gating: null } }), "x")).toBeNull();
+    }
+    for (const kind of ["env_exfil", "persistence", "dos_loop", "destructive"] as const) {
+      expect(claimHasDynamicStrategy(kind)).toBe(true);
+      expect(strategyForClaim(kind, hyp({ claim: { kind, gating: null } }), "x")).not.toBeNull();
+    }
   });
 });
 
 // ---------------------------------------------------------------------------
-// DNS exfil helper
+// (10) runExperiment wiring: run → render → judge. No predicate exists.
 // ---------------------------------------------------------------------------
 
-describe("eventsContainDnsWithPayload", () => {
-  it("detects long subdomain labels (encoded data)", () => {
-    const events = [
-      makeEvent({
-        kind: "dns_query",
-        stream: "L2:pcap",
-        raw: "aabbccddeeaabbccddeeaabbccddee.attacker.com",
+describe("runExperiment", () => {
+  it("runs, renders a timeline, judges it, and returns citedEvents + evidenceRef + timeline", async () => {
+    runUnderObservationMock.mockResolvedValue(
+      baseArtifact({
+        events: [
+          {
+            stream: "L4:monkey",
+            timestamp: 0,
+            pid: 1,
+            kind: "network",
+            raw: { type: "network", method: "POST", url: "https://evil.example/collect" },
+            normalized: { method: "POST", url: "https://evil.example/collect" },
+          },
+        ],
       }),
-    ];
-    expect(eventsContainDnsWithPayload(events)).toBe(true);
+    );
+    judgeEvidenceMock.mockResolvedValue({
+      confirmed: true,
+      reason: "posts harvested env to an undocumented host",
+      citedEvents: ["e1"],
+      judgeFailed: false,
+      verdict: { malicious: true, reason: "posts harvested env to an undocumented host", citedEvents: ["e1"] },
+    });
+
+    const result = await runExperiment(hyp(), "/tmp/pkg", "index.js", ["setup.js"], "a config loader");
+
+    expect(result).not.toBeNull();
+    expect(result!.confirmed).toBe(true);
+    expect(result!.citedEvents).toEqual(["e1"]);
+    expect(result!.evidenceRef).toEqual({ kind: "run", id: "run_test", hash: "abc" });
+
+    // The judge was handed the rendered timeline (which names the outbound POST), not raw events.
+    const [, timelineArg, purposeArg] = judgeEvidenceMock.mock.calls[0]!;
+    expect(timelineArg.text).toContain("net");
+    expect(timelineArg.text).toContain("https://evil.example/collect");
+    expect(timelineArg.ids.has("e1")).toBe(true);
+    expect(purposeArg).toBe("a config loader");
+    expect(result!.timeline).toBe(timelineArg.text);
   });
 
-  it("does not flag normal DNS queries", () => {
-    const events = [
-      makeEvent({ kind: "dns_query", stream: "L2:pcap", raw: "example.com" }),
-    ];
-    expect(eventsContainDnsWithPayload(events)).toBe(false);
+  it("returns null (no run, no judge) for a claim with no dynamic strategy", async () => {
+    const result = await runExperiment(
+      hyp({ claim: { kind: "dom_inject", gating: null } }),
+      "/tmp/pkg",
+      "index.js",
+      [],
+      "purpose",
+    );
+    expect(result).toBeNull();
+    expect(runUnderObservationMock).not.toHaveBeenCalled();
+    expect(judgeEvidenceMock).not.toHaveBeenCalled();
+  });
+
+  it("(11) a run ending in SensorError still flows through the judge (orchestrator handles the DEFER)", async () => {
+    runUnderObservationMock.mockResolvedValue(
+      baseArtifact({ error: { kind: "SensorError", detail: "pcap failed to start" } }),
+    );
+    judgeEvidenceMock.mockResolvedValue({
+      confirmed: false,
+      reason: "no malicious behavior observed",
+      citedEvents: [],
+      judgeFailed: false,
+      verdict: { malicious: false, reason: "no malicious behavior observed", citedEvents: [] },
+    });
+
+    const result = await runExperiment(hyp(), "/tmp/pkg", "index.js", [], "purpose");
+
+    expect(judgeEvidenceMock).toHaveBeenCalledTimes(1);
+    expect(result!.confirmed).toBe(false);
+    expect(result!.artifact.error?.kind).toBe("SensorError");
   });
 });

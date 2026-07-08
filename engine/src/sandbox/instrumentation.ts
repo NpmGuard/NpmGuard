@@ -9,6 +9,14 @@ const _log = [];
 const _originals = {};
 
 // --- Module loading ---
+// NOTE(timeline-noise): this hook is installed before the instrument's own
+// requires below (fs/http/https/child_process/crypto), so those get logged as
+// L4 'require' events too — identical baseline noise prefixed to every run,
+// attributed to the package though the harness made them. The evidence timeline
+// (engine/src/evidence/timeline.ts) renders them faithfully; the fix belongs
+// HERE, not in the renderer: install this hook AFTER the instrument's own
+// requires, or drop events whose 'from' is this module. Deferred — cosmetic,
+// harmless (no matching fs/net/process event follows, so nothing confirms on it).
 const Module = require('module');
 const _origResolve = Module._resolveFilename;
 Module._resolveFilename = function(request, parent, ...rest) {

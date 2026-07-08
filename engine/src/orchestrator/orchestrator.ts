@@ -34,6 +34,8 @@ export interface OrchestratorContext {
   artifactStore: ArtifactStore;
   log: AuditLogger;
   emit?: EmitFn;
+  /** The package's stated purpose — the benign baseline the judge weighs behavior against. */
+  statedPurpose: string;
   /** Overall wall-clock budget for the whole dispatch loop. */
   globalBudgetMs: number;
 }
@@ -151,7 +153,7 @@ async function dispatchDynamic(
   const { packagePath, entryPoints, artifactStore, log } = ctx;
   try {
     const result = await withTimeout(
-      runExperiment(h, packagePath, runtimeEntry, entryPoints.install),
+      runExperiment(h, packagePath, runtimeEntry, entryPoints.install, ctx.statedPurpose),
       PER_HYP_MS,
       `experiment:${h.hypId}`,
     );
@@ -176,10 +178,14 @@ async function dispatchDynamic(
           `artifact=${artifactContentHash} store=${artifactHash}`,
       );
     }
+    // The timeline is the run's whitebox — persisted so the judge's citations
+    // are auditable and retrievable via the /audit/:id/file route.
+    log.writeLog(`timeline-${h.hypId}.md`, result.timeline);
     log.writeLog(`experiment-${h.hypId}.json`, {
       hypId: h.hypId,
       confirmed: result.confirmed,
       reason: result.reason,
+      citedEvents: result.citedEvents,
       runId: result.artifact.runId,
       artifactHash,
       evidenceRef: result.evidenceRef,
@@ -207,12 +213,15 @@ async function dispatchDynamic(
     const errKind = result.artifact.error?.kind ?? null;
     const observationFailed =
       errKind === "SetupError" || errKind === "SensorError" || errKind === "TimeoutError";
-    if (observationFailed) {
-      // We could not cleanly observe — this is a coverage gap, not a clean run.
+    // A judge that couldn't run is a coverage gap too — same as a failed
+    // observation, we simply don't know. DEFER, never a quiet INCONCLUSIVE pass.
+    if (observationFailed || result.judgeFailed) {
       graph.transition(h.hypId, {
         to: "DEFERRED",
         by: "worker:experimenter",
-        reason: `Observation incomplete (${errKind}): ${result.reason}`,
+        reason: result.judgeFailed
+          ? `Judge could not evaluate the run: ${result.reason}`
+          : `Observation incomplete (${errKind}): ${result.reason}`,
       });
       summary.deferred += 1;
     } else {
