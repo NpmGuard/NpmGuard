@@ -266,6 +266,86 @@ describe("telemetry/build-plugin confirmation", () => {
   });
 });
 
+describe("persistence confirmation", () => {
+  const strategy = strategyForClaim("persistence", hyp({ claim: { kind: "persistence", gating: null } }), "index.js")!;
+
+  it("confirms on fsDiff file_created", () => {
+    const art = baseArtifact({
+      events: [makeEvent({ kind: "file_created", stream: "L3:fsDiff" })],
+    });
+    expect(strategy.confirm(art).confirmed).toBe(true);
+  });
+
+  it("confirms on fsDiff file_modified", () => {
+    const art = baseArtifact({
+      events: [makeEvent({ kind: "file_modified", stream: "L3:fsDiff" })],
+    });
+    expect(strategy.confirm(art).confirmed).toBe(true);
+  });
+
+  it("confirms on L4 fs_op with a writer method", () => {
+    const art = baseArtifact({
+      events: [
+        makeEvent({
+          kind: "fs_op",
+          stream: "L4:monkey",
+          normalized: { method: "writeFileSync", path: "/home/node/.bashrc" },
+        }),
+      ],
+    });
+    expect(strategy.confirm(art).confirmed).toBe(true);
+  });
+
+  it("falls back to raw.method when normalized is absent", () => {
+    const art = baseArtifact({
+      events: [
+        makeEvent({
+          kind: "fs_op",
+          stream: "L4:monkey",
+          raw: { type: "fs", method: "writeFile", path: "/tmp/payload" },
+        }),
+      ],
+    });
+    expect(strategy.confirm(art).confirmed).toBe(true);
+  });
+
+  it("does not confirm on L4 fs_op reads (readFileSync during require)", () => {
+    const art = baseArtifact({
+      events: [
+        makeEvent({
+          kind: "fs_op",
+          stream: "L4:monkey",
+          normalized: { method: "readFileSync", path: "/pkg/index.js" },
+        }),
+        makeEvent({
+          kind: "fs_op",
+          stream: "L4:monkey",
+          normalized: { method: "statSync", path: "/pkg/package.json" },
+        }),
+      ],
+    });
+    expect(strategy.confirm(art).confirmed).toBe(false);
+  });
+
+  it("does not confirm on L1 write() syscalls (stdout/pipe writes)", () => {
+    const art = baseArtifact({
+      events: [
+        makeEvent({
+          kind: "write",
+          stream: "L1:seccomp",
+          raw: 'write(1, "__NPMGUARD_TRACE__[...]", 4096)',
+        }),
+        makeEvent({
+          kind: "write",
+          stream: "L1:seccomp",
+          raw: 'write(5, "...", 64)',
+        }),
+      ],
+    });
+    expect(strategy.confirm(art).confirmed).toBe(false);
+  });
+});
+
 describe("destructive confirmation", () => {
   const strategy = strategyForClaim("destructive", hyp({ claim: { kind: "destructive", gating: null } }), "index.js")!;
 

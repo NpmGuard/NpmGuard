@@ -64,14 +64,42 @@ function eventsContainExecve(events: readonly Event[]): boolean {
   return events.some((e) => e.kind === "execve");
 }
 
+/** fs methods that create or modify files. The L4 instrumentation
+ *  (sandbox/instrumentation.ts) also traces readers (readFile*, accessSync,
+ *  statSync) under the same `fs_op` kind — every package reads its own entry
+ *  file during require(), so reads must never count as persistence evidence. */
+const FS_WRITE_METHODS = new Set([
+  "writeFile",
+  "writeFileSync",
+  "appendFile",
+  "appendFileSync",
+  "copyFile",
+  "copyFileSync",
+  "createWriteStream",
+  "mkdir",
+  "mkdirSync",
+]);
+
+function fsOpMethod(e: Event): string | null {
+  const norm = e.normalized?.method;
+  if (typeof norm === "string") return norm;
+  const raw = e.raw as { method?: unknown } | null | undefined;
+  return typeof raw?.method === "string" ? raw.method : null;
+}
+
+/** True only for evidence of a real file write: L3 fsDiff (actual filesystem
+ *  diffing) or an L4 fs_op with a writer method. L1 `write()` syscalls are
+ *  deliberately excluded — they fire on ANY fd, including stdout/pipes (chiefly
+ *  our own __NPMGUARD_TRACE__ output), so they confirm on every package. */
 function eventsContainFsWrite(events: readonly Event[]): boolean {
-  return events.some(
-    (e) =>
-      e.kind === "file_created" ||
-      e.kind === "file_modified" ||
-      (e.kind === "write" && e.stream === "L1:seccomp") ||
-      (e.kind === "fs_op" && e.stream === "L4:monkey"),
-  );
+  return events.some((e) => {
+    if (e.kind === "file_created" || e.kind === "file_modified") return true;
+    if (e.kind === "fs_op" && e.stream === "L4:monkey") {
+      const method = fsOpMethod(e);
+      return method !== null && FS_WRITE_METHODS.has(method);
+    }
+    return false;
+  });
 }
 
 function eventsContainFsDelete(events: readonly Event[]): boolean {
