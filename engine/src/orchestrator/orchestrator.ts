@@ -1,3 +1,4 @@
+import assert from "node:assert";
 import type { Hypothesis } from "@npmguard/shared";
 import type { HypothesisGraph } from "../graph/hypothesis-graph.js";
 import type { EntryPoints } from "../models.js";
@@ -158,16 +159,11 @@ async function dispatchDynamic(
       `experiment:${h.hypId}`,
     );
 
-    if (result === null) {
-      // Shouldn't happen (routed here because a strategy exists), but stay safe.
-      graph.transition(h.hypId, {
-        to: "DEFERRED",
-        by: "worker:experimenter",
-        reason: `No experiment strategy available for claim ${h.claim.kind}.`,
-      });
-      summary.deferred += 1;
-      return;
-    }
+    // INVARIANT: a dynamic dispatch always yields a result. runExperiment returns
+    // null only for the browser-only claims, which claimHasDynamicStrategy (the gate
+    // that routed us here) already excludes — the two are kept in lockstep. A null
+    // means that lockstep broke; fail loud rather than silently DEFER.
+    assert(result !== null, `dynamic dispatch got no strategy for claim ${h.claim.kind} — claimHasDynamicStrategy/strategyForClaim out of lockstep`);
 
     // Persist the RunArtifact regardless of outcome — it documents what we ran.
     const { contentHash: artifactContentHash, ...artifactWithoutHash } = result.artifact;
