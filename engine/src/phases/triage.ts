@@ -65,7 +65,9 @@ const FileAnalysisResponse = z.object({
 });
 type FileAnalysisResponse = z.infer<typeof FileAnalysisResponse>;
 
-
+// Detects a summary that describes a critical risk. Used only to ENFORCE the
+// "suspicious ⟹ hypothesis" invariant (an empty-hypothesis response with such a
+// summary is incoherent → error). It never fabricates a finding.
 const SUMMARY_CRITICAL_PATTERNS = [
   /\bcredential(?:s)?\s+(?:theft|stealer|harvesting|exfiltration)\b/i,
   /\b(?:steals?|harvests?|exfiltrat(?:es|ed|ing|ion))\b.*\b(?:credentials?|secrets?|tokens?|keys?|env(?:ironment)?|npm|aws|ssh|kube|docker|metadata|imds)\b/i,
@@ -73,99 +75,8 @@ const SUMMARY_CRITICAL_PATTERNS = [
   /\b(?:malware|trojan|supply\s+chain\s+attack)\b/i,
 ];
 
-const SUMMARY_CREDENTIAL_PATTERNS = [
-  /\bcredential(?:s)?\b/i,
-  /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|secrets?|tokens?)\b/i,
-];
-
-const SUSPICIOUS_LINE_PATTERNS = [
-  /\b(?:process\.env|SENSITIVE_KEYS|NPM_TOKEN|AWS_|GITHUB_TOKEN|SECRET|TOKEN|credential)\b/i,
-  /\.(?:npmrc|yarnrc|ssh|aws|docker|kube)|readFileSync|homedir/i,
-  /169\.254\.169\.254|\bIMDS\b|metadata/i,
-  /\b(?:EXFIL|exfiltrate|http\.request|fetch|axios|POST|localhost:9999)\b/i,
-];
-
 function summaryImpliesCriticalRisk(summary: string): boolean {
   return SUMMARY_CRITICAL_PATTERNS.some((pattern) => pattern.test(summary));
-}
-
-function inferSummaryClaim(summary: string): "cred_theft" | "env_exfil" {
-  return SUMMARY_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(summary))
-    ? "cred_theft"
-    : "env_exfil";
-}
-
-function inferSummaryCapabilities(summary: string): string[] {
-  const capabilities = new Set<string>();
-  if (/\b(?:credential|secret|token|key|ssh|aws|npm|github)\b/i.test(summary)) {
-    capabilities.add("CREDENTIAL_THEFT");
-    capabilities.add("ENV_VARS");
-  }
-  if (/\b(?:exfiltrat|http|post|network|imds|metadata)\b/i.test(summary)) {
-    capabilities.add("NETWORK");
-  }
-  if (/\b(?:filesystem|file|\.npmrc|\.ssh|\.aws|docker|kube)\b/i.test(summary)) {
-    capabilities.add("FILESYSTEM");
-  }
-  return [...capabilities];
-}
-
-function suspiciousLineRanges(contents: string): string[] {
-  const lines = contents.split("\n");
-  const hits: Array<{ start: number; end: number }> = [];
-
-  for (const [index, line] of lines.entries()) {
-    if (!SUSPICIOUS_LINE_PATTERNS.some((pattern) => pattern.test(line))) continue;
-    hits.push({
-      start: Math.max(1, index + 1 - 1),
-      end: Math.min(lines.length, index + 1 + 1),
-    });
-  }
-
-  if (hits.length === 0) return ["1-1"];
-
-  hits.sort((a, b) => a.start - b.start);
-  const merged: Array<{ start: number; end: number }> = [];
-  for (const hit of hits) {
-    const previous = merged.at(-1);
-    if (previous && hit.start <= previous.end + 1) {
-      previous.end = Math.max(previous.end, hit.end);
-    } else {
-      merged.push({ ...hit });
-    }
-  }
-
-  return merged.slice(0, 8).map((range) =>
-    range.start === range.end ? String(range.start) : `${range.start}-${range.end}`,
-  );
-}
-
-export function synthesizeSummaryFallback(args: {
-  summary: string;
-  contents: string;
-}): { capabilities: string[]; hypotheses: HypothesisDraft[] } {
-  const { summary, contents } = args;
-  if (!summaryImpliesCriticalRisk(summary)) {
-    return { capabilities: [], hypotheses: [] };
-  }
-
-  const claimKind = inferSummaryClaim(summary);
-  const behavior =
-    claimKind === "cred_theft"
-      ? "credential theft or secret harvesting"
-      : "environment or data exfiltration";
-
-  return {
-    capabilities: inferSummaryCapabilities(summary),
-    hypotheses: [
-      {
-        description: `Model summary describes ${behavior}: ${summary.slice(0, 240)}`,
-        claim: { kind: claimKind, gating: null },
-        severity: "critical",
-        rangesInFile: suspiciousLineRanges(contents),
-      },
-    ],
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +92,9 @@ export interface FileSummary {
 export interface TriageOutput {
   hypotheses: Hypothesis[];
   fileSummaries: FileSummary[];
+  /** Files whose analysis could not complete (LLM error). An explicit coverage
+   *  gap — surfaced honestly (→ never a clean SAFE), not masked as a finding. */
+  analysisFailures: Array<{ file: string; error: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,23 +250,17 @@ async function analyzeFile(args: {
   });
 
   const response = result.object;
-  if (response.hypotheses.length === 0) {
-    const fallback = synthesizeSummaryFallback({
-      summary: response.summary,
-      contents,
-    });
-    if (fallback.hypotheses.length > 0) {
-      response.hypotheses = fallback.hypotheses;
-      response.capabilities = [...new Set([
-        ...response.capabilities,
-        ...fallback.capabilities,
-      ])];
-      console.warn(
-        `[triage:map] ${file} summary described critical risk but emitted no hypotheses; synthesized ${fallback.hypotheses.length}`,
-      );
-    }
+  // Invariant: suspicious ⟹ a hypothesis exists. If the model's own summary
+  // describes a risk but it emitted no hypothesis, the output is incoherent —
+  // there is literally nothing to check. That is an error to flag, NOT a
+  // "no finding" to trust and NOT a hypothesis to fabricate. Throw; the caller's
+  // catch records it as a coverage gap. (Flag-only for now; add a retry if models
+  // trip this in practice.)
+  if (response.hypotheses.length === 0 && summaryImpliesCriticalRisk(response.summary)) {
+    throw new Error(
+      `incoherent output: summary describes a risk but emitted no hypothesis — "${response.summary.slice(0, 160)}"`,
+    );
   }
-
   return { response, skipped: false };
 }
 
@@ -407,6 +315,7 @@ export async function runTriage(
   );
   let completed = 0;
   const perFile: Array<{ file: string; response: FileAnalysisResponse }> = new Array(sourceFiles.length);
+  const failures: Array<{ file: string; error: string }> = [];
   let nextIndex = 0;
   async function worker(): Promise<void> {
     while (true) {
@@ -430,23 +339,15 @@ export async function runTriage(
         }
         perFile[i] = { file: f.path, response };
       } catch (err) {
-        console.error(
-          `[triage:map] failed for ${f.path}: ${err instanceof Error ? err.message : err}`,
-        );
+        // The LLM failed on this file. Fail cleanly and loudly: record it as an
+        // explicit coverage gap (surfaced as UNKNOWN downstream) — do NOT fabricate
+        // a fake `obfuscation` finding to paper over the failure.
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error(`[triage:map] ANALYSIS FAILED for ${f.path}: ${detail} — recording coverage gap, not a finding`);
+        failures.push({ file: f.path, error: detail });
         perFile[i] = {
           file: f.path,
-          response: {
-            summary: `Analysis failed: ${err instanceof Error ? err.message : "unknown error"}`,
-            capabilities: [],
-            hypotheses: [
-              {
-                description: `Triage MAP failed on ${f.path}; file may contain material worth inspecting manually.`,
-                claim: { kind: "obfuscation" as const, gating: null },
-                severity: "medium" as const,
-                rangesInFile: ["1-1"],
-              },
-            ],
-          } satisfies FileAnalysisResponse,
+          response: { summary: `Analysis failed: ${detail}`, capabilities: [], hypotheses: [] },
         };
       }
       completed++;
@@ -481,8 +382,9 @@ export async function runTriage(
   }
 
   console.log(
-    `[triage] emitted ${hypotheses.length} hypotheses across ${fileSummaries.length} files`,
+    `[triage] emitted ${hypotheses.length} hypotheses across ${fileSummaries.length} files` +
+      (failures.length ? ` — ${failures.length} file(s) FAILED analysis (coverage gap)` : ""),
   );
 
-  return { hypotheses, fileSummaries };
+  return { hypotheses, fileSummaries, analysisFailures: failures };
 }

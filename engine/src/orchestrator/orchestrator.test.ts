@@ -75,7 +75,21 @@ function ctx(): OrchestratorContext {
     artifactStore: { writeArtifact: vi.fn(() => "hash_test") } as unknown as OrchestratorContext["artifactStore"],
     log: { writeLog: vi.fn() } as unknown as OrchestratorContext["log"],
     emit: undefined,
+    statedPurpose: "a test package",
     globalBudgetMs: 60_000,
+  };
+}
+
+/** A confirmed/unconfirmed experiment result for the given artifact. */
+function expResult(artifact: RunArtifact, confirmed: boolean, reason: string, judgeFailed = false) {
+  return {
+    confirmed,
+    reason,
+    citedEvents: confirmed ? ["e1"] : [],
+    judgeFailed,
+    artifact,
+    evidenceRef: { kind: "run" as const, id: artifact.runId, hash: artifact.contentHash },
+    timeline: `# Execution timeline — ${artifact.runId}`,
   };
 }
 
@@ -89,12 +103,7 @@ describe("runOrchestrator", () => {
   it("routes dynamic claims to the experimenter and confirms with a RunArtifact", async () => {
     const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
     const artifact = fakeArtifact();
-    runExperimentMock.mockResolvedValue({
-      confirmed: true,
-      reason: "canary in traffic",
-      artifact,
-      evidenceRef: { kind: "run", id: artifact.runId, hash: artifact.contentHash },
-    });
+    runExperimentMock.mockResolvedValue(expResult(artifact, true, "canary in traffic"));
 
     const summary = await runOrchestrator(g, ctx());
 
@@ -130,12 +139,7 @@ describe("runOrchestrator", () => {
   it("a dynamic run that does not fire → INCONCLUSIVE → UNKNOWN (never a quiet pass)", async () => {
     const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
     const artifact = fakeArtifact();
-    runExperimentMock.mockResolvedValue({
-      confirmed: false,
-      reason: "no exfil observed",
-      artifact,
-      evidenceRef: { kind: "run", id: artifact.runId, hash: artifact.contentHash },
-    });
+    runExperimentMock.mockResolvedValue(expResult(artifact, false, "no exfil observed"));
 
     await runOrchestrator(g, ctx());
 
@@ -143,15 +147,21 @@ describe("runOrchestrator", () => {
     expect(deriveGraphVerdict(g).verdict).toBe("UNKNOWN");
   });
 
+  it("a clean run the judge could not evaluate (judge failure) → DEFERRED, not INCONCLUSIVE", async () => {
+    const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
+    const artifact = fakeArtifact(); // run itself succeeded — no artifact.error
+    runExperimentMock.mockResolvedValue(expResult(artifact, false, "Judge model call failed: 503", true));
+
+    await runOrchestrator(g, ctx());
+
+    expect(g.get("h1").state).toBe("DEFERRED");
+    expect(deriveGraphVerdict(g).verdict).toBe("UNKNOWN");
+  });
+
   it("an observation failure (SensorError) → DEFERRED, not a refutation", async () => {
     const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
     const artifact = fakeArtifact({ error: { kind: "SensorError", detail: "pcap failed" } });
-    runExperimentMock.mockResolvedValue({
-      confirmed: false,
-      reason: "no exfil observed",
-      artifact,
-      evidenceRef: { kind: "run", id: artifact.runId, hash: artifact.contentHash },
-    });
+    runExperimentMock.mockResolvedValue(expResult(artifact, false, "no exfil observed"));
 
     await runOrchestrator(g, ctx());
 
@@ -165,15 +175,7 @@ describe("runOrchestrator", () => {
       { hypId: "h2", kind: "dom_inject" },
       { hypId: "h3", kind: "dos_loop" },
     ]);
-    runExperimentMock.mockImplementation(async (h) => {
-      const artifact = fakeArtifact();
-      return {
-        confirmed: h.hypId === "h3",
-        reason: "x",
-        artifact,
-        evidenceRef: { kind: "run", id: artifact.runId, hash: artifact.contentHash },
-      };
-    });
+    runExperimentMock.mockImplementation(async (h) => expResult(fakeArtifact(), h.hypId === "h3", "x"));
     runCodeReaderMock.mockResolvedValue({
       disposition: "INCONCLUSIVE",
       reason: "cannot tell statically",

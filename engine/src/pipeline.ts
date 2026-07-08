@@ -37,6 +37,26 @@ const EMPTY_COUNTS: GraphVerdictReport["counts"] = {
 };
 
 /**
+ * Coverage guard. A triage analysis failure is a file we could not inspect — an
+ * honest gap. A clean SAFE must not stand over an unanalyzed file, so we
+ * downgrade SAFE → UNKNOWN and say why. DANGEROUS/SUSPECT/UNKNOWN already reflect
+ * real state and pass through unchanged. This keeps `deriveGraphVerdict` pure
+ * (it only sees the graph); coverage completeness is the pipeline's concern.
+ */
+function withCoverageGap(
+  v: GraphVerdictReport,
+  failures: ReadonlyArray<{ file: string; error: string }>,
+): GraphVerdictReport {
+  if (v.verdict !== "SAFE" || failures.length === 0) return v;
+  const files = failures.slice(0, 5).map((f) => f.file).join(", ");
+  return {
+    ...v,
+    verdict: "UNKNOWN",
+    rationale: `${failures.length} file(s) could not be analyzed by triage (${files}${failures.length > 5 ? ", …" : ""}) — coverage incomplete, cannot clear as safe.`,
+  };
+}
+
+/**
  * Reconstruct per-file FileVerdict records from the triage output so the
  * existing `file_verdict` SSE event and frontend code-viewer continue to work.
  */
@@ -326,10 +346,11 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       mergedCount,
     });
 
-    // No hypotheses → nothing to suspect → SAFE (empty graph).
+    // No hypotheses → nothing to suspect → SAFE, UNLESS triage failed to analyze
+    // some files (a coverage gap → UNKNOWN, never a quiet SAFE over a blind spot).
     if (triageOutput.hypotheses.length === 0) {
-      console.log(`[pipeline] no hypotheses from triage — SAFE`);
-      const graphVerdict = deriveGraphVerdict(graph);
+      const graphVerdict = withCoverageGap(deriveGraphVerdict(graph), triageOutput.analysisFailures);
+      console.log(`[pipeline] no hypotheses from triage — ${graphVerdict.verdict}`);
       const report = buildReport(graphVerdict, graph, triageOutput.fileSummaries, trace);
       log.writeLog("report.json", report);
       emitVerdict(emit, report);
@@ -347,6 +368,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       artifactStore,
       log,
       emit,
+      statedPurpose: intent.statedPurpose,
       globalBudgetMs: 10 * 60_000 * timeoutScale,
     });
     const orchDuration = Date.now() - orchStart;
@@ -361,7 +383,11 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
     // Verdict is the pure function of the resolved graph — no collapse, no
     // fallback. Only a CONFIRMED hypothesis (dynamic RunArtifact) → DANGEROUS.
-    const graphVerdict = deriveGraphVerdict(graph);
+    // A coverage guard then blocks a clean SAFE if triage couldn't read some files.
+    if (triageOutput.analysisFailures.length > 0) {
+      log.writeLog("triage-analysis-failures.json", triageOutput.analysisFailures);
+    }
+    const graphVerdict = withCoverageGap(deriveGraphVerdict(graph), triageOutput.analysisFailures);
     console.log(`[pipeline] verdict: ${graphVerdict.verdict} — ${graphVerdict.rationale}`);
     log.writeLog("graph-verdict.json", graphVerdict);
 
