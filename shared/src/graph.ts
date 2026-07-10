@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EvidenceRef } from "./evidence.js";
+import { EvidenceRef, ToolCall } from "./evidence.js";
 
 // ---------------------------------------------------------------------------
 // Claim taxonomy — what a hypothesis suspects
@@ -73,6 +73,13 @@ export const Hypothesis = z.object({
   claim: Claim,
   focusFiles: z.array(z.string()).default([]),
   focusLines: z.array(FocusRange).default([]),
+  // The experiment that tries to MAKE THE SUSPECTED PAYLOAD FIRE: an ordered
+  // ToolCall[] the HYPOTHESIZE pass composes from the shared tool registry
+  // (engine/src/sandbox/tools.ts) — plant bait, defeat any spotted gate, then
+  // trigger. Empty until HYPOTHESIZE runs (and, transitionally, for threats it
+  // cannot exercise). A non-empty experiment is what routes a hypothesis to the
+  // dynamic run+judge path; nothing is cleared by reading, only by running.
+  experiment: z.array(ToolCall).default([]),
   severity: HypothesisSeverity.default("medium"),
   parentHypId: z.string().nullable().default(null),
   childHypIds: z.array(z.string()).default([]),

@@ -170,6 +170,8 @@ export function draftToHypothesis(args: {
     },
     focusFiles: [file],
     focusLines: draft.rangesInFile.map((range) => ({ file, range })),
+    // Armed later by the HYPOTHESIZE pass; triage only flags, it does not run.
+    experiment: [],
     severity: draft.severity,
     parentHypId: null,
     childHypIds: [],

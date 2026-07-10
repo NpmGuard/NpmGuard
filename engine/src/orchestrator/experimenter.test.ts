@@ -1,20 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Hypothesis, RunArtifact } from "@npmguard/shared";
+import type { Hypothesis, RunArtifact, ToolCall } from "@npmguard/shared";
 
 vi.mock("../evidence/run-under-observation.js", () => ({ runUnderObservation: vi.fn() }));
 vi.mock("./judge.js", () => ({ judgeEvidence: vi.fn() }));
 
 import { runUnderObservation } from "../evidence/run-under-observation.js";
 import { judgeEvidence } from "./judge.js";
-import {
-  experimentForClaim,
-  pickTriggerTarget,
-  claimHasDynamicStrategy,
-  runExperiment,
-} from "./experimenter.js";
+import { runExperiment } from "./experimenter.js";
 
 const runUnderObservationMock = vi.mocked(runUnderObservation);
 const judgeEvidenceMock = vi.mocked(judgeEvidence);
+
+const TRIGGER: ToolCall = { tool: "trigger", args: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null } };
 
 function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
   return {
@@ -23,6 +20,11 @@ function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
     claim: { kind: "env_exfil", gating: null },
     focusFiles: ["setup.js"],
     focusLines: [{ file: "setup.js", range: "1-10" }],
+    experiment: [
+      { tool: "setEnv", args: { env: { NPM_TOKEN: "canary" } } },
+      { tool: "plantFiles", args: { files: [{ path: "/home/node/.npmrc", content: "x" }] } },
+      TRIGGER,
+    ],
     severity: "high",
     parentHypId: null,
     childHypIds: [],
@@ -50,8 +52,8 @@ function baseArtifact(overrides: Partial<RunArtifact> = {}): RunArtifact {
       patches: [],
       preloadHash: null,
     },
-    observe: { kernel: true, network: true, fsDiff: false, node: true, inspector: false },
-    budget: { wallMs: 15000, maxSyscalls: null, maxBytesCapture: null },
+    observe: { kernel: true, network: true, fsDiff: true, node: true, inspector: true },
+    budget: { wallMs: 20000, maxSyscalls: null, maxBytesCapture: null },
     wallMs: 500,
     exitCode: 0,
     timedOut: false,
@@ -76,68 +78,12 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Strategy selection — how to run, no longer whether it fired.
-// ---------------------------------------------------------------------------
-
-describe("pickTriggerTarget", () => {
-  it("prefers a focusFile that is an install entry point", () => {
-    const h = hyp({ focusFiles: ["setup.js", "index.js"] });
-    expect(pickTriggerTarget(h, "index.js", ["setup.js"]).target).toBe("setup.js");
-  });
-
-  it("falls back to runtimeEntry when no focusFile is an install entry", () => {
-    const h = hyp({ focusFiles: ["lib/util.js"] });
-    expect(pickTriggerTarget(h, "index.js", ["setup.js"]).target).toBe("index.js");
-  });
-});
-
-describe("experimentForClaim", () => {
-  const triggerOf = (e: NonNullable<ReturnType<typeof experimentForClaim>>) =>
-    e.experiment.find((c) => c.tool === "trigger");
-  const tools = (e: NonNullable<ReturnType<typeof experimentForClaim>>) =>
-    e.experiment.map((c) => c.tool);
-
-  it("targets the lifecycle file for env_exfil and plants bait via tool calls", () => {
-    const e = experimentForClaim("env_exfil", hyp({ focusFiles: ["setup.js"] }), "index.js", ["setup.js"]);
-    expect(e).not.toBeNull();
-    expect(triggerOf(e!)?.args.target).toBe("setup.js");
-    expect(tools(e!)).toEqual(expect.arrayContaining(["setEnv", "plantFiles", "trigger"]));
-  });
-
-  it("every experiment has exactly one trigger", () => {
-    for (const kind of ["env_exfil", "binary_drop", "dos_loop", "obfuscation", "persistence", "dns_exfil", "telemetry", "destructive"] as const) {
-      const e = experimentForClaim(kind, hyp({ claim: { kind, gating: null } }), "index.js")!;
-      expect(e.experiment.filter((c) => c.tool === "trigger")).toHaveLength(1);
-    }
-  });
-
-  it("uses a tight budget for dos_loop", () => {
-    expect(experimentForClaim("dos_loop", hyp({ claim: { kind: "dos_loop", gating: null } }), "index.js")!.budget?.wallMs).toBe(5000);
-  });
-
-  it("returns null for browser-only claims (no runnable experiment)", () => {
-    expect(experimentForClaim("dom_inject", hyp({ claim: { kind: "dom_inject", gating: null } }), "x")).toBeNull();
-    expect(experimentForClaim("clipboard_hijack", hyp({ claim: { kind: "clipboard_hijack", gating: null } }), "x")).toBeNull();
-  });
-
-  it("keeps routing in lockstep: null experiment iff not a dynamic claim", () => {
-    for (const kind of ["dom_inject", "clipboard_hijack", "propagation"] as const) {
-      expect(claimHasDynamicStrategy(kind)).toBe(false);
-      expect(experimentForClaim(kind, hyp({ claim: { kind, gating: null } }), "x")).toBeNull();
-    }
-    for (const kind of ["env_exfil", "persistence", "dos_loop", "destructive"] as const) {
-      expect(claimHasDynamicStrategy(kind)).toBe(true);
-      expect(experimentForClaim(kind, hyp({ claim: { kind, gating: null } }), "x")).not.toBeNull();
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (10) runExperiment wiring: run → render → judge. No predicate exists.
+// runExperiment wiring: run the hypothesis's experiment → render → judge.
+// No claim→strategy table, no predicate — the experiment lives on the hypothesis.
 // ---------------------------------------------------------------------------
 
 describe("runExperiment", () => {
-  it("runs, renders a timeline, judges it, and returns citedEvents + evidenceRef + timeline", async () => {
+  it("runs the hypothesis experiment under the full oracle, renders, judges", async () => {
     runUnderObservationMock.mockResolvedValue(
       baseArtifact({
         events: [
@@ -160,16 +106,20 @@ describe("runExperiment", () => {
       verdict: { malicious: true, reason: "posts harvested env to an undocumented host", citedEvents: ["e1"] },
     });
 
-    const result = await runExperiment(hyp(), "/tmp/pkg", "index.js", ["setup.js"], "a config loader");
+    const result = await runExperiment(hyp(), "/tmp/pkg", "a config loader");
 
-    // Every run observes the full oracle — all five sensors, regardless of claim.
+    // The experiment carried on the hypothesis is what runs — passed straight through.
     expect(runUnderObservationMock).toHaveBeenCalledWith(
-      expect.objectContaining({ observe: { kernel: true, network: true, node: true, fsDiff: true, inspector: true } }),
+      expect.objectContaining({
+        packagePath: "/tmp/pkg",
+        experiment: hyp().experiment,
+        // Every run observes the full oracle — all five sensors, regardless of hypothesis.
+        observe: { kernel: true, network: true, node: true, fsDiff: true, inspector: true },
+      }),
     );
-    expect(result).not.toBeNull();
-    expect(result!.confirmed).toBe(true);
-    expect(result!.citedEvents).toEqual(["e1"]);
-    expect(result!.evidenceRef).toEqual({ kind: "run", id: "run_test", hash: "abc" });
+    expect(result.confirmed).toBe(true);
+    expect(result.citedEvents).toEqual(["e1"]);
+    expect(result.evidenceRef).toEqual({ kind: "run", id: "run_test", hash: "abc" });
 
     // The judge was handed the rendered timeline (which names the outbound POST), not raw events.
     const [, timelineArg, purposeArg] = judgeEvidenceMock.mock.calls[0]!;
@@ -177,23 +127,10 @@ describe("runExperiment", () => {
     expect(timelineArg.text).toContain("https://evil.example/collect");
     expect(timelineArg.ids.has("e1")).toBe(true);
     expect(purposeArg).toBe("a config loader");
-    expect(result!.timeline).toBe(timelineArg.text);
+    expect(result.timeline).toBe(timelineArg.text);
   });
 
-  it("returns null (no run, no judge) for a claim with no dynamic strategy", async () => {
-    const result = await runExperiment(
-      hyp({ claim: { kind: "dom_inject", gating: null } }),
-      "/tmp/pkg",
-      "index.js",
-      [],
-      "purpose",
-    );
-    expect(result).toBeNull();
-    expect(runUnderObservationMock).not.toHaveBeenCalled();
-    expect(judgeEvidenceMock).not.toHaveBeenCalled();
-  });
-
-  it("(11) a run ending in SensorError still flows through the judge (orchestrator handles the DEFER)", async () => {
+  it("a run ending in SensorError still flows through the judge (orchestrator handles the DEFER)", async () => {
     runUnderObservationMock.mockResolvedValue(
       baseArtifact({ error: { kind: "SensorError", detail: "pcap failed to start" } }),
     );
@@ -205,10 +142,10 @@ describe("runExperiment", () => {
       verdict: { malicious: false, reason: "no malicious behavior observed", citedEvents: [] },
     });
 
-    const result = await runExperiment(hyp(), "/tmp/pkg", "index.js", [], "purpose");
+    const result = await runExperiment(hyp(), "/tmp/pkg", "purpose");
 
     expect(judgeEvidenceMock).toHaveBeenCalledTimes(1);
-    expect(result!.confirmed).toBe(false);
-    expect(result!.artifact.error?.kind).toBe("SensorError");
+    expect(result.confirmed).toBe(false);
+    expect(result.artifact.error?.kind).toBe("SensorError");
   });
 });

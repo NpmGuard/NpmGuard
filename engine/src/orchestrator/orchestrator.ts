@@ -1,13 +1,11 @@
-import assert from "node:assert";
 import type { Hypothesis } from "@npmguard/shared";
 import type { HypothesisGraph } from "../graph/hypothesis-graph.js";
-import type { EntryPoints } from "../models.js";
 import type { AuditLogger } from "../audit-log.js";
 import type { ArtifactStore } from "../evidence/artifact-store.js";
 import type { EmitFn } from "../events.js";
 import { nextOpen } from "../graph/priority-queue.js";
 import { withTimeout } from "../util.js";
-import { claimHasDynamicStrategy, runExperiment } from "./experimenter.js";
+import { runExperiment } from "./experimenter.js";
 import { runCodeReader } from "./code-reader.js";
 
 // ---------------------------------------------------------------------------
@@ -16,10 +14,14 @@ import { runCodeReader } from "./code-reader.js";
 // OPEN and the verdict is SUSPECT forever.
 //
 // Deterministic control (priority + routing + completion); the workers own the
-// judgement:
-//   - dynamic claims  → experimenter (reproduce under observation → CONFIRMED
-//                        with a RunArtifact, else INCONCLUSIVE/DEFERRED)
-//   - static claims   → code-reader (REFUTE if benign, else INCONCLUSIVE)
+// judgement. Routing keys on whether HYPOTHESIZE could compose a runnable
+// experiment for the hypothesis:
+//   - has an experiment  → experimenter (run under observation → CONFIRMED with
+//                          a RunArtifact, else INCONCLUSIVE/DEFERRED)
+//   - no experiment      → code-reader (a threat the sandbox can't exercise;
+//                          REFUTE if benign, else INCONCLUSIVE). Transitional —
+//                          the static route is removed when the verdict space
+//                          collapses.
 //
 // Invariant it upholds: CONFIRMED is reached ONLY via a dynamic RunArtifact.
 // No worker route ever leaves a node IN_PROGRESS — every dispatched hypothesis
@@ -31,7 +33,6 @@ const CODE_READER_MS = 60_000; // cap on a single static reading
 
 export interface OrchestratorContext {
   packagePath: string;
-  entryPoints: EntryPoints;
   artifactStore: ArtifactStore;
   log: AuditLogger;
   emit?: EmitFn;
@@ -58,8 +59,7 @@ export async function runOrchestrator(
   graph: HypothesisGraph,
   ctx: OrchestratorContext,
 ): Promise<OrchestratorSummary> {
-  const { entryPoints, emit } = ctx;
-  const runtimeEntry = entryPoints.runtime[0] ?? "index.js";
+  const { emit } = ctx;
   const start = Date.now();
   const summary: OrchestratorSummary = {
     dispatched: 0,
@@ -90,8 +90,8 @@ export async function runOrchestrator(
     graph.transition(h.hypId, { to: "IN_PROGRESS", by: "orchestrator" });
     summary.dispatched += 1;
 
-    if (claimHasDynamicStrategy(h.claim.kind)) {
-      await dispatchDynamic(h, graph, ctx, runtimeEntry, summary);
+    if (h.experiment.length > 0) {
+      await dispatchDynamic(h, graph, ctx, summary);
     } else {
       await dispatchStatic(h, graph, ctx, summary);
     }
@@ -148,22 +148,15 @@ async function dispatchDynamic(
   h: Hypothesis,
   graph: HypothesisGraph,
   ctx: OrchestratorContext,
-  runtimeEntry: string,
   summary: OrchestratorSummary,
 ): Promise<void> {
-  const { packagePath, entryPoints, artifactStore, log } = ctx;
+  const { packagePath, artifactStore, log } = ctx;
   try {
     const result = await withTimeout(
-      runExperiment(h, packagePath, runtimeEntry, entryPoints.install, ctx.statedPurpose),
+      runExperiment(h, packagePath, ctx.statedPurpose),
       PER_HYP_MS,
       `experiment:${h.hypId}`,
     );
-
-    // INVARIANT: a dynamic dispatch always yields a result. runExperiment returns
-    // null only for the browser-only claims, which claimHasDynamicStrategy (the gate
-    // that routed us here) already excludes — the two are kept in lockstep. A null
-    // means that lockstep broke; fail loud rather than silently DEFER.
-    assert(result !== null, `dynamic dispatch got no experiment for claim ${h.claim.kind} — claimHasDynamicStrategy/experimentForClaim out of lockstep`);
 
     // Persist the RunArtifact regardless of outcome — it documents what we ran.
     const { contentHash: artifactContentHash, ...artifactWithoutHash } = result.artifact;

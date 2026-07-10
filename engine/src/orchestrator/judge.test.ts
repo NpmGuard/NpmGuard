@@ -19,6 +19,7 @@ function hyp(): Hypothesis {
     claim: { kind: "env_exfil", gating: null },
     focusFiles: ["setup.js"],
     focusLines: [{ file: "setup.js", range: "1-40" }],
+    experiment: [],
     severity: "high",
     parentHypId: null,
     childHypIds: [],
