@@ -88,6 +88,21 @@ export const Trigger = z.object({
 export type Trigger = z.infer<typeof Trigger>;
 
 // ---------------------------------------------------------------------------
+// ToolCall — one step of an experiment the LLM composes from the shared tool
+// registry (engine/src/sandbox/tools.ts). `args` is intentionally opaque here:
+// the registry validates it against the named tool's per-tool Zod paramSchema,
+// so the strong typing lives at the single point that both renders the tool
+// list to the prompt and executes the calls. An `args` shape that a tool's
+// schema rejects is an incoherent experiment (an ERROR), never silently run.
+// ---------------------------------------------------------------------------
+
+export const ToolCall = z.object({
+  tool: z.string(),
+  args: z.record(z.unknown()).default({}),
+});
+export type ToolCall = z.infer<typeof ToolCall>;
+
+// ---------------------------------------------------------------------------
 // Setup — what manipulation was applied before the run
 // ---------------------------------------------------------------------------
 

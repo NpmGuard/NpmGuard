@@ -1,3 +1,4 @@
+import assert from "node:assert";
 import { randomUUID } from "node:crypto";
 import type {
   Budget,
@@ -6,8 +7,10 @@ import type {
   RunArtifact,
   RunError,
   SetupApplied,
+  ToolCall,
   Trigger,
 } from "@npmguard/shared";
+import { compileExperiment } from "../sandbox/tools.js";
 import { dockerExec } from "../sandbox/docker.js";
 import { INSTRUMENTATION_JS } from "../sandbox/instrumentation.js";
 import {
@@ -37,18 +40,46 @@ import { allocateHostPort, attachV8Inspector } from "../sensors/v8-inspector.js"
 /**
  * Input to `runUnderObservation`.
  *
- * Sprint 3 additions: `setup` accepts a list of manipulation primitives
- * (setEnv, setDate, plantFiles, stubUrl, patchFile, preload) whose specs are
- * composed into the container launch and whose postStart hooks run after
- * boot. Sprint 4 will populate L1/L2/L3 streams; Sprint 5 wires V8 Inspector.
+ * A run needs a concrete `{ trigger, setup }`. Callers supply that one of two
+ * ways, never both:
+ *   - directly, via `trigger` (+ optional `setup` manipulations); or
+ *   - via `experiment` — a `ToolCall[]` from the shared tool registry, which
+ *     `compileExperiment` turns into the same `{ trigger, setup }`.
+ * The experiment path is how a HYPOTHESIZE-composed experiment runs; the direct
+ * path is the low-level primitive interface. `resolveRunInputs` collapses both
+ * to a concrete trigger+setup before anything else runs.
+ *
+ * `setup` primitives (setEnv, setDate, plantFiles, stubUrl, patchFile, preload)
+ * are composed into the container launch and their postStart hooks run after
+ * boot.
  */
 export interface RunRequest {
   packagePath: string;
-  trigger: Trigger;
+  trigger?: Trigger;
   setup?: readonly Manipulation[];
+  experiment?: readonly ToolCall[];
   observe?: Partial<ObserveFlags>;
   budget?: Partial<Budget>;
   containerSpec?: Partial<ContainerSpec>;
+}
+
+/**
+ * Collapse the two input forms to a concrete `{ trigger, setup }`. Enforces the
+ * boundary invariant: exactly one form is given (an experiment XOR an explicit
+ * trigger). A request that supplies both, or neither, is incoherent — an error,
+ * not something to guess around.
+ */
+function resolveRunInputs(req: RunRequest): { trigger: Trigger; setup: readonly Manipulation[] } {
+  if (req.experiment !== undefined) {
+    assert(
+      req.trigger === undefined && req.setup === undefined,
+      "runUnderObservation: pass an `experiment` OR `trigger`/`setup`, not both",
+    );
+    const compiled = compileExperiment(req.experiment);
+    return { trigger: compiled.trigger, setup: compiled.setup };
+  }
+  assert(req.trigger !== undefined, "runUnderObservation: a run needs a `trigger` or an `experiment`");
+  return { trigger: req.trigger, setup: req.setup ?? [] };
 }
 
 const DEFAULT_OBSERVE: ObserveFlags = {
@@ -88,9 +119,9 @@ export class RunUnderObservationError extends Error {
  */
 export async function runUnderObservation(req: RunRequest): Promise<RunArtifact> {
   const runId = `run_${randomUUID().replace(/-/g, "").slice(0, 26)}`;
+  const { trigger, setup: primitives } = resolveRunInputs(req);
   const observe: ObserveFlags = { ...DEFAULT_OBSERVE, ...req.observe };
   const budget: Budget = { ...DEFAULT_BUDGET, ...req.budget };
-  const primitives = req.setup ?? [];
 
   // Inspector needs the host to reach the container's inspector port, which
   // requires bridge networking (Docker's -p flag is a no-op on --network=none).
@@ -245,14 +276,14 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
 
     // 5. Build and execute the trigger command (optionally wrapped under strace for L1).
     if (error === null) {
-      const cmd = buildTriggerCommand(req.trigger, {
+      const cmd = buildTriggerCommand(trigger, {
         l4: observe.node,
         inspector: observe.inspector,
       });
       if (cmd === null) {
         error = {
           kind: "SetupError",
-          detail: `trigger.kind='${req.trigger.kind}' not supported in walking skeleton (Sprint 2)`,
+          detail: `trigger.kind='${trigger.kind}' has no run command`,
         };
       } else {
         const wrapped = observe.kernel ? wrapWithStrace(cmd) : cmd;
@@ -409,7 +440,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
 
   const draft: Omit<RunArtifact, "contentHash"> = {
     runId,
-    triggerUsed: req.trigger,
+    triggerUsed: trigger,
     setupApplied,
     observe,
     budget,
