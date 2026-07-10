@@ -39,6 +39,10 @@ interface SetupTool<S extends z.ZodTypeAny> {
   description: string;
   kind: "setup";
   paramSchema: S;
+  /** A concrete valid args object, rendered in the catalog so the model sees the
+   *  exact (often nested) arg shape instead of guessing it. Type-checked against
+   *  paramSchema, so it can never drift from what compileExperiment accepts. */
+  argsExample: z.input<S>;
   build: (args: z.infer<S>) => Manipulation;
 }
 
@@ -47,6 +51,7 @@ interface TriggerTool<S extends z.ZodTypeAny> {
   description: string;
   kind: "trigger";
   paramSchema: S;
+  argsExample: z.input<S>;
   build: (args: z.infer<S>) => Trigger;
 }
 
@@ -76,6 +81,7 @@ const setEnvTool = setupTool({
   paramSchema: z.object({
     env: z.record(z.string()),
   }),
+  argsExample: { env: { NPM_TOKEN: "npm_CANARY", CI: "true" } },
   build: (args) => setEnv(args.env),
 });
 
@@ -90,6 +96,7 @@ const plantFilesTool = setupTool({
       .array(z.object({ path: z.string(), content: z.string() }))
       .min(1),
   }),
+  argsExample: { files: [{ path: "/home/node/.npmrc", content: "//registry.npmjs.org/:_authToken=npm_CANARY\n" }] },
   build: (args) => plantFiles(args.files),
 });
 
@@ -102,6 +109,7 @@ const setDateTool = setupTool({
   paramSchema: z.object({
     iso: z.string(),
   }),
+  argsExample: { iso: "2027-03-01T00:00:00Z" },
   build: (args) => setDate(args.iso),
 });
 
@@ -123,6 +131,7 @@ const stubUrlTool = setupTool({
       )
       .min(1),
   }),
+  argsExample: { stubs: [{ pattern: "*/collect*", responseStatus: 200, responseBody: "ok" }] },
   build: (args) => stubUrl(args.stubs),
 });
 
@@ -144,6 +153,9 @@ const patchFileTool = setupTool({
       )
       .min(1),
   }),
+  argsExample: {
+    patches: [{ path: "index.js", replacements: [{ pattern: "Date.now() > 1893456000000", replacement: "true" }] }],
+  },
   build: (args) => patchFile(args.patches),
 });
 
@@ -156,6 +168,7 @@ const preloadTool = setupTool({
   paramSchema: z.object({
     code: z.string(),
   }),
+  argsExample: { code: "process.env.CI = 'true';" },
   build: (args) => preload(args.code),
 });
 
@@ -171,6 +184,7 @@ const triggerTool_ = triggerTool({
     argv: z.array(z.string()).default([]),
     stdin: z.string().nullable().default(null),
   }),
+  argsExample: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null },
   build: (args): Trigger => args,
 });
 
@@ -257,8 +271,12 @@ export function compileExperiment(experiment: readonly ToolCall[]): CompiledExpe
 /**
  * Render the tool vocabulary for the HYPOTHESIZE prompt. Reading the catalog
  * from the same registry the executor uses is the point: the model can only be
- * offered tools that actually exist and run.
+ * offered tools that actually exist and run, and each tool carries a concrete
+ * `args` example so the model matches the exact (often nested) arg shape rather
+ * than guessing it — a wrong shape is an invalid experiment, i.e. an audit error.
  */
 export function renderToolCatalog(): string {
-  return TOOLS.map((t) => `- ${t.name} (${t.kind}): ${t.description}`).join("\n");
+  return TOOLS.map(
+    (t) => `- ${t.name} (${t.kind}): ${t.description}\n    args: ${JSON.stringify(t.argsExample)}`,
+  ).join("\n");
 }

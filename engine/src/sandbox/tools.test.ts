@@ -27,6 +27,18 @@ describe("tool registry", () => {
     const catalog = renderToolCatalog();
     for (const t of TOOLS) expect(catalog).toContain(t.name);
   });
+
+  it("renders each tool's concrete arg shape so the model doesn't guess it", () => {
+    const catalog = renderToolCatalog();
+    // The nested shape the model must match — e.g. setEnv takes { env: {...} }.
+    expect(catalog).toContain(`args: {"env":{`);
+    expect(catalog).toContain(`args: {"files":[{`);
+    // Every rendered example must itself compile against its tool's schema.
+    for (const t of TOOLS) {
+      const parsed = t.paramSchema.safeParse(t.argsExample);
+      expect(parsed.success).toBe(true);
+    }
+  });
 });
 
 describe("compileExperiment", () => {
