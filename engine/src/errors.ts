@@ -54,6 +54,19 @@ export class AuditTimeoutError extends NpmGuardError {
   }
 }
 
+/**
+ * The audit could not complete — a suspicion was raised that the tool could not
+ * turn into a decision (FLAG could not read a file, HYPOTHESIZE could not arm a
+ * flag, a run or judge could not finish). This is a tool problem to fix and
+ * retry, NOT a verdict: "we couldn't check" never leaks out as SAFE/DANGEROUS.
+ */
+export class AuditIncompleteError extends NpmGuardError {
+  constructor(readonly stage: string, detail: string) {
+    super("NPMGUARD-0031", `Audit incomplete (${stage}): ${detail}`, 503, true);
+    this.name = "AuditIncompleteError";
+  }
+}
+
 export class QueueFullError extends NpmGuardError {
   constructor() {
     super("NPMGUARD-0040", "Audit queue is full — try again shortly", 503, true);

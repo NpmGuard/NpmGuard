@@ -15,6 +15,7 @@ import { ArtifactStore } from "./evidence/artifact-store.js";
 import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
 import { withTimeout } from "./util.js";
+import { AuditIncompleteError } from "./errors.js";
 
 // ---------------------------------------------------------------------------
 // Legacy file_verdict SSE adapter (kept for frontend code-viewer compat)
@@ -33,7 +34,6 @@ const EMPTY_COUNTS: GraphVerdictReport["counts"] = {
   inProgress: 0,
   confirmed: 0,
   refuted: 0,
-  inconclusive: 0,
   deferred: 0,
 };
 
@@ -383,8 +383,20 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     });
     log.writeLog("graph-final.json", graph.serialize());
 
+    // A DEFERRED node is a suspicion whose run or judge could not complete —
+    // machinery broke. The audit did not complete, so it is an ERROR (retry/fix
+    // the tool), never a verdict: no report is issued over an untested suspicion.
+    const deferred = graph.filterByState("DEFERRED");
+    if (deferred.length > 0) {
+      throw new AuditIncompleteError(
+        "orchestrator",
+        `${deferred.length} hypothes${deferred.length === 1 ? "is" : "es"} could not be evaluated: ` +
+          deferred.slice(0, 5).map((h) => `${h.hypId} (${h.resolution?.reason ?? "?"})`).join("; "),
+      );
+    }
+
     // Verdict is the pure function of the resolved graph. Only a CONFIRMED
-    // hypothesis (dynamic RunArtifact) → DANGEROUS; the graph is authoritative.
+    // hypothesis (dynamic RunArtifact) → DANGEROUS; else SAFE.
     const graphVerdict = deriveGraphVerdict(graph);
     console.log(`[pipeline] verdict: ${graphVerdict.verdict} — ${graphVerdict.rationale}`);
     log.writeLog("graph-verdict.json", graphVerdict);

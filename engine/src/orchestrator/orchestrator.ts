@@ -36,7 +36,7 @@ export interface OrchestratorContext {
 export interface OrchestratorSummary {
   dispatched: number;
   confirmed: number;
-  inconclusive: number;
+  refuted: number;
   deferred: number;
 }
 
@@ -54,7 +54,7 @@ export async function runOrchestrator(
   const summary: OrchestratorSummary = {
     dispatched: 0,
     confirmed: 0,
-    inconclusive: 0,
+    refuted: 0,
     deferred: 0,
   };
 
@@ -89,7 +89,7 @@ export async function runOrchestrator(
 
   console.log(
     `[orchestrator] resolved ${summary.dispatched} hypothes${summary.dispatched === 1 ? "is" : "es"} — ` +
-      `${summary.confirmed} confirmed, ${summary.inconclusive} inconclusive, ${summary.deferred} deferred`,
+      `${summary.confirmed} confirmed, ${summary.refuted} refuted, ${summary.deferred} deferred`,
   );
   return summary;
 }
@@ -129,9 +129,10 @@ function deferOnError(
 
 /**
  * Run a hypothesis's experiment under observation and record the outcome:
- * CONFIRMED (the judge cited dynamic proof) → DANGEROUS evidence; a clean run
- * that did not fire → INCONCLUSIVE; a run or judge that could not complete →
- * DEFERRED (a coverage gap, never a quiet pass).
+ * CONFIRMED (the judge cited dynamic proof the payload fired); REFUTED (it ran
+ * and the judge found no malice — the experiment refuted the suspicion); or
+ * DEFERRED (the run or judge could not complete — machinery broke, which the
+ * pipeline turns into an audit ERROR, never a quiet pass).
  */
 async function dispatchExperiment(
   h: Hypothesis,
@@ -185,15 +186,13 @@ async function dispatchExperiment(
       return;
     }
 
-    // Ran but did not fire. Attach the run as coverage evidence — INCONCLUSIVE/
-    // DEFERRED take no evidenceRefs in transition(), so add it explicitly here.
-    graph.addEvidence(h.hypId, [result.evidenceRef]);
     const errKind = result.artifact.error?.kind ?? null;
     const observationFailed =
       errKind === "SetupError" || errKind === "SensorError" || errKind === "TimeoutError";
-    // A judge that couldn't run is a coverage gap too — same as a failed
-    // observation, we simply don't know. DEFER, never a quiet INCONCLUSIVE pass.
     if (observationFailed || result.judgeFailed) {
+      // The run or judge could not complete — we don't know. Attach the partial
+      // run as evidence and DEFER; the pipeline turns any DEFERRED into an ERROR.
+      graph.addEvidence(h.hypId, [result.evidenceRef]);
       graph.transition(h.hypId, {
         to: "DEFERRED",
         by: "worker:experimenter",
@@ -203,14 +202,14 @@ async function dispatchExperiment(
       });
       summary.deferred += 1;
     } else {
-      // The package ran and the payload did not fire under this trigger/setup.
-      // Not a refutation — it may be gated (time/geo/CI/inspector). INCONCLUSIVE.
+      // The experiment ran and the judge found no malice — a dynamic refutation.
       graph.transition(h.hypId, {
-        to: "INCONCLUSIVE",
+        to: "REFUTED",
         by: "worker:experimenter",
         reason: result.reason,
+        evidenceRefs: [result.evidenceRef],
       });
-      summary.inconclusive += 1;
+      summary.refuted += 1;
     }
   } catch (err) {
     deferOnError(graph, h.hypId, "worker:experimenter", err, summary);

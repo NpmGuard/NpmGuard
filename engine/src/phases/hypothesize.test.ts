@@ -6,6 +6,7 @@ import type { ToolCall } from "@npmguard/shared";
 import type { PackageIntent } from "./intent-extraction.js";
 import type { EntryPoints } from "../models.js";
 import type { Flag } from "./flag.js";
+import { AuditIncompleteError } from "../errors.js";
 
 vi.mock("ai", () => ({ generateObject: vi.fn() }));
 vi.mock("../llm.js", () => ({ getModel: vi.fn(() => "model") }));
@@ -163,21 +164,17 @@ describe("runHypothesize", () => {
     expect(h.createdBy).toBe("hypothesize");
   });
 
-  it("raises HypothesizeError when the experiment cannot be armed (ERROR, not a hypothesis)", async () => {
+  it("raises an audit ERROR when the experiment cannot be armed (not a hypothesis)", async () => {
     generateObjectMock.mockResolvedValue({
       object: { ...validResponse, experiment: [{ tool: "bogus", args: {} }] },
     } as never);
 
-    await expect(runHypothesize([flag], ctx)).rejects.toMatchObject({
-      name: "HypothesizeError",
-    });
+    await expect(runHypothesize([flag], ctx)).rejects.toBeInstanceOf(AuditIncompleteError);
   });
 
-  it("raises HypothesizeError when the model call itself fails (no fabricated hypothesis)", async () => {
+  it("raises an audit ERROR when the model call itself fails (no fabricated hypothesis)", async () => {
     generateObjectMock.mockRejectedValue(new Error("503 upstream"));
 
-    await expect(runHypothesize([flag], ctx)).rejects.toMatchObject({
-      name: "HypothesizeError",
-    });
+    await expect(runHypothesize([flag], ctx)).rejects.toBeInstanceOf(AuditIncompleteError);
   });
 });

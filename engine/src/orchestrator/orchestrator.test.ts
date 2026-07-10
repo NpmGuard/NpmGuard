@@ -127,36 +127,42 @@ describe("runOrchestrator", () => {
     expect(runExperimentMock).not.toHaveBeenCalled();
   });
 
-  it("a run that does not fire → INCONCLUSIVE → UNKNOWN (never a quiet pass)", async () => {
+  it("a run that fires no payload → REFUTED (dynamic refutation) → SAFE", async () => {
     const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
     runExperimentMock.mockResolvedValue(expResult(fakeArtifact(), false, "no exfil observed"));
 
-    await runOrchestrator(g, ctx());
+    const summary = await runOrchestrator(g, ctx());
 
-    expect(g.get("h1").state).toBe("INCONCLUSIVE");
-    expect(deriveGraphVerdict(g).verdict).toBe("UNKNOWN");
+    expect(g.get("h1").state).toBe("REFUTED");
+    expect(summary.refuted).toBe(1);
+    // The run backs the refutation as evidence.
+    expect(g.get("h1").evidenceRefs).toHaveLength(1);
+    expect(deriveGraphVerdict(g).verdict).toBe("SAFE");
   });
 
-  it("a clean run the judge could not evaluate (judge failure) → DEFERRED, not INCONCLUSIVE", async () => {
+  it("a run the judge could not evaluate (judge failure) → DEFERRED (the audit is an ERROR)", async () => {
     const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
     const artifact = fakeArtifact(); // run itself succeeded — no artifact.error
     runExperimentMock.mockResolvedValue(expResult(artifact, false, "Judge model call failed: 503", true));
 
-    await runOrchestrator(g, ctx());
+    const summary = await runOrchestrator(g, ctx());
 
+    // DEFERRED is not a verdict — the pipeline raises AuditIncompleteError on it,
+    // so deriveGraphVerdict is never called over a graph that still holds one.
     expect(g.get("h1").state).toBe("DEFERRED");
-    expect(deriveGraphVerdict(g).verdict).toBe("UNKNOWN");
+    expect(summary.deferred).toBe(1);
+    expect(() => deriveGraphVerdict(g)).toThrow(/audit did not complete/);
   });
 
-  it("an observation failure (SensorError) → DEFERRED, not a refutation", async () => {
+  it("an observation failure (SensorError) → DEFERRED (the audit is an ERROR)", async () => {
     const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
     const artifact = fakeArtifact({ error: { kind: "SensorError", detail: "pcap failed" } });
     runExperimentMock.mockResolvedValue(expResult(artifact, false, "no exfil observed"));
 
-    await runOrchestrator(g, ctx());
+    const summary = await runOrchestrator(g, ctx());
 
     expect(g.get("h1").state).toBe("DEFERRED");
-    expect(deriveGraphVerdict(g).verdict).toBe("UNKNOWN");
+    expect(summary.deferred).toBe(1);
   });
 
   it("resolves every OPEN node to a terminal state (nothing lingers)", async () => {

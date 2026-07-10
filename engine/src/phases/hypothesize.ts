@@ -11,6 +11,7 @@ import {
 } from "@npmguard/shared";
 import { config } from "../config.js";
 import { getModel } from "../llm.js";
+import { AuditIncompleteError } from "../errors.js";
 import { numberLines } from "../util.js";
 import { renderToolCatalog, compileExperiment, ExperimentCompileError } from "../sandbox/tools.js";
 import type { EntryPoints } from "../models.js";
@@ -29,9 +30,9 @@ import type { Flag } from "./flag.js";
 //
 // INVARIANT: every flag becomes a hypothesis carrying a registry-valid
 // experiment. A flag the model cannot arm is an incoherent state — a suspicion
-// with nothing to run — so it raises HypothesizeError and the audit is an ERROR.
-// There is no hypothesis without an experiment, and no benign dismissal: a
-// suspicion is resolved by running it, never by reading it.
+// with nothing to run — so it raises AuditIncompleteError and the audit is an
+// ERROR. There is no hypothesis without an experiment, and no benign dismissal:
+// a suspicion is resolved by running it, never by reading it.
 // ---------------------------------------------------------------------------
 
 /** Per-flag code budget handed to the model. An obfuscated one-liner counts as a
@@ -42,15 +43,6 @@ const MAX_FOCUS_CHARS = 40_000;
 /** Bait canary the model plants so a real exfil has a concrete secret to read
  *  and the timeline names a consistent value. */
 export const SUGGESTED_CANARY = "NPMGUARD_CANARY_TOKEN_f8e2d91a";
-
-/** A flag the model could not arm into a runnable experiment. The audit cannot
- *  complete over an untestable suspicion, so this surfaces as an audit ERROR. */
-export class HypothesizeError extends Error {
-  constructor(readonly flag: Flag, readonly detail: string) {
-    super(`could not arm flag ${flag.file} (${flag.why}): ${detail}`);
-    this.name = "HypothesizeError";
-  }
-}
 
 export interface HypothesizeContext {
   packagePath: string;
@@ -215,10 +207,10 @@ export function validateExperiment(calls: ToolCall[]): ValidateResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Turn one flag into an armed hypothesis, or raise HypothesizeError. The model
- * names the behavior and composes the experiment in one call; a call that fails
- * or an experiment the registry rejects is an incoherent, untestable state — it
- * raises rather than inventing a hypothesis or an empty experiment.
+ * Turn one flag into an armed hypothesis, or raise AuditIncompleteError. The
+ * model names the behavior and composes the experiment in one call; a call that
+ * fails or an experiment the registry rejects is an incoherent, untestable state
+ * — it raises rather than inventing a hypothesis or an empty experiment.
  */
 async function hypothesizeFlag(
   flag: Flag,
@@ -244,12 +236,18 @@ async function hypothesizeFlag(
     });
     response = result.object;
   } catch (err) {
-    throw new HypothesizeError(flag, `model call failed: ${err instanceof Error ? err.message : String(err)}`);
+    throw new AuditIncompleteError(
+      "hypothesize",
+      `could not arm ${flag.file} (${flag.why}): model call failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   const validated = validateExperiment(response.experiment as ToolCall[]);
   if (!validated.ok) {
-    throw new HypothesizeError(flag, `invalid experiment: ${validated.error}`);
+    throw new AuditIncompleteError(
+      "hypothesize",
+      `could not arm ${flag.file} (${flag.why}): invalid experiment: ${validated.error}`,
+    );
   }
 
   return {
@@ -277,9 +275,9 @@ async function hypothesizeFlag(
 
 /**
  * Arm every flag into a hypothesis. Bounded concurrency mirrors FLAG — the smart
- * model is the cost center. Any flag that cannot be armed raises HypothesizeError
- * and aborts the pass (the audit is an ERROR): the pipeline cannot issue a
- * verdict while a raised suspicion is untested. Dedup happens downstream
+ * model is the cost center. Any flag that cannot be armed raises
+ * AuditIncompleteError and aborts the pass (the audit is an ERROR): the pipeline
+ * cannot issue a verdict while a raised suspicion is untested. Dedup happens downstream
  * (build-graph, on description).
  */
 export async function runHypothesize(
