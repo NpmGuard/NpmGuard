@@ -9,7 +9,8 @@ vi.mock("ai", () => ({ generateObject: vi.fn() }));
 vi.mock("../llm.js", () => ({ getModel: vi.fn(() => "model") }));
 
 import { generateObject } from "ai";
-import { buildFlagPrompt, runFlag, FLAG_SYSTEM, FlagError } from "./flag.js";
+import { buildFlagPrompt, runFlag, FLAG_SYSTEM } from "./flag.js";
+import { AuditIncompleteError } from "../errors.js";
 
 const generateObjectMock = vi.mocked(generateObject);
 
@@ -108,15 +109,15 @@ describe("runFlag", () => {
     },
   ));
 
-  it("raises FlagError when the model call fails (ERROR, not a masked coverage gap)", withTempPkg(
+  it("raises an audit ERROR when the model call fails (not a masked coverage gap)", withTempPkg(
     { "index.js": "const x = 1;" },
     async (dir, inv) => {
       generateObjectMock.mockRejectedValue(new Error("503 upstream"));
-      await expect(runFlag(dir, inv, intent)).rejects.toBeInstanceOf(FlagError);
+      await expect(runFlag(dir, inv, intent)).rejects.toBeInstanceOf(AuditIncompleteError);
     },
   ));
 
-  it("raises FlagError on incoherent output (summary describes a risk but emits no flag)", withTempPkg(
+  it("raises an audit ERROR on incoherent output (summary describes a risk but emits no flag)", withTempPkg(
     { "index.js": "harvest();" },
     async (dir, inv) => {
       generateObjectMock.mockResolvedValue({
@@ -126,7 +127,7 @@ describe("runFlag", () => {
           flags: [],
         },
       } as never);
-      await expect(runFlag(dir, inv, intent)).rejects.toBeInstanceOf(FlagError);
+      await expect(runFlag(dir, inv, intent)).rejects.toBeInstanceOf(AuditIncompleteError);
     },
   ));
 

@@ -42,12 +42,18 @@ export type Claim = z.infer<typeof Claim>;
 // Hypothesis lifecycle + metadata
 // ---------------------------------------------------------------------------
 
+// A hypothesis is resolved only by running its experiment:
+//   CONFIRMED — the judge cited dynamic proof the payload fired (→ DANGEROUS)
+//   REFUTED   — the experiment ran and the judge found no malice (→ SAFE)
+//   DEFERRED  — the run or judge could not complete (machinery broke → the audit
+//               is an AuditIncompleteError, never a verdict)
+// There is no "inconclusive": a run either fired, refuted, or could not be
+// evaluated. OPEN/IN_PROGRESS are transient.
 export const HypothesisState = z.enum([
   "OPEN",
   "IN_PROGRESS",
   "CONFIRMED",
   "REFUTED",
-  "INCONCLUSIVE",
   "DEFERRED",
 ]);
 export type HypothesisState = z.infer<typeof HypothesisState>;
@@ -115,7 +121,6 @@ export const HypothesisCounts = z.object({
   inProgress: z.number().int().nonnegative(),
   confirmed: z.number().int().nonnegative(),
   refuted: z.number().int().nonnegative(),
-  inconclusive: z.number().int().nonnegative(),
   deferred: z.number().int().nonnegative(),
 });
 export type HypothesisCounts = z.infer<typeof HypothesisCounts>;

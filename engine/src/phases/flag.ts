@@ -4,6 +4,7 @@ import { z } from "zod";
 import { generateObject } from "ai";
 import { config, SOURCE_FILE_TYPES } from "../config.js";
 import { getModel } from "../llm.js";
+import { AuditIncompleteError } from "../errors.js";
 import { numberLines } from "../util.js";
 import type { FileSummary, InventoryReport } from "../models.js";
 import type { EmitFn } from "../events.js";
@@ -39,16 +40,6 @@ export interface Flag {
 export interface FlagOutput {
   flags: Flag[];
   fileSummaries: FileSummary[];
-}
-
-/** A file the FLAG pass could not analyze (model error or incoherent output).
- *  The audit cannot judge a file it could not read, so this surfaces as an audit
- *  ERROR — never a masked coverage gap and never a fabricated flag. */
-export class FlagError extends Error {
-  constructor(readonly file: string, readonly detail: string) {
-    super(`could not analyze ${file}: ${detail}`);
-    this.name = "FlagError";
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -207,16 +198,16 @@ async function analyzeFile(args: {
     });
     response = result.object;
   } catch (err) {
-    throw new FlagError(file, `model call failed: ${err instanceof Error ? err.message : String(err)}`);
+    throw new AuditIncompleteError("flag", `could not analyze ${file}: model call failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // INVARIANT: suspicious ⟹ a flag exists. A summary describing a risk with no
   // flag is incoherent — there is nothing to look at — so it is an audit ERROR,
   // never trusted as "boring" and never fabricated into a flag.
   if (response.flags.length === 0 && summaryImpliesCriticalRisk(response.summary)) {
-    throw new FlagError(
-      file,
-      `summary describes a risk but emitted no flag — "${response.summary.slice(0, 160)}"`,
+    throw new AuditIncompleteError(
+      "flag",
+      `${file}: summary describes a risk but emitted no flag — "${response.summary.slice(0, 160)}"`,
     );
   }
   return { response, skipped: false };
@@ -266,8 +257,8 @@ export async function runFlag(
   const perFile: Array<{ file: string; response: FileFlagResponse }> = new Array(sourceFiles.length);
   let nextIndex = 0;
 
-  // A model failure on any file raises (analyzeFile throws FlagError) and aborts
-  // the pass: the audit cannot complete over a file it could not read.
+  // A model failure on any file raises AuditIncompleteError and aborts the pass:
+  // the audit cannot complete over a file it could not read.
   async function worker(): Promise<void> {
     while (true) {
       const i = nextIndex++;
