@@ -1,48 +1,44 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ClaimKind, RunArtifact } from "@npmguard/shared";
+import type { ClaimKind, RunArtifact, ToolCall } from "@npmguard/shared";
 import { HypothesisGraph } from "../graph/hypothesis-graph.js";
 import { deriveGraphVerdict } from "./verdict.js";
 
-// Mock the two workers but keep the real routing (an experiment-presence check).
+// Mock the experimenter; the orchestrator's own control flow is under test.
 vi.mock("./experimenter.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./experimenter.js")>();
   return { ...actual, runExperiment: vi.fn() };
 });
-vi.mock("./code-reader.js", () => ({ runCodeReader: vi.fn() }));
 
 import { runExperiment } from "./experimenter.js";
-import { runCodeReader } from "./code-reader.js";
 import { runOrchestrator, type OrchestratorContext } from "./orchestrator.js";
 
 const runExperimentMock = vi.mocked(runExperiment);
-const runCodeReaderMock = vi.mocked(runCodeReader);
 
 let clock = 0;
 const now = () => new Date(1_700_000_000_000 + clock++).toISOString();
 
-// Routing now keys on whether a hypothesis carries a runnable experiment, not on
-// its claim kind. Browser/registry threats are the ones HYPOTHESIZE cannot arm,
-// so we model them as empty-experiment (→ static route); everything else carries
-// a trigger (→ dynamic route). This preserves the intent of the older
-// claim-kind cases while exercising the new predicate.
-const UNARMABLE_KINDS = new Set<ClaimKind>(["dom_inject", "clipboard_hijack", "propagation"]);
-const TRIGGER = { tool: "trigger", args: { kind: "entrypoint", target: "index.js", argv: [], stdin: null } };
+const TRIGGER: ToolCall = { tool: "trigger", args: { kind: "entrypoint", target: "index.js", argv: [], stdin: null } };
 
-function graphWith(claims: Array<{ hypId: string; kind: ClaimKind }>): HypothesisGraph {
+// Every hypothesis reaching the orchestrator is armed — HYPOTHESIZE guarantees a
+// runnable experiment or the audit errors. `experiment` overrides only for the
+// invariant test that a stray unarmed node is rejected.
+function graphWith(
+  claims: Array<{ hypId: string; kind: ClaimKind; experiment?: ToolCall[] }>,
+): HypothesisGraph {
   const g = new HypothesisGraph("audit_test", now);
-  for (const { hypId, kind } of claims) {
+  for (const { hypId, kind, experiment } of claims) {
     g.add({
       hypId,
       description: `test ${hypId}`,
       claim: { kind, gating: null },
       focusFiles: ["index.js"],
       focusLines: [],
-      experiment: UNARMABLE_KINDS.has(kind) ? [] : [TRIGGER],
+      experiment: experiment ?? [TRIGGER],
       severity: "high",
       parentHypId: null,
       childHypIds: [],
       state: "OPEN",
-      createdBy: "triage",
+      createdBy: "hypothesize",
       evidenceRefs: [],
       createdAt: now(),
       resolvedAt: null,
@@ -57,8 +53,8 @@ function fakeArtifact(overrides: Partial<RunArtifact> = {}): RunArtifact {
     runId: "run_test",
     triggerUsed: { kind: "entrypoint", target: "index.js", argv: [], stdin: null },
     setupApplied: { env: {}, date: null, plantFiles: [], stubUrls: [], hostname: null, locale: null, patches: [], preloadHash: null },
-    observe: { kernel: true, network: true, fsDiff: false, node: true, inspector: false },
-    budget: { wallMs: 15_000, maxSyscalls: null, maxBytesCapture: null },
+    observe: { kernel: true, network: true, fsDiff: true, node: true, inspector: true },
+    budget: { wallMs: 20_000, maxSyscalls: null, maxBytesCapture: null },
     wallMs: 100,
     exitCode: 0,
     timedOut: false,
@@ -104,11 +100,10 @@ function expResult(artifact: RunArtifact, confirmed: boolean, reason: string, ju
 beforeEach(() => {
   clock = 0;
   runExperimentMock.mockReset();
-  runCodeReaderMock.mockReset();
 });
 
 describe("runOrchestrator", () => {
-  it("routes dynamic claims to the experimenter and confirms with a RunArtifact", async () => {
+  it("runs the experiment and confirms with a RunArtifact → DANGEROUS", async () => {
     const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
     const artifact = fakeArtifact();
     runExperimentMock.mockResolvedValue(expResult(artifact, true, "canary in traffic"));
@@ -116,7 +111,6 @@ describe("runOrchestrator", () => {
     const summary = await runOrchestrator(g, ctx());
 
     expect(runExperimentMock).toHaveBeenCalledTimes(1);
-    expect(runCodeReaderMock).not.toHaveBeenCalled();
     expect(summary.confirmed).toBe(1);
     const h1 = g.get("h1");
     expect(h1.state).toBe("CONFIRMED");
@@ -126,28 +120,16 @@ describe("runOrchestrator", () => {
     expect(deriveGraphVerdict(g).verdict).toBe("DANGEROUS");
   });
 
-  it("routes static claims to the code-reader; a confident refute → REFUTED → SAFE", async () => {
-    const g = graphWith([{ hypId: "h1", kind: "dom_inject" }]);
-    runCodeReaderMock.mockResolvedValue({
-      disposition: "REFUTED",
-      reason: "benign DOM read",
-      evidenceRef: { kind: "static", id: "codereader_h1", hash: "sh" },
-      reading: null,
-    });
+  it("an unarmed hypothesis violates the dispatch invariant and aborts", async () => {
+    const g = graphWith([{ hypId: "h1", kind: "env_exfil", experiment: [] }]);
 
-    const summary = await runOrchestrator(g, ctx());
-
-    expect(runCodeReaderMock).toHaveBeenCalledTimes(1);
+    await expect(runOrchestrator(g, ctx())).rejects.toThrow(/unarmed hypothesis h1/);
     expect(runExperimentMock).not.toHaveBeenCalled();
-    expect(summary.refuted).toBe(1);
-    expect(g.get("h1").state).toBe("REFUTED");
-    expect(deriveGraphVerdict(g).verdict).toBe("SAFE");
   });
 
-  it("a dynamic run that does not fire → INCONCLUSIVE → UNKNOWN (never a quiet pass)", async () => {
+  it("a run that does not fire → INCONCLUSIVE → UNKNOWN (never a quiet pass)", async () => {
     const g = graphWith([{ hypId: "h1", kind: "env_exfil" }]);
-    const artifact = fakeArtifact();
-    runExperimentMock.mockResolvedValue(expResult(artifact, false, "no exfil observed"));
+    runExperimentMock.mockResolvedValue(expResult(fakeArtifact(), false, "no exfil observed"));
 
     await runOrchestrator(g, ctx());
 
@@ -184,12 +166,6 @@ describe("runOrchestrator", () => {
       { hypId: "h3", kind: "dos_loop" },
     ]);
     runExperimentMock.mockImplementation(async (h) => expResult(fakeArtifact(), h.hypId === "h3", "x"));
-    runCodeReaderMock.mockResolvedValue({
-      disposition: "INCONCLUSIVE",
-      reason: "cannot tell statically",
-      evidenceRef: null,
-      reading: null,
-    });
 
     const summary = await runOrchestrator(g, ctx());
 
