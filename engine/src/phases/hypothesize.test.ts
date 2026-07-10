@@ -164,12 +164,29 @@ describe("runHypothesize", () => {
     expect(h.createdBy).toBe("hypothesize");
   });
 
-  it("raises an audit ERROR when the experiment cannot be armed (not a hypothesis)", async () => {
+  it("retries once with the rejection when the first experiment is invalid, then arms", async () => {
+    generateObjectMock
+      .mockResolvedValueOnce({
+        object: { ...validResponse, experiment: [{ tool: "setEnv", args: { env: "NPM_TOKEN=x" } }] },
+      } as never)
+      .mockResolvedValueOnce({ object: validResponse } as never);
+
+    const hyps = await runHypothesize([flag], ctx);
+
+    expect(generateObjectMock).toHaveBeenCalledTimes(2);
+    // The retry prompt carries the exact registry rejection back to the model.
+    const retryPrompt = generateObjectMock.mock.calls[1]![0]!.prompt as string;
+    expect(retryPrompt).toMatch(/previous experiment was rejected/i);
+    expect(hyps[0]!.experiment.map((c) => c.tool)).toEqual(["setEnv", "plantFiles", "trigger"]);
+  });
+
+  it("raises an audit ERROR when the experiment is still invalid after the retry (not a hypothesis)", async () => {
     generateObjectMock.mockResolvedValue({
       object: { ...validResponse, experiment: [{ tool: "bogus", args: {} }] },
     } as never);
 
     await expect(runHypothesize([flag], ctx)).rejects.toBeInstanceOf(AuditIncompleteError);
+    expect(generateObjectMock).toHaveBeenCalledTimes(2);
   });
 
   it("raises an audit ERROR when the model call itself fails (no fabricated hypothesis)", async () => {

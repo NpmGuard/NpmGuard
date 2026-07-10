@@ -208,10 +208,14 @@ export function validateExperiment(calls: ToolCall[]): ValidateResult {
 
 /**
  * Turn one flag into an armed hypothesis, or raise AuditIncompleteError. The
- * model names the behavior and composes the experiment in one call; a call that
- * fails or an experiment the registry rejects is an incoherent, untestable state
- * — it raises rather than inventing a hypothesis or an empty experiment.
+ * model names the behavior and composes the experiment in one call; if the
+ * experiment does not compile against the registry, the model gets ONE retry
+ * with the exact rejection so it can fix the tool-call shape. A call that fails,
+ * or an experiment still invalid after the retry, is an incoherent, untestable
+ * state — it raises rather than inventing a hypothesis or an empty experiment.
  */
+const MAX_ARMING_ATTEMPTS = 2;
+
 async function hypothesizeFlag(
   flag: Flag,
   ctx: HypothesizeContext,
@@ -219,44 +223,65 @@ async function hypothesizeFlag(
   now: string,
 ): Promise<Hypothesis> {
   const focusCode = readFocusCode(ctx.packagePath, flag);
-  const prompt = buildHypothesizePrompt({
+  const basePrompt = buildHypothesizePrompt({
     flag,
     focusCode,
     intent: ctx.intent,
     entryPoints: ctx.entryPoints,
   });
 
-  let response: HypothesisResponse;
-  try {
-    const result = await generateObject({
-      model: getModel(config.investigationModel),
-      schema: HypothesisResponse,
-      system: HYPOTHESIZE_SYSTEM,
-      prompt,
-    });
-    response = result.object;
-  } catch (err) {
-    throw new AuditIncompleteError(
-      "hypothesize",
-      `could not arm ${flag.file} (${flag.why}): model call failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+  let lastError = "";
+  for (let attempt = 1; attempt <= MAX_ARMING_ATTEMPTS; attempt++) {
+    const prompt =
+      attempt === 1
+        ? basePrompt
+        : `${basePrompt}\n\n## Your previous experiment was rejected\n${lastError}\n` +
+          `Return corrected tool calls: match each tool's documented \`args\` shape EXACTLY (see the catalog examples), use only catalog tools, and include exactly one trigger.`;
+
+    let response: HypothesisResponse;
+    try {
+      const result = await generateObject({
+        model: getModel(config.investigationModel),
+        schema: HypothesisResponse,
+        system: HYPOTHESIZE_SYSTEM,
+        prompt,
+      });
+      response = result.object;
+    } catch (err) {
+      throw new AuditIncompleteError(
+        "hypothesize",
+        `could not arm ${flag.file} (${flag.why}): model call failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    const validated = validateExperiment(response.experiment as ToolCall[]);
+    if (validated.ok) {
+      return buildHypothesis(flag, hypId, now, response, validated.experiment);
+    }
+    lastError = validated.error;
+    console.warn(`[hypothesize] ${hypId} attempt ${attempt}/${MAX_ARMING_ATTEMPTS} invalid experiment: ${lastError}`);
   }
 
-  const validated = validateExperiment(response.experiment as ToolCall[]);
-  if (!validated.ok) {
-    throw new AuditIncompleteError(
-      "hypothesize",
-      `could not arm ${flag.file} (${flag.why}): invalid experiment: ${validated.error}`,
-    );
-  }
+  throw new AuditIncompleteError(
+    "hypothesize",
+    `could not arm ${flag.file} (${flag.why}) after ${MAX_ARMING_ATTEMPTS} attempts: invalid experiment: ${lastError}`,
+  );
+}
 
+function buildHypothesis(
+  flag: Flag,
+  hypId: string,
+  now: string,
+  response: HypothesisResponse,
+  experiment: ToolCall[],
+): Hypothesis {
   return {
     hypId,
     description: response.description,
     claim: { kind: response.claim.kind, gating: response.claim.gating ?? null },
     focusFiles: [flag.file],
     focusLines: flag.lines.map((range) => ({ file: flag.file, range })),
-    experiment: validated.experiment,
+    experiment,
     severity: response.severity,
     parentHypId: null,
     childHypIds: [],
