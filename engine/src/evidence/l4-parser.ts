@@ -5,7 +5,7 @@ const END_MARKER = "__NPMGUARD_TRACE_END__";
 
 /** Raw shape emitted by engine/src/sandbox/instrumentation.ts */
 interface L4RawEntry {
-  type: "require" | "fs" | "network" | "process" | "env" | "eval" | "crypto" | "timer";
+  type: "require" | "fs" | "network" | "process" | "env" | "eval" | "crypto" | "timer" | "script";
   [key: string]: unknown;
 }
 
@@ -39,9 +39,11 @@ export function parseL4Trace(stdout: string): Event[] | null {
 
 function toEvent(entry: L4RawEntry, index: number): Event {
   return {
-    stream: "L4:monkey",
-    timestamp: index,          // monotonic proxy; real timestamps added in Sprint 4
-    pid: 0,                    // single-process assumption; Sprint 4 fills real PID
+    // Both layers ride this one trace; a `script` entry comes from the in-process
+    // V8 inspector, everything else from the monkey-patch.
+    stream: entry.type === "script" ? "L4:v8inspector" : "L4:monkey",
+    timestamp: index,          // logical index — these events carry no wall-clock
+    pid: 0,                    // single-process
     kind: mapKind(entry.type),
     raw: entry,
     normalized: normalizeEntry(entry),
@@ -58,6 +60,7 @@ function mapKind(type: L4RawEntry["type"]): EventKind {
     case "eval":    return "eval";
     case "crypto":  return "crypto";
     case "timer":   return "timer";
+    case "script":  return "script_parsed";
   }
 }
 
@@ -79,5 +82,7 @@ function normalizeEntry(entry: L4RawEntry): Record<string, unknown> {
       return { method: String(entry.method ?? ""), algo: String(entry.algo ?? "") };
     case "timer":
       return { kind: String(entry.kind ?? ""), ms: Number(entry.ms ?? 0) };
+    case "script":
+      return { url: String(entry.url ?? ""), source: String(entry.source ?? ""), len: Number(entry.len ?? 0) };
   }
 }

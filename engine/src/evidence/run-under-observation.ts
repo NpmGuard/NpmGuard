@@ -12,7 +12,7 @@ import type {
 } from "@npmguard/shared";
 import { compileExperiment } from "../sandbox/tools.js";
 import { dockerExec } from "../sandbox/docker.js";
-import { INSTRUMENTATION_JS } from "../sandbox/instrumentation.js";
+import { buildInstrumentation } from "../sandbox/instrumentation.js";
 import {
   type ContainerSpec,
   defaultContainerSpec,
@@ -35,7 +35,6 @@ import {
 } from "../sensors/fs-diff.js";
 import { parseStraceLog, wrapWithStrace } from "../sensors/strace.js";
 import { startPcapCapture, stopPcapCaptureAndParse } from "../sensors/pcap.js";
-import { allocateHostPort, attachV8Inspector } from "../sensors/v8-inspector.js";
 
 /**
  * Input to `runUnderObservation`.
@@ -123,12 +122,9 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   const observe: ObserveFlags = { ...DEFAULT_OBSERVE, ...req.observe };
   const budget: Budget = { ...DEFAULT_BUDGET, ...req.budget };
 
-  // Inspector needs the host to reach the container's inspector port, which
-  // requires bridge networking (Docker's -p flag is a no-op on --network=none).
-  const needsBridge = observe.network || observe.inspector;
-  // Host port allocation for inspector — done before spec build so the
-  // publishPorts list includes the mapping.
-  const inspectorHostPort = observe.inspector ? await allocateHostPort("127.0.0.1") : null;
+  // Only L2 network capture needs a real interface; the V8 inspector runs
+  // in-process (see instrumentation.ts) and needs no host port or bridge.
+  const needsBridge = observe.network;
 
   const baseSpec = defaultContainerSpec({
     volumes: [
@@ -151,9 +147,6 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
       // CHOWN (no pcap chown) and KILL (root-to-root signal) caps.
       ...(observe.network ? ["NET_RAW", "SETUID", "SETGID"] : []),
     ],
-    publishPorts: inspectorHostPort !== null
-      ? [{ hostPort: inspectorHostPort, containerPort: 9229 }]
-      : [],
     ...req.containerSpec,
   });
 
@@ -173,7 +166,6 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
   let fsDiffHash: string | null = null;
   let straceLogHash: string | null = null;
   let pcapHash: string | null = null;
-  let inspectorLogHash: string | null = null;
 
   // Start the container.
   const runArgs = specToDockerArgs(spec, containerName);
@@ -234,7 +226,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
       const writeRes = await dockerExec(
         [
           "exec", containerName, "sh", "-c",
-          `cat > /tmp/_instrument.js << 'INSTRUMENT_EOF'\n${INSTRUMENTATION_JS}\nINSTRUMENT_EOF`,
+          `cat > /tmp/_instrument.js << 'INSTRUMENT_EOF'\n${buildInstrumentation({ inspector: observe.inspector })}\nINSTRUMENT_EOF`,
         ],
         10_000,
       );
@@ -276,10 +268,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
 
     // 5. Build and execute the trigger command (optionally wrapped under strace for L1).
     if (error === null) {
-      const cmd = buildTriggerCommand(trigger, {
-        l4: observe.node,
-        inspector: observe.inspector,
-      });
+      const cmd = buildTriggerCommand(trigger, observe.node);
       if (cmd === null) {
         error = {
           kind: "SetupError",
@@ -287,48 +276,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
         };
       } else {
         const wrapped = observe.kernel ? wrapWithStrace(cmd) : cmd;
-
-        // When inspector is active, fire the trigger asynchronously and
-        // attach CDP in parallel. The trigger is paused at startup by
-        // --inspect-brk; attachV8Inspector's Runtime.runIfWaitingForDebugger
-        // releases it. budget.wallMs is the safety net that kills a paused
-        // Node if the host CDP attach fails.
-        const tTriggerStart = Date.now();
-        const triggerPromise = dockerExec(["exec", containerName, ...wrapped], budget.wallMs);
-
-        if (observe.inspector && inspectorHostPort !== null) {
-          try {
-            const inspectorHandle = await attachV8Inspector({
-              host: "127.0.0.1",
-              port: inspectorHostPort,
-            });
-
-            // Node with `--inspect` blocks exit on "Waiting for debugger to
-            // disconnect..." once CDP is attached. We wait for the V8 context
-            // to be destroyed (which happens on process.exit or event-loop
-            // drain) OR a budget-bounded timeout, then close CDP so Node can
-            // finish exiting. This keeps inspector runs fast instead of
-            // hanging until budget.wallMs.
-            const remainingBudget = Math.max(
-              500,
-              Math.min(budget.wallMs - (Date.now() - tTriggerStart), 10_000),
-            );
-            await inspectorHandle.waitForExit(remainingBudget);
-            events.push(...inspectorHandle.events);
-            const raw = inspectorHandle.rawLog();
-            if (raw) inspectorLogHash = sha256Hex(raw);
-            await inspectorHandle.close();
-          } catch (err) {
-            error = {
-              kind: "SensorError",
-              detail: `v8-inspector attach failed: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-            };
-          }
-        }
-
-        const res = await triggerPromise;
+        const res = await dockerExec(["exec", containerName, ...wrapped], budget.wallMs);
         if (observe.network) {
           const nd = await dockerExec(["exec","--user","0",containerName,"cat","/proc/net/dev"], 5_000);
           process.stderr.write(`[net-dev-debug]\n${nd.stdout}\n`);
@@ -453,7 +401,7 @@ export async function runUnderObservation(req: RunRequest): Promise<RunArtifact>
     fsDiffHash,
     pcapHash,
     straceLogHash,
-    inspectorLogHash,
+    inspectorLogHash: null,
     eventSummary: computeEventSummary(events),
     error,
     createdAt,

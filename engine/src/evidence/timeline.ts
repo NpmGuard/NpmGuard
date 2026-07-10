@@ -240,9 +240,18 @@ function describe(
     case "timer":
       return { verb: "timer", target: `${str(n.kind)} ${n.ms ?? ""}`.trim() };
 
-    // L4 inspector
-    case "script_parsed":
-      return { verb: "script", target: short(str(n.url)) };
+    // L4 inspector — a dynamically-compiled script (file-backed scripts are
+    // filtered out, so this is invariantly runtime-generated code). Show the
+    // decoded SOURCE (the whitebox), flattened, with an explicit marker: that it
+    // is dynamically compiled, its true length, and whether the captured source
+    // was capped — a large decoded blob is itself notable, never silently cut.
+    case "script_parsed": {
+      const src = str(n.source).replace(/\s+/g, " ").trim();
+      const len = int(n.len) ?? 0;
+      const capped = len > str(n.source).length;
+      const mark = len > 0 ? `  [dynamically compiled · ${len}c${capped ? " · capped" : ""}]` : "  [dynamically compiled]";
+      return { verb: "script", target: trunc(src || str(n.url)) + mark };
+    }
     case "debugger_paused":
       return { verb: "pause", target: "" };
 
