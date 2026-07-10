@@ -7,7 +7,7 @@ vi.mock("./judge.js", () => ({ judgeEvidence: vi.fn() }));
 import { runUnderObservation } from "../evidence/run-under-observation.js";
 import { judgeEvidence } from "./judge.js";
 import {
-  strategyForClaim,
+  experimentForClaim,
   pickTriggerTarget,
   claimHasDynamicStrategy,
   runExperiment,
@@ -91,36 +91,48 @@ describe("pickTriggerTarget", () => {
   });
 });
 
-describe("strategyForClaim", () => {
-  it("targets the lifecycle file for env_exfil and plants bait", () => {
-    const s = strategyForClaim("env_exfil", hyp({ focusFiles: ["setup.js"] }), "index.js", ["setup.js"]);
-    expect(s).not.toBeNull();
-    expect(s!.trigger.target).toBe("setup.js");
-    expect(s!.setup.length).toBeGreaterThan(0);
+describe("experimentForClaim", () => {
+  const triggerOf = (e: NonNullable<ReturnType<typeof experimentForClaim>>) =>
+    e.experiment.find((c) => c.tool === "trigger");
+  const tools = (e: NonNullable<ReturnType<typeof experimentForClaim>>) =>
+    e.experiment.map((c) => c.tool);
+
+  it("targets the lifecycle file for env_exfil and plants bait via tool calls", () => {
+    const e = experimentForClaim("env_exfil", hyp({ focusFiles: ["setup.js"] }), "index.js", ["setup.js"]);
+    expect(e).not.toBeNull();
+    expect(triggerOf(e!)?.args.target).toBe("setup.js");
+    expect(tools(e!)).toEqual(expect.arrayContaining(["setEnv", "plantFiles", "trigger"]));
+  });
+
+  it("every experiment has exactly one trigger", () => {
+    for (const kind of ["env_exfil", "binary_drop", "dos_loop", "obfuscation", "persistence", "dns_exfil", "telemetry", "destructive"] as const) {
+      const e = experimentForClaim(kind, hyp({ claim: { kind, gating: null } }), "index.js")!;
+      expect(e.experiment.filter((c) => c.tool === "trigger")).toHaveLength(1);
+    }
   });
 
   it("enables the right sensors per claim (fsDiff for binary_drop, inspector for obfuscation)", () => {
-    expect(strategyForClaim("binary_drop", hyp({ claim: { kind: "binary_drop", gating: null } }), "index.js")!.observe?.fsDiff).toBe(true);
-    expect(strategyForClaim("obfuscation", hyp({ claim: { kind: "obfuscation", gating: null } }), "index.js")!.observe?.inspector).toBe(true);
+    expect(experimentForClaim("binary_drop", hyp({ claim: { kind: "binary_drop", gating: null } }), "index.js")!.observe.fsDiff).toBe(true);
+    expect(experimentForClaim("obfuscation", hyp({ claim: { kind: "obfuscation", gating: null } }), "index.js")!.observe.inspector).toBe(true);
   });
 
   it("uses a tight budget for dos_loop", () => {
-    expect(strategyForClaim("dos_loop", hyp({ claim: { kind: "dos_loop", gating: null } }), "index.js")!.budget?.wallMs).toBe(5000);
+    expect(experimentForClaim("dos_loop", hyp({ claim: { kind: "dos_loop", gating: null } }), "index.js")!.budget?.wallMs).toBe(5000);
   });
 
-  it("returns null for browser-only claims (no dynamic strategy)", () => {
-    expect(strategyForClaim("dom_inject", hyp({ claim: { kind: "dom_inject", gating: null } }), "x")).toBeNull();
-    expect(strategyForClaim("clipboard_hijack", hyp({ claim: { kind: "clipboard_hijack", gating: null } }), "x")).toBeNull();
+  it("returns null for browser-only claims (no runnable experiment)", () => {
+    expect(experimentForClaim("dom_inject", hyp({ claim: { kind: "dom_inject", gating: null } }), "x")).toBeNull();
+    expect(experimentForClaim("clipboard_hijack", hyp({ claim: { kind: "clipboard_hijack", gating: null } }), "x")).toBeNull();
   });
 
-  it("keeps routing in lockstep: null strategy iff not a dynamic claim", () => {
+  it("keeps routing in lockstep: null experiment iff not a dynamic claim", () => {
     for (const kind of ["dom_inject", "clipboard_hijack", "propagation"] as const) {
       expect(claimHasDynamicStrategy(kind)).toBe(false);
-      expect(strategyForClaim(kind, hyp({ claim: { kind, gating: null } }), "x")).toBeNull();
+      expect(experimentForClaim(kind, hyp({ claim: { kind, gating: null } }), "x")).toBeNull();
     }
     for (const kind of ["env_exfil", "persistence", "dos_loop", "destructive"] as const) {
       expect(claimHasDynamicStrategy(kind)).toBe(true);
-      expect(strategyForClaim(kind, hyp({ claim: { kind, gating: null } }), "x")).not.toBeNull();
+      expect(experimentForClaim(kind, hyp({ claim: { kind, gating: null } }), "x")).not.toBeNull();
     }
   });
 });

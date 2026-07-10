@@ -3,40 +3,47 @@ import type {
   Hypothesis,
   RunArtifact,
   EvidenceRef,
-  Trigger,
+  ObserveFlags,
+  ToolCall,
 } from "@npmguard/shared";
-import type { Manipulation } from "../manipulation/types.js";
-import { setEnv } from "../manipulation/env.js";
-import { plantFiles } from "../manipulation/plant-files.js";
 import { runUnderObservation, type RunRequest } from "../evidence/run-under-observation.js";
 import { renderTimeline } from "../evidence/timeline.js";
 import { judgeEvidence } from "./judge.js";
 
 // ---------------------------------------------------------------------------
-// Strategy — one per ClaimKind, describing HOW to run the package: which
-// trigger, what to plant, which sensors to enable, how long to wait. It no
-// longer decides anything. The run is rendered into a readable timeline and
-// the judge reads it (see judge.ts). One general mechanism — a readable
-// timeline the model can localize against — replaces the old per-claim
-// `confirm()` predicates (and the whole class of false positives they carried,
-// e.g. persistence firing on a stdout `write()`).
+// Experimenter — turn a claim into an EXPERIMENT and run it.
+//
+// An experiment is a `ToolCall[]` against the shared tool registry
+// (sandbox/tools.ts): the setup that plants bait a payload would take, plus the
+// one trigger that runs the suspected code. The run is rendered into a readable
+// timeline and the judge decides whether the suspected behavior happened —
+// nothing here decides malice.
 // ---------------------------------------------------------------------------
 
-export interface ExperimentStrategy {
-  trigger: Trigger;
-  setup: readonly Manipulation[];
-  observe: RunRequest["observe"];
+/** A fake credential planted before a run so a real exfil payload has bait to steal. */
+const PLANTED_TOKEN = "NPMGUARD_CANARY_TOKEN_f8e2d91a";
+
+/** Bait npm auth token, the file a credential-stealer reads first. */
+const NPMRC_BAIT = {
+  path: "/home/node/.npmrc",
+  content: `//registry.npmjs.org/:_authToken=${PLANTED_TOKEN}\n`,
+};
+
+/** How to run a claim: the experiment tool calls, the sensors to observe, and the wall-clock budget. */
+export interface ClaimExperiment {
+  experiment: ToolCall[];
+  observe: ObserveFlags;
   budget: RunRequest["budget"];
 }
 
-/** A fake credential planted before the run so a real exfil payload has bait to steal. */
-const PLANTED_TOKEN = "NPMGUARD_CANARY_TOKEN_f8e2d91a";
+const triggerCall = (target: string): ToolCall => ({ tool: "trigger", args: { kind: "entrypoint", target } });
+const setEnvCall = (env: Record<string, string>): ToolCall => ({ tool: "setEnv", args: { env } });
+const plantFilesCall = (files: Array<{ path: string; content: string }>): ToolCall => ({ tool: "plantFiles", args: { files } });
 
 /**
- * Whether a claim kind has an automated dynamic experiment. The orchestrator
- * routes dynamic claims to the experimenter (run under observation → judge) and
- * static claims to the code-reader. Kept in lockstep with the `null`-returning
- * cases of `strategyForClaim`.
+ * Whether a claim kind has a runnable experiment. Claims without one route to
+ * the code-reader instead of the experimenter; kept in lockstep with the
+ * null-returning cases of `experimentForClaim`.
  */
 export function claimHasDynamicStrategy(claim: ClaimKind): boolean {
   switch (claim) {
@@ -49,15 +56,10 @@ export function claimHasDynamicStrategy(claim: ClaimKind): boolean {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Strategy builders (pure)
-// ---------------------------------------------------------------------------
-
 /**
- * Pick the best trigger target for this hypothesis. If any focusFile is a
- * known install-time entry point, prefer it — the malicious code may live in
- * an install script rather than the runtime require() path. Either way the
- * chosen target is executed as an entrypoint.
+ * Pick the trigger target for this hypothesis. Prefer a focusFile that is an
+ * install-time entry point — the payload may live in an install script rather
+ * than the runtime require() path. Otherwise run the runtime entry.
  */
 export function pickTriggerTarget(
   hypothesis: Hypothesis,
@@ -73,35 +75,32 @@ export function pickTriggerTarget(
 }
 
 /**
- * Build an experiment strategy for the given claim kind. Uses the hypothesis's
- * focusFiles to select the right trigger target (main entry point or lifecycle
- * hook). Returns null for claim kinds with no automated experiment yet.
+ * Build the experiment for a claim: the tool calls that plant bait and trigger
+ * the code, the sensors to observe, and the budget. Returns null for claims
+ * with no runnable experiment (browser/registry threats the sandbox cannot
+ * exercise).
  */
-export function strategyForClaim(
+export function experimentForClaim(
   claim: ClaimKind,
   hypothesis: Hypothesis,
   entryTarget: string,
   installEntries: readonly string[] = [],
-): ExperimentStrategy | null {
-  const { target, kind } = pickTriggerTarget(hypothesis, entryTarget, installEntries);
-  const trigger: Trigger = { kind, target, argv: [], stdin: null };
+): ClaimExperiment | null {
+  const { target } = pickTriggerTarget(hypothesis, entryTarget, installEntries);
+  const run = triggerCall(target);
+
   switch (claim) {
     case "env_exfil":
     case "cred_theft":
       return {
-        trigger,
-        setup: [
-          setEnv({
+        experiment: [
+          setEnvCall({
             NPM_TOKEN: PLANTED_TOKEN,
             AWS_ACCESS_KEY_ID: "AKIA" + PLANTED_TOKEN.slice(0, 16),
             HOME: "/home/node",
           }),
-          plantFiles([
-            {
-              path: "/home/node/.npmrc",
-              content: `//registry.npmjs.org/:_authToken=${PLANTED_TOKEN}\n`,
-            },
-          ]),
+          plantFilesCall([NPMRC_BAIT]),
+          run,
         ],
         observe: { kernel: true, network: true, node: true, fsDiff: false, inspector: false },
         budget: { wallMs: 15_000 },
@@ -109,40 +108,35 @@ export function strategyForClaim(
 
     case "binary_drop":
       return {
-        trigger,
-        setup: [],
+        experiment: [run],
         observe: { kernel: true, network: true, node: true, fsDiff: true, inspector: false },
         budget: { wallMs: 20_000 },
       };
 
     case "dos_loop":
       return {
-        trigger,
-        setup: [],
+        experiment: [run],
         observe: { kernel: true, node: true, fsDiff: false, network: false, inspector: false },
         budget: { wallMs: 5_000 },
       };
 
     case "obfuscation":
       return {
-        trigger,
-        setup: [],
+        experiment: [run],
         observe: { kernel: false, network: false, node: true, fsDiff: false, inspector: true },
         budget: { wallMs: 15_000 },
       };
 
     case "persistence":
       return {
-        trigger,
-        setup: [],
+        experiment: [run],
         observe: { kernel: true, node: true, fsDiff: true, network: false, inspector: false },
         budget: { wallMs: 15_000 },
       };
 
     case "dns_exfil":
       return {
-        trigger,
-        setup: [setEnv({ NPM_TOKEN: PLANTED_TOKEN, HOME: "/home/node" })],
+        experiment: [setEnvCall({ NPM_TOKEN: PLANTED_TOKEN, HOME: "/home/node" }), run],
         observe: { kernel: true, network: true, node: true, fsDiff: false, inspector: false },
         budget: { wallMs: 15_000 },
       };
@@ -150,15 +144,10 @@ export function strategyForClaim(
     case "telemetry":
     case "build_plugin_exfil":
       return {
-        trigger,
-        setup: [
-          setEnv({ NPM_TOKEN: PLANTED_TOKEN, CI: "true", HOME: "/home/node" }),
-          plantFiles([
-            {
-              path: "/home/node/.npmrc",
-              content: `//registry.npmjs.org/:_authToken=${PLANTED_TOKEN}\n`,
-            },
-          ]),
+        experiment: [
+          setEnvCall({ NPM_TOKEN: PLANTED_TOKEN, CI: "true", HOME: "/home/node" }),
+          plantFilesCall([NPMRC_BAIT]),
+          run,
         ],
         observe: { kernel: true, network: true, node: true, fsDiff: false, inspector: false },
         budget: { wallMs: 20_000 },
@@ -166,12 +155,12 @@ export function strategyForClaim(
 
     case "destructive":
       return {
-        trigger,
-        setup: [
-          plantFiles([
+        experiment: [
+          plantFilesCall([
             { path: "/pkg/sandbox-test/file1.txt", content: "NPMGUARD_CANARY_DELETE_TARGET\n" },
             { path: "/pkg/sandbox-test/file2.txt", content: "NPMGUARD_CANARY_DELETE_TARGET\n" },
           ]),
+          run,
         ],
         observe: { kernel: true, network: false, node: true, fsDiff: true, inspector: false },
         budget: { wallMs: 20_000 },
@@ -202,10 +191,10 @@ export interface ExperimentResult {
 }
 
 /**
- * Run an experiment for a single hypothesis: pick a strategy, run the package
- * under observation, render the run into a readable timeline, and let the judge
- * decide whether the suspected behavior actually happened. Returns null if no
- * dynamic strategy exists for this claim.
+ * Run an experiment for a single hypothesis: build its tool-call experiment, run
+ * the package under observation, render the run into a readable timeline, and
+ * let the judge decide whether the suspected behavior actually happened. Returns
+ * null when the claim has no runnable experiment.
  */
 export async function runExperiment(
   hypothesis: Hypothesis,
@@ -214,24 +203,25 @@ export async function runExperiment(
   installEntries: readonly string[],
   statedPurpose: string,
 ): Promise<ExperimentResult | null> {
-  const strategy = strategyForClaim(hypothesis.claim.kind, hypothesis, entryTarget, installEntries);
-  if (!strategy) {
+  const plan = experimentForClaim(hypothesis.claim.kind, hypothesis, entryTarget, installEntries);
+  if (!plan) {
     console.log(
-      `[experimenter] no strategy for claim ${hypothesis.claim.kind} (${hypothesis.hypId})`,
+      `[experimenter] no experiment for claim ${hypothesis.claim.kind} (${hypothesis.hypId})`,
     );
     return null;
   }
 
+  const { target } = pickTriggerTarget(hypothesis, entryTarget, installEntries);
   console.log(
-    `[experimenter] running experiment for ${hypothesis.hypId} (${hypothesis.claim.kind}) → trigger=${strategy.trigger.kind}:${strategy.trigger.target}`,
+    `[experimenter] running experiment for ${hypothesis.hypId} (${hypothesis.claim.kind}) → ` +
+      `trigger=entrypoint:${target}, ${plan.experiment.length} tool call(s)`,
   );
 
   const artifact = await runUnderObservation({
     packagePath,
-    trigger: strategy.trigger,
-    setup: strategy.setup,
-    observe: strategy.observe,
-    budget: strategy.budget,
+    experiment: plan.experiment,
+    observe: plan.observe,
+    budget: plan.budget,
   });
 
   const timeline = renderTimeline(artifact);
