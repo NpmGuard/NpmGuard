@@ -9,6 +9,7 @@ function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
     claim: overrides.claim ?? { kind: "env_exfil", gating: null },
     focusFiles: overrides.focusFiles ?? ["lib/a.js"],
     focusLines: overrides.focusLines ?? [{ file: "lib/a.js", range: "1-10" }],
+    experiment: overrides.experiment ?? [],
     severity: overrides.severity ?? "high",
     parentHypId: overrides.parentHypId ?? null,
     childHypIds: overrides.childHypIds ?? [],

@@ -5,6 +5,7 @@ import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
 import { extractIntent } from "./phases/intent-extraction.js";
 import { runTriage } from "./phases/triage.js";
+import { runHypothesize } from "./phases/hypothesize.js";
 import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { deriveGraphVerdict, type GraphVerdictReport } from "./orchestrator/verdict.js";
 import { runOrchestrator } from "./orchestrator/orchestrator.js";
@@ -357,6 +358,40 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
     }
 
+    // Phase 1d: HYPOTHESIZE — compose a runnable experiment (tool calls from the
+    // shared registry) for each unique graph node. A non-empty experiment is
+    // what routes a hypothesis to the dynamic run+judge path; a node HYPOTHESIZE
+    // cannot arm falls through to the static route (transitional).
+    const { result: hypothesizeOutput, log: hypothesizeLog } = await timedPhase(
+      "hypothesize",
+      () =>
+        runHypothesize(graph.all(), {
+          packagePath: resolved.path,
+          intent,
+          entryPoints: inventory.entryPoints,
+          emit,
+        }),
+      5 * 60_000 * timeoutScale,
+      { nodeCount: graph.size },
+      (h) => ({
+        armed: h.experiments.filter((e) => e.experiment.length > 0).length,
+        gaps: h.failures.length,
+        experiments: h.experiments.map((e) => ({
+          hypId: e.hypId,
+          toolCalls: e.experiment.map((c) => c.tool),
+        })),
+      }),
+      emit,
+    );
+    trace.push(hypothesizeLog);
+    for (const { hypId, experiment } of hypothesizeOutput.experiments) {
+      graph.setExperiment(hypId, experiment);
+    }
+    if (hypothesizeOutput.failures.length > 0) {
+      log.writeLog("hypothesize-failures.json", hypothesizeOutput.failures);
+    }
+    log.writeLog("graph-armed.json", graph.serialize());
+
     // Phase 2: Orchestrator dispatch loop — resolve every OPEN hypothesis to a
     // terminal state via the experimenter (dynamic) or code-reader (static)
     // workers. This is what lets the graph produce its own verdict.
@@ -364,7 +399,6 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const orchStart = Date.now();
     const orchSummary = await runOrchestrator(graph, {
       packagePath: resolved.path,
-      entryPoints: inventory.entryPoints,
       artifactStore,
       log,
       emit,

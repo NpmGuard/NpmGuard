@@ -10,6 +10,7 @@ function baseline(overrides: Partial<Hypothesis> = {}): Hypothesis {
     claim: overrides.claim ?? { kind: "env_exfil", gating: null },
     focusFiles: overrides.focusFiles ?? ["a.js"],
     focusLines: overrides.focusLines ?? [{ file: "a.js", range: "1-10" }],
+    experiment: overrides.experiment ?? [],
     severity: overrides.severity ?? "medium",
     parentHypId: overrides.parentHypId ?? null,
     childHypIds: overrides.childHypIds ?? [],
