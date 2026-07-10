@@ -2,66 +2,61 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
 import { generateObject } from "ai";
-import type { Hypothesis, ToolCall } from "@npmguard/shared";
+import {
+  ClaimKind,
+  GatingModifier,
+  HypothesisSeverity,
+  type Hypothesis,
+  type ToolCall,
+} from "@npmguard/shared";
 import { config } from "../config.js";
 import { getModel } from "../llm.js";
 import { numberLines } from "../util.js";
-import {
-  renderToolCatalog,
-  compileExperiment,
-  ExperimentCompileError,
-} from "../sandbox/tools.js";
+import { renderToolCatalog, compileExperiment, ExperimentCompileError } from "../sandbox/tools.js";
 import type { EntryPoints } from "../models.js";
 import type { EmitFn } from "../events.js";
 import type { PackageIntent } from "./intent-extraction.js";
+import type { Flag } from "./flag.js";
 
 // ---------------------------------------------------------------------------
-// HYPOTHESIZE — turn a flagged suspicion into a runnable EXPERIMENT.
+// HYPOTHESIZE — turn each flag into a runnable hypothesis.
 //
-// The smart pass. For each hypothesis, it composes an `experiment: ToolCall[]`
-// from the shared tool registry (sandbox/tools.ts) whose job is to MAKE THE
-// SUSPECTED PAYLOAD FIRE: plant the bait a payload would steal, defeat any gate
-// the flag spotted (time / geo / CI / anti-debug), and trigger the right entry
-// point — exactly once. The experiment then runs under the full oracle and the
-// judge decides from the timeline.
+// For a flag the cheap FLAG pass raised, the smart model names the suspected
+// behavior (description + best-match label + severity) and composes an
+// experiment: an ordered ToolCall[] from the shared tool registry
+// (sandbox/tools.ts) that plants the bait the payload would take, defeats any
+// gate the flag spotted (time/geo/CI/anti-debug), and triggers the code once.
 //
-// Founding rule: a suspicion is cleared only by RUNNING it. So there is no
-// benign-dismiss branch here — HYPOTHESIZE either produces a testable
-// experiment or it produces nothing (an empty experiment), and an empty
-// experiment is a coverage gap the pipeline must resolve some other way, never
-// a silent "looks fine". It never emits a "this is safe" verdict.
+// INVARIANT: every flag becomes a hypothesis carrying a registry-valid
+// experiment. A flag the model cannot arm is an incoherent state — a suspicion
+// with nothing to run — so it raises HypothesizeError and the audit is an ERROR.
+// There is no hypothesis without an experiment, and no benign dismissal: a
+// suspicion is resolved by running it, never by reading it.
 // ---------------------------------------------------------------------------
 
-/** Per-focus-file code budget handed to the model. Obfuscated one-liners count
- *  as a single very long line; the cap keeps a 10MB bundle from blowing the
- *  context while still showing the model the flagged region. */
+/** Per-flag code budget handed to the model. An obfuscated one-liner counts as a
+ *  single very long line; the cap keeps a huge bundle from blowing the context
+ *  while still showing the model the flagged region. */
 const MAX_FOCUS_CHARS = 40_000;
 
-/** Suggested canary the model should plant as bait, so timelines are consistent
- *  and a real exfil has a concrete secret to read. Not load-bearing for the
- *  judge (which reasons from reads + outbound sends), just a sane default. */
+/** Bait canary the model plants so a real exfil has a concrete secret to read
+ *  and the timeline names a consistent value. */
 export const SUGGESTED_CANARY = "NPMGUARD_CANARY_TOKEN_f8e2d91a";
+
+/** A flag the model could not arm into a runnable experiment. The audit cannot
+ *  complete over an untestable suspicion, so this surfaces as an audit ERROR. */
+export class HypothesizeError extends Error {
+  constructor(readonly flag: Flag, readonly detail: string) {
+    super(`could not arm flag ${flag.file} (${flag.why}): ${detail}`);
+    this.name = "HypothesizeError";
+  }
+}
 
 export interface HypothesizeContext {
   packagePath: string;
   intent: PackageIntent;
   entryPoints: EntryPoints;
   emit?: EmitFn;
-}
-
-/** The experiment HYPOTHESIZE composed for one hypothesis (empty if it could
- *  not form a testable one). */
-export interface HypothesisExperiment {
-  hypId: string;
-  experiment: ToolCall[];
-}
-
-export interface HypothesizeOutput {
-  experiments: HypothesisExperiment[];
-  /** Hypotheses HYPOTHESIZE could not turn into a runnable experiment — an
-   *  honest gap (model failure or a threat the sandbox can't exercise), never
-   *  masked as "benign". */
-  failures: Array<{ hypId: string; error: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,52 +71,60 @@ const ToolCallDraft = z.object({
     .describe("Arguments for the tool, matching its documented parameters."),
 });
 
-const ExperimentResponse = z.object({
-  reasoning: z
+const HypothesisResponse = z.object({
+  description: z
     .string()
     .describe(
-      "One or two sentences: how this experiment makes the suspected payload fire, including any gate you defeat and why the trigger reaches the code.",
+      "One clear sentence naming the suspected behavior, referencing concrete code (e.g. 'reads ~/.npmrc and POSTs it to a string-built URL'). Used verbatim for dedup downstream.",
     ),
+  claim: z.object({
+    kind: ClaimKind.describe("Best-match label for the suspected behavior (a display label only)."),
+    gating: GatingModifier.nullable().default(null).describe(
+      "Set only if the code runs differently under a specific condition you must defeat (time/geo/CI/inspector).",
+    ),
+  }),
+  severity: HypothesisSeverity.describe(
+    "low (unlikely), medium (plausibly harmful), high (clearly harmful if triggered), critical (unambiguous theft/RCE/destruction).",
+  ),
+  reasoning: z
+    .string()
+    .describe("One or two sentences: how the experiment makes the payload fire, including any gate you defeat."),
   experiment: z
     .array(ToolCallDraft)
     .min(1)
-    .describe(
-      "Ordered tool calls: setup calls first (plant bait, defeat gates), then EXACTLY ONE `trigger` call that runs the suspected code.",
-    ),
+    .describe("Ordered tool calls: setup calls first (plant bait, defeat gates), then EXACTLY ONE `trigger` call."),
 });
-export type ExperimentResponse = z.infer<typeof ExperimentResponse>;
+export type HypothesisResponse = z.infer<typeof HypothesisResponse>;
 
 // ---------------------------------------------------------------------------
 // Prompt (pure)
 // ---------------------------------------------------------------------------
 
-export const HYPOTHESIZE_SYSTEM = `You are a security analyst designing an EXPERIMENT to test one hypothesis about an npm package.
+export const HYPOTHESIZE_SYSTEM = `You are a security analyst turning a flagged region of an npm package into a testable hypothesis.
 
-You are given a suspected behavior (the hypothesis), the code it points at, what the package is supposed to do, and a catalog of tools you can use to set up and trigger a sandboxed run. Your job is to compose the tool calls that would MAKE THE SUSPECTED PAYLOAD ACTUALLY FIRE, so a downstream judge can watch it happen under full instrumentation.
+A fast triage pass flagged this region as worth a closer look. You are given the flag, the code it points at, what the package is supposed to do, and a catalog of tools for setting up and triggering a sandboxed run. Produce two things:
+
+1. A hypothesis about the suspected behavior: a one-sentence description, a best-match claim label, and a severity.
+2. An EXPERIMENT — the ordered tool calls that would MAKE THAT BEHAVIOR ACTUALLY FIRE, so a downstream judge can watch it happen under full instrumentation.
 
 Design the experiment to trigger the payload, not to avoid it:
 - Plant the bait the payload would go after — fake credentials in the environment (setEnv: NPM_TOKEN, AWS_ACCESS_KEY_ID) and on disk (plantFiles: /home/node/.npmrc, /home/node/.ssh/id_rsa, /home/node/.aws/credentials). Absolute container paths only.
-- DEFEAT any gate the hypothesis mentions so the guarded branch runs: a time gate → setDate past the trigger date; a CI gate → setEnv CI=true; an anti-debug/inspector or other hard check → patchFile to neutralize it or force the branch.
+- DEFEAT any gate the region shows so the guarded branch runs: a time gate → setDate past the trigger date; a CI gate → setEnv CI=true; an anti-debug/inspector or other hard check → patchFile to neutralize it or force the branch.
 - Make staged fetches succeed if the payload needs a second stage — stubUrl to return a canned response.
-- End with EXACTLY ONE trigger call naming the entry point most likely to reach the code (an install lifecycle file for install-time payloads, the runtime entry otherwise). Prefer a file listed in the hypothesis's focus or the package's entry points.
+- End with EXACTLY ONE trigger call naming the entry point most likely to reach the code (an install lifecycle file for install-time payloads, the runtime entry otherwise). Prefer a file in the package's entry points.
 
 Rules:
 - Use ONLY tools from the catalog, with arguments matching their documented parameters. An unknown tool or bad arguments makes the whole experiment invalid.
 - The experiment MUST contain exactly one trigger call.
-- You are NOT deciding whether the package is malicious — only how to run it so the behavior would show if it is there. Never refuse to design an experiment because the code "looks fine"; if a payload is gated or hidden, your job is to defeat the gate and trigger it anyway.`;
+- You are NOT the final judge of malice — only of how to run the code so the behavior would show if it is there. Never refuse to design an experiment because the code "looks fine"; if a payload is gated or hidden, your job is to defeat the gate and trigger it anyway. The label and severity are your best guess; the run decides.`;
 
 export function buildHypothesizePrompt(args: {
-  hypothesis: Hypothesis;
+  flag: Flag;
   focusCode: string;
   intent: PackageIntent;
   entryPoints: EntryPoints;
 }): string {
-  const { hypothesis: h, focusCode, intent, entryPoints } = args;
-  const focus =
-    h.focusLines.map((fl) => `${fl.file}:${fl.range}`).join(", ") ||
-    h.focusFiles.join(", ") ||
-    "(unspecified)";
-
+  const { flag, focusCode, intent, entryPoints } = args;
   const sections: string[] = [];
 
   sections.push(
@@ -131,11 +134,10 @@ export function buildHypothesizePrompt(args: {
   );
 
   sections.push(
-    `## Hypothesis ${h.hypId}\n` +
-      `- claim: ${h.claim.kind}${h.claim.gating ? ` (gated: ${h.claim.gating} — you must defeat this gate)` : ""}\n` +
-      `- severity: ${h.severity}\n` +
-      `- description: ${h.description}\n` +
-      `- suspected code: ${focus}`,
+    `## Flag\n` +
+      `- file: ${flag.file}\n` +
+      `- lines: ${flag.lines.join(", ")}\n` +
+      `- why it was flagged: ${flag.why}`,
   );
 
   sections.push(
@@ -145,7 +147,7 @@ export function buildHypothesizePrompt(args: {
       `- bin: ${entryPoints.bin.join(", ") || "(none)"}`,
   );
 
-  sections.push(`## Suspected code\n${focusCode || "(source unavailable)"}`);
+  sections.push(`## Flagged code\n${focusCode || "(source unavailable)"}`);
 
   sections.push(
     `## Available tools\n${renderToolCatalog()}\n\n` +
@@ -153,7 +155,7 @@ export function buildHypothesizePrompt(args: {
   );
 
   sections.push(
-    `## Task\nCompose the ordered tool calls (setup, then exactly one trigger) that would make the suspected behavior fire in the sandbox. Explain your reasoning briefly.`,
+    `## Task\nName the suspected behavior (description, claim label, severity) and compose the ordered tool calls (setup, then exactly one trigger) that would make it fire in the sandbox.`,
   );
 
   return sections.join("\n\n");
@@ -164,39 +166,22 @@ export function buildHypothesizePrompt(args: {
 // ---------------------------------------------------------------------------
 
 /**
- * Read the code the hypothesis points at. Prefers the focus files; falls back
- * to files named only in focusLines. Each file is line-numbered (so the model's
- * reasoning can reference the flagged ranges) and capped so a giant bundle
- * cannot blow the context window.
+ * Read the code a flag points at. The file is line-numbered (so the reasoning
+ * can reference the flagged ranges) and capped so a giant bundle cannot blow the
+ * context window. Returns "" if the file is unreadable.
  */
-export function readFocusCode(packagePath: string, h: Hypothesis): string {
-  const rangesByFile = new Map<string, string[]>();
-  for (const fl of h.focusLines) {
-    const list = rangesByFile.get(fl.file) ?? [];
-    list.push(fl.range);
-    rangesByFile.set(fl.file, list);
+export function readFocusCode(packagePath: string, flag: Flag): string {
+  let contents: string;
+  try {
+    contents = fs.readFileSync(path.join(packagePath, flag.file), "utf-8");
+  } catch {
+    return "";
   }
-
-  const files =
-    h.focusFiles.length > 0 ? h.focusFiles : Array.from(rangesByFile.keys());
-
-  const parts: string[] = [];
-  for (const file of files) {
-    let contents: string;
-    try {
-      contents = fs.readFileSync(path.join(packagePath, file), "utf-8");
-    } catch {
-      continue;
-    }
-    const capped =
-      contents.length > MAX_FOCUS_CHARS
-        ? contents.slice(0, MAX_FOCUS_CHARS) + "\n… (truncated)"
-        : contents;
-    const ranges = rangesByFile.get(file);
-    const header = ranges && ranges.length > 0 ? `${file} (flagged lines ${ranges.join(", ")})` : file;
-    parts.push(`### ${header}\n\`\`\`\n${numberLines(capped)}\n\`\`\``);
-  }
-  return parts.join("\n\n");
+  const capped =
+    contents.length > MAX_FOCUS_CHARS
+      ? contents.slice(0, MAX_FOCUS_CHARS) + "\n… (truncated)"
+      : contents;
+  return `### ${flag.file} (flagged lines ${flag.lines.join(", ")})\n\`\`\`\n${numberLines(capped)}\n\`\`\``;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,9 +194,9 @@ export type ValidateResult =
 
 /**
  * Validate a model-proposed experiment against the shared tool registry. A
- * ToolCall[] that compiles is a coherent experiment; anything else (unknown
- * tool, bad args, zero or many triggers) is rejected with the registry's own
- * error message so a retry can be specific. Never silently drops a bad call.
+ * ToolCall[] that compiles is coherent; anything else (unknown tool, bad args,
+ * zero or many triggers) is rejected with the registry's own error. Never
+ * silently drops a bad call.
  */
 export function validateExperiment(calls: ToolCall[]): ValidateResult {
   try {
@@ -226,57 +211,64 @@ export function validateExperiment(calls: ToolCall[]): ValidateResult {
 }
 
 // ---------------------------------------------------------------------------
-// Per-hypothesis experiment generation
+// Per-flag hypothesis (throws when it cannot arm)
 // ---------------------------------------------------------------------------
 
 /**
- * Compose and validate the experiment for one hypothesis. One retry: if the
- * first attempt does not compile against the registry, we hand the model its
- * own error and ask again. Returns null (a coverage gap) only after both the
- * model and the retry fail — never a fabricated or empty-but-"fine" experiment.
+ * Turn one flag into an armed hypothesis, or raise HypothesizeError. The model
+ * names the behavior and composes the experiment in one call; a call that fails
+ * or an experiment the registry rejects is an incoherent, untestable state — it
+ * raises rather than inventing a hypothesis or an empty experiment.
  */
-async function experimentForHypothesis(
-  h: Hypothesis,
+async function hypothesizeFlag(
+  flag: Flag,
   ctx: HypothesizeContext,
-): Promise<{ experiment: ToolCall[] } | { error: string }> {
-  const focusCode = readFocusCode(ctx.packagePath, h);
-  const basePrompt = buildHypothesizePrompt({
-    hypothesis: h,
+  hypId: string,
+  now: string,
+): Promise<Hypothesis> {
+  const focusCode = readFocusCode(ctx.packagePath, flag);
+  const prompt = buildHypothesizePrompt({
+    flag,
     focusCode,
     intent: ctx.intent,
     entryPoints: ctx.entryPoints,
   });
 
-  let lastError = "";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const prompt =
-      attempt === 0
-        ? basePrompt
-        : `${basePrompt}\n\n## Your previous attempt was invalid\n${lastError}\nFix it: use only catalog tools with correct arguments and exactly one trigger.`;
-
-    let response: ExperimentResponse;
-    try {
-      const result = await generateObject({
-        model: getModel(config.investigationModel),
-        schema: ExperimentResponse,
-        system: HYPOTHESIZE_SYSTEM,
-        prompt,
-      });
-      response = result.object;
-    } catch (err) {
-      lastError = `model call failed: ${err instanceof Error ? err.message : String(err)}`;
-      continue;
-    }
-
-    const validated = validateExperiment(response.experiment as ToolCall[]);
-    if (validated.ok) {
-      return { experiment: validated.experiment };
-    }
-    lastError = validated.error;
-    console.warn(`[hypothesize] ${h.hypId} attempt ${attempt + 1} invalid: ${lastError}`);
+  let response: HypothesisResponse;
+  try {
+    const result = await generateObject({
+      model: getModel(config.investigationModel),
+      schema: HypothesisResponse,
+      system: HYPOTHESIZE_SYSTEM,
+      prompt,
+    });
+    response = result.object;
+  } catch (err) {
+    throw new HypothesizeError(flag, `model call failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  return { error: lastError };
+  const validated = validateExperiment(response.experiment as ToolCall[]);
+  if (!validated.ok) {
+    throw new HypothesizeError(flag, `invalid experiment: ${validated.error}`);
+  }
+
+  return {
+    hypId,
+    description: response.description,
+    claim: { kind: response.claim.kind, gating: response.claim.gating ?? null },
+    focusFiles: [flag.file],
+    focusLines: flag.lines.map((range) => ({ file: flag.file, range })),
+    experiment: validated.experiment,
+    severity: response.severity,
+    parentHypId: null,
+    childHypIds: [],
+    state: "OPEN",
+    createdBy: "hypothesize",
+    evidenceRefs: [],
+    createdAt: now,
+    resolvedAt: null,
+    resolution: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -284,50 +276,44 @@ async function experimentForHypothesis(
 // ---------------------------------------------------------------------------
 
 /**
- * Compose a runnable experiment for each hypothesis. Bounded concurrency mirrors
- * triage — the smart model is the cost center, so cap in-flight calls. The
- * returned experiments are applied to the graph nodes by the pipeline; failures
- * are surfaced as an explicit coverage gap, never as a clean result.
+ * Arm every flag into a hypothesis. Bounded concurrency mirrors FLAG — the smart
+ * model is the cost center. Any flag that cannot be armed raises HypothesizeError
+ * and aborts the pass (the audit is an ERROR): the pipeline cannot issue a
+ * verdict while a raised suspicion is untested. Dedup happens downstream
+ * (build-graph, on description).
  */
 export async function runHypothesize(
-  nodes: Hypothesis[],
+  flags: Flag[],
   ctx: HypothesizeContext,
-): Promise<HypothesizeOutput> {
+): Promise<Hypothesis[]> {
   const concurrency = Math.max(1, Number(process.env.NPMGUARD_TRIAGE_CONCURRENCY ?? 8));
-  console.log(`[hypothesize] composing experiments for ${nodes.length} hypothesis node(s)`);
+  console.log(`[hypothesize] arming ${flags.length} flag(s) into hypotheses`);
 
-  const experiments: HypothesisExperiment[] = new Array(nodes.length);
-  const failures: Array<{ hypId: string; error: string }> = [];
+  const now = new Date().toISOString();
+  const hypotheses: Hypothesis[] = new Array(flags.length);
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
     while (true) {
       const i = nextIndex++;
-      if (i >= nodes.length) return;
-      const h = nodes[i]!;
-      ctx.emit?.("hypothesize_progress", { hypId: h.hypId, current: i + 1, total: nodes.length });
-      const outcome = await experimentForHypothesis(h, ctx);
-      if ("experiment" in outcome) {
-        console.log(
-          `[hypothesize] ${h.hypId} (${h.claim.kind}) → ${outcome.experiment.length} tool call(s)`,
-        );
-        experiments[i] = { hypId: h.hypId, experiment: outcome.experiment };
-      } else {
-        console.warn(`[hypothesize] ${h.hypId} → NO experiment (coverage gap): ${outcome.error}`);
-        experiments[i] = { hypId: h.hypId, experiment: [] };
-        failures.push({ hypId: h.hypId, error: outcome.error });
-      }
+      if (i >= flags.length) return;
+      const flag = flags[i]!;
+      const hypId = `hyp-${(i + 1).toString().padStart(4, "0")}`;
+      ctx.emit?.("file_analyzing", { file: flag.file });
+      const hyp = await hypothesizeFlag(flag, ctx, hypId, now);
+      hypotheses[i] = hyp;
+      console.log(`[hypothesize] ${hypId} (${hyp.claim.kind}) → ${hyp.experiment.length} tool call(s)`);
+      ctx.emit?.("hypothesis_emitted", {
+        hypId,
+        claim: hyp.claim.kind,
+        severity: hyp.severity,
+        file: flag.file,
+      });
     }
   }
 
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, nodes.length) }, () => worker()),
-  );
+  await Promise.all(Array.from({ length: Math.min(concurrency, flags.length) }, () => worker()));
 
-  console.log(
-    `[hypothesize] ${experiments.filter((e) => e.experiment.length > 0).length}/${nodes.length} hypotheses got a runnable experiment` +
-      (failures.length ? ` — ${failures.length} coverage gap(s)` : ""),
-  );
-
-  return { experiments, failures };
+  console.log(`[hypothesize] armed ${hypotheses.length} hypothesis node(s)`);
+  return hypotheses;
 }

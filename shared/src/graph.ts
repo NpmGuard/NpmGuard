@@ -73,12 +73,11 @@ export const Hypothesis = z.object({
   claim: Claim,
   focusFiles: z.array(z.string()).default([]),
   focusLines: z.array(FocusRange).default([]),
-  // The experiment that tries to MAKE THE SUSPECTED PAYLOAD FIRE: an ordered
-  // ToolCall[] the HYPOTHESIZE pass composes from the shared tool registry
-  // (engine/src/sandbox/tools.ts) — plant bait, defeat any spotted gate, then
-  // trigger. Empty until HYPOTHESIZE runs (and, transitionally, for threats it
-  // cannot exercise). A non-empty experiment is what routes a hypothesis to the
-  // dynamic run+judge path; nothing is cleared by reading, only by running.
+  // The experiment that makes the suspected payload fire: an ordered ToolCall[]
+  // (shared tool registry, engine/src/sandbox/tools.ts) that plants bait,
+  // defeats any spotted gate, and triggers the code once. HYPOTHESIZE composes
+  // one for every flag or the audit errors — a suspicion is resolved by running
+  // it, never by reading it; the orchestrator asserts it is present at dispatch.
   experiment: z.array(ToolCall).default([]),
   severity: HypothesisSeverity.default("medium"),
   parentHypId: z.string().nullable().default(null),

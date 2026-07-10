@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Hypothesis, ToolCall } from "@npmguard/shared";
+import type { ToolCall } from "@npmguard/shared";
 import type { PackageIntent } from "./intent-extraction.js";
 import type { EntryPoints } from "../models.js";
+import type { Flag } from "./flag.js";
 
 vi.mock("ai", () => ({ generateObject: vi.fn() }));
 vi.mock("../llm.js", () => ({ getModel: vi.fn(() => "model") }));
@@ -28,32 +29,25 @@ const intent: PackageIntent = {
 
 const entryPoints: EntryPoints = { install: ["setup.js"], runtime: ["index.js"], bin: [] };
 
-function hyp(overrides: Partial<Hypothesis> = {}): Hypothesis {
-  return {
-    hypId: "h1",
-    description: "reads ~/.npmrc and POSTs it to an undocumented host",
-    claim: { kind: "env_exfil", gating: "time_gate" },
-    focusFiles: ["setup.js"],
-    focusLines: [{ file: "setup.js", range: "1-10" }],
-    experiment: [],
-    severity: "high",
-    parentHypId: null,
-    childHypIds: [],
-    state: "OPEN",
-    createdBy: "triage",
-    evidenceRefs: [],
-    createdAt: "2026-07-10T00:00:00.000Z",
-    resolvedAt: null,
-    resolution: null,
-    ...overrides,
-  };
-}
+const flag: Flag = {
+  file: "setup.js",
+  lines: ["1-10"],
+  why: "reads ~/.npmrc then POSTs to a string-built URL, only after a date check",
+};
 
 const validExperiment: ToolCall[] = [
   { tool: "setEnv", args: { env: { NPM_TOKEN: "canary" } } },
   { tool: "plantFiles", args: { files: [{ path: "/home/node/.npmrc", content: "x" }] } },
   { tool: "trigger", args: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null } },
 ];
+
+const validResponse = {
+  description: "reads ~/.npmrc and POSTs it to an undocumented host after a date gate",
+  claim: { kind: "env_exfil", gating: "time_gate" },
+  severity: "high",
+  reasoning: "plant npmrc bait, advance the clock past the gate, trigger the install script",
+  experiment: validExperiment,
+};
 
 beforeEach(() => {
   generateObjectMock.mockReset();
@@ -64,34 +58,23 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("buildHypothesizePrompt", () => {
-  it("gives the model the intent, the hypothesis, the tool catalog, and entry points", () => {
+  it("gives the model the intent, the flag, the tool catalog, and entry points", () => {
     const prompt = buildHypothesizePrompt({
-      hypothesis: hyp(),
+      flag,
       focusCode: "1: doEvilThings()",
       intent,
       entryPoints,
     });
     expect(prompt).toContain("Formats strings.");
-    expect(prompt).toContain("reads ~/.npmrc");
-    expect(prompt).toContain("doEvilThings");
-    // The catalog is rendered from the registry — the tools must be offered by name.
+    expect(prompt).toContain("reads ~/.npmrc"); // the flag's why
+    expect(prompt).toContain("doEvilThings"); // the focus code
+    // The catalog is rendered from the registry — tools offered by name.
     expect(prompt).toContain("setEnv");
     expect(prompt).toContain("plantFiles");
     expect(prompt).toContain("trigger");
     // Entry points are candidate trigger targets.
     expect(prompt).toContain("setup.js");
     expect(prompt).toContain("index.js");
-  });
-
-  it("tells the model a spotted gate must be defeated", () => {
-    const prompt = buildHypothesizePrompt({
-      hypothesis: hyp({ claim: { kind: "env_exfil", gating: "time_gate" } }),
-      focusCode: "",
-      intent,
-      entryPoints,
-    });
-    expect(prompt).toContain("time_gate");
-    expect(prompt).toMatch(/defeat/i);
   });
 
   it("the system prompt forbids a benign refusal (no dismissal)", () => {
@@ -104,11 +87,11 @@ describe("buildHypothesizePrompt", () => {
 // ---------------------------------------------------------------------------
 
 describe("readFocusCode", () => {
-  it("reads the focus file and line-numbers it", () => {
+  it("reads the flagged file and line-numbers it", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "npmguard-hyp-"));
     try {
       fs.writeFileSync(path.join(dir, "setup.js"), "const a = 1;\nsteal();");
-      const code = readFocusCode(dir, hyp({ focusFiles: ["setup.js"] }));
+      const code = readFocusCode(dir, flag);
       expect(code).toContain("1: const a = 1;");
       expect(code).toContain("2: steal();");
       expect(code).toContain("setup.js");
@@ -117,11 +100,10 @@ describe("readFocusCode", () => {
     }
   });
 
-  it("skips unreadable files without throwing", () => {
+  it("returns empty string for an unreadable file (no throw)", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "npmguard-hyp-"));
     try {
-      const code = readFocusCode(dir, hyp({ focusFiles: ["does-not-exist.js"] }));
-      expect(code).toBe("");
+      expect(readFocusCode(dir, { ...flag, file: "nope.js" })).toBe("");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -134,8 +116,7 @@ describe("readFocusCode", () => {
 
 describe("validateExperiment", () => {
   it("accepts a well-formed experiment (bait + one trigger)", () => {
-    const r = validateExperiment(validExperiment);
-    expect(r.ok).toBe(true);
+    expect(validateExperiment(validExperiment).ok).toBe(true);
   });
 
   it("rejects an unknown tool", () => {
@@ -166,39 +147,37 @@ describe("validateExperiment", () => {
 describe("runHypothesize", () => {
   const ctx = { packagePath: "/tmp/nope", intent, entryPoints };
 
-  it("arms each node with the experiment the model composed", async () => {
-    generateObjectMock.mockResolvedValue({
-      object: { reasoning: "plant bait and trigger install", experiment: validExperiment },
-    } as never);
+  it("arms each flag into a hypothesis (description + label + experiment)", async () => {
+    generateObjectMock.mockResolvedValue({ object: validResponse } as never);
 
-    const out = await runHypothesize([hyp()], ctx);
+    const hyps = await runHypothesize([flag], ctx);
 
-    expect(out.experiments).toHaveLength(1);
-    expect(out.experiments[0]!.experiment.map((c) => c.tool)).toEqual(["setEnv", "plantFiles", "trigger"]);
-    expect(out.failures).toHaveLength(0);
+    expect(hyps).toHaveLength(1);
+    const h = hyps[0]!;
+    expect(h.description).toContain("~/.npmrc");
+    expect(h.claim.kind).toBe("env_exfil");
+    expect(h.experiment.map((c) => c.tool)).toEqual(["setEnv", "plantFiles", "trigger"]);
+    // Focus carries the flag's location.
+    expect(h.focusFiles).toEqual(["setup.js"]);
+    expect(h.focusLines).toEqual([{ file: "setup.js", range: "1-10" }]);
+    expect(h.createdBy).toBe("hypothesize");
   });
 
-  it("retries once when the first experiment is invalid, then succeeds", async () => {
-    generateObjectMock
-      .mockResolvedValueOnce({ object: { reasoning: "oops", experiment: [{ tool: "bogus", args: {} }] } } as never)
-      .mockResolvedValueOnce({ object: { reasoning: "fixed", experiment: validExperiment } } as never);
-
-    const out = await runHypothesize([hyp()], ctx);
-
-    expect(generateObjectMock).toHaveBeenCalledTimes(2);
-    expect(out.experiments[0]!.experiment).toHaveLength(3);
-    expect(out.failures).toHaveLength(0);
-  });
-
-  it("records a coverage gap (empty experiment) when both attempts are invalid — never a silent pass", async () => {
+  it("raises HypothesizeError when the experiment cannot be armed (ERROR, not a hypothesis)", async () => {
     generateObjectMock.mockResolvedValue({
-      object: { reasoning: "still bad", experiment: [{ tool: "bogus", args: {} }] },
+      object: { ...validResponse, experiment: [{ tool: "bogus", args: {} }] },
     } as never);
 
-    const out = await runHypothesize([hyp()], ctx);
+    await expect(runHypothesize([flag], ctx)).rejects.toMatchObject({
+      name: "HypothesizeError",
+    });
+  });
 
-    expect(out.experiments[0]!.experiment).toEqual([]);
-    expect(out.failures).toHaveLength(1);
-    expect(out.failures[0]!.hypId).toBe("h1");
+  it("raises HypothesizeError when the model call itself fails (no fabricated hypothesis)", async () => {
+    generateObjectMock.mockRejectedValue(new Error("503 upstream"));
+
+    await expect(runHypothesize([flag], ctx)).rejects.toMatchObject({
+      name: "HypothesizeError",
+    });
   });
 });

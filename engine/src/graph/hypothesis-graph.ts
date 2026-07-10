@@ -11,7 +11,6 @@ import type {
   EvidenceRef as EvidenceRefType,
   FocusRange as FocusRangeType,
   HypothesisResolution as HypothesisResolutionType,
-  ToolCall as ToolCallType,
 } from "@npmguard/shared";
 import { findDuplicate, DEFAULT_MERGE_THRESHOLD } from "./merge.js";
 
@@ -157,19 +156,6 @@ export class HypothesisGraph {
     this.nodes.set(match.hypId, validated);
     this.updatedAt = this.nowFn();
     return { node: validated, merged: true };
-  }
-
-  /**
-   * Attach the experiment (the ToolCall[] the HYPOTHESIZE pass composed) to a
-   * node without changing its state. This is how a runnable experiment reaches
-   * a deduped graph node; the orchestrator then routes on its presence.
-   */
-  setExperiment(hypId: string, experiment: ToolCallType[]): HypothesisType {
-    const h = this.get(hypId);
-    const parsed = Hypothesis.parse({ ...h, experiment });
-    this.nodes.set(hypId, parsed);
-    this.updatedAt = this.nowFn();
-    return parsed;
   }
 
   /** Append evidence refs to a hypothesis without changing its state. */
