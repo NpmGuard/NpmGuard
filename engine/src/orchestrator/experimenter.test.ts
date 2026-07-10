@@ -111,11 +111,6 @@ describe("experimentForClaim", () => {
     }
   });
 
-  it("enables the right sensors per claim (fsDiff for binary_drop, inspector for obfuscation)", () => {
-    expect(experimentForClaim("binary_drop", hyp({ claim: { kind: "binary_drop", gating: null } }), "index.js")!.observe.fsDiff).toBe(true);
-    expect(experimentForClaim("obfuscation", hyp({ claim: { kind: "obfuscation", gating: null } }), "index.js")!.observe.inspector).toBe(true);
-  });
-
   it("uses a tight budget for dos_loop", () => {
     expect(experimentForClaim("dos_loop", hyp({ claim: { kind: "dos_loop", gating: null } }), "index.js")!.budget?.wallMs).toBe(5000);
   });
@@ -167,6 +162,10 @@ describe("runExperiment", () => {
 
     const result = await runExperiment(hyp(), "/tmp/pkg", "index.js", ["setup.js"], "a config loader");
 
+    // Every run observes the full oracle — all five sensors, regardless of claim.
+    expect(runUnderObservationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ observe: { kernel: true, network: true, node: true, fsDiff: true, inspector: true } }),
+    );
     expect(result).not.toBeNull();
     expect(result!.confirmed).toBe(true);
     expect(result!.citedEvents).toEqual(["e1"]);

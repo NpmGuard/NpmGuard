@@ -29,12 +29,16 @@ const NPMRC_BAIT = {
   content: `//registry.npmjs.org/:_authToken=${PLANTED_TOKEN}\n`,
 };
 
-/** How to run a claim: the experiment tool calls, the sensors to observe, and the wall-clock budget. */
+/** How to run a claim: the experiment tool calls and the wall-clock budget. Every
+ *  run observes the full oracle (below), so a claim never selects sensors. */
 export interface ClaimExperiment {
   experiment: ToolCall[];
-  observe: ObserveFlags;
   budget: RunRequest["budget"];
 }
+
+/** The full oracle: every sensor on, every run. The timeline and judge always
+ *  read the same complete set of layers, so nothing downstream asks which ran. */
+const FULL_ORACLE: ObserveFlags = { kernel: true, network: true, node: true, fsDiff: true, inspector: true };
 
 const triggerCall = (target: string): ToolCall => ({ tool: "trigger", args: { kind: "entrypoint", target } });
 const setEnvCall = (env: Record<string, string>): ToolCall => ({ tool: "setEnv", args: { env } });
@@ -76,9 +80,8 @@ export function pickTriggerTarget(
 
 /**
  * Build the experiment for a claim: the tool calls that plant bait and trigger
- * the code, the sensors to observe, and the budget. Returns null for claims
- * with no runnable experiment (browser/registry threats the sandbox cannot
- * exercise).
+ * the code, plus the budget. Returns null for claims with no runnable experiment
+ * (browser/registry threats the sandbox cannot exercise).
  */
 export function experimentForClaim(
   claim: ClaimKind,
@@ -102,42 +105,22 @@ export function experimentForClaim(
           plantFilesCall([NPMRC_BAIT]),
           run,
         ],
-        observe: { kernel: true, network: true, node: true, fsDiff: false, inspector: false },
         budget: { wallMs: 15_000 },
       };
 
     case "binary_drop":
-      return {
-        experiment: [run],
-        observe: { kernel: true, network: true, node: true, fsDiff: true, inspector: false },
-        budget: { wallMs: 20_000 },
-      };
+      return { experiment: [run], budget: { wallMs: 20_000 } };
 
     case "dos_loop":
-      return {
-        experiment: [run],
-        observe: { kernel: true, node: true, fsDiff: false, network: false, inspector: false },
-        budget: { wallMs: 5_000 },
-      };
+      return { experiment: [run], budget: { wallMs: 5_000 } };
 
     case "obfuscation":
-      return {
-        experiment: [run],
-        observe: { kernel: false, network: false, node: true, fsDiff: false, inspector: true },
-        budget: { wallMs: 15_000 },
-      };
-
     case "persistence":
-      return {
-        experiment: [run],
-        observe: { kernel: true, node: true, fsDiff: true, network: false, inspector: false },
-        budget: { wallMs: 15_000 },
-      };
+      return { experiment: [run], budget: { wallMs: 15_000 } };
 
     case "dns_exfil":
       return {
         experiment: [setEnvCall({ NPM_TOKEN: PLANTED_TOKEN, HOME: "/home/node" }), run],
-        observe: { kernel: true, network: true, node: true, fsDiff: false, inspector: false },
         budget: { wallMs: 15_000 },
       };
 
@@ -149,7 +132,6 @@ export function experimentForClaim(
           plantFilesCall([NPMRC_BAIT]),
           run,
         ],
-        observe: { kernel: true, network: true, node: true, fsDiff: false, inspector: false },
         budget: { wallMs: 20_000 },
       };
 
@@ -162,7 +144,6 @@ export function experimentForClaim(
           ]),
           run,
         ],
-        observe: { kernel: true, network: false, node: true, fsDiff: true, inspector: false },
         budget: { wallMs: 20_000 },
       };
 
@@ -220,7 +201,7 @@ export async function runExperiment(
   const artifact = await runUnderObservation({
     packagePath,
     experiment: plan.experiment,
-    observe: plan.observe,
+    observe: FULL_ORACLE,
     budget: plan.budget,
   });
 

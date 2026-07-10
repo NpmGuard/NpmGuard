@@ -81,6 +81,11 @@ const CASES: Case[] = [
       ],
     },
     expect: (a) => {
+      // The V8 inspector runs in-process now (see instrumentation.ts): its
+      // scriptParsed events ride the L4 stdout trace as L4:v8inspector /
+      // script_parsed events, each carrying the DECODED source of a
+      // dynamically-compiled script. There is no external inspector log file
+      // any more, so inspectorLogHash stays null by construction.
       const l4v8 = a.events.filter((e) => e.stream === "L4:v8inspector");
       if (l4v8.length === 0) return { ok: false, why: "expected at least one L4:v8inspector event" };
       const dynamicScript = l4v8.find((e) => {
@@ -90,7 +95,10 @@ const CASES: Case[] = [
       if (!dynamicScript) {
         return { ok: false, why: "expected at least one dynamic/internal script_parsed event" };
       }
-      if (!a.inspectorLogHash) return { ok: false, why: "inspectorLogHash should be set when observe.inspector=true" };
+      const withSource = l4v8.find((e) => String(e.normalized?.source ?? "").length > 0);
+      if (!withSource) {
+        return { ok: false, why: "expected a script_parsed event with decoded in-process source" };
+      }
       return { ok: true };
     },
   },
