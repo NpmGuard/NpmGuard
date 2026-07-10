@@ -1,8 +1,17 @@
-/** JS instrumentation module — monkey-patches sensitive Node.js APIs.
+/** JS instrumentation module — monkey-patches sensitive Node.js APIs and, when
+ *  asked, captures dynamically-compiled code from an in-process V8 inspector.
  *  Injected via `node --require /tmp/_instrument.js <entrypoint>`.
- *  This is runtime JS, NOT TypeScript — kept as a string constant. */
+ *  This is runtime JS, NOT TypeScript — kept as string constants.
+ *
+ *  Build the injected source with `buildInstrumentation({ inspector })`. Every
+ *  layer appends to one `_log` array flushed to stdout at exit inside the
+ *  `__NPMGUARD_TRACE__…__NPMGUARD_TRACE_END__` markers, which `l4-parser.ts`
+ *  reads back. The inspector layer is in-process — it opens a `require('inspector')`
+ *  session in the sandboxed process itself, so there is no external debugger to
+ *  attach, no `--inspect` port, no host↔container rendezvous that can fail, and
+ *  the process runs unpaused. */
 
-export const INSTRUMENTATION_JS = String.raw`
+const MONKEY_PATCH = String.raw`
 'use strict';
 
 const _log = [];
@@ -104,14 +113,59 @@ global.setInterval = function(fn, ms, ...args) {
   _log.push({ type: 'timer', kind: 'setInterval', ms });
   return _origSetInterval.call(this, fn, ms, ...args);
 };
+`;
 
-// --- Flush on exit ---
-process.on('exit', () => {
+// In-process V8 inspector. Subscribes to Debugger.scriptParsed — which fires for
+// every compiled script, including dynamically-generated code (eval, new Function,
+// vm, Module._compile) that never existed in a file. For each such script it
+// records the decoded source, so obfuscated malware that unpacks itself at
+// runtime is whiteboxed at the moment V8 compiles it. File-backed scripts are
+// skipped — they are already visible statically. setSkipAllPauses guarantees an
+// enabled Debugger never halts the (unattended) process, e.g. on a `debugger;`.
+const INSPECTOR = String.raw`
+try {
+  const _inspector = require('inspector');
+  const _session = new _inspector.Session();
+  _session.connect();
+  _session.post('Debugger.enable', function () {});
+  _session.post('Debugger.setSkipAllPauses', { skip: true }, function () {});
+  _session.on('Debugger.scriptParsed', function (msg) {
+    const p = (msg && msg.params) || {};
+    const url = p.url || '';
+    // Keep only dynamically-generated code. File-backed scripts (absolute path,
+    // file:// url, node: internals, node_modules) are already visible statically.
+    if (url.indexOf('node:') === 0 || url.indexOf('file:') === 0 || url.charAt(0) === '/' || url.indexOf('node_modules') !== -1) return;
+    const entry = { type: 'script', url: url, source: '', len: 0 };
+    _log.push(entry);
+    try {
+      _session.post('Debugger.getScriptSource', { scriptId: p.scriptId }, function (err, res) {
+        if (!err && res && typeof res.scriptSource === 'string') {
+          const src = res.scriptSource;
+          // Keep the true length; a compiled blob past the cap is itself notable,
+          // and the cap is marked downstream so the truncation is never silent.
+          entry.len = src.length;
+          entry.source = src.length > 65536 ? src.slice(0, 65536) : src;
+        }
+      });
+    } catch (e) {}
+  });
+} catch (e) {}
+`;
+
+// Flush the whole trace on exit. Kept last so every layer's entries are present.
+const FLUSH = String.raw`
+process.on('exit', function () {
   try {
     process.stdout.write('\n__NPMGUARD_TRACE__' + JSON.stringify(_log) + '__NPMGUARD_TRACE_END__\n');
-  } catch {}
+  } catch (e) {}
 });
 `;
+
+/** Assemble the injected instrumentation. The inspector layer is opt-in because
+ *  it captures dynamically-compiled source only when a run wants that whitebox. */
+export function buildInstrumentation(opts: { inspector: boolean }): string {
+  return MONKEY_PATCH + (opts.inspector ? INSPECTOR : "") + FLUSH;
+}
 
 /** Timer-advancing wrapper using a self-contained pure-JS fake clock.
  *  Runs inside the hermetic sandbox (--network=none, read-only, no node_modules),

@@ -15,37 +15,12 @@ import { sha256Hex } from "./hashing.js";
  */
 
 /**
- * Build the `docker exec` command array for a given trigger. Returns null for
- * trigger kinds not yet implemented in the walking skeleton.
- *
- * Sprint 2: only `entrypoint` and `subpath` supported.
- * Sprint 3+: `lifecycle`, `bin` added as manipulation primitives land.
+ * Build the `docker exec` command array for a given trigger. `l4` prepends the
+ * `--require /tmp/_instrument.js` preload (monkey-patch + in-process inspector).
+ * Returns null for trigger kinds with no run command (`lifecycle`, `bin`).
  */
-export interface TriggerCommandOptions {
-  l4: boolean;
-  inspector: boolean;
-}
-
-export function buildTriggerCommand(
-  trigger: Trigger,
-  opts: boolean | TriggerCommandOptions,
-): string[] | null {
-  const { l4, inspector } =
-    typeof opts === "boolean"
-      ? { l4: opts, inspector: false }
-      : opts;
-
-  const nodeFlags: string[] = [];
-  // `--inspect` (without -brk) opens the inspector port and proceeds to run
-  // user code immediately. The host CDP attaches in parallel — early
-  // scripts may be missed, but we avoid the Node-hangs-if-inspector-never-
-  // resumes trap that -brk creates when something in the flow goes wrong.
-  if (inspector) {
-    nodeFlags.push("--inspect=0.0.0.0:9229");
-  }
-  if (l4) {
-    nodeFlags.push("--require", "/tmp/_instrument.js");
-  }
+export function buildTriggerCommand(trigger: Trigger, l4: boolean): string[] | null {
+  const nodeFlags: string[] = l4 ? ["--require", "/tmp/_instrument.js"] : [];
 
   switch (trigger.kind) {
     case "entrypoint": {

