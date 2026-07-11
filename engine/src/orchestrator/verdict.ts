@@ -49,25 +49,25 @@ function bucket(hypotheses: readonly Hypothesis[]): HypothesisCounts {
 
 /**
  * Derive the verdict of a completed audit:
- *   any CONFIRMED → DANGEROUS (cited dynamic proof)
+ *   any CONFIRMED → DANGEROUS (cited dynamic proof — precedence over everything)
  *   else          → SAFE      (every suspicion ran and showed no malice)
  *
- * INVARIANT: the graph is fully resolved to CONFIRMED/REFUTED. An unresolved
- * node (OPEN/IN_PROGRESS) or a DEFERRED one means the audit did not complete —
- * the pipeline raises AuditIncompleteError before this runs, so those states
- * cannot reach here. A verdict is only ever issued over a completed audit.
+ * DANGEROUS wins even if a sibling hypothesis could not be evaluated: proven
+ * malice is proven regardless of what else flaked. Only when NOTHING is
+ * confirmed does a DEFERRED node block the verdict — and the pipeline raises
+ * AuditIncompleteError before this runs in that case, so a SAFE here stands over
+ * a fully-refuted graph. OPEN/IN_PROGRESS never reach the verdict; the
+ * orchestrator resolves every node.
  */
 export function deriveGraphVerdict(graph: HypothesisGraph): GraphVerdictReport {
   const hypotheses = graph.all();
-  for (const h of hypotheses) {
-    assert(
-      h.state === "CONFIRMED" || h.state === "REFUTED",
-      `deriveGraphVerdict: unresolved node ${h.hypId} (${h.state}) — audit did not complete`,
-    );
-  }
-
   const counts = bucket(hypotheses);
   const confirmedHypIds = hypotheses.filter((h) => h.state === "CONFIRMED").map((h) => h.hypId);
+
+  assert(
+    counts.open === 0 && counts.inProgress === 0,
+    `deriveGraphVerdict: ${counts.open + counts.inProgress} unresolved node(s) — dispatch did not finish`,
+  );
 
   if (counts.confirmed > 0) {
     return {
@@ -77,6 +77,14 @@ export function deriveGraphVerdict(graph: HypothesisGraph): GraphVerdictReport {
       confirmedHypIds,
     };
   }
+
+  // No confirmed → SAFE requires every suspicion to have RUN and refuted. A
+  // DEFERRED (unevaluated) node means we could not clear it — the pipeline raises
+  // AuditIncompleteError before reaching here, so this asserts an all-refuted graph.
+  assert(
+    counts.deferred === 0,
+    `deriveGraphVerdict: SAFE with ${counts.deferred} unevaluated node(s) — pipeline should have raised`,
+  );
 
   return {
     verdict: "SAFE",
