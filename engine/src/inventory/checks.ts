@@ -1,8 +1,12 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
-import { ALLOWED_EXTENSIONS } from "./classify.js";
 import { LIFECYCLE_SCRIPTS } from "./parse-manifest.js";
 import type { DealBreaker, EntryPoints, FileRecord, InventoryFlag } from "../models.js";
+
+// Structural facts only — the facts a single source-file read CANNOT see:
+// permissions, binary-ness, lifecycle wiring, plus the dealbreakers that
+// short-circuit an audit. Content patterns (obfuscation, encoded blobs,
+// minification) belong to the FLAG pass, which reads whole file bodies and flags
+// them with reasons; duplicating them here as structural checks would be noise.
 
 const SHELL_PIPE_PATTERNS = [
   /curl\s.*\|\s*sh\b/i,
@@ -13,19 +17,10 @@ const SHELL_PIPE_PATTERNS = [
   /wget\s.*-O.*&&\s*(?:sh|bash|chmod)/,
 ];
 
-const ENCODED_CONTENT_PATTERNS = [
-  /[0-9a-f]{64,}/i,
-  /[A-Za-z0-9+/]{64,}={0,2}/,
-];
-
 const STANDARD_DOTFILES = new Set([
   ".npmignore", ".gitignore", ".browserslistrc", ".editorconfig",
 ]);
 const STANDARD_DOTFILE_PREFIXES = [".eslintrc", ".prettierrc", ".babelrc"];
-
-/** Extensions analyzed by the LLM triage — skip from structural encoded-content check. */
-const SOURCE_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".tsx", ".mts"]);
-const MINIFIED_LINE_THRESHOLD = 500;
 
 // ---------------------------------------------------------------------------
 // Dealbreaker checks
@@ -116,74 +111,6 @@ function flagExecutableOutsideBin(files: FileRecord[]): InventoryFlag[] {
   return flags;
 }
 
-function flagUnusualExtensions(files: FileRecord[]): InventoryFlag[] {
-  const flags: InventoryFlag[] = [];
-  for (const f of files) {
-    const ext = path.extname(f.path);
-    if (!ext) continue;
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-      flags.push({
-        severity: "warn",
-        check: "unusual-extension",
-        detail: `Unusual file extension: ${ext}`,
-        file: f.path,
-      });
-    }
-  }
-  return flags;
-}
-
-function flagEncodedContent(files: FileRecord[], packagePath: string): InventoryFlag[] {
-  const flags: InventoryFlag[] = [];
-  for (const f of files) {
-    const ext = path.extname(f.path);
-    if (SOURCE_EXTENSIONS.has(ext) || f.isBinary || f.sizeBytes === 0) continue;
-    const absPath = path.join(packagePath, f.path);
-    let content: string;
-    try {
-      content = fs.readFileSync(absPath, "utf-8");
-    } catch {
-      continue;
-    }
-    for (const pattern of ENCODED_CONTENT_PATTERNS) {
-      if (pattern.test(content)) {
-        flags.push({
-          severity: "warn",
-          check: "encoded-content",
-          detail: `File contains long encoded data (${pattern.source.slice(0, 30)}...)`,
-          file: f.path,
-        });
-        break;
-      }
-    }
-  }
-  return flags;
-}
-
-function flagMinifiedInstallScript(entryPoints: EntryPoints, packagePath: string): InventoryFlag[] {
-  const flags: InventoryFlag[] = [];
-  for (const ref of entryPoints.install) {
-    const absPath = path.join(packagePath, ref);
-    try {
-      const content = fs.readFileSync(absPath, "utf-8");
-      for (const line of content.split("\n")) {
-        if (line.length > MINIFIED_LINE_THRESHOLD) {
-          flags.push({
-            severity: "warn",
-            check: "minified-install-script",
-            detail: `Install script has line > ${MINIFIED_LINE_THRESHOLD} chars`,
-            file: ref,
-          });
-          break;
-        }
-      }
-    } catch {
-      continue;
-    }
-  }
-  return flags;
-}
-
 function flagHiddenDotfiles(files: FileRecord[]): InventoryFlag[] {
   const flags: InventoryFlag[] = [];
   for (const f of files) {
@@ -209,7 +136,6 @@ export function runInventoryChecks(
   scripts: Record<string, string>,
   entryPoints: EntryPoints,
   files: FileRecord[],
-  packagePath: string,
 ): { flags: InventoryFlag[]; dealbreaker: DealBreaker | null } {
   // Dealbreakers first
   let dealbreaker = checkShellPipe(scripts);
@@ -218,15 +144,12 @@ export function runInventoryChecks(
   dealbreaker = checkMissingInstallFile(entryPoints, files);
   if (dealbreaker) return { flags: [], dealbreaker };
 
-  // Accumulate flags
+  // Structural facts a single-file read can't see (the FLAG pass covers content).
   const flags: InventoryFlag[] = [
     ...flagLifecycleScripts(scripts),
     ...flagNonNodeScripts(scripts),
     ...flagBinaryFiles(files),
     ...flagExecutableOutsideBin(files),
-    ...flagUnusualExtensions(files),
-    ...flagEncodedContent(files, packagePath),
-    ...flagMinifiedInstallScript(entryPoints, packagePath),
     ...flagHiddenDotfiles(files),
   ];
 

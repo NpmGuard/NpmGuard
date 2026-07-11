@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EvidenceRef } from "./evidence.js";
+import { EvidenceRef, ToolCall } from "./evidence.js";
 
 // ---------------------------------------------------------------------------
 // Claim taxonomy — what a hypothesis suspects
@@ -42,12 +42,18 @@ export type Claim = z.infer<typeof Claim>;
 // Hypothesis lifecycle + metadata
 // ---------------------------------------------------------------------------
 
+// A hypothesis is resolved only by running its experiment:
+//   CONFIRMED — the judge cited dynamic proof the payload fired (→ DANGEROUS)
+//   REFUTED   — the experiment ran and the judge found no malice (→ SAFE)
+//   DEFERRED  — the run or judge could not complete (machinery broke → the audit
+//               is an AuditIncompleteError, never a verdict)
+// There is no "inconclusive": a run either fired, refuted, or could not be
+// evaluated. OPEN/IN_PROGRESS are transient.
 export const HypothesisState = z.enum([
   "OPEN",
   "IN_PROGRESS",
   "CONFIRMED",
   "REFUTED",
-  "INCONCLUSIVE",
   "DEFERRED",
 ]);
 export type HypothesisState = z.infer<typeof HypothesisState>;
@@ -73,6 +79,12 @@ export const Hypothesis = z.object({
   claim: Claim,
   focusFiles: z.array(z.string()).default([]),
   focusLines: z.array(FocusRange).default([]),
+  // The experiment that makes the suspected payload fire: an ordered ToolCall[]
+  // (shared tool registry, engine/src/sandbox/tools.ts) that plants bait,
+  // defeats any spotted gate, and triggers the code once. HYPOTHESIZE composes
+  // one for every flag or the audit errors — a suspicion is resolved by running
+  // it, never by reading it; the orchestrator asserts it is present at dispatch.
+  experiment: z.array(ToolCall).default([]),
   severity: HypothesisSeverity.default("medium"),
   parentHypId: z.string().nullable().default(null),
   childHypIds: z.array(z.string()).default([]),
@@ -109,7 +121,6 @@ export const HypothesisCounts = z.object({
   inProgress: z.number().int().nonnegative(),
   confirmed: z.number().int().nonnegative(),
   refuted: z.number().int().nonnegative(),
-  inconclusive: z.number().int().nonnegative(),
   deferred: z.number().int().nonnegative(),
 });
 export type HypothesisCounts = z.infer<typeof HypothesisCounts>;

@@ -21,14 +21,13 @@ import { findDuplicate, DEFAULT_MERGE_THRESHOLD } from "./merge.js";
  *  - parentHypId, if set, must exist in the graph when added
  *  - adding a child hypothesis updates the parent's `childHypIds`
  *  - state transitions obey the rules in `transition()`
- *  - CONFIRMED / REFUTED require at least one evidence ref
- *  - INCONCLUSIVE / DEFERRED require a resolution reason
- *  - terminal states (CONFIRMED, REFUTED, INCONCLUSIVE, DEFERRED) are sticky
+ *  - CONFIRMED / REFUTED require at least one evidence ref (a RunArtifact)
+ *  - DEFERRED requires a resolution reason
+ *  - terminal states (CONFIRMED, REFUTED, DEFERRED) are sticky
  */
 const TERMINAL_STATES: ReadonlySet<HypothesisStateType> = new Set<HypothesisStateType>([
   "CONFIRMED",
   "REFUTED",
-  "INCONCLUSIVE",
   "DEFERRED",
 ]);
 
@@ -191,7 +190,7 @@ export class HypothesisGraph {
       );
     }
 
-    if ((input.to === "INCONCLUSIVE" || input.to === "DEFERRED") && !input.reason) {
+    if (input.to === "DEFERRED" && !input.reason) {
       throw new HypothesisGraphError(
         `transition to ${input.to} requires resolution.reason`,
       );

@@ -16,7 +16,7 @@ export async function analyzeInventory(packagePath: string): Promise<InventoryRe
 
   const { metadata, scripts, entryPoints, dependencies } = parsePackageJson(pkg);
   const files = classifyFiles(packagePath);
-  const { flags, dealbreaker } = runInventoryChecks(scripts, entryPoints, files, packagePath);
+  const { flags, dealbreaker } = runInventoryChecks(scripts, entryPoints, files);
 
   return {
     metadata,

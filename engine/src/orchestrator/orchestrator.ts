@@ -1,37 +1,29 @@
 import assert from "node:assert";
 import type { Hypothesis } from "@npmguard/shared";
 import type { HypothesisGraph } from "../graph/hypothesis-graph.js";
-import type { EntryPoints } from "../models.js";
 import type { AuditLogger } from "../audit-log.js";
 import type { ArtifactStore } from "../evidence/artifact-store.js";
 import type { EmitFn } from "../events.js";
 import { nextOpen } from "../graph/priority-queue.js";
 import { withTimeout } from "../util.js";
-import { claimHasDynamicStrategy, runExperiment } from "./experimenter.js";
-import { runCodeReader } from "./code-reader.js";
+import { runExperiment } from "./experimenter.js";
 
 // ---------------------------------------------------------------------------
-// Orchestrator — the dispatch loop that lets the hypothesis graph resolve
-// itself. This is the piece the v2 graft skipped: without it, every node stays
-// OPEN and the verdict is SUSPECT forever.
+// Orchestrator — the dispatch loop that resolves the hypothesis graph. It runs
+// each hypothesis's experiment under observation and lets the judge decide;
+// deterministic control (priority + completion), the workers own the judgement.
 //
-// Deterministic control (priority + routing + completion); the workers own the
-// judgement:
-//   - dynamic claims  → experimenter (reproduce under observation → CONFIRMED
-//                        with a RunArtifact, else INCONCLUSIVE/DEFERRED)
-//   - static claims   → code-reader (REFUTE if benign, else INCONCLUSIVE)
-//
-// Invariant it upholds: CONFIRMED is reached ONLY via a dynamic RunArtifact.
-// No worker route ever leaves a node IN_PROGRESS — every dispatched hypothesis
-// lands in a terminal state, so `deriveGraphVerdict` can be authoritative.
+// INVARIANT: every hypothesis carries a registry-valid experiment (HYPOTHESIZE
+// arms it or the audit errors), so there is ONE resolution path — run + judge. A
+// suspicion is resolved by running it, never by reading it. CONFIRMED is reached
+// only via a dynamic RunArtifact, and no dispatch leaves a node IN_PROGRESS:
+// every one lands in a terminal state, so deriveGraphVerdict is authoritative.
 // ---------------------------------------------------------------------------
 
-const PER_HYP_MS = 90_000; // cap on a single experiment (stuck run can't burn it all)
-const CODE_READER_MS = 60_000; // cap on a single static reading
+const PER_HYP_MS = 90_000; // cap on a single experiment (a stuck run can't burn the whole budget)
 
 export interface OrchestratorContext {
   packagePath: string;
-  entryPoints: EntryPoints;
   artifactStore: ArtifactStore;
   log: AuditLogger;
   emit?: EmitFn;
@@ -45,27 +37,24 @@ export interface OrchestratorSummary {
   dispatched: number;
   confirmed: number;
   refuted: number;
-  inconclusive: number;
   deferred: number;
 }
 
 /**
- * Run the dispatch loop until no OPEN hypothesis remains (or the global budget
- * is exhausted, at which point any undispatched OPEN nodes are marked DEFERRED
- * so the coverage gap surfaces as UNKNOWN rather than a lingering SUSPECT).
+ * Run the dispatch loop until no OPEN hypothesis remains, or the global budget is
+ * exhausted — at which point any undispatched OPEN node is marked DEFERRED so it
+ * resolves rather than lingering OPEN.
  */
 export async function runOrchestrator(
   graph: HypothesisGraph,
   ctx: OrchestratorContext,
 ): Promise<OrchestratorSummary> {
-  const { entryPoints, emit } = ctx;
-  const runtimeEntry = entryPoints.runtime[0] ?? "index.js";
+  const { emit } = ctx;
   const start = Date.now();
   const summary: OrchestratorSummary = {
     dispatched: 0,
     confirmed: 0,
     refuted: 0,
-    inconclusive: 0,
     deferred: 0,
   };
 
@@ -86,23 +75,21 @@ export async function runOrchestrator(
       break;
     }
 
-    // OPEN → IN_PROGRESS. Every path below lands it in a terminal state.
+    // OPEN → IN_PROGRESS. The dispatch below lands it in a terminal state.
     graph.transition(h.hypId, { to: "IN_PROGRESS", by: "orchestrator" });
     summary.dispatched += 1;
 
-    if (claimHasDynamicStrategy(h.claim.kind)) {
-      await dispatchDynamic(h, graph, ctx, runtimeEntry, summary);
-    } else {
-      await dispatchStatic(h, graph, ctx, summary);
-    }
+    // INVARIANT: HYPOTHESIZE armed every flag or raised, so a dispatched
+    // hypothesis always carries a runnable experiment — there is no read-only route.
+    assert(h.experiment.length > 0, `orchestrator: unarmed hypothesis ${h.hypId} reached dispatch`);
+    await dispatchExperiment(h, graph, ctx, summary);
 
     emitResolved(emit, graph.get(h.hypId));
   }
 
   console.log(
     `[orchestrator] resolved ${summary.dispatched} hypothes${summary.dispatched === 1 ? "is" : "es"} — ` +
-      `${summary.confirmed} confirmed, ${summary.refuted} refuted, ` +
-      `${summary.inconclusive} inconclusive, ${summary.deferred} deferred`,
+      `${summary.confirmed} confirmed, ${summary.refuted} refuted, ${summary.deferred} deferred`,
   );
   return summary;
 }
@@ -140,30 +127,26 @@ function deferOnError(
   summary.deferred += 1;
 }
 
-// ---------------------------------------------------------------------------
-// Dynamic route — experimenter. Reproduce the behavior under observation.
-// ---------------------------------------------------------------------------
-
-async function dispatchDynamic(
+/**
+ * Run a hypothesis's experiment under observation and record the outcome:
+ * CONFIRMED (the judge cited dynamic proof the payload fired); REFUTED (it ran
+ * and the judge found no malice — the experiment refuted the suspicion); or
+ * DEFERRED (the run or judge could not complete — machinery broke, which the
+ * pipeline turns into an audit ERROR, never a quiet pass).
+ */
+async function dispatchExperiment(
   h: Hypothesis,
   graph: HypothesisGraph,
   ctx: OrchestratorContext,
-  runtimeEntry: string,
   summary: OrchestratorSummary,
 ): Promise<void> {
-  const { packagePath, entryPoints, artifactStore, log } = ctx;
+  const { packagePath, artifactStore, log } = ctx;
   try {
     const result = await withTimeout(
-      runExperiment(h, packagePath, runtimeEntry, entryPoints.install, ctx.statedPurpose),
+      runExperiment(h, packagePath, ctx.statedPurpose),
       PER_HYP_MS,
       `experiment:${h.hypId}`,
     );
-
-    // INVARIANT: a dynamic dispatch always yields a result. runExperiment returns
-    // null only for the browser-only claims, which claimHasDynamicStrategy (the gate
-    // that routed us here) already excludes — the two are kept in lockstep. A null
-    // means that lockstep broke; fail loud rather than silently DEFER.
-    assert(result !== null, `dynamic dispatch got no experiment for claim ${h.claim.kind} — claimHasDynamicStrategy/experimentForClaim out of lockstep`);
 
     // Persist the RunArtifact regardless of outcome — it documents what we ran.
     const { contentHash: artifactContentHash, ...artifactWithoutHash } = result.artifact;
@@ -203,15 +186,13 @@ async function dispatchDynamic(
       return;
     }
 
-    // Ran but did not fire. Attach the run as coverage evidence — INCONCLUSIVE/
-    // DEFERRED take no evidenceRefs in transition(), so add it explicitly here.
-    graph.addEvidence(h.hypId, [result.evidenceRef]);
     const errKind = result.artifact.error?.kind ?? null;
     const observationFailed =
       errKind === "SetupError" || errKind === "SensorError" || errKind === "TimeoutError";
-    // A judge that couldn't run is a coverage gap too — same as a failed
-    // observation, we simply don't know. DEFER, never a quiet INCONCLUSIVE pass.
     if (observationFailed || result.judgeFailed) {
+      // The run or judge could not complete — we don't know. Attach the partial
+      // run as evidence and DEFER; the pipeline turns any DEFERRED into an ERROR.
+      graph.addEvidence(h.hypId, [result.evidenceRef]);
       graph.transition(h.hypId, {
         to: "DEFERRED",
         by: "worker:experimenter",
@@ -221,64 +202,16 @@ async function dispatchDynamic(
       });
       summary.deferred += 1;
     } else {
-      // The package ran and the payload did not fire under this trigger/setup.
-      // Not a refutation — it may be gated (time/geo/CI/inspector). INCONCLUSIVE.
-      graph.transition(h.hypId, {
-        to: "INCONCLUSIVE",
-        by: "worker:experimenter",
-        reason: result.reason,
-      });
-      summary.inconclusive += 1;
-    }
-  } catch (err) {
-    deferOnError(graph, h.hypId, "worker:experimenter", err, summary);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Static route — code-reader. Refute if benign; otherwise inform loudly.
-// ---------------------------------------------------------------------------
-
-async function dispatchStatic(
-  h: Hypothesis,
-  graph: HypothesisGraph,
-  ctx: OrchestratorContext,
-  summary: OrchestratorSummary,
-): Promise<void> {
-  const { packagePath, log } = ctx;
-  try {
-    const result = await withTimeout(
-      runCodeReader(h, packagePath),
-      CODE_READER_MS,
-      `code-reader:${h.hypId}`,
-    );
-    if (result.reading) log.writeLog(`code-reader-${h.hypId}.json`, result.reading);
-
-    if (result.disposition === "REFUTED" && result.evidenceRef) {
-      // transition() appends evidenceRefs — don't also addEvidence (double-count).
+      // The experiment ran and the judge found no malice — a dynamic refutation.
       graph.transition(h.hypId, {
         to: "REFUTED",
-        by: "worker:code-reader",
+        by: "worker:experimenter",
         reason: result.reason,
         evidenceRefs: [result.evidenceRef],
       });
       summary.refuted += 1;
-    } else if (result.disposition === "DEFERRED") {
-      graph.transition(h.hypId, {
-        to: "DEFERRED",
-        by: "worker:code-reader",
-        reason: result.reason,
-      });
-      summary.deferred += 1;
-    } else {
-      graph.transition(h.hypId, {
-        to: "INCONCLUSIVE",
-        by: "worker:code-reader",
-        reason: result.reason,
-      });
-      summary.inconclusive += 1;
     }
   } catch (err) {
-    deferOnError(graph, h.hypId, "worker:code-reader", err, summary);
+    deferOnError(graph, h.hypId, "worker:experimenter", err, summary);
   }
 }

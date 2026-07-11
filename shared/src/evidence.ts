@@ -53,12 +53,12 @@ export type Event = z.infer<typeof Event>;
 // Evidence references — typed pointers to RunArtifact / (future) DifferentialArtifact
 // ---------------------------------------------------------------------------
 
-// "run"    — a dynamic RunArtifact (reproduced behavior). The ONLY evidence
-//            kind that may back a CONFIRMED hypothesis, per the chain-of-custody
-//            axiom: nothing blocks an install unless it was observed firing.
-// "static" — a code-reader reading. May back a REFUTED hypothesis ("read the
-//            code, it does not implement the claim") but NEVER a CONFIRMED one.
-// "diff"   — reserved for the differential engine (v2 tuning phase).
+// "run"    — a dynamic RunArtifact (reproduced behavior). Every terminal
+//            hypothesis is backed by one: a CONFIRMED cites the run where the
+//            payload fired, a REFUTED the run where it was triggered and did not.
+//            Nothing clears or blocks an install except by running it.
+// "static" — reserved; no current producer.
+// "diff"   — reserved for the differential engine.
 export const EvidenceRefKind = z.enum(["run", "static", "diff"]);
 export type EvidenceRefKind = z.infer<typeof EvidenceRefKind>;
 
