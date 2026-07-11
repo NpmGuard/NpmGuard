@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
-import { generateObject } from "ai";
+import { generateText, tool, stepCountIs } from "ai";
 import {
   ClaimKind,
   GatingModifier,
@@ -13,7 +13,7 @@ import { config } from "../config.js";
 import { getModel } from "../llm.js";
 import { AuditIncompleteError } from "../errors.js";
 import { numberLines } from "../util.js";
-import { renderToolCatalog, compileExperiment, ExperimentCompileError } from "../sandbox/tools.js";
+import { renderToolCatalog, buildExperimentSchema } from "../sandbox/tools.js";
 import type { EntryPoints } from "../models.js";
 import type { EmitFn } from "../events.js";
 import type { PackageIntent } from "./intent-extraction.js";
@@ -52,18 +52,13 @@ export interface HypothesizeContext {
 }
 
 // ---------------------------------------------------------------------------
-// Model output schema
+// Model output — the summary fields HYPOTHESIZE owns, merged with the registry's
+// typed experiment schema (buildExperimentSchema) to form the submitHypothesis
+// tool's inputSchema. The setup/trigger shapes live in the registry; only the
+// naming (description/claim/severity) lives here.
 // ---------------------------------------------------------------------------
 
-const ToolCallDraft = z.object({
-  tool: z.string().describe("Name of a tool from the catalog (exact match)."),
-  args: z
-    .record(z.unknown())
-    .default({})
-    .describe("Arguments for the tool, matching its documented parameters."),
-});
-
-const HypothesisResponse = z.object({
+const HypothesisSummary = z.object({
   description: z
     .string()
     .describe(
@@ -78,15 +73,7 @@ const HypothesisResponse = z.object({
   severity: HypothesisSeverity.describe(
     "low (unlikely), medium (plausibly harmful), high (clearly harmful if triggered), critical (unambiguous theft/RCE/destruction).",
   ),
-  reasoning: z
-    .string()
-    .describe("One or two sentences: how the experiment makes the payload fire, including any gate you defeat."),
-  experiment: z
-    .array(ToolCallDraft)
-    .min(1)
-    .describe("Ordered tool calls: setup calls first (plant bait, defeat gates), then EXACTLY ONE `trigger` call."),
 });
-export type HypothesisResponse = z.infer<typeof HypothesisResponse>;
 
 // ---------------------------------------------------------------------------
 // Prompt (pure)
@@ -94,21 +81,18 @@ export type HypothesisResponse = z.infer<typeof HypothesisResponse>;
 
 export const HYPOTHESIZE_SYSTEM = `You are a security analyst turning a flagged region of an npm package into a testable hypothesis.
 
-A fast triage pass flagged this region as worth a closer look. You are given the flag, the code it points at, what the package is supposed to do, and a catalog of tools for setting up and triggering a sandboxed run. Produce two things:
+A fast triage pass flagged this region as worth a closer look. You are given the flag, the code it points at, what the package is supposed to do, and a catalog of tools for setting up and triggering a sandboxed run. Call the submitHypothesis tool with two things:
 
 1. A hypothesis about the suspected behavior: a one-sentence description, a best-match claim label, and a severity.
-2. An EXPERIMENT — the ordered tool calls that would MAKE THAT BEHAVIOR ACTUALLY FIRE, so a downstream judge can watch it happen under full instrumentation.
+2. An EXPERIMENT — the setup calls plus one trigger — that would MAKE THAT BEHAVIOR ACTUALLY FIRE, so a downstream judge can watch it happen under full instrumentation.
 
 Design the experiment to trigger the payload, not to avoid it:
 - Plant the bait the payload would go after — fake credentials in the environment (setEnv: NPM_TOKEN, AWS_ACCESS_KEY_ID) and on disk (plantFiles: /home/node/.npmrc, /home/node/.ssh/id_rsa, /home/node/.aws/credentials). Absolute container paths only.
 - DEFEAT any gate the region shows so the guarded branch runs: a time gate → setDate past the trigger date; a CI gate → setEnv CI=true; an anti-debug/inspector or other hard check → patchFile to neutralize it or force the branch.
 - Make staged fetches succeed if the payload needs a second stage — stubUrl to return a canned response.
-- End with EXACTLY ONE trigger call naming the entry point most likely to reach the code (an install lifecycle file for install-time payloads, the runtime entry otherwise). Prefer a file in the package's entry points.
+- The trigger runs one entry point most likely to reach the code (an install lifecycle file for install-time payloads, the runtime entry otherwise); its target must be one of the package's real files offered in the schema.
 
-Rules:
-- Use ONLY tools from the catalog, with arguments matching their documented parameters. An unknown tool or bad arguments makes the whole experiment invalid.
-- The experiment MUST contain exactly one trigger call.
-- You are NOT the final judge of malice — only of how to run the code so the behavior would show if it is there. Never refuse to design an experiment because the code "looks fine"; if a payload is gated or hidden, your job is to defeat the gate and trigger it anyway. The label and severity are your best guess; the run decides.`;
+You are NOT the final judge of malice — only of how to run the code so the behavior would show if it is there. Never refuse to compose an experiment because the code "looks fine"; if a payload is gated or hidden, your job is to defeat the gate and trigger it anyway. The label and severity are your best guess; the run decides.`;
 
 export function buildHypothesizePrompt(args: {
   flag: Flag;
@@ -147,7 +131,7 @@ export function buildHypothesizePrompt(args: {
   );
 
   sections.push(
-    `## Task\nName the suspected behavior (description, claim label, severity) and compose the ordered tool calls (setup, then exactly one trigger) that would make it fire in the sandbox.`,
+    `## Task\nCall submitHypothesis: name the suspected behavior (description, claim label, severity) and compose the experiment (ordered setup calls, then one trigger) that would make it fire in the sandbox.`,
   );
 
   return sections.join("\n\n");
@@ -177,45 +161,26 @@ export function readFocusCode(packagePath: string, flag: Flag): string {
 }
 
 // ---------------------------------------------------------------------------
-// Experiment validation (pure) — the registry is the one contract
-// ---------------------------------------------------------------------------
-
-export type ValidateResult =
-  | { ok: true; experiment: ToolCall[] }
-  | { ok: false; error: string };
-
-/**
- * Validate a model-proposed experiment against the shared tool registry. A
- * ToolCall[] that compiles is coherent; anything else (unknown tool, bad args,
- * zero or many triggers) is rejected with the registry's own error. Never
- * silently drops a bad call.
- */
-export function validateExperiment(calls: ToolCall[]): ValidateResult {
-  try {
-    compileExperiment(calls);
-    return { ok: true, experiment: calls };
-  } catch (err) {
-    if (err instanceof ExperimentCompileError) {
-      return { ok: false, error: err.message };
-    }
-    throw err;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Per-flag hypothesis (throws when it cannot arm)
 // ---------------------------------------------------------------------------
 
+/** The package's real runnable files — the only legal trigger targets. An enum
+ *  over these makes a nonexistent target unrepresentable (it would run nothing
+ *  and read as a false SAFE). */
+export function triggerTargetsFor(flag: Flag, entryPoints: EntryPoints): string[] {
+  return Array.from(
+    new Set([...entryPoints.runtime, ...entryPoints.install, ...entryPoints.bin, flag.file]),
+  );
+}
+
 /**
  * Turn one flag into an armed hypothesis, or raise AuditIncompleteError. The
- * model names the behavior and composes the experiment in one call; if the
- * experiment does not compile against the registry, the model gets ONE retry
- * with the exact rejection so it can fix the tool-call shape. A call that fails,
- * or an experiment still invalid after the retry, is an incoherent, untestable
+ * model composes the whole hypothesis in ONE forced tool call whose input schema
+ * is typed all the way down (setup as a discriminated union over the registry
+ * tools, trigger with a real-file target enum), so the args cannot be mis-shaped.
+ * A call that fails, is absent, or is schema-invalid is an incoherent, untestable
  * state — it raises rather than inventing a hypothesis or an empty experiment.
  */
-const MAX_ARMING_ATTEMPTS = 2;
-
 async function hypothesizeFlag(
   flag: Flag,
   ctx: HypothesizeContext,
@@ -223,66 +188,65 @@ async function hypothesizeFlag(
   now: string,
 ): Promise<Hypothesis> {
   const focusCode = readFocusCode(ctx.packagePath, flag);
-  const basePrompt = buildHypothesizePrompt({
+  const prompt = buildHypothesizePrompt({
     flag,
     focusCode,
     intent: ctx.intent,
     entryPoints: ctx.entryPoints,
   });
+  const outputSchema = HypothesisSummary.merge(
+    buildExperimentSchema(triggerTargetsFor(flag, ctx.entryPoints)),
+  );
+  type Output = z.infer<typeof outputSchema>;
 
-  let lastError = "";
-  for (let attempt = 1; attempt <= MAX_ARMING_ATTEMPTS; attempt++) {
-    const prompt =
-      attempt === 1
-        ? basePrompt
-        : `${basePrompt}\n\n## Your previous experiment was rejected\n${lastError}\n` +
-          `Return corrected tool calls: match each tool's documented \`args\` shape EXACTLY (see the catalog examples), use only catalog tools, and include exactly one trigger.`;
-
-    let response: HypothesisResponse;
-    try {
-      const result = await generateObject({
-        model: getModel(config.investigationModel),
-        schema: HypothesisResponse,
-        system: HYPOTHESIZE_SYSTEM,
-        prompt,
-      });
-      response = result.object;
-    } catch (err) {
+  let output: Output;
+  try {
+    const result = await generateText({
+      model: getModel(config.investigationModel),
+      system: HYPOTHESIZE_SYSTEM,
+      prompt,
+      tools: {
+        submitHypothesis: tool({
+          description:
+            "Submit the hypothesis (description, claim, severity) and its runnable experiment (ordered setup calls + one trigger).",
+          inputSchema: outputSchema,
+        }),
+      },
+      toolChoice: { type: "tool", toolName: "submitHypothesis" },
+      stopWhen: stepCountIs(1),
+    });
+    const call = result.toolCalls.find((c) => c.toolName === "submitHypothesis");
+    if (!call) {
       throw new AuditIncompleteError(
         "hypothesize",
-        `could not arm ${flag.file} (${flag.why}): model call failed: ${err instanceof Error ? err.message : String(err)}`,
+        `could not arm ${flag.file} (${flag.why}): model did not submit a hypothesis`,
       );
     }
-
-    const validated = validateExperiment(response.experiment as ToolCall[]);
-    if (validated.ok) {
-      return buildHypothesis(flag, hypId, now, response, validated.experiment);
-    }
-    lastError = validated.error;
-    console.warn(`[hypothesize] ${hypId} attempt ${attempt}/${MAX_ARMING_ATTEMPTS} invalid experiment: ${lastError}`);
+    output = call.input as Output;
+  } catch (err) {
+    if (err instanceof AuditIncompleteError) throw err;
+    throw new AuditIncompleteError(
+      "hypothesize",
+      `could not arm ${flag.file} (${flag.why}): ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
-  throw new AuditIncompleteError(
-    "hypothesize",
-    `could not arm ${flag.file} (${flag.why}) after ${MAX_ARMING_ATTEMPTS} attempts: invalid experiment: ${lastError}`,
-  );
-}
+  // The typed object → the ToolCall[] the sandbox runs. Each setup variant is
+  // { tool, ...args }; the trigger is one typed field. compileExperiment
+  // re-validates at run time (redundant — the schema already guarantees it).
+  const experiment: ToolCall[] = [
+    ...output.setup.map(({ tool: name, ...args }) => ({ tool: name, args })),
+    { tool: "trigger", args: output.trigger },
+  ];
 
-function buildHypothesis(
-  flag: Flag,
-  hypId: string,
-  now: string,
-  response: HypothesisResponse,
-  experiment: ToolCall[],
-): Hypothesis {
   return {
     hypId,
-    description: response.description,
-    claim: { kind: response.claim.kind, gating: response.claim.gating ?? null },
+    description: output.description,
+    claim: { kind: output.claim.kind, gating: output.claim.gating ?? null },
     focusFiles: [flag.file],
     focusLines: flag.lines.map((range) => ({ file: flag.file, range })),
     experiment,
-    severity: response.severity,
+    severity: output.severity,
     parentHypId: null,
     childHypIds: [],
     state: "OPEN",
