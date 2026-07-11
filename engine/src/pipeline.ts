@@ -383,14 +383,18 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     });
     log.writeLog("graph-final.json", graph.serialize());
 
-    // A DEFERRED node is a suspicion whose run or judge could not complete —
-    // machinery broke. The audit did not complete, so it is an ERROR (retry/fix
-    // the tool), never a verdict: no report is issued over an untested suspicion.
+    // A CONFIRMED hypothesis is proven malice → DANGEROUS, and that wins over
+    // everything (deriveGraphVerdict returns it below). Only when NOTHING is
+    // confirmed does a DEFERRED node block the verdict: a suspicion whose run or
+    // judge could not complete means we cannot clear the package as SAFE, so the
+    // audit is a retryable ERROR — no verdict over an untested suspicion. But a
+    // flaky run on an unrelated hypothesis must never suppress a proven threat.
+    const confirmedCount = graph.filterByState("CONFIRMED").length;
     const deferred = graph.filterByState("DEFERRED");
-    if (deferred.length > 0) {
+    if (confirmedCount === 0 && deferred.length > 0) {
       throw new AuditIncompleteError(
         "orchestrator",
-        `${deferred.length} hypothes${deferred.length === 1 ? "is" : "es"} could not be evaluated: ` +
+        `${deferred.length} hypothes${deferred.length === 1 ? "is" : "es"} could not be evaluated (and none confirmed): ` +
           deferred.slice(0, 5).map((h) => `${h.hypId} (${h.resolution?.reason ?? "?"})`).join("; "),
       );
     }
