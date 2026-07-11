@@ -24,6 +24,7 @@ function baselineHypothesis(overrides: Partial<Hypothesis> = {}): Hypothesis {
     claim: overrides.claim ?? { kind: "env_exfil", gating: null },
     focusFiles: overrides.focusFiles ?? ["lib/init.js"],
     focusLines: overrides.focusLines ?? [{ file: "lib/init.js", range: "42-58" }],
+    experiment: overrides.experiment ?? [],
     severity: overrides.severity ?? "high",
     parentHypId: overrides.parentHypId ?? null,
     childHypIds: overrides.childHypIds ?? [],
@@ -117,23 +118,23 @@ describe("HypothesisGraph — state transitions", () => {
     ).toThrow(/evidenceRef/);
   });
 
-  it("INCONCLUSIVE without reason is rejected", () => {
+  it("DEFERRED without reason is rejected", () => {
     expect(() =>
-      g.transition("hyp_001", { to: "INCONCLUSIVE", by: "orchestrator" }),
+      g.transition("hyp_001", { to: "DEFERRED", by: "orchestrator" }),
     ).toThrow(/resolution.reason/);
   });
 
-  it("INCONCLUSIVE with reason is allowed without evidence", () => {
+  it("DEFERRED with reason is allowed without evidence", () => {
     const h = g.transition("hyp_001", {
-      to: "INCONCLUSIVE",
-      by: "orchestrator",
-      reason: "timeout; couldn't reproduce under chosen setup",
+      to: "DEFERRED",
+      by: "worker:experimenter",
+      reason: "sensor failed; run could not complete",
     });
-    expect(h.state).toBe("INCONCLUSIVE");
-    expect(h.resolution?.reason).toMatch(/timeout/);
+    expect(h.state).toBe("DEFERRED");
+    expect(h.resolution?.reason).toMatch(/sensor/);
   });
 
-  it("DEFERRED requires reason and is terminal", () => {
+  it("DEFERRED is terminal", () => {
     g.transition("hyp_001", { to: "DEFERRED", by: "orchestrator", reason: "budget" });
     expect(() =>
       g.transition("hyp_001", { to: "OPEN", by: "orchestrator" }),
@@ -147,7 +148,7 @@ describe("HypothesisGraph — state transitions", () => {
       evidenceRefs: [evRef()],
     });
     expect(() =>
-      g.transition("hyp_001", { to: "INCONCLUSIVE", by: "orchestrator", reason: "retract" }),
+      g.transition("hyp_001", { to: "REFUTED", by: "orchestrator", evidenceRefs: [evRef()] }),
     ).toThrow(/terminal/);
   });
 

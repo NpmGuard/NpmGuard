@@ -1,10 +1,11 @@
+import assert from "node:assert";
 import type { HypothesisGraph } from "../graph/hypothesis-graph.js";
 import type { Hypothesis, HypothesisCounts, VerdictEnum } from "@npmguard/shared";
 
 /**
- * The hypothesis-graph-derived verdict. This IS the cross-process verdict now
- * (`VerdictEnum` is the same 4-state enum) — the graph is the single truth-
- * producing artifact and this pure function is the authoritative reducer.
+ * The verdict of a completed audit, derived from the resolved hypothesis graph.
+ * The graph is the single truth-producing artifact; this pure function is the
+ * authoritative reducer over its two possible outcomes.
  */
 export type GraphVerdict = VerdictEnum;
 
@@ -22,7 +23,6 @@ function bucket(hypotheses: readonly Hypothesis[]): HypothesisCounts {
     inProgress: 0,
     confirmed: 0,
     refuted: 0,
-    inconclusive: 0,
     deferred: 0,
   };
   for (const h of hypotheses) {
@@ -39,9 +39,6 @@ function bucket(hypotheses: readonly Hypothesis[]): HypothesisCounts {
       case "REFUTED":
         counts.refuted += 1;
         break;
-      case "INCONCLUSIVE":
-        counts.inconclusive += 1;
-        break;
       case "DEFERRED":
         counts.deferred += 1;
         break;
@@ -51,68 +48,42 @@ function bucket(hypotheses: readonly Hypothesis[]): HypothesisCounts {
 }
 
 /**
- * Derive a verdict from a hypothesis graph.
+ * Derive the verdict of a completed audit:
+ *   any CONFIRMED → DANGEROUS (cited dynamic proof)
+ *   else          → SAFE      (every suspicion ran and showed no malice)
  *
- * Rules, applied top-down:
- *  - any CONFIRMED → DANGEROUS
- *  - empty graph OR every node REFUTED → SAFE
- *  - no terminal states yet (any OPEN/IN_PROGRESS) → SUSPECT
- *  - all resolved with no CONFIRMED but at least one INCONCLUSIVE/DEFERRED
- *    → UNKNOWN (couldn't prove, couldn't disprove)
- *
- * The returned `rationale` is a short one-sentence explanation suitable for
- * a report header; `counts` is for per-state display; `confirmedHypIds`
- * gives downstream a direct pointer to the nodes justifying DANGEROUS.
+ * INVARIANT: the graph is fully resolved to CONFIRMED/REFUTED. An unresolved
+ * node (OPEN/IN_PROGRESS) or a DEFERRED one means the audit did not complete —
+ * the pipeline raises AuditIncompleteError before this runs, so those states
+ * cannot reach here. A verdict is only ever issued over a completed audit.
  */
 export function deriveGraphVerdict(graph: HypothesisGraph): GraphVerdictReport {
   const hypotheses = graph.all();
+  for (const h of hypotheses) {
+    assert(
+      h.state === "CONFIRMED" || h.state === "REFUTED",
+      `deriveGraphVerdict: unresolved node ${h.hypId} (${h.state}) — audit did not complete`,
+    );
+  }
+
   const counts = bucket(hypotheses);
-  const confirmedHypIds = hypotheses
-    .filter((h) => h.state === "CONFIRMED")
-    .map((h) => h.hypId);
+  const confirmedHypIds = hypotheses.filter((h) => h.state === "CONFIRMED").map((h) => h.hypId);
 
   if (counts.confirmed > 0) {
     return {
       verdict: "DANGEROUS",
-      rationale: `${counts.confirmed} confirmed hypothes${counts.confirmed === 1 ? "is" : "es"} with dynamic evidence.`,
+      rationale: `${counts.confirmed} confirmed hypothes${counts.confirmed === 1 ? "is" : "es"} with cited dynamic evidence.`,
       counts,
       confirmedHypIds,
     };
   }
 
-  if (counts.total === 0) {
-    return {
-      verdict: "SAFE",
-      rationale: "No hypotheses were emitted during triage.",
-      counts,
-      confirmedHypIds,
-    };
-  }
-
-  if (counts.refuted === counts.total) {
-    return {
-      verdict: "SAFE",
-      rationale: `All ${counts.total} hypothes${counts.total === 1 ? "is was" : "es were"} refuted by evidence.`,
-      counts,
-      confirmedHypIds,
-    };
-  }
-
-  if (counts.open > 0 || counts.inProgress > 0) {
-    const pending = counts.open + counts.inProgress;
-    return {
-      verdict: "SUSPECT",
-      rationale: `${pending} hypothes${pending === 1 ? "is" : "es"} still pending (${counts.open} open, ${counts.inProgress} in-progress).`,
-      counts,
-      confirmedHypIds,
-    };
-  }
-
-  // All resolved, no CONFIRMED, some INCONCLUSIVE/DEFERRED
-  const unresolved = counts.inconclusive + counts.deferred;
   return {
-    verdict: "UNKNOWN",
-    rationale: `${unresolved} hypothes${unresolved === 1 ? "is" : "es"} could neither be confirmed nor refuted (${counts.inconclusive} inconclusive, ${counts.deferred} deferred).`,
+    verdict: "SAFE",
+    rationale:
+      counts.total === 0
+        ? "No suspicions were raised."
+        : `All ${counts.total} suspicion${counts.total === 1 ? "" : "s"} ran and showed no malice.`,
     counts,
     confirmedHypIds,
   };

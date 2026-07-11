@@ -34,6 +34,10 @@ import { stubUrl } from "../manipulation/stub-url.js";
  */
 export type ToolKind = "setup" | "trigger";
 
+// Each tool's `paramSchema` is a ZodObject at runtime; the HYPOTHESIZE generation
+// schema assembles those objects into a discriminated union (buildExperimentSchema)
+// so the registry is the single source of the typed arg shapes for both the
+// prompt schema and the executor.
 interface SetupTool<S extends z.ZodTypeAny> {
   name: string;
   description: string;
@@ -100,7 +104,10 @@ const setDateTool = setupTool({
     "defeat a time gate — advance the clock past the trigger date so a " +
     "date-gated payload fires.",
   paramSchema: z.object({
-    iso: z.string(),
+    // ISO-8601 datetime (e.g. 2027-03-01T00:00:00Z). Constrained so the model
+    // cannot emit a shape-valid-but-unparseable date ("last tuesday") that only
+    // fails when libfaketime rejects it at boot.
+    iso: z.string().datetime({ offset: true }),
   }),
   build: (args) => setDate(args.iso),
 });
@@ -255,10 +262,51 @@ export function compileExperiment(experiment: readonly ToolCall[]): CompiledExpe
 }
 
 /**
- * Render the tool vocabulary for the HYPOTHESIZE prompt. Reading the catalog
- * from the same registry the executor uses is the point: the model can only be
- * offered tools that actually exist and run.
+ * Render the tool vocabulary (name + purpose) for the HYPOTHESIZE prompt. The
+ * model chooses WHICH tools to compose from these descriptions; the exact arg
+ * SHAPES come from the typed generation schema (buildExperimentSchema), not from
+ * prose — so the catalog no longer needs to spell out arg examples.
  */
 export function renderToolCatalog(): string {
   return TOOLS.map((t) => `- ${t.name} (${t.kind}): ${t.description}`).join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// The HYPOTHESIZE generation schema — the experiment, typed all the way down.
+//
+// This is what the model fills in one shot. `setup` is a discriminated union
+// over the setup tools (each variant carries that tool's real paramSchema args,
+// so there is no freeform `args` hole to mis-shape), and `trigger` is one typed
+// field whose `target` is an enum of the package's real runnable files (so a
+// nonexistent target — which would run nothing and read as a false SAFE — is
+// unrepresentable). The variants ARE the registry paramSchemas: one source of
+// truth for the prompt schema and the executor.
+// ---------------------------------------------------------------------------
+
+/** The typed experiment the model composes: setup calls + exactly one trigger. */
+export function buildExperimentSchema(triggerTargets: readonly string[]) {
+  const setupVariants = TOOLS.filter((t) => t.kind === "setup").map((t) =>
+    (t.paramSchema as z.AnyZodObject).extend({ tool: z.literal(t.name) }),
+  );
+  const setupUnion = z.discriminatedUnion(
+    "tool",
+    setupVariants as [z.AnyZodObject, z.AnyZodObject, ...z.AnyZodObject[]],
+  );
+
+  // The trigger runs one real file in the package as an entrypoint. The model
+  // picks only WHICH file (from the enum); `kind` is not a model choice — every
+  // run is an entrypoint execution of the target file — so the model cannot
+  // fight over it or emit an off-enum kind like "install".
+  const trigger = z.object({
+    target: z
+      .enum(triggerTargets as [string, ...string[]])
+      .describe("The package file to run as the entrypoint (e.g. an install script or the runtime entry)."),
+  });
+
+  return z.object({
+    setup: z
+      .array(setupUnion)
+      .describe("Ordered setup calls that plant bait and defeat any gate before the trigger."),
+    trigger,
+  });
 }

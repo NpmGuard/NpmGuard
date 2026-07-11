@@ -4,10 +4,12 @@ import { z } from "zod";
 // Enums — cross-process audit vocabulary
 // ---------------------------------------------------------------------------
 
-// The cross-process verdict is the 4-state hypothesis-graph verdict — the same
-// values `deriveGraphVerdict` produces. Only DANGEROUS (a CONFIRMED hypothesis
-// with a cited RunArtifact) blocks an install; SUSPECT/UNKNOWN inform loudly.
-export const VerdictEnum = z.enum(["SAFE", "SUSPECT", "DANGEROUS", "UNKNOWN"]);
+// The verdict of a COMPLETED audit. DANGEROUS ⟺ a CONFIRMED hypothesis (cited
+// dynamic proof) and blocks an install; SAFE ⟺ every suspicion ran and showed no
+// malice (presumption of innocence). An audit that cannot complete is not a
+// verdict — it is a retryable AuditIncompleteError, so "we couldn't check" can
+// never leak out as a result.
+export const VerdictEnum = z.enum(["SAFE", "DANGEROUS"]);
 export type VerdictEnum = z.infer<typeof VerdictEnum>;
 
 export const CapabilityEnum = z.enum([

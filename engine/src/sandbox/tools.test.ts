@@ -4,6 +4,7 @@ import {
   TOOLS,
   compileExperiment,
   renderToolCatalog,
+  buildExperimentSchema,
   ExperimentCompileError,
 } from "./tools.js";
 
@@ -26,6 +27,53 @@ describe("tool registry", () => {
   it("renders a catalog naming every tool (one source for prompt + executor)", () => {
     const catalog = renderToolCatalog();
     for (const t of TOOLS) expect(catalog).toContain(t.name);
+  });
+
+});
+
+describe("buildExperimentSchema — the typed HYPOTHESIZE generation schema", () => {
+  const schema = buildExperimentSchema(["setup.js", "index.js"]);
+
+  it("accepts a well-formed typed experiment (setup union + one trigger target)", () => {
+    const r = schema.safeParse({
+      setup: [
+        { tool: "setEnv", env: { NPM_TOKEN: "bait" } },
+        { tool: "plantFiles", files: [{ path: "/home/node/.npmrc", content: "x" }] },
+      ],
+      trigger: { target: "setup.js" },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects the shape that broke us: setEnv.env as a string (no freeform args hole)", () => {
+    const r = schema.safeParse({
+      setup: [{ tool: "setEnv", env: "NPM_TOKEN=bait" }],
+      trigger: { target: "setup.js" },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects a trigger target that is not a real package file (enum); kind is not a model field", () => {
+    const r = schema.safeParse({ setup: [], trigger: { target: "nope.js" } });
+    expect(r.success).toBe(false);
+    const ok = schema.safeParse({ setup: [], trigger: { target: "index.js" } });
+    expect(ok.success).toBe(true);
+  });
+
+  it("has a discriminated-union variant for every setup tool (registry is the source)", () => {
+    for (const t of TOOLS) {
+      if (t.kind !== "setup") continue;
+      const example: Record<string, unknown> = { setEnv: { env: { A: "b" } }, plantFiles: { files: [{ path: "/x", content: "y" }] }, setDate: { iso: "2027-03-01T00:00:00Z" }, stubUrl: { stubs: [{ pattern: "*x*" }] }, patchFile: { patches: [{ path: "a.js", replacements: [{ pattern: "a", replacement: "b" }] }] }, preload: { code: "1" } }[t.name]!;
+      const r = schema.safeParse({ setup: [{ tool: t.name, ...example }], trigger: { target: "index.js" } });
+      expect(r.success, `variant for ${t.name}`).toBe(true);
+    }
+  });
+
+  it("tightens setDate.iso to an ISO datetime (a junk date is unrepresentable)", () => {
+    const bad = schema.safeParse({ setup: [{ tool: "setDate", iso: "last tuesday" }], trigger: { target: "index.js" } });
+    expect(bad.success).toBe(false);
+    const good = schema.safeParse({ setup: [{ tool: "setDate", iso: "2027-03-01T00:00:00Z" }], trigger: { target: "index.js" } });
+    expect(good.success).toBe(true);
   });
 });
 

@@ -4,7 +4,8 @@ import type { FileSummary, Hypothesis, HypothesisSeverity } from "@npmguard/shar
 import { resolvePackage, cleanupPackage } from "./phases/resolve.js";
 import { analyzeInventory } from "./phases/inventory.js";
 import { extractIntent } from "./phases/intent-extraction.js";
-import { runTriage } from "./phases/triage.js";
+import { runFlag } from "./phases/flag.js";
+import { runHypothesize } from "./phases/hypothesize.js";
 import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { deriveGraphVerdict, type GraphVerdictReport } from "./orchestrator/verdict.js";
 import { runOrchestrator } from "./orchestrator/orchestrator.js";
@@ -14,6 +15,7 @@ import { ArtifactStore } from "./evidence/artifact-store.js";
 import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
 import { withTimeout } from "./util.js";
+import { AuditIncompleteError } from "./errors.js";
 
 // ---------------------------------------------------------------------------
 // Legacy file_verdict SSE adapter (kept for frontend code-viewer compat)
@@ -32,29 +34,8 @@ const EMPTY_COUNTS: GraphVerdictReport["counts"] = {
   inProgress: 0,
   confirmed: 0,
   refuted: 0,
-  inconclusive: 0,
   deferred: 0,
 };
-
-/**
- * Coverage guard. A triage analysis failure is a file we could not inspect — an
- * honest gap. A clean SAFE must not stand over an unanalyzed file, so we
- * downgrade SAFE → UNKNOWN and say why. DANGEROUS/SUSPECT/UNKNOWN already reflect
- * real state and pass through unchanged. This keeps `deriveGraphVerdict` pure
- * (it only sees the graph); coverage completeness is the pipeline's concern.
- */
-function withCoverageGap(
-  v: GraphVerdictReport,
-  failures: ReadonlyArray<{ file: string; error: string }>,
-): GraphVerdictReport {
-  if (v.verdict !== "SAFE" || failures.length === 0) return v;
-  const files = failures.slice(0, 5).map((f) => f.file).join(", ");
-  return {
-    ...v,
-    verdict: "UNKNOWN",
-    rationale: `${failures.length} file(s) could not be analyzed by triage (${files}${failures.length > 5 ? ", …" : ""}) — coverage incomplete, cannot clear as safe.`,
-  };
-}
 
 /**
  * Reconstruct per-file FileVerdict records from the triage output so the
@@ -173,7 +154,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
 
   emit?.("audit_started", { packageName });
 
-  // Phase 0a: Resolve package
+  // Resolve — download and unpack the package into a working directory.
   const { result: resolved, log: resolveLog } = await timedPhase(
     "resolve",
     () => resolvePackage(packageName, version),
@@ -192,7 +173,7 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
   }
 
   try {
-    // Phase 0b: Inventory
+    // Inventory — classify files, parse the manifest, run structural checks.
     const { result: inventory, log: inventoryLog } = await timedPhase(
       "inventory",
       () => analyzeInventory(resolved.path),
@@ -265,8 +246,8 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
     }
 
-    // Phase 1a: Intent extraction — derives the stated-purpose baseline
-    // that MAP uses to reason about capability mismatch.
+    // Intent extraction — derive the stated-purpose baseline FLAG uses to
+    // reason about capability mismatch.
     const { result: intent, log: intentLog } = await timedPhase(
       "intent-extraction",
       () => extractIntent(resolved.path, inventory),
@@ -286,10 +267,11 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       expectedCapabilities: intent.expectedCapabilities,
     });
 
-    // Phase 1b: Triage — per-file MAP emits Hypothesis[] directly.
-    const { result: triageOutput, log: triageLog } = await timedPhase(
-      "triage",
-      () => runTriage(resolved.path, inventory, intent, emit),
+    // FLAG — cheap, high-recall per-file pass emits thin flags (file + lines +
+    // why). Over-flagging is by design; precision comes in HYPOTHESIZE.
+    const { result: flagOutput, log: flagLog } = await timedPhase(
+      "flag",
+      () => runFlag(resolved.path, inventory, intent, emit),
       5 * 60_000 * timeoutScale,
       {
         sourceFiles: inventory.files
@@ -299,30 +281,63 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
         packageName: inventory.metadata.name,
       },
       (t) => ({
-        hypothesisCount: t.hypotheses.length,
-        hypotheses: t.hypotheses.map((h) => ({
-          hypId: h.hypId,
-          claim: h.claim.kind,
-          severity: h.severity,
-          description: h.description,
-          focusLines: h.focusLines,
-        })),
+        flagCount: t.flags.length,
+        flags: t.flags.map((fl) => ({ file: fl.file, lines: fl.lines, why: fl.why })),
         fileSummaries: t.fileSummaries,
       }),
       emit,
     );
-    trace.push(triageLog);
-    log.writeLog("triage.json", triageOutput);
+    trace.push(flagLog);
+    log.writeLog("flag.json", flagOutput);
 
-    emitLegacyFileVerdicts(
-      triageOutput.fileSummaries,
-      triageOutput.hypotheses,
+    // No flags → nothing suspected → SAFE. FLAG raises on any file it cannot
+    // read, so an empty flag set means every file was analyzed and cleared.
+    if (flagOutput.flags.length === 0) {
+      const { graph } = buildGraphFromHypotheses(auditId ?? "audit_unknown", []);
+      emitLegacyFileVerdicts(flagOutput.fileSummaries, [], emit);
+      const graphVerdict = deriveGraphVerdict(graph);
+      console.log(`[pipeline] no flags from FLAG — ${graphVerdict.verdict}`);
+      const report = buildReport(graphVerdict, graph, flagOutput.fileSummaries, trace);
+      log.writeLog("report.json", report);
+      emitVerdict(emit, report);
+      return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
+    }
+
+    // HYPOTHESIZE — arm each flag into a runnable hypothesis: a description, a
+    // best-match label, and an experiment (tool calls from the shared registry).
+    // It arms every flag or raises HypothesizeError; a raised suspicion the model
+    // cannot turn into a test is an audit ERROR, never a hypothesis without a run.
+    const { result: hypotheses, log: hypothesizeLog } = await timedPhase(
+      "hypothesize",
+      () =>
+        runHypothesize(flagOutput.flags, {
+          packagePath: resolved.path,
+          intent,
+          entryPoints: inventory.entryPoints,
+          emit,
+        }),
+      5 * 60_000 * timeoutScale,
+      { flagCount: flagOutput.flags.length },
+      (hs) => ({
+        hypothesisCount: hs.length,
+        hypotheses: hs.map((x) => ({
+          hypId: x.hypId,
+          claim: x.claim.kind,
+          severity: x.severity,
+          description: x.description,
+          toolCalls: x.experiment.map((c) => c.tool),
+        })),
+      }),
       emit,
     );
+    trace.push(hypothesizeLog);
+    log.writeLog("hypotheses.json", hypotheses);
+
+    emitLegacyFileVerdicts(flagOutput.fileSummaries, hypotheses, emit);
 
     emit?.("triage_complete", {
-      hypothesisCount: triageOutput.hypotheses.length,
-      hypotheses: triageOutput.hypotheses.map((h) => ({
+      hypothesisCount: hypotheses.length,
+      hypotheses: hypotheses.map((h) => ({
         hypId: h.hypId,
         claim: h.claim.kind,
         severity: h.severity,
@@ -330,11 +345,11 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       })),
     });
 
-    // Phase 1c: Build hypothesis graph from triage output. Jaro-Winkler dedup
-    // folds near-duplicate hypotheses emitted across files into a single node.
+    // Build the hypothesis graph from the armed hypotheses. Jaro-Winkler dedup
+    // folds near-duplicates (the same behavior flagged across files) into one node.
     const { graph, mergedCount, addedCount } = buildGraphFromHypotheses(
       auditId ?? "audit_unknown",
-      triageOutput.hypotheses,
+      hypotheses,
     );
     log.writeLog("graph.json", graph.serialize());
     console.log(
@@ -346,25 +361,12 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       mergedCount,
     });
 
-    // No hypotheses → nothing to suspect → SAFE, UNLESS triage failed to analyze
-    // some files (a coverage gap → UNKNOWN, never a quiet SAFE over a blind spot).
-    if (triageOutput.hypotheses.length === 0) {
-      const graphVerdict = withCoverageGap(deriveGraphVerdict(graph), triageOutput.analysisFailures);
-      console.log(`[pipeline] no hypotheses from triage — ${graphVerdict.verdict}`);
-      const report = buildReport(graphVerdict, graph, triageOutput.fileSummaries, trace);
-      log.writeLog("report.json", report);
-      emitVerdict(emit, report);
-      return { report, packagePath: resolved.path, cleanup: () => cleanupPackage(resolved) };
-    }
-
-    // Phase 2: Orchestrator dispatch loop — resolve every OPEN hypothesis to a
-    // terminal state via the experimenter (dynamic) or code-reader (static)
-    // workers. This is what lets the graph produce its own verdict.
+    // Orchestrator — resolve every hypothesis by running its experiment under
+    // observation and judging the timeline; the resolved graph yields the verdict.
     emit?.("phase_started", { phase: "orchestrator" });
     const orchStart = Date.now();
     const orchSummary = await runOrchestrator(graph, {
       packagePath: resolved.path,
-      entryPoints: inventory.entryPoints,
       artifactStore,
       log,
       emit,
@@ -381,17 +383,25 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     });
     log.writeLog("graph-final.json", graph.serialize());
 
-    // Verdict is the pure function of the resolved graph — no collapse, no
-    // fallback. Only a CONFIRMED hypothesis (dynamic RunArtifact) → DANGEROUS.
-    // A coverage guard then blocks a clean SAFE if triage couldn't read some files.
-    if (triageOutput.analysisFailures.length > 0) {
-      log.writeLog("triage-analysis-failures.json", triageOutput.analysisFailures);
+    // A DEFERRED node is a suspicion whose run or judge could not complete —
+    // machinery broke. The audit did not complete, so it is an ERROR (retry/fix
+    // the tool), never a verdict: no report is issued over an untested suspicion.
+    const deferred = graph.filterByState("DEFERRED");
+    if (deferred.length > 0) {
+      throw new AuditIncompleteError(
+        "orchestrator",
+        `${deferred.length} hypothes${deferred.length === 1 ? "is" : "es"} could not be evaluated: ` +
+          deferred.slice(0, 5).map((h) => `${h.hypId} (${h.resolution?.reason ?? "?"})`).join("; "),
+      );
     }
-    const graphVerdict = withCoverageGap(deriveGraphVerdict(graph), triageOutput.analysisFailures);
+
+    // Verdict is the pure function of the resolved graph. Only a CONFIRMED
+    // hypothesis (dynamic RunArtifact) → DANGEROUS; else SAFE.
+    const graphVerdict = deriveGraphVerdict(graph);
     console.log(`[pipeline] verdict: ${graphVerdict.verdict} — ${graphVerdict.rationale}`);
     log.writeLog("graph-verdict.json", graphVerdict);
 
-    const report = buildReport(graphVerdict, graph, triageOutput.fileSummaries, trace);
+    const report = buildReport(graphVerdict, graph, flagOutput.fileSummaries, trace);
     log.writeLog("report.json", report);
     console.log(`[pipeline] full logs saved to ${log.runDir}`);
 

@@ -179,10 +179,11 @@ export function listReports(): PackageSummary[] {
             const report = JSON.parse(fs.readFileSync(assertUnderDataDir(path.join(pkgDir, latest.file)), "utf-8"));
             const embeddedVersion = extractReportVersion(report);
             if (!isPublicPackageReport(name)) continue;
+            if (!report.verdict) continue; // a report with no verdict is corrupt — skip it
             results.push({
               packageName: name,
               version: embeddedVersion ?? latest.file.replace(/\.json$/, ""),
-              verdict: report.verdict ?? "UNKNOWN",
+              verdict: report.verdict,
               auditedAt: latest.iso,
             });
           } catch {

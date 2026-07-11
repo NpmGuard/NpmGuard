@@ -13,6 +13,7 @@ function h(
     claim: overrides.claim ?? { kind: "env_exfil", gating: null },
     focusFiles: overrides.focusFiles ?? [],
     focusLines: overrides.focusLines ?? [],
+    experiment: overrides.experiment ?? [],
     severity: overrides.severity,
     parentHypId: null,
     childHypIds: [],
