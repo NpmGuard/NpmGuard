@@ -96,25 +96,37 @@ describe("deriveGraphVerdict — DANGEROUS", () => {
 // node means the pipeline should have raised an ERROR before reaching here.
 // ---------------------------------------------------------------------------
 
-describe("deriveGraphVerdict — only over a completed audit", () => {
-  it("throws on an OPEN node", () => {
+describe("deriveGraphVerdict — precedence + completeness", () => {
+  it("a CONFIRMED node → DANGEROUS even with a DEFERRED sibling (proven malice wins over ERROR)", () => {
     const g = new HypothesisGraph("a1");
     g.add(baseline({ hypId: "h1" }));
-    expect(() => deriveGraphVerdict(g)).toThrow(/audit did not complete/);
+    g.add(baseline({ hypId: "h2" }));
+    g.transition("h1", { to: "CONFIRMED", by: "worker:experimenter", evidenceRefs: [ref] });
+    g.transition("h2", { to: "DEFERRED", by: "worker:experimenter", reason: "sensor failed on an unrelated hypothesis" });
+    const r = deriveGraphVerdict(g);
+    expect(r.verdict).toBe("DANGEROUS");
+    expect(r.counts.confirmed).toBe(1);
+    expect(r.counts.deferred).toBe(1);
   });
 
-  it("throws on an IN_PROGRESS node", () => {
+  it("throws on an OPEN node (dispatch not finished)", () => {
+    const g = new HypothesisGraph("a1");
+    g.add(baseline({ hypId: "h1" }));
+    expect(() => deriveGraphVerdict(g)).toThrow(/dispatch did not finish/);
+  });
+
+  it("throws on an IN_PROGRESS node (dispatch not finished)", () => {
     const g = new HypothesisGraph("a1");
     g.add(baseline({ hypId: "h1" }));
     g.transition("h1", { to: "IN_PROGRESS", by: "orchestrator" });
-    expect(() => deriveGraphVerdict(g)).toThrow(/audit did not complete/);
+    expect(() => deriveGraphVerdict(g)).toThrow(/dispatch did not finish/);
   });
 
-  it("throws on a DEFERRED node (machinery broke → the audit is an ERROR)", () => {
+  it("throws on a DEFERRED node when nothing is confirmed (can't clear as SAFE; pipeline should have raised)", () => {
     const g = new HypothesisGraph("a1");
     g.add(baseline({ hypId: "h1" }));
     g.transition("h1", { to: "DEFERRED", by: "worker:experimenter", reason: "sensor failed" });
-    expect(() => deriveGraphVerdict(g)).toThrow(/audit did not complete/);
+    expect(() => deriveGraphVerdict(g)).toThrow(/unevaluated node|pipeline should have raised/);
   });
 });
 

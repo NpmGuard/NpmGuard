@@ -147,11 +147,11 @@ describe("runOrchestrator", () => {
 
     const summary = await runOrchestrator(g, ctx());
 
-    // DEFERRED is not a verdict — the pipeline raises AuditIncompleteError on it,
-    // so deriveGraphVerdict is never called over a graph that still holds one.
+    // DEFERRED with nothing confirmed is not a verdict — the pipeline raises
+    // AuditIncompleteError, so deriveGraphVerdict won't clear it as SAFE.
     expect(g.get("h1").state).toBe("DEFERRED");
     expect(summary.deferred).toBe(1);
-    expect(() => deriveGraphVerdict(g)).toThrow(/audit did not complete/);
+    expect(() => deriveGraphVerdict(g)).toThrow(/unevaluated node|pipeline should have raised/);
   });
 
   it("an observation failure (SensorError) → DEFERRED (the audit is an ERROR)", async () => {
