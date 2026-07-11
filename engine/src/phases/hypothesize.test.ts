@@ -140,7 +140,7 @@ describe("runHypothesize", () => {
     expect(generateTextMock).toHaveBeenCalledTimes(1);
   });
 
-  it("passes a submitHypothesis tool forced by toolChoice (single-shot, no loop)", async () => {
+  it("passes a submitHypothesis tool forced by toolChoice", async () => {
     mockSubmit(validOutput);
     await runHypothesize([flag], ctx);
     const arg = generateTextMock.mock.calls[0]![0]! as Record<string, unknown>;
@@ -148,13 +148,39 @@ describe("runHypothesize", () => {
     expect(arg.toolChoice).toEqual({ type: "tool", toolName: "submitHypothesis" });
   });
 
-  it("raises an audit ERROR when the model submits no hypothesis (not a fabricated one)", async () => {
-    generateTextMock.mockResolvedValue({ toolCalls: [] } as never);
-    await expect(runHypothesize([flag], ctx)).rejects.toBeInstanceOf(AuditIncompleteError);
+  it("validates the submission against the schema and repairs an invalid one, then arms", async () => {
+    // The backend does not constrain tool args, so a submission can still be
+    // schema-invalid (env as a string) — we validate and hand the error back.
+    generateTextMock
+      .mockResolvedValueOnce({
+        toolCalls: [{ toolName: "submitHypothesis", input: { ...validOutput, setup: [{ tool: "setEnv", env: "NPM_TOKEN=x" }] } }],
+      } as never)
+      .mockResolvedValueOnce({ toolCalls: [{ toolName: "submitHypothesis", input: validOutput }] } as never);
+
+    const hyps = await runHypothesize([flag], ctx);
+
+    expect(generateTextMock).toHaveBeenCalledTimes(2);
+    const retryPrompt = generateTextMock.mock.calls[1]![0]!.prompt as string;
+    expect(retryPrompt).toMatch(/previous submission was rejected/i);
+    expect(retryPrompt).toMatch(/env/); // the exact rejection was handed back
+    expect(hyps[0]!.experiment.map((c) => c.tool)).toEqual(["setEnv", "plantFiles", "trigger"]);
   });
 
-  it("raises an audit ERROR when the generation call itself fails", async () => {
+  it("raises an audit ERROR after the repair budget is exhausted (never arms an invalid experiment)", async () => {
+    mockSubmit({ ...validOutput, setup: [{ tool: "setEnv", env: "still-a-string" }] });
+    await expect(runHypothesize([flag], ctx)).rejects.toBeInstanceOf(AuditIncompleteError);
+    expect(generateTextMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("raises an audit ERROR when the model never submits (not a fabricated one)", async () => {
+    generateTextMock.mockResolvedValue({ toolCalls: [] } as never);
+    await expect(runHypothesize([flag], ctx)).rejects.toBeInstanceOf(AuditIncompleteError);
+    expect(generateTextMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("raises an audit ERROR when the generation call itself keeps failing", async () => {
     generateTextMock.mockRejectedValue(new Error("No object generated"));
     await expect(runHypothesize([flag], ctx)).rejects.toBeInstanceOf(AuditIncompleteError);
+    expect(generateTextMock).toHaveBeenCalledTimes(3);
   });
 });

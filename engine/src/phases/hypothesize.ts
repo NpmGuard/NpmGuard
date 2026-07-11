@@ -173,13 +173,23 @@ export function triggerTargetsFor(flag: Flag, entryPoints: EntryPoints): string[
   );
 }
 
+/** Bounded repair budget. The forced tool call carries a schema typed all the
+ *  way down, but this backend does not constrained-decode tool args — it treats
+ *  the schema as guidance — so a submission can still be schema-invalid. We
+ *  validate it ourselves and hand the exact rejection back for the model to fix,
+ *  up to this many attempts, then the audit is an ERROR. (The SDK does not
+ *  validate a no-execute tool's input, so this is where enforcement lives.) */
+const MAX_ARMING_ATTEMPTS = 3;
+
 /**
  * Turn one flag into an armed hypothesis, or raise AuditIncompleteError. The
- * model composes the whole hypothesis in ONE forced tool call whose input schema
+ * model composes the whole hypothesis in one forced tool call whose input schema
  * is typed all the way down (setup as a discriminated union over the registry
- * tools, trigger with a real-file target enum), so the args cannot be mis-shaped.
- * A call that fails, is absent, or is schema-invalid is an incoherent, untestable
- * state — it raises rather than inventing a hypothesis or an empty experiment.
+ * tools, trigger with a real-file target enum). The submission is validated
+ * against that schema; an invalid one is handed back with its exact rejection for
+ * a bounded number of repair attempts. A submission still invalid after the
+ * budget — or absent — is an incoherent, untestable state that raises rather than
+ * arming an unrunnable experiment.
  */
 async function hypothesizeFlag(
   flag: Flag,
@@ -188,7 +198,7 @@ async function hypothesizeFlag(
   now: string,
 ): Promise<Hypothesis> {
   const focusCode = readFocusCode(ctx.packagePath, flag);
-  const prompt = buildHypothesizePrompt({
+  const basePrompt = buildHypothesizePrompt({
     flag,
     focusCode,
     intent: ctx.intent,
@@ -197,65 +207,87 @@ async function hypothesizeFlag(
   const outputSchema = HypothesisSummary.merge(
     buildExperimentSchema(triggerTargetsFor(flag, ctx.entryPoints)),
   );
-  type Output = z.infer<typeof outputSchema>;
 
-  let output: Output;
-  try {
-    const result = await generateText({
-      model: getModel(config.investigationModel),
-      system: HYPOTHESIZE_SYSTEM,
-      prompt,
-      tools: {
-        submitHypothesis: tool({
-          description:
-            "Submit the hypothesis (description, claim, severity) and its runnable experiment (ordered setup calls + one trigger).",
-          inputSchema: outputSchema,
-        }),
-      },
-      toolChoice: { type: "tool", toolName: "submitHypothesis" },
-      stopWhen: stepCountIs(1),
-    });
-    const call = result.toolCalls.find((c) => c.toolName === "submitHypothesis");
-    if (!call) {
-      throw new AuditIncompleteError(
-        "hypothesize",
-        `could not arm ${flag.file} (${flag.why}): model did not submit a hypothesis`,
-      );
+  let repairNote: string | null = null;
+  let lastFailure = "no submission";
+  for (let attempt = 1; attempt <= MAX_ARMING_ATTEMPTS; attempt++) {
+    const prompt = repairNote
+      ? `${basePrompt}\n\n## Your previous submission was rejected\n${repairNote}\n` +
+        `Resubmit with every field matching the schema exactly — note nested shapes ` +
+        `(setEnv.env is an object of string→string, plantFiles.files is an array), ` +
+        `and trigger.target must be one of the offered files.`
+      : basePrompt;
+
+    let rawInput: unknown;
+    try {
+      const result = await generateText({
+        model: getModel(config.investigationModel),
+        system: HYPOTHESIZE_SYSTEM,
+        prompt,
+        tools: {
+          submitHypothesis: tool({
+            description:
+              "Submit the hypothesis (description, claim, severity) and its runnable experiment (ordered setup calls + one trigger).",
+            inputSchema: outputSchema,
+          }),
+        },
+        toolChoice: { type: "tool", toolName: "submitHypothesis" },
+        stopWhen: stepCountIs(1),
+      });
+      const call = result.toolCalls.find((c) => c.toolName === "submitHypothesis");
+      if (!call) {
+        lastFailure = "model did not submit a hypothesis";
+        repairNote = null;
+        continue;
+      }
+      rawInput = call.input;
+    } catch (err) {
+      // A generation-level failure (backend/parse). Bounded — re-attempt plainly.
+      lastFailure = `generation failed: ${err instanceof Error ? err.message : String(err)}`;
+      repairNote = null;
+      continue;
     }
-    output = call.input as Output;
-  } catch (err) {
-    if (err instanceof AuditIncompleteError) throw err;
-    throw new AuditIncompleteError(
-      "hypothesize",
-      `could not arm ${flag.file} (${flag.why}): ${err instanceof Error ? err.message : String(err)}`,
-    );
+
+    const parsed = outputSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      lastFailure = parsed.error.issues
+        .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+        .join("; ");
+      repairNote = lastFailure;
+      console.warn(`[hypothesize] ${hypId} attempt ${attempt}/${MAX_ARMING_ATTEMPTS} invalid submission: ${lastFailure}`);
+      continue;
+    }
+
+    const output = parsed.data;
+    // The typed object → the ToolCall[] the sandbox runs. Each setup variant is
+    // { tool, ...args }; the trigger is one typed field.
+    const experiment: ToolCall[] = [
+      ...output.setup.map(({ tool: name, ...args }) => ({ tool: name, args })),
+      { tool: "trigger", args: output.trigger },
+    ];
+    return {
+      hypId,
+      description: output.description,
+      claim: { kind: output.claim.kind, gating: output.claim.gating ?? null },
+      focusFiles: [flag.file],
+      focusLines: flag.lines.map((range) => ({ file: flag.file, range })),
+      experiment,
+      severity: output.severity,
+      parentHypId: null,
+      childHypIds: [],
+      state: "OPEN",
+      createdBy: "hypothesize",
+      evidenceRefs: [],
+      createdAt: now,
+      resolvedAt: null,
+      resolution: null,
+    };
   }
 
-  // The typed object → the ToolCall[] the sandbox runs. Each setup variant is
-  // { tool, ...args }; the trigger is one typed field. compileExperiment
-  // re-validates at run time (redundant — the schema already guarantees it).
-  const experiment: ToolCall[] = [
-    ...output.setup.map(({ tool: name, ...args }) => ({ tool: name, args })),
-    { tool: "trigger", args: output.trigger },
-  ];
-
-  return {
-    hypId,
-    description: output.description,
-    claim: { kind: output.claim.kind, gating: output.claim.gating ?? null },
-    focusFiles: [flag.file],
-    focusLines: flag.lines.map((range) => ({ file: flag.file, range })),
-    experiment,
-    severity: output.severity,
-    parentHypId: null,
-    childHypIds: [],
-    state: "OPEN",
-    createdBy: "hypothesize",
-    evidenceRefs: [],
-    createdAt: now,
-    resolvedAt: null,
-    resolution: null,
-  };
+  throw new AuditIncompleteError(
+    "hypothesize",
+    `could not arm ${flag.file} (${flag.why}) after ${MAX_ARMING_ATTEMPTS} attempts: ${lastFailure}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
