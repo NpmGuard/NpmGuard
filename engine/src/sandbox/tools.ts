@@ -293,12 +293,14 @@ export function buildExperimentSchema(triggerTargets: readonly string[]) {
     setupVariants as [z.AnyZodObject, z.AnyZodObject, ...z.AnyZodObject[]],
   );
 
-  // Exactly one trigger, always an entrypoint run of a real file in the package.
+  // The trigger runs one real file in the package as an entrypoint. The model
+  // picks only WHICH file (from the enum); `kind` is not a model choice — every
+  // run is an entrypoint execution of the target file — so the model cannot
+  // fight over it or emit an off-enum kind like "install".
   const trigger = z.object({
-    kind: z.literal("entrypoint"),
-    target: z.enum(triggerTargets as [string, ...string[]]),
-    argv: z.array(z.string()).default([]),
-    stdin: z.string().nullable().default(null),
+    target: z
+      .enum(triggerTargets as [string, ...string[]])
+      .describe("The package file to run as the entrypoint (e.g. an install script or the runtime entry)."),
   });
 
   return z.object({

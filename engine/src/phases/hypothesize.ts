@@ -260,10 +260,11 @@ async function hypothesizeFlag(
 
     const output = parsed.data;
     // The typed object → the ToolCall[] the sandbox runs. Each setup variant is
-    // { tool, ...args }; the trigger is one typed field.
+    // { tool, ...args }; the trigger runs the chosen file as an entrypoint (kind
+    // is ours, not the model's).
     const experiment: ToolCall[] = [
       ...output.setup.map(({ tool: name, ...args }) => ({ tool: name, args })),
-      { tool: "trigger", args: output.trigger },
+      { tool: "trigger", args: { kind: "entrypoint", target: output.trigger.target, argv: [], stdin: null } },
     ];
     return {
       hypId,
