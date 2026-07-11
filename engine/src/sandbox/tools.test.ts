@@ -34,13 +34,13 @@ describe("tool registry", () => {
 describe("buildExperimentSchema — the typed HYPOTHESIZE generation schema", () => {
   const schema = buildExperimentSchema(["setup.js", "index.js"]);
 
-  it("accepts a well-formed typed experiment (setup union + one trigger)", () => {
+  it("accepts a well-formed typed experiment (setup union + one trigger target)", () => {
     const r = schema.safeParse({
       setup: [
         { tool: "setEnv", env: { NPM_TOKEN: "bait" } },
         { tool: "plantFiles", files: [{ path: "/home/node/.npmrc", content: "x" }] },
       ],
-      trigger: { kind: "entrypoint", target: "setup.js" },
+      trigger: { target: "setup.js" },
     });
     expect(r.success).toBe(true);
   });
@@ -48,32 +48,31 @@ describe("buildExperimentSchema — the typed HYPOTHESIZE generation schema", ()
   it("rejects the shape that broke us: setEnv.env as a string (no freeform args hole)", () => {
     const r = schema.safeParse({
       setup: [{ tool: "setEnv", env: "NPM_TOKEN=bait" }],
-      trigger: { kind: "entrypoint", target: "setup.js" },
+      trigger: { target: "setup.js" },
     });
     expect(r.success).toBe(false);
   });
 
-  it("rejects a trigger target that is not a real package file (enum)", () => {
-    const r = schema.safeParse({ setup: [], trigger: { kind: "entrypoint", target: "nope.js" } });
+  it("rejects a trigger target that is not a real package file (enum); kind is not a model field", () => {
+    const r = schema.safeParse({ setup: [], trigger: { target: "nope.js" } });
     expect(r.success).toBe(false);
-    const ok = schema.safeParse({ setup: [], trigger: { kind: "entrypoint", target: "index.js" } });
+    const ok = schema.safeParse({ setup: [], trigger: { target: "index.js" } });
     expect(ok.success).toBe(true);
   });
 
   it("has a discriminated-union variant for every setup tool (registry is the source)", () => {
     for (const t of TOOLS) {
       if (t.kind !== "setup") continue;
-      // A trigger-only experiment plus one call to this tool with its example args.
       const example: Record<string, unknown> = { setEnv: { env: { A: "b" } }, plantFiles: { files: [{ path: "/x", content: "y" }] }, setDate: { iso: "2027-03-01T00:00:00Z" }, stubUrl: { stubs: [{ pattern: "*x*" }] }, patchFile: { patches: [{ path: "a.js", replacements: [{ pattern: "a", replacement: "b" }] }] }, preload: { code: "1" } }[t.name]!;
-      const r = schema.safeParse({ setup: [{ tool: t.name, ...example }], trigger: { kind: "entrypoint", target: "index.js" } });
+      const r = schema.safeParse({ setup: [{ tool: t.name, ...example }], trigger: { target: "index.js" } });
       expect(r.success, `variant for ${t.name}`).toBe(true);
     }
   });
 
   it("tightens setDate.iso to an ISO datetime (a junk date is unrepresentable)", () => {
-    const bad = schema.safeParse({ setup: [{ tool: "setDate", iso: "last tuesday" }], trigger: { kind: "entrypoint", target: "index.js" } });
+    const bad = schema.safeParse({ setup: [{ tool: "setDate", iso: "last tuesday" }], trigger: { target: "index.js" } });
     expect(bad.success).toBe(false);
-    const good = schema.safeParse({ setup: [{ tool: "setDate", iso: "2027-03-01T00:00:00Z" }], trigger: { kind: "entrypoint", target: "index.js" } });
+    const good = schema.safeParse({ setup: [{ tool: "setDate", iso: "2027-03-01T00:00:00Z" }], trigger: { target: "index.js" } });
     expect(good.success).toBe(true);
   });
 });

@@ -48,7 +48,7 @@ const validOutput = {
     { tool: "setEnv", env: { NPM_TOKEN: "canary" } },
     { tool: "plantFiles", files: [{ path: "/home/node/.npmrc", content: "x" }] },
   ],
-  trigger: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null },
+  trigger: { target: "setup.js" },
 };
 
 function mockSubmit(output: unknown) {
@@ -132,7 +132,8 @@ describe("runHypothesize", () => {
     expect(h.experiment.map((c) => c.tool)).toEqual(["setEnv", "plantFiles", "trigger"]);
     expect(h.experiment[0]!.args).toEqual({ env: { NPM_TOKEN: "canary" } });
     expect(h.experiment[1]!.args).toEqual({ files: [{ path: "/home/node/.npmrc", content: "x" }] });
-    expect(h.experiment[2]!.args).toMatchObject({ kind: "entrypoint", target: "setup.js" });
+    // kind is set by us, not the model; the trigger runs the chosen file as an entrypoint.
+    expect(h.experiment[2]!.args).toEqual({ kind: "entrypoint", target: "setup.js", argv: [], stdin: null });
     expect(h.focusFiles).toEqual(["setup.js"]);
     expect(h.focusLines).toEqual([{ file: "setup.js", range: "1-10" }]);
     expect(h.createdBy).toBe("hypothesize");
