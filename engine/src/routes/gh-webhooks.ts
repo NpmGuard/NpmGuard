@@ -105,8 +105,16 @@ async function handlePush(payload: PushPayload): Promise<void> {
   const repo = getDb().prepare("SELECT * FROM repos WHERE id = ?").get(repoId) as
     | RepoRow
     | undefined;
-  if (!repo || !repo.protected_at) return; // Protect off — ignore
-  if (!touchesDependencies(payload)) return;
+  if (!repo) return;
+  const dependenciesTouched = touchesDependencies(payload);
+  if (dependenciesTouched) {
+    // The cached dashboard classification may have changed. The next panel
+    // refresh performs a cheap root listing before deciding whether to show it.
+    getDb()
+      .prepare("UPDATE repos SET auditability_checked_at = NULL, updated_at = ? WHERE id = ?")
+      .run(nowIso(), repo.id);
+  }
+  if (!repo.protected_at || !dependenciesTouched) return; // Protect off — no scan
 
   console.log(`[webhook] push to ${repo.full_name}@${branch} touches deps — delta scan`);
   const checkRunId = await createCheckRun(repo.installation_id, repo.owner, repo.name, headSha);

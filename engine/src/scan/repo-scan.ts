@@ -40,7 +40,17 @@ interface ParsedRepoDeps {
 async function fetchAndParse(repo: RepoRow, ref?: string): Promise<ParsedRepoDeps> {
   const octo = await installationOctokit(repo.installation_id);
   const lockfile = await fetchLockfile(octo, repo.owner, repo.name, ref);
-  if (!lockfile) throw new LockfileNotFoundError();
+  if (!lockfile) {
+    const checkedAt = nowIso();
+    getDb()
+      .prepare(
+        `UPDATE repos
+         SET lockfile_path = NULL, lockfile_sha = NULL, auditability_checked_at = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(checkedAt, checkedAt, repo.id);
+    throw new LockfileNotFoundError();
+  }
   const manifest = await fetchManifest(octo, repo.owner, repo.name, ref);
   const deps = parseLockfile(lockfile.path, lockfile.content, manifestRanges(manifest));
   return { deps, lockfilePath: lockfile.path, lockfileSha: lockfile.sha };
@@ -64,8 +74,10 @@ function replaceRepoDeps(repo: RepoRow, parsed: ParsedRepoDeps): void {
       insert.run(repo.id, dep.name, dep.version, dep.direct ? 1 : 0, dep.range);
     }
     db.prepare(
-      "UPDATE repos SET lockfile_path = ?, lockfile_sha = ?, updated_at = ? WHERE id = ?",
-    ).run(parsed.lockfilePath, parsed.lockfileSha, nowIso(), repo.id);
+      `UPDATE repos
+       SET lockfile_path = ?, lockfile_sha = ?, auditability_checked_at = ?, updated_at = ?
+       WHERE id = ?`,
+    ).run(parsed.lockfilePath, parsed.lockfileSha, nowIso(), nowIso(), repo.id);
   })();
 }
 

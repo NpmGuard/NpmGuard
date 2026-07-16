@@ -25,6 +25,11 @@
   --suspected-bg: rgba(202, 138, 4, 0.08);
   --pending: #9e9787;
   --warning: #ca8a04;
+  --repo-safe: #0d783a;
+  --repo-danger: #b91c1c;
+  --repo-warning: #a16207;
+  --repo-running: #2563eb;
+  --repo-unknown: #9e9787;
   --bg-dark: #1a1814;
   --bg-dark-secondary: #252118;
   --text-light: #d4c9b4;
@@ -67,6 +72,11 @@ html.urushi {
   --suspected-bg: rgba(251, 191, 36, 0.1);
   --pending: rgb(140, 125, 100);
   --warning: #fbbf24;
+  --repo-safe: #4ade80;
+  --repo-danger: #f87171;
+  --repo-warning: #fbbf24;
+  --repo-running: #60a5fa;
+  --repo-unknown: rgb(140, 125, 100);
   --bg-dark: #080604;
   --bg-dark-secondary: #0f0d0a;
   --text-light: #f0e8da;
@@ -530,6 +540,1112 @@ button:focus:not(:focus-visible) {
 .feed-file-ref:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* ── GitHub repository dashboard ── */
+.dashboard-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 32px var(--header-px) 64px;
+}
+
+.dashboard-shell {
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.dashboard-kicker {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent-light);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.dashboard-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  margin-bottom: 24px;
+}
+
+.dashboard-hero h1 {
+  margin-top: 7px;
+  font-family: var(--font-heading);
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+
+.dashboard-hero p {
+  max-width: 650px;
+  margin-top: 12px;
+  color: var(--text-dim);
+  font-size: 0.96rem;
+  line-height: 1.6;
+}
+
+.dashboard-hero__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.dashboard-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 17px;
+  border-radius: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.dashboard-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.dashboard-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.dashboard-button--primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.dashboard-button--primary:hover {
+  border-color: var(--accent-light);
+  background: var(--accent-light);
+}
+
+html.urushi .dashboard-button--primary {
+  color: #14100a;
+}
+
+.dashboard-button--secondary {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-secondary);
+  color: var(--text-dim);
+}
+
+.dashboard-button--secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-light);
+}
+
+.portfolio-posture {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 24px;
+  padding: 20px 22px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background:
+    linear-gradient(120deg, var(--accent-bg), transparent 42%),
+    var(--bg-secondary);
+  box-shadow: 0 8px 28px rgba(35, 25, 15, 0.04);
+}
+
+.portfolio-posture::after {
+  content: "";
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  top: -72px;
+  right: 38px;
+  border: 18px solid var(--accent-bg);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.portfolio-posture__top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.portfolio-posture__top strong {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.portfolio-posture__percent {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-heading);
+  font-size: 1.75rem;
+  font-weight: 750;
+  color: var(--accent-light);
+  font-variant-numeric: tabular-nums;
+}
+
+.portfolio-rail {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  margin-top: 17px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+
+.portfolio-rail__segment {
+  height: 100%;
+  transition: width 0.35s ease-out;
+}
+
+.portfolio-rail__segment--safe {
+  background: var(--repo-safe);
+}
+
+.portfolio-rail__segment--danger {
+  background: var(--repo-danger);
+}
+
+.portfolio-rail__segment--running {
+  background: var(--repo-running);
+}
+
+.portfolio-rail__segment--unknown {
+  background: var(--repo-unknown);
+}
+
+.portfolio-posture__legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 13px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.portfolio-posture__legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.portfolio-posture__meta {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.portfolio-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.portfolio-dot--safe {
+  background: var(--repo-safe);
+}
+
+.portfolio-dot--danger {
+  background: var(--repo-danger);
+}
+
+.portfolio-dot--running {
+  background: var(--repo-running);
+}
+
+.portfolio-dot--unknown {
+  background: var(--repo-unknown);
+}
+
+.dashboard-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 13px 15px;
+  border: 1px solid;
+  border-radius: 10px;
+  font-size: 0.78rem;
+}
+
+.dashboard-notice > svg {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.dashboard-notice strong {
+  display: block;
+  margin-bottom: 3px;
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+}
+
+.dashboard-notice p {
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.dashboard-notice a {
+  color: inherit;
+}
+
+.dashboard-notice button {
+  min-height: 36px;
+  margin-left: auto;
+  padding: 0 12px;
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.dashboard-notice--danger {
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.dashboard-notice--warning {
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  background: var(--suspected-bg);
+  color: var(--warning);
+}
+
+.repo-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.repo-search {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.repo-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+  color: var(--accent-light);
+}
+
+.repo-search input {
+  min-width: 0;
+  width: 100%;
+  border: none !important;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.repo-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.repo-filters {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.repo-filters button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.repo-filters button:hover {
+  color: var(--text);
+}
+
+.repo-filters button.is-active {
+  background: var(--accent-bg);
+  color: var(--accent-light);
+}
+
+.repo-filters button span {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: inherit;
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.repo-results-count {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.repo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 14px;
+}
+
+.repo-card {
+  --repo-status-color: var(--repo-unknown);
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  box-shadow: 0 4px 18px rgba(35, 25, 15, 0.025);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.repo-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--repo-status-color);
+}
+
+.repo-card:hover {
+  border-color: color-mix(in srgb, var(--repo-status-color) 42%, var(--border-strong));
+  box-shadow: 0 12px 28px rgba(35, 25, 15, 0.07);
+  transform: translateY(-2px);
+}
+
+.repo-card__head {
+  min-height: 76px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 17px 18px 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.repo-card__identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.repo-card__icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+  color: var(--text-dim);
+}
+
+.repo-card__identity > div:last-child {
+  min-width: 0;
+}
+
+.repo-card__identity span {
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--text-muted);
+}
+
+.repo-card__identity button {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.repo-card__identity button:hover {
+  color: var(--accent-light);
+}
+
+.repo-card__badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.repo-card__badges > span {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  white-space: nowrap;
+}
+
+.repo-card__badges .repo-card__protected {
+  border-color: color-mix(in srgb, var(--safe) 30%, transparent);
+  background: var(--safe-bg);
+  color: var(--safe);
+}
+
+.repo-card__body {
+  padding: 16px 18px 17px 20px;
+}
+
+.repo-scan-status {
+  min-height: 48px;
+}
+
+.repo-scan-status__line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.repo-status-pill {
+  min-height: 25px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.repo-status-pill--safe {
+  border-color: color-mix(in srgb, var(--repo-safe) 30%, transparent);
+  background: var(--safe-bg);
+  color: var(--repo-safe);
+}
+
+.repo-status-pill--danger {
+  border-color: color-mix(in srgb, var(--repo-danger) 30%, transparent);
+  background: var(--danger-bg);
+  color: var(--repo-danger);
+}
+
+.repo-status-pill--warning {
+  border-color: color-mix(in srgb, var(--repo-warning) 30%, transparent);
+  background: var(--suspected-bg);
+  color: var(--repo-warning);
+}
+
+.repo-status-pill--running {
+  border-color: color-mix(in srgb, var(--repo-running) 30%, transparent);
+  background: var(--investigating-bg);
+  color: var(--repo-running);
+}
+
+.repo-status-pill--unknown {
+  border-color: var(--border-strong);
+  background: var(--bg-tertiary);
+  color: var(--text-dim);
+}
+
+.repo-running-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse-blue 1.5s ease-in-out infinite;
+}
+
+.repo-scan-status p {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
+
+.repo-scan-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.repo-scan-progress {
+  height: 5px;
+  margin-top: 11px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+
+.repo-scan-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--repo-running);
+  transition: width 0.3s ease-out;
+}
+
+.repo-card__action-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 8px;
+  margin-top: 13px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--repo-warning) 30%, var(--border));
+  border-radius: 9px;
+  background: var(--suspected-bg);
+  color: var(--repo-warning);
+}
+
+.repo-card__action-error > svg {
+  margin-top: 1px;
+}
+
+.repo-card__action-error strong {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 0.76rem;
+  line-height: 1.3;
+}
+
+.repo-card__action-error p {
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.61rem;
+  line-height: 1.5;
+}
+
+.repo-card__action-error button {
+  grid-column: 2;
+  justify-self: start;
+  min-height: 28px;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--repo-warning);
+  font-family: var(--font-mono);
+  font-size: 0.59rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.repo-card__action-error button:hover {
+  color: var(--text);
+}
+
+.repo-detail-action-error {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--repo-warning) 35%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--suspected-bg);
+}
+
+.repo-detail-action-error > div {
+  min-width: 0;
+}
+
+.repo-detail-action-error strong {
+  color: var(--repo-warning);
+  font-family: var(--font-heading);
+  font-size: 0.82rem;
+}
+
+.repo-detail-action-error p {
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.repo-detail-action-error button {
+  min-height: 32px;
+  margin-left: auto;
+  padding: 0 10px;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--repo-warning) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--repo-warning);
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  cursor: pointer;
+}
+
+.repo-card__metadata {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+}
+
+.repo-card__metadata dt {
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.repo-card__metadata dd {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-card__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 42px;
+  gap: 8px;
+  padding: 12px 18px 14px 20px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-tertiary) 48%, transparent);
+}
+
+.repo-action {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.repo-action:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent-light);
+}
+
+.repo-action:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
+.repo-action--audit {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border-strong));
+  color: var(--accent-light);
+}
+
+.repo-action--protected {
+  border-color: color-mix(in srgb, var(--safe) 38%, transparent);
+  background: var(--safe-bg);
+  color: var(--safe);
+}
+
+.repo-action--details {
+  padding: 0;
+}
+
+.repo-no-results,
+.dashboard-empty {
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.repo-no-results > svg {
+  margin-bottom: 12px;
+  color: var(--accent-light);
+}
+
+.repo-no-results strong,
+.dashboard-empty h2 {
+  color: var(--text);
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+}
+
+.repo-no-results p,
+.dashboard-empty p {
+  max-width: 520px;
+  margin-top: 7px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.repo-no-results button {
+  margin-top: 16px;
+  border: none;
+  background: none;
+  color: var(--accent-light);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.dashboard-empty__icon,
+.dashboard-login-card__icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 14px;
+  background: var(--accent-bg);
+  color: var(--accent-light);
+}
+
+.dashboard-empty h2 {
+  margin-top: 7px;
+  font-size: 1.35rem;
+}
+
+.dashboard-empty .dashboard-button {
+  margin-top: 21px;
+}
+
+.dashboard-login-page,
+.dashboard-loading {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.dashboard-login-card {
+  width: 100%;
+  max-width: 500px;
+  padding: 40px;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, var(--accent-bg), transparent 48%),
+    var(--bg-secondary);
+  box-shadow: 0 18px 50px rgba(35, 25, 15, 0.08);
+  text-align: left;
+}
+
+.dashboard-login-card h1 {
+  margin-top: 8px;
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.dashboard-login-card p {
+  margin: 15px 0 24px;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.dashboard-loading {
+  gap: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.dashboard-loading__spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent-light);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@media (max-width: 960px) {
+  .dashboard-hero {
+    align-items: flex-start;
+  }
+
+  .repo-toolbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .repo-filters {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .app-header {
+    gap: 10px !important;
+    padding: 0 16px !important;
+  }
+
+  .app-header__nav {
+    gap: 0 !important;
+    margin-left: 0 !important;
+  }
+
+  .app-header__nav-link {
+    display: none !important;
+  }
+
+  .app-header__nav-link.is-active,
+  .app-header__nav-link--dashboard {
+    display: inline-flex !important;
+  }
+
+  .app-header__actions {
+    gap: 7px !important;
+  }
+
+  .app-header__username {
+    display: none;
+  }
+
+  .app-header__signout {
+    padding: 6px 8px !important;
+  }
+
+  .app-header__audit-status {
+    display: none !important;
+  }
+
+  .dashboard-page {
+    padding: 24px 16px 48px;
+  }
+
+  .dashboard-hero {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .dashboard-hero h1 {
+    font-size: 2.25rem;
+  }
+
+  .dashboard-hero__actions {
+    width: 100%;
+  }
+
+  .dashboard-hero__actions .dashboard-button {
+    flex: 1;
+  }
+
+  .portfolio-posture {
+    padding: 18px;
+  }
+
+  .portfolio-posture__meta {
+    width: 100%;
+    margin-left: 0;
+    padding-top: 3px;
+  }
+
+  .repo-toolbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .repo-results-count {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .repo-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-notice {
+    flex-wrap: wrap;
+  }
+
+  .dashboard-notice button {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 430px) {
+  .app-header {
+    gap: 7px !important;
+    padding: 0 12px !important;
+  }
+
+  .app-header__logo {
+    font-size: 1.08rem !important;
+  }
+
+  .app-header__nav-link {
+    padding: 7px 8px !important;
+  }
+
+  .app-header__signout {
+    font-size: 0 !important;
+  }
+
+  .app-header__signout::after {
+    content: "out";
+    font-size: 0.68rem;
+  }
+
+  .dashboard-hero__actions {
+    flex-direction: column-reverse;
+  }
+
+  .dashboard-hero__actions .dashboard-button {
+    width: 100%;
+  }
+
+  .portfolio-posture__top {
+    align-items: center;
+  }
+
+  .portfolio-posture__top strong {
+    max-width: 230px;
+  }
+
+  .repo-toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .repo-results-count {
+    align-self: flex-end;
+  }
+
+  .repo-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .repo-filters button {
+    justify-content: space-between;
+  }
+
+  .repo-card__head {
+    flex-direction: column;
+  }
+
+  .repo-card__badges {
+    justify-content: flex-start;
+    padding-left: 47px;
+  }
+
+  .repo-card__actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .repo-action--details {
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-login-card {
+    padding: 28px 24px;
+  }
 }
 
 /* ── Proof area accordion ── */

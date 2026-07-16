@@ -45,7 +45,7 @@ export function Header() {
 
   return (
     <header
-      className="flex items-center gap-5 shrink-0"
+      className="app-header flex items-center gap-5 shrink-0"
       style={{
         padding: "0 var(--header-px)",
         height: "var(--header-height)",
@@ -53,6 +53,7 @@ export function Header() {
       }}
     >
       <button
+        className="app-header__logo"
         onClick={goHome}
         aria-label="Go to home page"
         style={{
@@ -70,7 +71,7 @@ export function Header() {
         npm<span style={{ color: "var(--accent)" }}>guard</span>
       </button>
 
-      <nav className="flex items-center gap-1" style={{ marginLeft: 8 }}>
+      <nav className="app-header__nav flex items-center gap-1" style={{ marginLeft: 8 }}>
         {NAV_LINKS.map((link) => {
           const isActive =
             link.href === "/"
@@ -80,6 +81,7 @@ export function Header() {
             <a
               key={link.href}
               href={link.href}
+              className={`app-header__nav-link app-header__nav-link--${link.label.toLowerCase()}${isActive ? " is-active" : ""}`}
               onClick={(e) => {
                 e.preventDefault();
                 if (link.href === "/") reset();
@@ -105,7 +107,7 @@ export function Header() {
 
       {(isRunning || verdict) && (
         <div
-          className="flex items-center gap-2"
+          className="app-header__audit-status flex items-center gap-2"
           style={{
             background: "var(--bg-secondary)",
             border: "1px solid var(--border)",
@@ -132,11 +134,11 @@ export function Header() {
         </div>
       )}
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="app-header__actions ml-auto flex items-center gap-3">
         {(isRunning || verdict) && <PhaseProgress />}
 
         {user ? (
-          <div className="flex items-center gap-2">
+          <div className="app-header__user flex items-center gap-2">
             {user.avatarUrl && (
               <img
                 src={user.avatarUrl}
@@ -144,10 +146,14 @@ export function Header() {
                 style={{ width: 20, height: 20, borderRadius: "50%", border: "1px solid var(--border)" }}
               />
             )}
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+            <span
+              className="app-header__username"
+              style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-muted)" }}
+            >
               {user.login}
             </span>
             <button
+              className="app-header__signout"
               onClick={() => void logout()}
               style={{
                 fontFamily: "var(--font-mono)",

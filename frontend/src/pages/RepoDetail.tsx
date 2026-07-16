@@ -40,6 +40,8 @@ export function RepoDetail() {
   const triggerScan = usePanelStore((s) => s.triggerScan);
   const setProtect = usePanelStore((s) => s.setProtect);
   const resync = usePanelStore((s) => s.resync);
+  const repoActionErrors = usePanelStore((s) => s.repoActionErrors);
+  const clearRepoActionError = usePanelStore((s) => s.clearRepoActionError);
 
   const [detail, setDetail] = useState<RepoDetailPayload | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -58,6 +60,8 @@ export function RepoDetail() {
   }, [owner, name, fetchRepoDetail]);
 
   useEffect(() => {
+    // The state update happens after the asynchronous request resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -145,6 +149,7 @@ export function RepoDetail() {
   }
 
   const { repo, deps, rollup, scan, alerts } = detail;
+  const actionError = repoActionErrors[repo.id];
   const running = scan?.status === "running";
   const progress = scan ? scan.cached + scan.audited + scan.failed : 0;
 
@@ -243,6 +248,22 @@ export function RepoDetail() {
           </button>
         </div>
       </div>
+
+      {actionError && (
+        <div className="repo-detail-action-error" role="alert">
+          <div>
+            <strong>
+              {actionError.action === "audit"
+                ? "Audit could not start"
+                : "Protection could not be updated"}
+            </strong>
+            <p>{actionError.message}</p>
+          </div>
+          <button type="button" onClick={() => clearRepoActionError(repo.id)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Rollup banner */}
       <div

@@ -144,4 +144,35 @@ describe("push handling", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(db.prepare("SELECT COUNT(*) c FROM scans").get()).toMatchObject({ c: 0 });
   });
+
+  it("invalidates cached auditability when dependency files change", async () => {
+    await deliver("installation", {
+      action: "created",
+      installation: INSTALLATION,
+      repositories: [{ id: 1001, name: "web", full_name: "acme/web", private: false }],
+    });
+    db.prepare(
+      `UPDATE repos
+       SET lockfile_path = 'package-lock.json', auditability_checked_at = ?
+       WHERE id = 1001`,
+    ).run(new Date().toISOString());
+
+    await deliver("push", {
+      ref: "refs/heads/main",
+      after: "b".repeat(40),
+      repository: {
+        id: 1001,
+        name: "web",
+        full_name: "acme/web",
+        private: false,
+        default_branch: "main",
+      },
+      commits: [{ added: [], modified: ["package-lock.json"], removed: [] }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(
+      db.prepare("SELECT auditability_checked_at FROM repos WHERE id = 1001").get(),
+    ).toMatchObject({ auditability_checked_at: null });
+  });
 });
