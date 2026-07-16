@@ -11,6 +11,11 @@ const API_BASE = "/api";
 
 // Session cookie is HttpOnly + same-origin, so plain fetch carries it.
 
+export interface RepoActionError {
+  action: "audit" | "protect";
+  message: string;
+}
+
 interface PanelState {
   user: PanelUser | null;
   userLoaded: boolean;
@@ -19,7 +24,10 @@ interface PanelState {
   repos: RepoSummary[];
   alerts: PanelAlert[];
   loading: boolean;
+  /** Reserved for failures that prevent the workspace data from loading. */
   error: string | null;
+  /** Action failures stay attached to their repository instead of poisoning the whole dashboard. */
+  repoActionErrors: Record<number, RepoActionError>;
   /** Set when the org hit a beta cap — dashboard shows the "talk to us" wall. */
   capError: string | null;
 
@@ -31,6 +39,7 @@ interface PanelState {
   resync: (repoId: number) => Promise<boolean>;
   fetchRepoDetail: (owner: string, name: string) => Promise<RepoDetailPayload | null>;
   markAlertsSeen: () => Promise<void>;
+  clearRepoActionError: (repoId: number) => void;
 }
 
 async function jsonOrNull<T>(res: Response): Promise<T | null> {
@@ -39,6 +48,16 @@ async function jsonOrNull<T>(res: Response): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+function withoutRepoActionError(
+  errors: Record<number, RepoActionError>,
+  repoId: number,
+): Record<number, RepoActionError> {
+  if (!errors[repoId]) return errors;
+  const next = { ...errors };
+  delete next[repoId];
+  return next;
 }
 
 export const usePanelStore = create<PanelState>((set, get) => ({
@@ -50,6 +69,7 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   alerts: [],
   loading: false,
   error: null,
+  repoActionErrors: {},
   capError: null,
 
   fetchMe: async () => {
@@ -68,11 +88,19 @@ export const usePanelStore = create<PanelState>((set, get) => ({
 
   logout: async () => {
     await fetch(`${API_BASE}/auth/logout`, { method: "POST" });
-    set({ user: null, installations: [], repos: [], alerts: [] });
+    set({
+      user: null,
+      installations: [],
+      repos: [],
+      alerts: [],
+      error: null,
+      repoActionErrors: {},
+      capError: null,
+    });
   },
 
   refresh: async () => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, repoActionErrors: {} });
     try {
       const orgsRes = await fetch(`${API_BASE}/panel/orgs`);
       if (!orgsRes.ok) {
@@ -101,32 +129,81 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
 
   triggerScan: async (repoId) => {
-    set({ capError: null });
-    const res = await fetch(`${API_BASE}/panel/repo/${repoId}/scan`, { method: "POST" });
-    const data = await jsonOrNull<{ scanId?: number; error?: string; cap?: boolean }>(res);
-    if (res.ok && data?.scanId) return data.scanId;
-    if (data?.cap) {
-      set({ capError: data.error ?? "Beta limit reached" });
-    } else {
-      set({ error: data?.error ?? `Scan failed to start (${res.status})` });
+    set((state) => ({
+      capError: null,
+      repoActionErrors: withoutRepoActionError(state.repoActionErrors, repoId),
+    }));
+    try {
+      const res = await fetch(`${API_BASE}/panel/repo/${repoId}/scan`, { method: "POST" });
+      const data = await jsonOrNull<{ scanId?: number; error?: string; cap?: boolean }>(res);
+      if (res.ok && data?.scanId) return data.scanId;
+      if (data?.cap) {
+        set({ capError: data.error ?? "Beta limit reached" });
+      } else {
+        set((state) => ({
+          repoActionErrors: {
+            ...state.repoActionErrors,
+            [repoId]: {
+              action: "audit",
+              message: data?.error ?? `Scan failed to start (${res.status})`,
+            },
+          },
+        }));
+      }
+    } catch (err) {
+      set((state) => ({
+        repoActionErrors: {
+          ...state.repoActionErrors,
+          [repoId]: {
+            action: "audit",
+            message: err instanceof Error ? err.message : "Network error while starting the audit",
+          },
+        },
+      }));
     }
     return null;
   },
 
   setProtect: async (repoId, on) => {
-    set({ capError: null });
-    const res = await fetch(`${API_BASE}/panel/repo/${repoId}/protect`, {
-      method: on ? "POST" : "DELETE",
-    });
-    const data = await jsonOrNull<{ error?: string; cap?: boolean }>(res);
-    if (res.ok) {
-      set({
-        repos: get().repos.map((r) => (r.id === repoId ? { ...r, protected: on } : r)),
+    set((state) => ({
+      capError: null,
+      repoActionErrors: withoutRepoActionError(state.repoActionErrors, repoId),
+    }));
+    try {
+      const res = await fetch(`${API_BASE}/panel/repo/${repoId}/protect`, {
+        method: on ? "POST" : "DELETE",
       });
-      return true;
+      const data = await jsonOrNull<{ error?: string; cap?: boolean }>(res);
+      if (res.ok) {
+        set((state) => ({
+          repos: state.repos.map((repo) => (repo.id === repoId ? { ...repo, protected: on } : repo)),
+        }));
+        return true;
+      }
+      if (data?.cap) {
+        set({ capError: data.error ?? "Beta limit reached" });
+      } else {
+        set((state) => ({
+          repoActionErrors: {
+            ...state.repoActionErrors,
+            [repoId]: {
+              action: "protect",
+              message: data?.error ?? `Protect toggle failed (${res.status})`,
+            },
+          },
+        }));
+      }
+    } catch (err) {
+      set((state) => ({
+        repoActionErrors: {
+          ...state.repoActionErrors,
+          [repoId]: {
+            action: "protect",
+            message: err instanceof Error ? err.message : "Network error while updating protection",
+          },
+        },
+      }));
     }
-    if (data?.cap) set({ capError: data.error ?? "Beta limit reached" });
-    else set({ error: data?.error ?? `Protect toggle failed (${res.status})` });
     return false;
   },
 
@@ -146,5 +223,11 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   markAlertsSeen: async () => {
     await fetch(`${API_BASE}/panel/alerts/seen`, { method: "POST" });
     set({ alerts: get().alerts.map((a) => ({ ...a, seen: true })) });
+  },
+
+  clearRepoActionError: (repoId) => {
+    set((state) => ({
+      repoActionErrors: withoutRepoActionError(state.repoActionErrors, repoId),
+    }));
   },
 }));

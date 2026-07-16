@@ -9,6 +9,43 @@ export interface FetchedFile {
   content: string;
 }
 
+export interface RootLockfile {
+  path: string;
+  sha: string;
+}
+
+/**
+ * Detect a supported lockfile at the repository root without downloading it.
+ * This costs one Contents API request per repo instead of up to three file
+ * requests and is used by the dashboard's cached auditability filter.
+ */
+export async function findRootLockfile(
+  octo: Octokit,
+  owner: string,
+  repo: string,
+  ref?: string,
+): Promise<RootLockfile | null> {
+  let data;
+  try {
+    ({ data } = await octo.rest.repos.getContent({
+      owner,
+      repo,
+      path: "",
+      ...(ref ? { ref } : {}),
+    }));
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return null;
+    throw err;
+  }
+  if (!Array.isArray(data)) return null;
+
+  for (const candidate of LOCKFILE_CANDIDATES) {
+    const entry = data.find((item) => item.type === "file" && item.name === candidate);
+    if (entry) return { path: entry.path, sha: entry.sha };
+  }
+  return null;
+}
+
 export async function fetchRepoFile(
   octo: Octokit,
   owner: string,

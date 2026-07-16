@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
 import type { Context } from "hono";
+import type { Octokit } from "@octokit/rest";
 
 import { assertProtectCap, CapExceededError } from "../caps.js";
 import { GITHUB_APP_ENABLED } from "../config.js";
 import { getDb, nowIso } from "../db.js";
 import { appSlug, getUserAccessToken, userOctokit } from "../github/app.js";
+import { findRootLockfile } from "../github/content.js";
 import { UnsupportedLockfileError } from "../lockfile/index.js";
 import {
   computeRollup,
@@ -59,6 +61,79 @@ export interface RepoRow {
   protected_at: string | null;
   lockfile_path: string | null;
   lockfile_sha: string | null;
+  auditability_checked_at: string | null;
+}
+
+const AUDITABILITY_CACHE_MS = 24 * 60 * 60 * 1_000;
+const AUDITABILITY_PROBE_CONCURRENCY = 8;
+
+interface GitHubRepoSummary {
+  id: number;
+  owner: { login: string };
+  name: string;
+  full_name: string;
+  private: boolean;
+  default_branch?: string | null;
+}
+
+interface RepoAuditabilityRow {
+  lockfile_path: string | null;
+  auditability_checked_at: string | null;
+}
+
+function auditabilityIsFresh(checkedAt: string | null): boolean {
+  if (!checkedAt) return false;
+  const checkedTime = Date.parse(checkedAt);
+  return Number.isFinite(checkedTime) && Date.now() - checkedTime < AUDITABILITY_CACHE_MS;
+}
+
+async function refreshRepoAuditability(
+  octo: Octokit,
+  ghRepos: readonly GitHubRepoSummary[],
+): Promise<void> {
+  const db = getDb();
+  const selectState = db.prepare(
+    "SELECT lockfile_path, auditability_checked_at FROM repos WHERE id = ?",
+  );
+  const updateState = db.prepare(
+    `UPDATE repos
+     SET lockfile_path = ?, lockfile_sha = ?, auditability_checked_at = ?, updated_at = ?
+     WHERE id = ?`,
+  );
+  const pending = ghRepos.filter((repo) => {
+    const row = selectState.get(repo.id) as RepoAuditabilityRow | undefined;
+    return !auditabilityIsFresh(row?.auditability_checked_at ?? null);
+  });
+
+  for (let offset = 0; offset < pending.length; offset += AUDITABILITY_PROBE_CONCURRENCY) {
+    const chunk = pending.slice(offset, offset + AUDITABILITY_PROBE_CONCURRENCY);
+    await Promise.all(
+      chunk.map(async (repo) => {
+        try {
+          const lockfile = await findRootLockfile(
+            octo,
+            repo.owner.login,
+            repo.name,
+            repo.default_branch ?? "main",
+          );
+          const checkedAt = nowIso();
+          updateState.run(
+            lockfile?.path ?? null,
+            lockfile?.sha ?? null,
+            checkedAt,
+            checkedAt,
+            repo.id,
+          );
+        } catch (err) {
+          // Keep the previous cached state on transient GitHub failures.
+          console.warn(
+            `[panel] auditability probe failed for ${repo.full_name}:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }),
+    );
+  }
 }
 
 // GitHub's installation "account" can be a user, org, or enterprise shape.
@@ -176,6 +251,18 @@ panelRoutes.get("/panel/repos", async (c) => {
        name = excluded.name,
        full_name = excluded.full_name,
        private = excluded.private,
+       lockfile_path = CASE
+         WHEN repos.default_branch <> excluded.default_branch THEN NULL
+         ELSE repos.lockfile_path
+       END,
+       lockfile_sha = CASE
+         WHEN repos.default_branch <> excluded.default_branch THEN NULL
+         ELSE repos.lockfile_sha
+       END,
+       auditability_checked_at = CASE
+         WHEN repos.default_branch <> excluded.default_branch THEN NULL
+         ELSE repos.auditability_checked_at
+       END,
        default_branch = excluded.default_branch,
        updated_at = excluded.updated_at`,
   );
@@ -224,10 +311,22 @@ panelRoutes.get("/panel/repos", async (c) => {
       }
     })();
 
+    await refreshRepoAuditability(octo, ghRepos);
+
     for (const r of ghRepos) {
-      const dbRepo = db.prepare("SELECT protected_at FROM repos WHERE id = ?").get(r.id) as
-        | { protected_at: string | null }
+      const dbRepo = db
+        .prepare(
+          "SELECT protected_at, lockfile_path, auditability_checked_at FROM repos WHERE id = ?",
+        )
+        .get(r.id) as
+        | {
+            protected_at: string | null;
+            lockfile_path: string | null;
+            auditability_checked_at: string | null;
+          }
         | undefined;
+      if (dbRepo?.auditability_checked_at && !dbRepo.lockfile_path) continue;
+
       const lastScan = lastScanStmt.get(r.id) as LastScanRow | undefined;
       repos.push({
         id: r.id,
