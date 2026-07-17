@@ -139,13 +139,42 @@ export function Header() {
 
         {user ? (
           <div className="app-header__user flex items-center gap-2">
-            {user.avatarUrl && (
-              <img
-                src={user.avatarUrl}
-                alt={user.login}
-                style={{ width: 20, height: 20, borderRadius: "50%", border: "1px solid var(--border)" }}
-              />
-            )}
+            <span
+              aria-hidden="true"
+              style={{
+                position: "relative",
+                display: "grid",
+                placeItems: "center",
+                width: 22,
+                height: 22,
+                flexShrink: 0,
+                overflow: "hidden",
+                borderRadius: "50%",
+                border: "1px solid var(--border)",
+                background: "var(--bg-secondary)",
+                color: "var(--accent-light)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.62rem",
+                fontWeight: 700,
+              }}
+            >
+              {user.login.slice(0, 1).toUpperCase()}
+              {user.avatarUrl && (
+                <img
+                  src={user.avatarUrl}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  onError={(event) => event.currentTarget.remove()}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                  }}
+                />
+              )}
+            </span>
             <span
               className="app-header__username"
               style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-muted)" }}
