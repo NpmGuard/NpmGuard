@@ -71,6 +71,9 @@ If \`package.json\` lists a npm-style command (\`"postinstall": "node setup.js"\
 \`runPackage(packageName, entryPoint)\` — loads a package in an isolated require context, returns its \`module.exports\` directly.
 - Side-effect packages (exfil, lifecycle hooks): \`await runPackage("pkg", "setup.js")\` runs the code; assert on captured HTTP bodies or spy calls.
 - API packages (classes, exported functions): \`const { MyClass, myFn } = await runPackage("pkg", "index.js")\` then call methods directly.
+- Transpiled ESM commonly exposes a default API as \`exports.default = ...\`. Normalize it: \`const loaded = await runPackage("pkg", "index.js"); const api = loaded?.default ?? loaded;\`.
+- For a named API that may be wrapped, use \`const fn = loaded.myFn ?? loaded.default?.myFn;\`.
+- Never call the value returned by \`runPackage()\` as a function unless the source explicitly uses \`module.exports = function ...\`. An object containing \`default\` is a module namespace, not the default function itself.
 
 \`runInChildProcess(packageName, entryPoint, { timeout })\` — forks in a child process. Use for DoS / infinite loops. Returns \`{ timedOut, killed, stdout, stderr, exitCode }\`.
 

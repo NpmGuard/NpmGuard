@@ -124,7 +124,7 @@ const OBFUSCATED_EXECUTION_OUTCOME =
 const CONCRETE_RUNTIME_OBSERVATION =
   /\b(?:observed|captured|intercepted|recorded|wrote|deleted|spawned|requested|connected|timed out)\b/i;
 const CALLER_MANUFACTURES_ATTACK =
-  /\b(?:send|provide|supply|pass|configure|set)\w*\b[\s\S]{0,100}\b(?:malicious|attacker-controlled|untrusted)\b[\s\S]{0,80}\b(?:url|command|code|path|script|configuration|config|input)\b/i;
+  /\b(?:send|provide|supply|pass|configure|set)\w*\b[\s\S]{0,100}\b(?:malicious|attacker-controlled|untrusted|crafted|pathological|complex)\b[\s\S]{0,100}\b(?:url|command|code|path|script|configuration|config|input|regex|regexp|regular expression|pattern|settings)\b/i;
 const COUNTERFACTUAL_EXTERNAL_COMPROMISE =
   /\bif\b[\s\S]{0,140}\b(?:repository|server|source|dependency|configuration|config|url)\b[\s\S]{0,100}\b(?:compromised|controlled by (?:an )?attacker|malicious)\b/i;
 
