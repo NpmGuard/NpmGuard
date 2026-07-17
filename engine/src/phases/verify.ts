@@ -121,6 +121,8 @@ ${errorMessage}
 ## WHAT WENT WRONG — FIX IT
 Analyze the error above and fix the test. Common issues:
 - runPackage() returns module.exports DIRECTLY. If the module exports { init, track, flush }, then \`const pkg = await runPackage(...)\` gives you those functions directly as \`pkg.init()\`, \`pkg.track()\`, etc.
+- Transpiled ESM often uses \`exports.default = ...\`. Normalize it with \`const loaded = await runPackage(...); const api = loaded?.default ?? loaded;\`.
+- For named exports that may be wrapped, use \`loaded.name ?? loaded.default?.name\`. Never call the returned namespace object as a function unless the source uses \`module.exports = function ...\`.
 - If the error says "expected null not to be null" or "expected undefined", the malicious behavior was never triggered. You MUST call the package's exported API functions (init, create, setup, etc.) to trigger it.
 - If assertions about HTTP captures fail, the package may need API calls (not just require) before it makes network requests.
 - Do NOT use vi.useFakeTimers() BEFORE runPackage() if the package sets up real timers.

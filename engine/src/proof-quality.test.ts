@@ -357,6 +357,23 @@ describe("assessFindingQuality", () => {
     expect(assessment.reason).toContain("caller");
   });
 
+  it("rejects the eslint-module-utils ReDoS scenario manufactured by caller settings", () => {
+    const assessment = assessFindingQuality({
+      capability: "DOS_LOOP",
+      confidence: "LIKELY",
+      fileLine: "ignore.js:10",
+      problem:
+        "Potential ReDoS when eslint-module-utils constructs a RegExp from import/ignore settings.",
+      evidence:
+        "ignore.js calls new RegExp(ignoreStrings[i]) where ignoreStrings comes from context.settings['import/ignore'].",
+      reproductionStrategy:
+        "Provide a crafted, complex regular expression via context.settings['import/ignore'] to cause excessive processing time.",
+    });
+
+    expect(assessment.accepted).toBe(false);
+    expect(assessment.reason).toContain("caller");
+  });
+
   it("rejects hypothetical risk that requires an external source to be compromised first", () => {
     const assessment = assessFindingQuality({
       capability: "DOM_INJECT",

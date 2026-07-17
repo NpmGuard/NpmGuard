@@ -16,7 +16,10 @@ import {
   buildTestGenUserPrompt,
 } from "./test-gen-prompt.js";
 import { readPackageSource, readExampleTest } from "./test-gen-helpers.js";
-import { assessGeneratedTestProofQuality } from "../proof-quality.js";
+import {
+  assessFindingQuality,
+  assessGeneratedTestProofQuality,
+} from "../proof-quality.js";
 
 const MAX_RETRIES = 3;
 const HARNESS_DIR = resolve(import.meta.dirname, "../../../sandbox/harness");
@@ -244,7 +247,7 @@ async function generateTestDirect(
     // Build prompt — on retry, append the error from the previous attempt
     let userPrompt = buildTestGenUserPrompt(finding, packageName, packageSource, example);
     if (lastError && attempt > 0) {
-      userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${MAX_RETRIES})\nYour generated test had a runtime error:\n\`\`\`\n${lastError}\n\`\`\`\nFix the error and regenerate. Common fixes:\n- If "X is not a function": check the module's actual exports in the source code above\n- If "Cannot find module": check the entry point path\n- runPackage() returns module.exports directly — destructure what you need from it`;
+      userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${MAX_RETRIES})\nYour generated test had a runtime error:\n\`\`\`\n${lastError}\n\`\`\`\nFix the error and regenerate. Common fixes:\n- If "X is not a function": inspect the source exports. For \`exports.default = ...\`, use \`const loaded = await runPackage(...); const api = loaded?.default ?? loaded;\`\n- For named exports, use \`loaded.name ?? loaded.default?.name\` when transpilation may wrap them\n- Never assume the object returned by runPackage() is directly callable unless the source uses \`module.exports = function ...\`\n- If "Cannot find module": check the entry point path`;
     }
 
     try {
@@ -320,10 +323,6 @@ export async function generateTests(
     return investigation.proofs;
   }
 
-  const packageName = basename(packagePath);
-  const packageSource = readPackageSource(packagePath);
-  const testDir = mkdtempSync(join(tmpdir(), "npmguard-tests-"));
-
   // Selection policy (Phase C — Finding 4):
   // - No capability dedup. Two findings with the same capability enum are
   //   distinct hypotheses (different sites, different trigger conditions)
@@ -336,14 +335,38 @@ export async function generateTests(
   // proof correlation downstream.
   const CONFIDENCE_RANK: Record<string, number> = { CONFIRMED: 0, LIKELY: 1, SUSPECTED: 2 };
   const cap = config.maxFindingsToProve;
+  const assessedFindings = investigation.findings.map((finding, index) => ({
+    index,
+    finding,
+    assessment: assessFindingQuality(finding),
+  }));
+
+  for (const { index, finding, assessment } of assessedFindings) {
+    if (!assessment.accepted) {
+      console.warn(
+        `[test-gen] skipping finding-${index} (${finding.capability} @ ${finding.fileLine}) — ${assessment.reason}`,
+      );
+    }
+  }
+
   const selectedFindings: Array<{ index: number; finding: Finding }> =
-    investigation.findings
-      .map((finding, index) => ({ index, finding }))
+    assessedFindings
+      .filter(({ assessment }) => assessment.accepted)
+      .map(({ index, finding }) => ({ index, finding }))
       .sort((a, b) => (CONFIDENCE_RANK[a.finding.confidence] ?? 3) - (CONFIDENCE_RANK[b.finding.confidence] ?? 3));
   const limited = cap > 0 ? selectedFindings.slice(0, cap) : selectedFindings;
 
+  if (limited.length === 0) {
+    console.log("[test-gen] no admissible findings to generate tests for");
+    return investigation.proofs;
+  }
+
+  const packageName = basename(packagePath);
+  const packageSource = readPackageSource(packagePath);
+  const testDir = mkdtempSync(join(tmpdir(), "npmguard-tests-"));
+
   console.log(
-    `[test-gen] generating tests for ${limited.length}/${investigation.findings.length} findings${cap > 0 ? ` (capped by NPMGUARD_MAX_FINDINGS_TO_PROVE=${cap})` : ""}`,
+    `[test-gen] generating tests for ${limited.length}/${selectedFindings.length} admissible findings${cap > 0 ? ` (capped by NPMGUARD_MAX_FINDINGS_TO_PROVE=${cap})` : ""}`,
   );
 
   // Staggered parallel: launch one request per 2s, run concurrently.
