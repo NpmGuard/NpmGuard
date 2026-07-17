@@ -52,6 +52,25 @@ describe("handleDangerousVerdict", () => {
     ]);
   });
 
+  it("includes the normalized exploit justification when provided", () => {
+    addRepo(1);
+    addDep(1, "bad-package", "1.0.0");
+    handleDangerousVerdict(
+      "bad-package",
+      "1.0.0",
+      "scan",
+      "Sandbox exploit reproduced at postinstall.js:4: the planted canary crossed a security boundary.",
+    );
+    expect(alerts()).toEqual([
+      {
+        repo_id: 1,
+        message:
+          "installed at 1.0.0. Evidence: Sandbox exploit reproduced at postinstall.js:4: the planted canary crossed a security boundary.",
+        kind: "scan",
+      },
+    ]);
+  });
+
   it("alerts protected repos whose range would adopt the new version", () => {
     addRepo(1, { protected: true });
     addDep(1, "lodash", "4.17.21", { direct: true, range: "^4.17.0" });
