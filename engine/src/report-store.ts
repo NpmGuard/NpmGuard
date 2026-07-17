@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AuditReport } from "./models.js";
+import { classifyAuditReport } from "./proof-quality.js";
 
 const DATA_DIR = path.resolve(import.meta.dirname, "../../data/reports");
 
@@ -208,7 +209,7 @@ export function listReports(): PackageSummary[] {
             results.push({
               packageName: name,
               version: embeddedVersion ?? latest.file.replace(/\.json$/, ""),
-              verdict: report.verdict ?? "UNKNOWN",
+              verdict: classifyAuditReport(report),
               auditedAt: latest.iso,
             });
           } catch {
@@ -255,7 +256,7 @@ export function listAllReports(): Array<{
           results.push({
             packageName: name,
             version: extractReportVersion(report) ?? file.replace(/\.json$/, ""),
-            verdict: report.verdict ?? "UNKNOWN",
+            verdict: classifyAuditReport(report),
             auditedAt: fs.statSync(filePath).mtime.toISOString(),
           });
         } catch {

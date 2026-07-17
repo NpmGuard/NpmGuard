@@ -13,6 +13,7 @@ import type { Proof, Finding } from "../models.js";
 import type { EmitFn } from "../events.js";
 import { TESTGEN_SYSTEM_PROMPT } from "./test-gen-prompt.js";
 import { readPackageSource, readExampleTest } from "./test-gen-helpers.js";
+import { assessGeneratedTestProofQuality } from "../proof-quality.js";
 
 const HARNESS_DIR = resolve(import.meta.dirname, "../../../sandbox/harness");
 
@@ -152,6 +153,14 @@ Output ONLY the fixed JavaScript test code.`;
       return null;
     }
 
+    const proofQuality = assessGeneratedTestProofQuality(code, finding.capability);
+    if (!proofQuality.accepted) {
+      console.error(
+        `[verify:retry] regenerated code has insufficient security proof: ${proofQuality.reason}`,
+      );
+      return null;
+    }
+
     // Auto-fix server.listen/close
     if (code.includes("server.listen(") || code.includes("server.close(")) {
       code = code.replace(/^\s*server\.listen\(.*\);?\s*$/gm, "");
@@ -224,11 +233,36 @@ export async function verifyProofs(
   emit?: EmitFn,
   findings?: Finding[],
 ): Promise<Proof[]> {
-  const proofsWithTests = proofs.filter((p) => p.testFile);
+  const rejectedProofIndexes = new Set<number>();
+  const checkedProofs = proofs.map((proof, index) => {
+    if (!proof.testFile) return proof;
+    const assessment = assessGeneratedTestProofQuality(proof.testCode, proof.capability);
+    if (assessment.accepted) return proof;
+
+    rejectedProofIndexes.add(index);
+    console.warn(
+      `[verify] finding-${index}: rejected before execution — ${assessment.reason}`,
+    );
+    emit?.("verify_test_result", {
+      proofIndex: index,
+      testFile: `finding-${index}.test.ts`,
+      status: "unconfirmed",
+      error: "insufficient_security_assertion",
+    });
+    return {
+      ...proof,
+      kind: "TEST_UNCONFIRMED" as const,
+      reproducible: false,
+      verifyError: `insufficient_security_assertion: ${assessment.reason}`,
+    };
+  });
+  const proofsWithTests = checkedProofs.filter(
+    (p, index) => p.testFile && !rejectedProofIndexes.has(index),
+  );
 
   if (proofsWithTests.length === 0) {
-    console.log("[verify] no proofs with test files, returning unchanged");
-    return proofs;
+    console.log("[verify] no admissible proofs with test files, returning checked proofs");
+    return checkedProofs;
   }
 
   console.log(`[verify] verifying ${proofsWithTests.length} proofs with tests`);
@@ -284,8 +318,9 @@ export async function verifyProofs(
 
     // Copy generated test files
     const testFileMap = new Map<string, number>();
-    for (let i = 0; i < proofs.length; i++) {
-      const proof = proofs[i]!;
+    for (let i = 0; i < checkedProofs.length; i++) {
+      const proof = checkedProofs[i]!;
+      if (rejectedProofIndexes.has(i)) continue;
       if (!proof.testFile) continue;
 
       const testFileName = `finding-${i}.test.ts`;
@@ -299,7 +334,7 @@ export async function verifyProofs(
 
     if (testFileMap.size === 0) {
       console.log("[verify] no test files could be copied, returning unchanged");
-      return proofs;
+      return checkedProofs;
     }
 
     // 2. Start Docker container
@@ -336,12 +371,15 @@ export async function verifyProofs(
 
     if (startResult.exitCode !== 0) {
       console.error(`[verify] failed to start container: ${startResult.stderr}`);
-      for (let i = 0; i < proofs.length; i++) {
-        if (proofs[i]!.testFile) {
+      for (let i = 0; i < checkedProofs.length; i++) {
+        if (checkedProofs[i]!.testFile && !rejectedProofIndexes.has(i)) {
           emit?.("verify_test_result", { proofIndex: i, testFile: `finding-${i}.test.ts`, status: "infra_error", error: "container_start_failed" });
         }
       }
-      return proofs.map((proof) =>
+      return checkedProofs.map((proof, index) =>
+        rejectedProofIndexes.has(index)
+          ? proof
+          :
         proof.testFile ? { ...proof, kind: "TEST_UNCONFIRMED" as const, verifyError: "container_start_failed" } : proof,
       );
     }
@@ -370,12 +408,15 @@ export async function verifyProofs(
         if (installResult.exitCode !== 0) {
           console.error(`[verify] npm install failed (exit=${installResult.exitCode}):`);
           console.error(installResult.stderr.slice(0, 500));
-          for (let i = 0; i < proofs.length; i++) {
-            if (proofs[i]!.testFile) {
+          for (let i = 0; i < checkedProofs.length; i++) {
+            if (checkedProofs[i]!.testFile && !rejectedProofIndexes.has(i)) {
               emit?.("verify_test_result", { proofIndex: i, testFile: `finding-${i}.test.ts`, status: "infra_error", error: "npm_install_failed" });
             }
           }
-          return proofs.map((proof) =>
+          return checkedProofs.map((proof, index) =>
+            rejectedProofIndexes.has(index)
+              ? proof
+              :
             proof.testFile ? { ...proof, kind: "TEST_UNCONFIRMED" as const, verifyError: "npm_install_failed" } : proof,
           );
         }
@@ -385,7 +426,7 @@ export async function verifyProofs(
       const npxPath = hasVerifyImage ? "/opt/verify/node_modules/.bin/vitest" : "npx vitest";
 
       // Track current proof state across retries
-      let currentProofs = [...proofs];
+      let currentProofs = [...checkedProofs];
 
       // ── Retry loop ──
       for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {

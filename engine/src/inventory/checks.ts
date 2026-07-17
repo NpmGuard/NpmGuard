@@ -42,17 +42,34 @@ function checkShellPipe(scripts: Record<string, string>): DealBreaker | null {
   return null;
 }
 
-function checkMissingInstallFile(entryPoints: EntryPoints, files: FileRecord[]): DealBreaker | null {
+function nodeEntryCandidates(ref: string): string[] {
+  const normalized = path.normalize(ref).replaceAll("\\", "/");
+  if (path.extname(normalized)) return [normalized];
+  return [
+    normalized,
+    `${normalized}.js`,
+    `${normalized}.cjs`,
+    `${normalized}.mjs`,
+    `${normalized}/index.js`,
+    `${normalized}/index.cjs`,
+    `${normalized}/index.mjs`,
+  ];
+}
+
+function flagMissingInstallFiles(entryPoints: EntryPoints, files: FileRecord[]): InventoryFlag[] {
   const filePaths = new Set(files.map((f) => f.path));
+  const flags: InventoryFlag[] = [];
   for (const ref of entryPoints.install) {
-    if (!filePaths.has(ref)) {
-      return {
+    if (!nodeEntryCandidates(ref).some((candidate) => filePaths.has(candidate))) {
+      flags.push({
+        severity: "warn",
         check: "missing-install-script",
         detail: `Install script references '${ref}' but file not found in package`,
-      };
+        file: "package.json",
+      });
     }
   }
-  return null;
+  return flags;
 }
 
 // ---------------------------------------------------------------------------
@@ -235,12 +252,10 @@ export function runInventoryChecks(
   let dealbreaker = checkShellPipe(scripts);
   if (dealbreaker) return { flags: [], dealbreaker };
 
-  dealbreaker = checkMissingInstallFile(entryPoints, files);
-  if (dealbreaker) return { flags: [], dealbreaker };
-
   // Accumulate flags
   const flags: InventoryFlag[] = [
     ...flagLifecycleScripts(scripts),
+    ...flagMissingInstallFiles(entryPoints, files),
     ...flagNonNodeScripts(scripts),
     ...flagBinaryFiles(files),
     ...flagExecutableOutsideBin(files),

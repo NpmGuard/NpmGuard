@@ -66,9 +66,12 @@ const BENIGN_FINDING_PATTERNS = [
   /\bstandard typescript declaration\b/,
   /\blegitimate (?:library )?(?:feature|use|usage|behavior|code|documentation)\b/,
   /\bintentional feature detection\b/,
+  /\blikely (?:an )?intentional design choice\b/,
   /\bcontrolled and gated\b/,
   /\bsafe recursive traversal\b/,
   /\bzero (?:http|https|network|fetch)\b/,
+  /\bdoes not contain any (?:suspicious or malicious|suspicious|malicious) behavior\b/,
+  /\bno suspicious or malicious behavior\b/,
 ];
 
 const ABSENCE_PROBLEM_PATTERN =

@@ -220,9 +220,10 @@ describe("test-pkg-dos-loop (colors.js pattern)", () => {
    \`const orig = fs.readFileSync; vi.spyOn(fs, "readFileSync").mockImplementation((p, ...a) => { if (...) return fake; return orig(p, ...a); });\`
 3. Use MSW wildcard patterns: \`http.post("*/exfil", handler)\` not \`http.post("http://localhost:9999/exfil", handler)\`.
 4. **Wait LONG enough for async network/IO**: \`await new Promise(r => setTimeout(r, 1500))\` after runPackage(). Network requests + IMDS probes are slow — 300ms is often too short and the test fails before exfil completes.
-5. **Use SOFT assertions, NOT strict equals.** The malware's exact body shape (\`exfilBody.env\` vs \`exfilBody.envVars\` vs \`exfilBody.data\`) is unknown — test for EXISTENCE, not structure.
-   - GOOD: \`expect(exfilBody).toBeDefined()\`, \`expect(JSON.stringify(exfilBody)).toContain("NPM_TOKEN")\`, \`expect(fsSpy).toHaveBeenCalled()\`
+5. **Use a strong security assertion without over-specifying object shape.** The malware's exact body shape (\`exfilBody.env\` vs \`exfilBody.envVars\` vs \`exfilBody.data\`) is unknown, but existence alone is not proof.
+   - GOOD: \`expect(JSON.stringify(exfilBody)).toContain("NPMGUARD_CANARY")\`
    - BAD: \`expect(exfilBody).toEqual({ env: { NPM_TOKEN: "..." }, files: [...] })\` — too brittle
+   - BAD: \`expect(exfilBody).toBeDefined()\` or \`expect(fetch).toHaveBeenCalled()\` — normal packages do this too
 6. **Stub 3-5 sensitive env vars max**, not 20. The malware regex-matches \`token|secret|key|password|auth|credential\` so any one of these is enough proof. Less code = fewer brittle assertions.
 7. **One \`it()\` per test file with ONE main assertion**. Don't pile 5 expects — if any one is too strict, the whole test fails. Pick the most observable behavior (a network call, an fs read, a stubbed env var leaking) and assert on it loosely.
    - **Especially do NOT chain assertions across malware stages.** \`expect(downloadHappened && spawnHappened)\` is two assertions: if the download mock throws, spawn never happens, the test fails on a strict check that wasn't the point. Pick ONE: download OR spawn, not both.
@@ -251,7 +252,17 @@ describe("test-pkg-dos-loop (colors.js pattern)", () => {
       try { await global.window.ethereum.request({ method: "eth_accounts" }); } catch {}
       await new Promise(r => setTimeout(r, 1000));
       expect(global.window.ethereum.request).toHaveBeenCalled();
-      \`\`\``;
+      \`\`\`
+11. **A PASSING TEST IS NOT AUTOMATICALLY A SECURITY PROOF.** The final assertion must prove a harmful outcome caused by the package:
+    - Credential/network/exfil findings: unconditionally assert that \`NPMGUARD_CANARY\` crossed into a captured request/body/spawn sink.
+    - Process/lifecycle/binary findings: assert a package-triggered download-and-execute chain, publish command, or canary-bearing spawn from \`/workspace/spawn-log.txt\`.
+    - DoS findings: assert both the timeout and a concrete impact such as kill/flood output.
+    - Clipboard/DOM findings: assert a victim value was replaced with an attacker-controlled value.
+    - Never generate a test whose title or main assertion says the package "does not" perform the behavior.
+    - Never use \`.not.toHaveBeenCalled()\`, \`.toBeNull()\`, \`.toBeUndefined()\`, \`.toBeDefined()\`, or a bare \`.toHaveBeenCalled()\` as the security proof.
+    - Never read \`Object.keys(process.env)\` in the test and count the planted variables as package behavior.
+    - Never put the assertion behind \`if (observed)\`; the test must fail when the behavior is absent.
+    - Never manufacture the attack by passing an attacker URL, shell metacharacters, or a malicious path into an otherwise documented API. The harmful source and sink must originate from package behavior under normal import, install, or documented API use.`;
 
 /** Map capabilities to the most relevant example test patterns. */
 export const CAPABILITY_EXAMPLES: Record<string, string> = {

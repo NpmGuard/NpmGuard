@@ -75,6 +75,22 @@ describe("isBenignFinding", () => {
         evidence: "Only affects JIT fastpath and falls back to safe recursive traversal.",
       })),
     ).toBe(true);
+
+    expect(
+      isBenignFinding(finding({
+        capability: "OBFUSCATION",
+        problem: "This result does not contain any suspicious or malicious behavior",
+        evidence: "The watchdog is a documented process-lifecycle helper.",
+      })),
+    ).toBe(true);
+
+    expect(
+      isBenignFinding(finding({
+        capability: "PROCESS_SPAWN",
+        problem: "process.domain is temporarily cleared and restored",
+        evidence: "This is likely an intentional design choice for internal scheduling.",
+      })),
+    ).toBe(true);
   });
 
   it("keeps actionable malicious findings", () => {

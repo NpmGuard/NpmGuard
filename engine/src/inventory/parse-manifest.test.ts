@@ -22,4 +22,16 @@ describe("parsePackageJson", () => {
 
     expect(parsed.entryPoints.install).toEqual(["postinstall.mjs"]);
   });
+
+  it("does not treat prepare or prepublish files as registry install entry points", () => {
+    const parsed = parsePackageJson({
+      scripts: {
+        prepare: "node src/build.js",
+        prepublish: "node scripts/generate.js",
+        install: "node install/check",
+      },
+    });
+
+    expect(parsed.entryPoints.install).toEqual(["install/check"]);
+  });
 });

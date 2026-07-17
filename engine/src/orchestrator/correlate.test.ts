@@ -351,7 +351,7 @@ describe("correlateAfterInvestigation", () => {
     expect(g.get("trg-0001").state).toBe("REFUTED");
   });
 
-  it("promotes confirmed dangerous unmatched findings into graph hypotheses", () => {
+  it("promotes dangerous unmatched findings but leaves them pending verification", () => {
     const g = new HypothesisGraph("a1");
     g.add(hyp({
       hypId: "h1",
@@ -377,7 +377,7 @@ describe("correlateAfterInvestigation", () => {
 
     expect(result.matched).toHaveLength(0);
     expect(result.promoted).toHaveLength(1);
-    expect(g.get(result.promoted[0]!.hypId).state).toBe("CONFIRMED");
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("IN_PROGRESS");
     expect(["cred_theft", "env_exfil"]).toContain(g.get(result.promoted[0]!.hypId).claim.kind);
     expect(g.get("h1").state).toBe("REFUTED");
   });
@@ -411,7 +411,7 @@ describe("correlateAfterInvestigation", () => {
     expect(g.get(result.promoted[0]!.hypId).claim.kind).toBe("cred_theft");
   });
 
-  it("promotes confirmed broad network findings when context is clearly malicious", () => {
+  it("promotes broad network findings with malicious context but leaves them pending verification", () => {
     const g = new HypothesisGraph("a1");
     g.add(hyp({
       hypId: "h1",
@@ -438,7 +438,7 @@ describe("correlateAfterInvestigation", () => {
 
     expect(result.promoted).toHaveLength(1);
     expect(result.promoted[0]!.capability).toBe("LIFECYCLE_HOOK");
-    expect(g.get(result.promoted[0]!.hypId).state).toBe("CONFIRMED");
+    expect(g.get(result.promoted[0]!.hypId).state).toBe("IN_PROGRESS");
   });
 
   it("promotes suspected broad filesystem findings when they describe npm publish propagation", () => {
@@ -628,7 +628,7 @@ describe("correlateAfterVerify", () => {
 });
 
 describe("correlateAfterInvestigation — agent CONFIRMED findings", () => {
-  it("transitions to CONFIRMED when finding has confidence=CONFIRMED", () => {
+  it("keeps agent-confirmed findings IN_PROGRESS until a reproducer passes", () => {
     const g = new HypothesisGraph("a1");
     g.add(hyp({ hypId: "h1" }));
 
@@ -641,7 +641,7 @@ describe("correlateAfterInvestigation — agent CONFIRMED findings", () => {
     });
 
     expect(result.matched.length).toBe(1);
-    expect(g.get("h1").state).toBe("CONFIRMED");
+    expect(g.get("h1").state).toBe("IN_PROGRESS");
     expect(g.get("h1").evidenceRefs.length).toBeGreaterThan(0);
   });
 

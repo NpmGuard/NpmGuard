@@ -1,5 +1,6 @@
 import { getDb, nowIso } from "./db.js";
 import { listAllReports, setReportSavedHook } from "./report-store.js";
+import { classifyAuditReport } from "./proof-quality.js";
 
 // Derived index of data/reports/ (spec §5.1): fast (name, version) → verdict
 // lookups for rollups and cache-first scans. Report files stay authoritative;
@@ -67,7 +68,7 @@ export function rebuildVerdictIndex(): number {
 export function installReportHook(): void {
   setReportSavedHook((packageName, version, report) => {
     try {
-      upsertVerdict(packageName, version, report.verdict ?? "UNKNOWN");
+      upsertVerdict(packageName, version, classifyAuditReport(report));
     } catch (err) {
       console.error("[verdict-index] hook failed:", err instanceof Error ? err.message : err);
     }
