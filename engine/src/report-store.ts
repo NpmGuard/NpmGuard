@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AuditReport } from "./models.js";
-import { classifyAuditReport } from "./proof-quality.js";
+import { assessAuditReport } from "./proof-quality.js";
 
 const DATA_DIR = path.resolve(import.meta.dirname, "../../data/reports");
 
@@ -164,6 +164,8 @@ export interface PackageSummary {
   packageName: string;
   version: string;
   verdict: string;
+  reason: string;
+  evidenceCount: number;
   auditedAt: string;
 }
 
@@ -206,10 +208,13 @@ export function listReports(): PackageSummary[] {
             const report = JSON.parse(fs.readFileSync(assertUnderDataDir(path.join(pkgDir, latest.file)), "utf-8"));
             const embeddedVersion = extractReportVersion(report);
             if (!isPublicPackageReport(name)) continue;
+            const assessment = assessAuditReport(report);
             results.push({
               packageName: name,
               version: embeddedVersion ?? latest.file.replace(/\.json$/, ""),
-              verdict: classifyAuditReport(report),
+              verdict: assessment.classification,
+              reason: assessment.summary,
+              evidenceCount: assessment.evidence.length,
               auditedAt: latest.iso,
             });
           } catch {
@@ -235,10 +240,19 @@ export function listAllReports(): Array<{
   packageName: string;
   version: string;
   verdict: string;
+  reason: string;
+  evidenceCount: number;
   auditedAt: string;
 }> {
   if (!fs.existsSync(DATA_DIR)) return [];
-  const results: Array<{ packageName: string; version: string; verdict: string; auditedAt: string }> = [];
+  const results: Array<{
+    packageName: string;
+    version: string;
+    verdict: string;
+    reason: string;
+    evidenceCount: number;
+    auditedAt: string;
+  }> = [];
 
   function walkAll(dir: string, prefix: string) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -253,10 +267,13 @@ export function listAllReports(): Array<{
         try {
           const filePath = assertUnderDataDir(path.join(pkgDir, file));
           const report = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+          const assessment = assessAuditReport(report);
           results.push({
             packageName: name,
             version: extractReportVersion(report) ?? file.replace(/\.json$/, ""),
-            verdict: classifyAuditReport(report),
+            verdict: assessment.classification,
+            reason: assessment.summary,
+            evidenceCount: assessment.evidence.length,
             auditedAt: fs.statSync(filePath).mtime.toISOString(),
           });
         } catch {

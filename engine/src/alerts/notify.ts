@@ -20,6 +20,7 @@ export function handleDangerousVerdict(
   packageName: string,
   version: string,
   source: "scan" | "watch",
+  verdictReason?: string,
 ): void {
   const db = getDb();
 
@@ -36,7 +37,9 @@ export function handleDangerousVerdict(
   const exactIds = new Set(exact.map((r) => r.repoId));
   const exposed: ExposedRepo[] = exact.map((r) => ({
     ...r,
-    message: `installed at ${version}`,
+    message: verdictReason
+      ? `installed at ${version}. Evidence: ${verdictReason}`
+      : `installed at ${version}`,
   }));
 
   // Range exposure only matters for protected repos (they're the ones
@@ -66,7 +69,9 @@ export function handleDangerousVerdict(
         repoId: row.repoId,
         fullName: row.fullName,
         org: row.org,
-        message: `range ${row.range} would adopt ${version} on next update`,
+        message: verdictReason
+          ? `range ${row.range} would adopt ${version} on next update. Evidence: ${verdictReason}`
+          : `range ${row.range} would adopt ${version} on next update`,
       });
     }
   }

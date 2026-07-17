@@ -472,6 +472,8 @@ interface DepDetailRow {
   direct: number;
   range: string | null;
   verdict: string | null;
+  verdict_reason: string | null;
+  evidence_count: number | null;
   audited_at: string | null;
   active_state: string | null;
   has_failed: number | null;
@@ -492,7 +494,9 @@ panelRoutes.get("/panel/repo/:owner/:name", (c) => {
 
   const deps = db
     .prepare(
-      `SELECT rd.name, rd.version, rd.direct, rd.range, pv.verdict, pv.audited_at,
+      `SELECT rd.name, rd.version, rd.direct, rd.range,
+              pv.verdict, pv.reason AS verdict_reason,
+              pv.evidence_count, pv.audited_at,
               (SELECT j.state FROM jobs j
                WHERE j.package_name = rd.name AND j.version = rd.version
                  AND j.state IN ('queued', 'running')
@@ -539,6 +543,8 @@ panelRoutes.get("/panel/repo/:owner/:name", (c) => {
       direct: !!d.direct,
       range: d.range,
       verdict: d.verdict,
+      verdictReason: d.verdict_reason,
+      evidenceCount: d.evidence_count ?? 0,
       auditedAt: d.audited_at,
       jobState: d.active_state ?? (d.has_failed && !d.verdict ? "failed" : null),
     })),
@@ -593,6 +599,7 @@ panelRoutes.get("/panel/scan/:scanId/events", (c) => {
 
   const itemsStmt = db.prepare(
     `SELECT si.name, si.version, pv.verdict,
+            pv.reason AS verdict_reason, pv.evidence_count,
             (SELECT j.state FROM jobs j
              WHERE j.package_name = si.name AND j.version = si.version
                AND j.state IN ('queued', 'running')
@@ -622,6 +629,8 @@ panelRoutes.get("/panel/scan/:scanId/events", (c) => {
         name: string;
         version: string;
         verdict: string | null;
+        verdict_reason: string | null;
+        evidence_count: number | null;
         active_state: string | null;
         has_failed: number | null;
       }>;
@@ -640,6 +649,8 @@ panelRoutes.get("/panel/scan/:scanId/events", (c) => {
             name: item.name,
             version: item.version,
             verdict: item.verdict,
+            verdictReason: item.verdict_reason,
+            evidenceCount: item.evidence_count ?? 0,
             jobState,
           }),
         });

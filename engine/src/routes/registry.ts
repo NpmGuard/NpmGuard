@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { resolveTarballUrl } from "../phases/resolve.js";
+import { assessAuditReport } from "../proof-quality.js";
 import { listReports, loadReport } from "../report-store.js";
 import { loadStoragePublication } from "../storage-store.js";
 import { PackageName, SemverVersion } from "./validation.js";
@@ -35,7 +36,12 @@ registryRoutes.get("/package/:name{.+}/report", (c) => {
     );
   }
 
-  return c.json({ report: result.report, version: result.version, packageName });
+  return c.json({
+    report: result.report,
+    assessment: assessAuditReport(result.report),
+    version: result.version,
+    packageName,
+  });
 });
 
 registryRoutes.get("/package/:name{.+}/storage", (c) => {

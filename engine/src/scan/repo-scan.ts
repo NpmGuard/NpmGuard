@@ -195,6 +195,8 @@ interface ItemState {
   version: string;
   cached: number;
   verdict: string | null;
+  verdict_reason: string | null;
+  evidence_count: number | null;
   active: number;
 }
 
@@ -202,6 +204,7 @@ function scanItemStates(scanId: number): ItemState[] {
   return getDb()
     .prepare(
       `SELECT si.name, si.version, si.cached, pv.verdict,
+              pv.reason AS verdict_reason, pv.evidence_count,
               EXISTS(
                 SELECT 1 FROM jobs j
                 WHERE j.package_name = si.name AND j.version = si.version
@@ -272,8 +275,16 @@ async function concludeScanCheck(scan: ScanRow, items: ItemState[]): Promise<voi
     lines.push("No new dependencies introduced by this push.");
   } else {
     lines.push(`${items.length} new dependencies checked.`);
-    for (const i of dangerous) lines.push(`- ❌ **${i.name}@${i.version}** — DANGEROUS`);
-    for (const i of suspect) lines.push(`- ⚠️ ${i.name}@${i.version} — SUSPECT (non-blocking)`);
+    for (const i of dangerous) {
+      lines.push(
+        `- ❌ **${i.name}@${i.version}** — DANGEROUS: ${i.verdict_reason || "reproducible exploit evidence recorded"}`,
+      );
+    }
+    for (const i of suspect) {
+      lines.push(
+        `- ⚠️ ${i.name}@${i.version} — SUSPECT (non-blocking): ${i.verdict_reason || "actionable signal requires sandbox reproduction"}`,
+      );
+    }
     if (unresolved.length > 0) {
       lines.push(`- ${unresolved.length} could not be audited (non-blocking)`);
     }
