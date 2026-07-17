@@ -4,6 +4,7 @@ import { runAudit } from "../pipeline.js";
 import { saveReport } from "../report-store.js";
 import { refreshScansTouching } from "../scan/repo-scan.js";
 import { upsertVerdict } from "../verdict-index.js";
+import { classifyAuditReport } from "../proof-quality.js";
 import { claimNextJob, completeJob, failJob, onWake, type JobRow } from "./queue.js";
 
 // In-process worker pool over the jobs table (spec §5.4). The "cheap" lane
@@ -74,10 +75,11 @@ async function runJob(job: JobRow): Promise<void> {
     }
     // Index the requested version too — the tarball metadata version can
     // differ in odd cases, and scan_items reference the lockfile's version.
-    upsertVerdict(job.package_name, job.version, report.verdict ?? "UNKNOWN");
+    const classification = classifyAuditReport(report);
+    upsertVerdict(job.package_name, job.version, classification);
     completeJob(job.id);
 
-    if (report.verdict === "DANGEROUS") {
+    if (classification === "DANGEROUS") {
       try {
         handleDangerousVerdict(job.package_name, job.version, job.scan_id ? "scan" : "watch");
       } catch (err) {

@@ -357,21 +357,15 @@ export function correlateAfterInvestigation(
       const ref = findingRef(f, i);
       graph.addEvidence(match.hypothesis.hypId, [ref]);
 
-      // Agent-CONFIRMED findings come from the investigation tool traces
-      // (runLifecycleHook, requireAndTrace) — that's real dynamic evidence,
-      // not just an LLM opinion. Promote straight to CONFIRMED so verify
-      // infra failures can't downgrade us to SAFE on a confirmed worm.
-      // SUSPECTED / LIKELY findings stay IN_PROGRESS pending verify.
+      // Investigation findings nominate evidence for verification. Even when
+      // the agent labels a finding CONFIRMED, only an admitted reproducer may
+      // transition the graph to CONFIRMED. This prevents a normal capability
+      // (networking, crypto, process management) from becoming DANGEROUS based
+      // solely on an LLM confidence label.
       graph.transition(match.hypothesis.hypId, {
         to: "IN_PROGRESS",
         by: "correlator:investigation",
       });
-      if (f.confidence === "CONFIRMED") {
-        graph.transition(match.hypothesis.hypId, {
-          to: "CONFIRMED",
-          by: "correlator:investigation",
-        });
-      }
 
       console.log(
         `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}, ${f.confidence}) → ${match.hypothesis.hypId} (score=${match.score.score})`,
@@ -455,19 +449,11 @@ function promoteUnmatchedFinding(
     resolution: null,
   });
 
-  if (finding.confidence === "CONFIRMED") {
-    graph.transition(hypId, {
-      to: "CONFIRMED",
-      by: "correlator:investigation",
-      evidenceRefs: [ref],
-    });
-  } else {
-    graph.addEvidence(hypId, [ref]);
-    graph.transition(hypId, {
-      to: "IN_PROGRESS",
-      by: "correlator:investigation",
-    });
-  }
+  graph.addEvidence(hypId, [ref]);
+  graph.transition(hypId, {
+    to: "IN_PROGRESS",
+    by: "correlator:investigation",
+  });
 
   return { hypId, capability };
 }

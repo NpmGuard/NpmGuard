@@ -9,6 +9,17 @@ export const LIFECYCLE_SCRIPTS = new Set([
   "prepublish",
 ]);
 
+/**
+ * Hooks executed when a published tarball is installed from the npm registry.
+ * `prepare` and `prepublish` run while packing/publishing (or for git installs),
+ * so files they reference are legitimately absent from the published tarball.
+ */
+export const REGISTRY_INSTALL_SCRIPTS = new Set([
+  "preinstall",
+  "install",
+  "postinstall",
+]);
+
 function asStringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
@@ -79,7 +90,7 @@ export function parsePackageJson(
   const scripts = asStringRecord(pkg.scripts);
 
   const installEntries: string[] = [];
-  for (const hook of LIFECYCLE_SCRIPTS) {
+  for (const hook of REGISTRY_INSTALL_SCRIPTS) {
     const scriptValue = scripts[hook];
     if (scriptValue) {
       const ref = extractScriptFileRef(scriptValue);

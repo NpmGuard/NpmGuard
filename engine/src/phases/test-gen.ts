@@ -16,6 +16,7 @@ import {
   buildTestGenUserPrompt,
 } from "./test-gen-prompt.js";
 import { readPackageSource, readExampleTest } from "./test-gen-helpers.js";
+import { assessGeneratedTestProofQuality } from "../proof-quality.js";
 
 const MAX_RETRIES = 3;
 const HARNESS_DIR = resolve(import.meta.dirname, "../../../sandbox/harness");
@@ -263,6 +264,18 @@ async function generateTestDirect(
       if (!code.includes("runPackage(") && !code.includes("runInChildProcess(")) {
         console.error(`[test-gen] attempt ${attempt + 1}: no runPackage/runInChildProcess call, retrying`);
         lastError = "Test must use runPackage() or runInChildProcess() to load the package. Do not use require() directly.";
+        continue;
+      }
+
+      const proofQuality = assessGeneratedTestProofQuality(code, finding.capability);
+      if (!proofQuality.accepted) {
+        console.error(
+          `[test-gen] attempt ${attempt + 1}: insufficient security proof — ${proofQuality.reason}`,
+        );
+        lastError =
+          `The test is not a valid malicious-behavior proof: ${proofQuality.reason}. ` +
+          "Generate one unconditional positive assertion showing a planted NPMGUARD_CANARY value crossing a package-controlled sink, a package-triggered dangerous process chain, a victim-value hijack, or a reproducible DoS impact. " +
+          "Do not write a negative test and do not manufacture attacker-controlled input.";
         continue;
       }
 
