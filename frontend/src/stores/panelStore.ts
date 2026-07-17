@@ -120,8 +120,21 @@ export const usePanelStore = create<PanelState>((set, get) => ({
         fetch(`${API_BASE}/panel/repos`),
         fetch(`${API_BASE}/panel/alerts`),
       ]);
-      const repos = reposRes.ok ? (await reposRes.json()).repos : [];
-      const alerts = alertsRes.ok ? ((await alertsRes.json()).alerts ?? []) : [];
+
+      const reposData = await jsonOrNull<{ repos?: RepoSummary[]; error?: string }>(reposRes);
+      if (!reposRes.ok || !reposData?.repos) {
+        set({
+          loading: false,
+          error:
+            reposData?.error ??
+            `Failed to load repositories (${reposRes.status})`,
+        });
+        return;
+      }
+
+      const alertsData = await jsonOrNull<{ alerts?: PanelAlert[] }>(alertsRes);
+      const repos = reposData.repos;
+      const alerts = alertsRes.ok ? (alertsData?.alerts ?? []) : [];
       set({ repos, alerts, loading: false });
     } catch (err) {
       set({ loading: false, error: err instanceof Error ? err.message : "Network error" });

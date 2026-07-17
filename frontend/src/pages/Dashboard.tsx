@@ -635,6 +635,29 @@ export function Dashboard() {
                   );
                 })}
               </div>
+            ) : repos.length === 0 ? (
+              <div className="repo-no-results">
+                <Icon name={error ? "alert" : loading ? "refresh" : "repo"} size={22} />
+                <strong>
+                  {error
+                    ? "Repository list unavailable"
+                    : loading
+                      ? "Checking repository lockfiles…"
+                      : "No auditable repositories found"}
+                </strong>
+                <p>
+                  {error
+                    ? "Retry the refresh once the connection issue above is resolved."
+                    : loading
+                      ? "NpmGuard is checking the repositories available to this GitHub installation."
+                      : "Only repositories with package-lock.json, pnpm-lock.yaml, or yarn.lock at the repository root are shown."}
+                </p>
+                {!loading && (
+                  <button type="button" onClick={() => void refresh()}>
+                    Check again
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="repo-no-results">
                 <Icon name="search" size={22} />
