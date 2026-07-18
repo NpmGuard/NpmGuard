@@ -1,351 +1,371 @@
 import { useState } from "react";
 
-type CommandBlockProps = {
-  title: string;
-  command: string;
-  note?: string;
+type CliActionId = "install" | "audit" | "check";
+
+type CliAction = {
+  id: CliActionId;
+  label: string;
+  description: string;
+  outcome: string;
+  command: (packageName: string) => string;
 };
 
-const WORKFLOW_STEPS = [
+const CLI_ACTIONS: CliAction[] = [
   {
-    title: "Checks the report store",
-    text: "If the package already has a verdict, the CLI can gate the install immediately.",
+    id: "install",
+    label: "Install a package",
+    description: "Check the verdict, then install only when it clears.",
+    outcome: "SAFE continues to your package manager. DANGEROUS stops for confirmation.",
+    command: (packageName) =>
+      `npx npmguard-cli@latest install ${packageName}`,
   },
   {
-    title: "Requests an audit when missing",
-    text: "Stripe, browser wallet, or WalletConnect starts the server-side audit and returns the verdict to the CLI.",
+    id: "audit",
+    label: "Audit without installing",
+    description: "Get a verdict without touching node_modules.",
+    outcome: "The command returns the report and leaves your project unchanged.",
+    command: (packageName) =>
+      `npx npmguard-cli@latest audit ${packageName}`,
   },
   {
-    title: "Chooses the install source",
-    text: "SAFE installs from an ENS-announced Pinata tarball when available, with npm as fallback.",
-  },
-];
-
-const COMMANDS: CommandBlockProps[] = [
-  {
-    title: "Run once with npx",
-    command: "npx npmguard-cli@latest install express",
-    note: "No global install required.",
-  },
-  {
-    title: "Install the CLI globally",
-    command: "npm install -g npmguard-cli\nnpmguard install lodash@4.17.21",
-    note: "Use npmguard like a normal package-manager command.",
-  },
-  {
-    title: "Audit without installing",
-    command: "npx npmguard-cli@latest audit react@19.2.4",
-    note: "Returns the verdict and keeps node_modules untouched.",
-  },
-  {
-    title: "Check an existing project",
-    command: "cd my-project\nnpx npmguard-cli@latest check",
-    note: "Walks package.json and checks every dependency.",
-  },
-  {
-    title: "Install from Pinata after SAFE",
-    command: "npx npmguard-cli@latest install is-buffer@2.0.5",
-    note: "Default auto mode resolves ENS/Pinata when publication exists.",
-  },
-  {
-    title: "Force a source",
-    command: "npx npmguard-cli@latest install is-buffer@2.0.5 --install-source ens\nnpx npmguard-cli@latest install is-buffer@2.0.5 --install-source npm",
-    note: "Useful for showing the ENS path or comparing against npm.",
+    id: "check",
+    label: "Check this project",
+    description: "Review every dependency already in package.json.",
+    outcome: "NpmGuard lists the audit status of each project dependency.",
+    command: () => "npx npmguard-cli@latest check",
   },
 ];
 
-function CommandBlock({ title, command, note }: CommandBlockProps) {
-  const [copied, setCopied] = useState(false);
+const FLOW_STEPS = [
+  {
+    label: "Resolve",
+    title: "Pin the exact version",
+    text: "The CLI resolves the package version and checks NpmGuard for an existing report.",
+  },
+  {
+    label: "Verify",
+    title: "Audit when needed",
+    text: "If no report exists, pay by card or wallet. The engine verifies payment and runs the audit.",
+  },
+  {
+    label: "Decide",
+    title: "Install or stop",
+    text: "SAFE proceeds from npm. DANGEROUS shows the findings and waits for your decision.",
+  },
+];
 
-  const copyCommand = async () => {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
-    } catch {
-      setCopied(false);
-    }
-  };
+const USEFUL_OPTIONS = [
+  {
+    flag: "--force",
+    description: "Install after a DANGEROUS verdict without the confirmation prompt.",
+  },
+  {
+    flag: "--api <url>",
+    description: "Point the CLI to a local or self-hosted audit engine.",
+  },
+  {
+    flag: "--path <dir>",
+    description: "Run check against a project outside the current directory.",
+  },
+  {
+    flag: "--install-source npm|auto|pinata|ens",
+    description: "Choose the package source. npm is the production default.",
+  },
+];
 
+type CopyButtonProps = {
+  copied: boolean;
+  label?: string;
+  onCopy: () => void;
+};
+
+function CopyButton({ copied, label = "Copy command", onCopy }: CopyButtonProps) {
   return (
-    <section
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: 8,
-        background: "var(--bg-secondary)",
-        overflow: "hidden",
-      }}
+    <button
+      type="button"
+      className={`cli-copy-button${copied ? " is-copied" : ""}`}
+      onClick={onCopy}
+      aria-label={copied ? "Command copied" : label}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          padding: "12px 14px",
-          borderBottom: "1px solid var(--border)",
-        }}
-      >
-        <div>
-          <h2
-            style={{
-              fontFamily: "var(--font-heading)",
-              fontSize: "0.98rem",
-              fontWeight: 700,
-              letterSpacing: 0,
-            }}
-          >
-            {title}
-          </h2>
-          {note && (
-            <p style={{ color: "var(--text-dim)", fontSize: "0.82rem", marginTop: 2 }}>
-              {note}
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={copyCommand}
-          style={{
-            border: "1px solid var(--border-strong)",
-            borderRadius: 4,
-            background: copied ? "var(--safe-bg)" : "var(--bg)",
-            color: copied ? "var(--safe)" : "var(--text)",
-            cursor: "pointer",
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.72rem",
-            padding: "5px 9px",
-            flexShrink: 0,
-          }}
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      <pre
-        style={{
-          margin: 0,
-          padding: "14px",
-          background: "var(--bg-code)",
-          color: "var(--text)",
-          fontFamily: "var(--font-mono)",
-          fontSize: "0.84rem",
-          lineHeight: 1.6,
-          overflowX: "auto",
-          whiteSpace: "pre",
-        }}
-      >
-        <code>{command}</code>
-      </pre>
-    </section>
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        {copied ? (
+          <path d="m3.2 8.3 3 3 6.6-7" />
+        ) : (
+          <>
+            <rect x="5.2" y="4.8" width="7.4" height="8" rx="1.2" />
+            <path d="M10.6 4.8V3.2H3.4v7.5h1.8" />
+          </>
+        )}
+      </svg>
+      <span>{copied ? "Copied" : "Copy"}</span>
+    </button>
   );
 }
 
 export function CliInstall() {
+  const [activeActionId, setActiveActionId] =
+    useState<CliActionId>("install");
+  const [packageName, setPackageName] = useState("express");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const activeAction =
+    CLI_ACTIONS.find((action) => action.id === activeActionId) ??
+    CLI_ACTIONS[0];
+  const normalizedPackageName = packageName.trim() || "<package>";
+  const activeCommand = activeAction.command(normalizedPackageName);
+
+  const copyCommand = async (command: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopiedId(id);
+      window.setTimeout(
+        () => setCopiedId((current) => (current === id ? null : current)),
+        1600,
+      );
+    } catch {
+      setCopiedId(null);
+    }
+  };
+
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px", minWidth: 0 }}>
-      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
-        <header
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.2fr) minmax(280px, 0.8fr)",
-            gap: 24,
-            alignItems: "end",
-            marginBottom: 26,
-          }}
-        >
-          <div>
-            <div
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "0.7rem",
-                color: "var(--text-muted)",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                marginBottom: 8,
-              }}
-            >
-              npmguard-cli
+    <div className="cli-page">
+      <div className="cli-shell">
+        <section className="cli-hero" aria-labelledby="cli-title">
+          <div className="cli-hero__copy">
+            <div className="cli-kicker">
+              <span aria-hidden="true" />
+              NpmGuard CLI
             </div>
-            <h1
-              style={{
-                fontFamily: "var(--font-heading)",
-                fontSize: "2rem",
-                fontWeight: 780,
-                letterSpacing: 0,
-                marginBottom: 10,
-              }}
-            >
-              Gate npm installs from your terminal.
+            <h1 id="cli-title">
+              Stop risky packages
+              <span> before install.</span>
             </h1>
-            <p style={{ color: "var(--text-dim)", lineHeight: 1.6, maxWidth: 700 }}>
-              The CLI checks NpmGuard before a package reaches node_modules. It
-              uses https://npmguard.com by default, supports Stripe, browser
-              wallet, and WalletConnect audit requests, installs from
-              ENS-discovered Pinata tarballs by default when available, and
-              never handles private keys.
+            <p>
+              Put a server-verified security verdict between any npm package
+              and your node_modules. Run it once with npx—no global setup and
+              no private keys in the terminal.
             </p>
-          </div>
-
-          <div
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              background: "var(--accent-bg)",
-              padding: 16,
-            }}
-          >
-            <div
-              style={{
-                color: "var(--accent-light)",
-                fontFamily: "var(--font-mono)",
-                fontSize: "0.72rem",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                marginBottom: 8,
-              }}
-            >
-              Recommended
+            <div className="cli-hero__meta" aria-label="CLI highlights">
+              <span>npm · pnpm · yarn</span>
+              <span>No global install</span>
+              <span>Wallet stays in custody</span>
             </div>
-            <pre
-              style={{
-                margin: 0,
-                color: "var(--text)",
-                fontFamily: "var(--font-mono)",
-                fontSize: "0.86rem",
-                lineHeight: 1.6,
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              <code>npx npmguard-cli@latest install express</code>
-            </pre>
+            <a className="cli-primary-link" href="#cli-quickstart">
+              Build your command
+              <span aria-hidden="true">↓</span>
+            </a>
           </div>
-        </header>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-            gap: 12,
-            marginBottom: 24,
-          }}
-        >
-          {WORKFLOW_STEPS.map((step, index) => (
-            <section
-              key={step.title}
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                background: "var(--bg-secondary)",
-                padding: 16,
-              }}
-            >
-              <div
-                style={{
-                  color: "var(--accent-light)",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "0.72rem",
-                  marginBottom: 8,
-                }}
-              >
-                {String(index + 1).padStart(2, "0")}
+          <div className="cli-terminal" aria-label="Example of a safe CLI run">
+            <div className="cli-terminal__topbar">
+              <div className="cli-terminal__dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
               </div>
-              <h2
-                style={{
-                  fontFamily: "var(--font-heading)",
-                  fontSize: "1rem",
-                  fontWeight: 700,
-                  letterSpacing: 0,
-                  marginBottom: 6,
-                }}
-              >
-                {step.title}
-              </h2>
-              <p style={{ color: "var(--text-dim)", fontSize: "0.88rem", lineHeight: 1.5 }}>
-                {step.text}
-              </p>
-            </section>
-          ))}
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-            gap: 14,
-            marginBottom: 24,
-          }}
-        >
-          {COMMANDS.map((item) => (
-            <CommandBlock key={item.title} {...item} />
-          ))}
-        </div>
-
-        <section
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            background: "var(--bg-secondary)",
-            padding: 16,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: 16,
-          }}
-        >
-          <div>
-            <h2
-              style={{
-                fontFamily: "var(--font-heading)",
-                fontSize: "1rem",
-                fontWeight: 700,
-                marginBottom: 6,
-                letterSpacing: 0,
-              }}
-            >
-              Default API
-            </h2>
-            <p style={{ color: "var(--text-dim)", lineHeight: 1.55 }}>
-              The production CLI talks to npmguard.com automatically. For local
-              development, pass <code style={{ fontFamily: "var(--font-mono)" }}>--api</code>{" "}
-              or set <code style={{ fontFamily: "var(--font-mono)" }}>NPMGUARD_API_URL</code>.
-            </p>
-          </div>
-          <div>
-            <h2
-              style={{
-                fontFamily: "var(--font-heading)",
-                fontSize: "1rem",
-                fontWeight: 700,
-                marginBottom: 6,
-                letterSpacing: 0,
-              }}
-            >
-              Install source
-            </h2>
-            <p style={{ color: "var(--text-dim)", lineHeight: 1.55 }}>
-              Set <code style={{ fontFamily: "var(--font-mono)" }}>--install-source auto|npm|pinata|ens</code>{" "}
-              or <code style={{ fontFamily: "var(--font-mono)" }}>NPMGUARD_INSTALL_SOURCE</code>.
-              Auto mode tries ENS, then Pinata, then npm fallback.
-            </p>
-          </div>
-          <div>
-            <h2
-              style={{
-                fontFamily: "var(--font-heading)",
-                fontSize: "1rem",
-                fontWeight: 700,
-                marginBottom: 6,
-                letterSpacing: 0,
-              }}
-            >
-              Wallet safety
-            </h2>
-            <p style={{ color: "var(--text-dim)", lineHeight: 1.55 }}>
-              WalletConnect signs in the user's wallet. The CLI observes the
-              transaction, while the engine verifies payment server-side before
-              running an audit.
-            </p>
+              <span>~/projects/acme</span>
+              <span className="cli-terminal__status">guard active</span>
+            </div>
+            <div className="cli-terminal__body">
+              <div className="cli-terminal__caption">A typical SAFE run</div>
+              <code className="cli-terminal__command">
+                <span aria-hidden="true">$</span> npx npmguard-cli@latest install
+                express
+              </code>
+              <div className="cli-terminal__trace">
+                <div>
+                  <span className="is-done" aria-hidden="true">✓</span>
+                  <p>
+                    <strong>Version resolved</strong>
+                    <small>express · latest</small>
+                  </p>
+                </div>
+                <div>
+                  <span className="is-done" aria-hidden="true">✓</span>
+                  <p>
+                    <strong>Report verified</strong>
+                    <small>Cached audit · certificate matched</small>
+                  </p>
+                </div>
+                <div>
+                  <span className="is-safe" aria-hidden="true">✓</span>
+                  <p>
+                    <strong>SAFE · install allowed</strong>
+                    <small>Continuing with your package manager</small>
+                  </p>
+                </div>
+              </div>
+              <div className="cli-terminal__footer">
+                <span className="cli-terminal__pulse" aria-hidden="true" />
+                Package cleared before node_modules
+              </div>
+            </div>
           </div>
         </section>
+
+        <section
+          id="cli-quickstart"
+          className="cli-quickstart"
+          aria-labelledby="cli-quickstart-title"
+        >
+          <div className="cli-section-heading">
+            <div>
+              <span className="cli-section-label">Quick start</span>
+              <h2 id="cli-quickstart-title">What do you want to do?</h2>
+            </div>
+            <p>Choose a task, customize the package, and paste the result.</p>
+          </div>
+
+          <div className="cli-command-builder">
+            <div className="cli-action-list" aria-label="CLI tasks">
+              {CLI_ACTIONS.map((action, index) => {
+                const isActive = action.id === activeAction.id;
+                return (
+                  <button
+                    key={action.id}
+                    type="button"
+                    className={`cli-action${isActive ? " is-active" : ""}`}
+                    onClick={() => setActiveActionId(action.id)}
+                    aria-pressed={isActive}
+                  >
+                    <span className="cli-action__number">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <span>
+                      <strong>{action.label}</strong>
+                      <small>{action.description}</small>
+                    </span>
+                    <span className="cli-action__arrow" aria-hidden="true">
+                      →
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="cli-command-preview">
+              <div className="cli-command-preview__header">
+                <div>
+                  <span>Selected task</span>
+                  <strong>{activeAction.label}</strong>
+                </div>
+                <CopyButton
+                  copied={copiedId === "active"}
+                  onCopy={() => void copyCommand(activeCommand, "active")}
+                />
+              </div>
+
+              {activeAction.id !== "check" && (
+                <label className="cli-package-field">
+                  <span>Package name</span>
+                  <input
+                    value={packageName}
+                    onChange={(event) => setPackageName(event.target.value)}
+                    placeholder="@scope/package@version"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoComplete="off"
+                  />
+                </label>
+              )}
+
+              <pre className="cli-command-preview__code">
+                <code>
+                  <span aria-hidden="true">$ </span>
+                  {activeCommand}
+                </code>
+              </pre>
+
+              <div className="cli-command-preview__outcome">
+                <span aria-hidden="true">↳</span>
+                <p>{activeAction.outcome}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="cli-flow" aria-labelledby="cli-flow-title">
+          <div className="cli-section-heading">
+            <div>
+              <span className="cli-section-label">After you press Enter</span>
+              <h2 id="cli-flow-title">One gate, three decisions</h2>
+            </div>
+            <p>The install only happens after the security result is known.</p>
+          </div>
+          <div className="cli-flow__steps">
+            {FLOW_STEPS.map((step, index) => (
+              <article key={step.label} className="cli-flow-step">
+                <div className="cli-flow-step__marker">
+                  <span>{index + 1}</span>
+                </div>
+                <div>
+                  <span className="cli-flow-step__label">{step.label}</span>
+                  <h3>{step.title}</h3>
+                  <p>{step.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <div className="cli-detail-grid">
+          <section className="cli-options" aria-labelledby="cli-options-title">
+            <div className="cli-section-heading cli-section-heading--compact">
+              <div>
+                <span className="cli-section-label">Reference</span>
+                <h2 id="cli-options-title">Useful options</h2>
+              </div>
+            </div>
+            <div className="cli-options__list">
+              {USEFUL_OPTIONS.map((option) => (
+                <div key={option.flag} className="cli-option">
+                  <code>{option.flag}</code>
+                  <p>{option.description}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="cli-trust" aria-labelledby="cli-trust-title">
+            <span className="cli-section-label">Trust boundary</span>
+            <h2 id="cli-trust-title">Your wallet signs. The engine verifies.</h2>
+            <p>
+              Stripe, browser wallet, and WalletConnect can request a missing
+              audit. Payment verification and the decision to run the audit
+              stay server-side.
+            </p>
+            <ul>
+              <li>
+                <span aria-hidden="true">✓</span>
+                The CLI never reads or stores a private key
+              </li>
+              <li>
+                <span aria-hidden="true">✓</span>
+                npm is the default install source after SAFE
+              </li>
+              <li>
+                <span aria-hidden="true">✓</span>
+                Certificates bind the verdict to the audited tarball
+              </li>
+            </ul>
+            <div className="cli-global-install">
+              <div>
+                <span>Prefer a global command?</span>
+                <code>npm install -g npmguard-cli</code>
+              </div>
+              <CopyButton
+                copied={copiedId === "global"}
+                label="Copy global install command"
+                onCopy={() =>
+                  void copyCommand(
+                    "npm install -g npmguard-cli",
+                    "global",
+                  )
+                }
+              />
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
