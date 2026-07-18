@@ -1,7 +1,33 @@
 import { describe, expect, it } from "vitest";
 
 import type { InvestigationResult } from "./investigate.js";
-import { generateTests } from "./test-gen.js";
+import { failedPreflightValidation, generateTests } from "./test-gen.js";
+
+describe("failedPreflightValidation", () => {
+  it("rejects a positive security assertion that observed no behavior", () => {
+    expect(
+      failedPreflightValidation([
+        "AssertionError: expected '' to contain 'NPMGUARD_CANARY'",
+      ]),
+    ).toEqual({
+      valid: false,
+      errorType: "assertion",
+      errorMessage: "AssertionError: expected '' to contain 'NPMGUARD_CANARY'",
+    });
+  });
+
+  it("classifies package loading failures as runtime errors", () => {
+    expect(
+      failedPreflightValidation([
+        "TypeError: createLogger is not a function",
+      ]),
+    ).toEqual({
+      valid: false,
+      errorType: "runtime",
+      errorMessage: "TypeError: createLogger is not a function",
+    });
+  });
+});
 
 describe("generateTests", () => {
   it("does not generate a harness test for a caller-manufactured ReDoS input", async () => {

@@ -315,6 +315,20 @@ export interface CorrelationResult {
 }
 
 /**
+ * Findings admitted for proof generation. A promoted finding is a new
+ * hypothesis discovered during investigation, so it deserves the same proof
+ * attempt as a finding matched to an existing triage hypothesis.
+ */
+export function proofCandidateFindingIndexes(
+  correlation: Pick<CorrelationResult, "matched" | "promoted">,
+): Set<number> {
+  return new Set([
+    ...correlation.matched.map((match) => match.findingIndex),
+    ...correlation.promoted.map((promotion) => promotion.findingIndex),
+  ]);
+}
+
+/**
  * After investigation: correlate findings to hypotheses. Matched hypotheses
  * transition OPEN → IN_PROGRESS with the finding as evidence. Hypotheses that
  * the investigation does not support are refuted so benign capability findings
@@ -380,8 +394,9 @@ export function correlateAfterInvestigation(
           findingIndex: i,
           capability: promoted.capability,
         });
+      } else {
+        result.unmatched.push(i);
       }
-      result.unmatched.push(i);
       console.log(
         `[correlate] finding[${i}] (${f.capability} @ ${f.fileLine}) → ${promoted ? `promoted ${promoted.hypId}` : "no match"}`,
       );

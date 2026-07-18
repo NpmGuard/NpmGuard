@@ -297,6 +297,41 @@ describe("synthesizeSummaryFallback", () => {
       }).hypotheses,
     ).toEqual([]);
   });
+
+  it("recovers a propagation hypothesis when the model summary describes an npm publish loop", () => {
+    const fallback = synthesizeSummaryFallback({
+      summary:
+        "The script rewrites package.json and loops indefinitely while repeatedly running npm publish --access public under random package names.",
+      contents: [
+        "while (true) {",
+        "  await execAsync('npm publish --access public');",
+        "}",
+      ].join("\n"),
+    });
+
+    expect(fallback.capabilities).toEqual(
+      expect.arrayContaining(["WORM_PROPAGATION"]),
+    );
+    expect(fallback.hypotheses).toHaveLength(1);
+    expect(fallback.hypotheses[0]!.claim.kind).toBe("propagation");
+  });
+
+  it("recovers a binary-drop hypothesis when the model summary describes DLL execution", () => {
+    const fallback = synthesizeSummaryFallback({
+      summary:
+        "This install script performs unexpected DLL execution through an obfuscated child_process spawn and is likely malicious.",
+      contents: [
+        "const cp = require('chi' + 'ld_process');",
+        "cp.spawn('rundll32.exe', ['crashreporter.dll']);",
+      ].join("\n"),
+    });
+
+    expect(fallback.capabilities).toEqual(
+      expect.arrayContaining(["PROCESS_SPAWN", "LIFECYCLE_HOOK"]),
+    );
+    expect(fallback.hypotheses).toHaveLength(1);
+    expect(fallback.hypotheses[0]!.claim.kind).toBe("binary_drop");
+  });
 });
 
 describe("selectTriageFiles", () => {

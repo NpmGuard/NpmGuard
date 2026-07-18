@@ -69,6 +69,13 @@ const SUMMARY_CRITICAL_PATTERNS = [
   /\b(?:steals?|harvests?|exfiltrat(?:es|ed|ing|ion))\b.*\b(?:credentials?|secrets?|tokens?|keys?|env(?:ironment)?|npm|aws|ssh|kube|docker|metadata|imds)\b/i,
   /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|cloud\s+metadata|imds)\b/i,
   /\b(?:malware|trojan|supply\s+chain\s+attack)\b/i,
+  /\bdependency[- ]confusion\s+attack\b/i,
+  /\b(?:information|data)\s+(?:theft|stealing|exfiltration)\b/i,
+  /\b(?:unauthorized|unexpected|arbitrary)\s+(?:dll|binary|code)\s+execution\b/i,
+  /\b(?:highly suspicious|clearly malicious|confirmed malicious)\b/i,
+  /\b(?:worm|self[- ]propagat|typo[- ]squatt|registry flooding)\w*\b/i,
+  /\b(?:npm|pnpm|yarn)\s+publish\b[\s\S]{0,180}\b(?:loop|repeated|indefinite|random|new package names?)\b/i,
+  /\b(?:loop|repeated|indefinite|random|new package names?)\b[\s\S]{0,180}\b(?:npm|pnpm|yarn)\s+publish\b/i,
 ];
 
 const SUMMARY_CREDENTIAL_PATTERNS = [
@@ -105,7 +112,23 @@ function summaryImpliesCriticalRisk(summary: string): boolean {
   return SUMMARY_CRITICAL_PATTERNS.some((pattern) => pattern.test(summary));
 }
 
-function inferSummaryClaim(summary: string): "cred_theft" | "env_exfil" {
+function inferSummaryClaim(
+  summary: string,
+): "cred_theft" | "env_exfil" | "binary_drop" | "propagation" {
+  if (
+    /\b(?:npm|pnpm|yarn)\s+publish\b|\b(?:worm|self[- ]propagat|typo[- ]squatt|registry flooding)\w*\b/i.test(
+      summary,
+    )
+  ) {
+    return "propagation";
+  }
+  if (
+    /\b(?:dll|binary|payload)\b[\s\S]{0,100}\b(?:exec|spawn|load|run)\w*\b|\b(?:exec|spawn|load|run)\w*\b[\s\S]{0,100}\b(?:dll|binary|payload)\b/i.test(
+      summary,
+    )
+  ) {
+    return "binary_drop";
+  }
   return SUMMARY_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(summary))
     ? "cred_theft"
     : "env_exfil";
@@ -122,6 +145,15 @@ function inferSummaryCapabilities(summary: string): string[] {
   }
   if (/\b(?:filesystem|file|\.npmrc|\.ssh|\.aws|docker|kube)\b/i.test(summary)) {
     capabilities.add("FILESYSTEM");
+  }
+  if (/\b(?:child_process|spawn|exec|dll|binary|payload)\b/i.test(summary)) {
+    capabilities.add("PROCESS_SPAWN");
+  }
+  if (/\b(?:install|postinstall|preinstall|prepare)\b/i.test(summary)) {
+    capabilities.add("LIFECYCLE_HOOK");
+  }
+  if (/\b(?:npm|pnpm|yarn)\s+publish\b|\b(?:worm|self[- ]propagat)\w*\b/i.test(summary)) {
+    capabilities.add("WORM_PROPAGATION");
   }
   return [...capabilities];
 }
@@ -200,10 +232,12 @@ export function synthesizeSummaryFallback(args: {
   }
 
   const claimKind = inferSummaryClaim(summary);
-  const behavior =
-    claimKind === "cred_theft"
-      ? "credential theft or secret harvesting"
-      : "environment or data exfiltration";
+  const behavior = {
+    cred_theft: "credential theft or secret harvesting",
+    env_exfil: "environment or data exfiltration",
+    binary_drop: "unexpected binary or payload execution",
+    propagation: "automated package publication or propagation",
+  }[claimKind];
 
   return {
     capabilities: inferSummaryCapabilities(summary),
