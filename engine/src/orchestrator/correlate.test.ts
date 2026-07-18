@@ -11,6 +11,7 @@ import {
   correlateAfterInvestigation,
   correlateAfterVerify,
   normalizeCapabilityLabel,
+  proofCandidateFindingIndexes,
 } from "./correlate.js";
 
 // ---------------------------------------------------------------------------
@@ -377,6 +378,8 @@ describe("correlateAfterInvestigation", () => {
 
     expect(result.matched).toHaveLength(0);
     expect(result.promoted).toHaveLength(1);
+    expect(result.unmatched).toHaveLength(0);
+    expect([...proofCandidateFindingIndexes(result)]).toEqual([0]);
     expect(g.get(result.promoted[0]!.hypId).state).toBe("IN_PROGRESS");
     expect(["cred_theft", "env_exfil"]).toContain(g.get(result.promoted[0]!.hypId).claim.kind);
     expect(g.get("h1").state).toBe("REFUTED");
@@ -498,6 +501,7 @@ describe("correlateAfterInvestigation", () => {
     });
 
     expect(result.promoted).toHaveLength(0);
+    expect(result.unmatched).toEqual([0]);
     expect(g.all().map((h) => h.hypId)).toEqual(["h1"]);
     expect(g.get("h1").state).toBe("REFUTED");
   });

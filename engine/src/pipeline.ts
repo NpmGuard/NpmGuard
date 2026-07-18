@@ -7,7 +7,11 @@ import { extractIntent, fallbackIntent, type PackageIntent } from "./phases/inte
 import { runTriage, type FileSummary } from "./phases/triage.js";
 import { buildGraphFromHypotheses } from "./orchestrator/build-graph.js";
 import { deriveGraphVerdict } from "./orchestrator/verdict.js";
-import { correlateAfterInvestigation, correlateAfterVerify } from "./orchestrator/correlate.js";
+import {
+  correlateAfterInvestigation,
+  correlateAfterVerify,
+  proofCandidateFindingIndexes,
+} from "./orchestrator/correlate.js";
 import { runExperiment } from "./orchestrator/experimenter.js";
 import { investigate, type InvestigationResult } from "./phases/investigate.js";
 import { generateTests } from "./phases/test-gen.js";
@@ -525,19 +529,17 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     const invCorrelation = correlateAfterInvestigation(graph, investigationResult);
     log.writeLog("correlation-investigate.json", invCorrelation);
     console.log(
-      `[pipeline] investigation→graph: ${invCorrelation.matched.length} matched, ${invCorrelation.unmatched.length} unmatched findings`,
+      `[pipeline] investigation→graph: ${invCorrelation.matched.length} matched, ${invCorrelation.promoted.length} promoted, ${invCorrelation.unmatched.length} unmatched findings`,
     );
-    const matchedFindingIndexes = new Set(
-      invCorrelation.matched.map((m) => m.findingIndex),
-    );
+    const proofFindingIndexes = proofCandidateFindingIndexes(invCorrelation);
     const proofInvestigation: InvestigationResult = {
       ...investigationResult,
       findings: investigationResult.findings.filter((_, index) =>
-        matchedFindingIndexes.has(index),
+        proofFindingIndexes.has(index),
       ),
       proofs: investigationResult.proofs.filter((proof) =>
         investigationResult.findings.some((finding, index) =>
-          matchedFindingIndexes.has(index) &&
+          proofFindingIndexes.has(index) &&
           finding.fileLine === proof.fileLine &&
           finding.capability === (proof.capability ?? ""),
         ),

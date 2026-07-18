@@ -71,7 +71,7 @@ function sleep(ms: number): Promise<void> {
 // audited package's code.
 // ---------------------------------------------------------------------------
 
-interface ValidationResult {
+export interface ValidationResult {
   valid: boolean;
   errorType: "runtime" | "assertion" | "timeout" | null;
   errorMessage: string | null;
@@ -94,6 +94,16 @@ function classifyFailureMessages(messages: string[]): "runtime" | "assertion" {
     if (joined.includes(pattern)) return "runtime";
   }
   return "assertion";
+}
+
+export function failedPreflightValidation(
+  failureMessages: string[],
+): ValidationResult {
+  return {
+    valid: false,
+    errorType: classifyFailureMessages(failureMessages),
+    errorMessage: failureMessages.join("\n").slice(0, 500),
+  };
 }
 
 async function validateTestInDocker(
@@ -203,16 +213,11 @@ async function validateTestInDocker(
       ?.filter((a) => a.status === "failed")
       ?.flatMap((a) => a.failureMessages ?? []) ?? [];
 
-    const errorType = classifyFailureMessages(allFailureMessages);
-    const errorMessage = allFailureMessages.join("\n").slice(0, 500);
-
-    if (errorType === "assertion") {
-      // Test is structurally correct, just doesn't observe the malicious
-      // behavior in the sandbox (often expected with --network=none and
-      // sandbox-detection). Keep the test; Docker verify gets the final say.
-      return { valid: true, errorType: "assertion", errorMessage };
-    }
-    return { valid: false, errorType: "runtime", errorMessage };
+    // A security proof that does not observe its claimed behavior is not a
+    // usable reproducer. Feed assertion failures back to test-gen just like
+    // runtime failures so it can repair the trigger, entrypoint, or assertion
+    // before the expensive verification phase.
+    return failedPreflightValidation(allFailureMessages);
   } finally {
     try { rmSync(workDir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
@@ -247,7 +252,7 @@ async function generateTestDirect(
     // Build prompt — on retry, append the error from the previous attempt
     let userPrompt = buildTestGenUserPrompt(finding, packageName, packageSource, example);
     if (lastError && attempt > 0) {
-      userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${MAX_RETRIES})\nYour generated test had a runtime error:\n\`\`\`\n${lastError}\n\`\`\`\nFix the error and regenerate. Common fixes:\n- If "X is not a function": inspect the source exports. For \`exports.default = ...\`, use \`const loaded = await runPackage(...); const api = loaded?.default ?? loaded;\`\n- For named exports, use \`loaded.name ?? loaded.default?.name\` when transpilation may wrap them\n- Never assume the object returned by runPackage() is directly callable unless the source uses \`module.exports = function ...\`\n- If "Cannot find module": check the entry point path`;
+      userPrompt += `\n\n## Previous Attempt Failed (attempt ${attempt}/${MAX_RETRIES})\nYour generated test failed validation:\n\`\`\`\n${lastError}\n\`\`\`\nFix the error and regenerate. Common fixes:\n- If the security assertion observed nothing, verify the exact lifecycle/runtime entrypoint and trigger the package behavior before asserting\n- Keep the positive security assertion; do not weaken it merely to make the test pass\n- If "X is not a function": inspect the source exports. For \`exports.default = ...\`, use \`const loaded = await runPackage(...); const api = loaded?.default ?? loaded;\`\n- For named exports, use \`loaded.name ?? loaded.default?.name\` when transpilation may wrap them\n- Never assume the object returned by runPackage() is directly callable unless the source uses \`module.exports = function ...\`\n- If "Cannot find module": check the entry point path and package dependencies`;
     }
 
     try {
@@ -288,11 +293,7 @@ async function generateTestDirect(
       const validation = await validateTestInDocker(code, packagePath);
 
       if (validation.valid) {
-        if (validation.errorType === "assertion") {
-          console.log(`[test-gen] attempt ${attempt + 1}: VALID (assertion mismatch — structurally correct, kept)`);
-        } else {
-          console.log(`[test-gen] attempt ${attempt + 1}: VALID (passed in preflight)`);
-        }
+        console.log(`[test-gen] attempt ${attempt + 1}: VALID (passed in preflight)`);
         return code;
       }
 
