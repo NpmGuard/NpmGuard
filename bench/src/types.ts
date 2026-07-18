@@ -203,6 +203,12 @@ export const SingleAuditResult = z.object({
   /** Wall-clock duration, milliseconds. */
   durationMs: z.number(),
   verdict: VerdictEnum.nullable(),
+  /** Evidence-driven four-state classification returned by the report API.
+   *  Optional for compatibility with historical benchmark artifacts. */
+  classification: z
+    .enum(["SAFE", "SUSPECT", "DANGEROUS", "UNKNOWN"])
+    .nullable()
+    .optional(),
   capabilities: z.array(CapabilityEnum).default([]),
   /** Just the proof kinds + capabilities we actually need for analysis —
    *  the full Proof[] is archived separately under reports/. */
