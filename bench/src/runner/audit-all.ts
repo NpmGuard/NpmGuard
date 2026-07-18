@@ -34,6 +34,7 @@ const RESULTS_DIR = join(BENCH_ROOT, "results");
 
 interface CliArgs {
   api: string;
+  manifest: string;
   runs: number;
   limit: number | null;
   out: string;
@@ -56,6 +57,7 @@ function parseCli(): CliArgs {
     args: process.argv.slice(2),
     options: {
       api: { type: "string", default: "http://localhost:8000" },
+      manifest: { type: "string", default: MANIFEST_IN },
       runs: { type: "string", default: "3" },
       limit: { type: "string" },
       out: { type: "string" },
@@ -69,6 +71,7 @@ function parseCli(): CliArgs {
   const concurrency = parseInt(values.concurrency as string, 10);
   return {
     api: values.api as string,
+    manifest: resolve(values.manifest as string),
     runs: parseInt(values.runs as string, 10),
     limit: values.limit ? parseInt(values.limit as string, 10) : null,
     out: (values.out as string) || defaultOutPath(),
@@ -88,13 +91,13 @@ function defaultOutPath(): string {
 // Engine + dataset metadata
 // ---------------------------------------------------------------------------
 
-function readManifest(): Manifest {
-  if (!existsSync(MANIFEST_IN)) {
+function readManifest(manifestPath: string): Manifest {
+  if (!existsSync(manifestPath)) {
     throw new Error(
-      `manifest.json not found. Run \`npm run -w @npmguard/bench datadog:select && datadog:fetch && datadog:manifest\` first.`,
+      `manifest not found at ${manifestPath}. Run \`npm run -w @npmguard/bench datadog:select && datadog:fetch && datadog:manifest\` first.`,
     );
   }
-  return JSON.parse(readFileSync(MANIFEST_IN, "utf-8")) as Manifest;
+  return JSON.parse(readFileSync(manifestPath, "utf-8")) as Manifest;
 }
 
 function readEngineSha(): string {
@@ -177,7 +180,7 @@ const POLL_INTERVAL_MS = 10_000;
 async function fetchReportOnce(
   args: CliArgs,
   entry: ManifestEntry,
-): Promise<AuditReportShape | null> {
+): Promise<ReportEnvelope | null> {
   const packageName = auditPackageName(entry);
   const version = auditPackageVersion(entry);
   const versionQuery = version ? `?version=${encodeURIComponent(version)}` : "";
@@ -191,13 +194,23 @@ async function fetchReportOnce(
     return null;
   }
   if (!resp.ok) return null;
-  let body: { report?: AuditReportShape };
+  let body: {
+    report?: AuditReportShape;
+    assessment?: { classification?: AuditClassification };
+  };
   try {
-    body = (await resp.json()) as { report?: AuditReportShape };
+    body = (await resp.json()) as {
+      report?: AuditReportShape;
+      assessment?: { classification?: AuditClassification };
+    };
   } catch {
     return null;
   }
-  return body.report ?? null;
+  if (!body.report) return null;
+  return {
+    report: body.report,
+    classification: body.assessment?.classification ?? null,
+  };
 }
 
 /** Last-resort: read the report from disk. Useful when the engine wrote
@@ -235,9 +248,13 @@ async function pollForReport(
   const deadline = start + args.timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    const report = await fetchReportOnce(args, entry);
-    if (report) {
-      return reportToResult(report, Date.now() - start);
+    const envelope = await fetchReportOnce(args, entry);
+    if (envelope) {
+      return reportToResult(
+        envelope.report,
+        Date.now() - start,
+        envelope.classification,
+      );
     }
   }
   // Final fallback: read from disk. Catches the case where the engine
@@ -252,6 +269,7 @@ async function pollForReport(
   return {
     durationMs: Date.now() - start,
     verdict: null,
+    classification: null,
     capabilities: [],
     proofKinds: [],
     verifiedCapabilities: [],
@@ -268,6 +286,7 @@ function isPollingTimeout(result: SingleAuditResult): boolean {
 function reportToResult(
   report: AuditReportShape,
   durationMs: number,
+  classification: AuditClassification | null = null,
 ): SingleAuditResult {
   const proofs = report.proofs ?? [];
   const proofKinds = proofs
@@ -278,7 +297,16 @@ function reportToResult(
     .map((p) => p.capability as string);
   return {
     durationMs,
-    verdict: report.verdict,
+    // Existing benchmark metrics are two-state. Only a canonical DANGEROUS
+    // counts as dangerous; SUSPECT remains visible in `classification` but
+    // does not inflate confirmed detection recall.
+    verdict:
+      classification === null
+        ? report.verdict
+        : classification === "DANGEROUS"
+          ? "DANGEROUS"
+          : "SAFE",
+    classification,
     capabilities: (report.capabilities ?? []) as SingleAuditResult["capabilities"],
     proofKinds: proofKinds as SingleAuditResult["proofKinds"],
     verifiedCapabilities: verifiedCapabilities as SingleAuditResult["verifiedCapabilities"],
@@ -299,6 +327,13 @@ interface AuditReportShape {
   triage?: unknown;
   findings?: unknown[];
   trace?: Array<{ phase: string; durationMs: number }>;
+}
+
+type AuditClassification = "SAFE" | "SUSPECT" | "DANGEROUS" | "UNKNOWN";
+
+interface ReportEnvelope {
+  report: AuditReportShape;
+  classification: AuditClassification | null;
 }
 
 async function runSingleAudit(
@@ -333,6 +368,7 @@ async function runSingleAudit(
     return {
       durationMs: Date.now() - start,
       verdict: null,
+      classification: null,
       capabilities: [],
       proofKinds: [],
       verifiedCapabilities: [],
@@ -354,6 +390,7 @@ async function runSingleAudit(
     return {
       durationMs,
       verdict: null,
+      classification: null,
       capabilities: [],
       proofKinds: [],
       verifiedCapabilities: [],
@@ -370,6 +407,7 @@ async function runSingleAudit(
     return {
       durationMs,
       verdict: null,
+      classification: null,
       capabilities: [],
       proofKinds: [],
       verifiedCapabilities: [],
@@ -416,13 +454,13 @@ function archiveAudit(
 async function main(): Promise<void> {
   const args = parseCli();
   console.log(
-    `[runner] config: api=${args.api} runs=${args.runs} limit=${args.limit ?? "all"} concurrency=${args.concurrency} out=${args.out}`,
+    `[runner] config: api=${args.api} manifest=${args.manifest} runs=${args.runs} limit=${args.limit ?? "all"} concurrency=${args.concurrency} out=${args.out}`,
   );
 
   await checkEngineHealth(args.api);
   console.log(`[runner] engine reachable`);
 
-  const manifest = readManifest();
+  const manifest = readManifest(args.manifest);
   const engineSha = readEngineSha();
   const version = await fetchEngineVersion(args.api);
   console.log(`[runner] engine sha=${engineSha.slice(0, 12)} model=${version.modelId} dataset=${manifest.datasetVersion}`);
