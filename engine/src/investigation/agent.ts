@@ -2,13 +2,26 @@ import { generateText, generateObject, tool, stepCountIs } from "ai";
 import { z } from "zod";
 import { config } from "../config.js";
 import { getModel } from "../llm.js";
-import { InvestigationOutput, type InvestigationAgentOutput, type InvestigationInput, type ToolCallRecord } from "../models.js";
+import type { InvestigationAgentOutput, InvestigationInput, ToolCallRecord } from "../models.js";
 import type { AuditLogger } from "../audit-log.js";
 import { SYSTEM_PROMPT, buildUserPrompt } from "./prompt.js";
 import { readFileImpl, listFilesImpl, searchFilesImpl, searchInFileImpl } from "./tools-read.js";
 import { evalJsImpl, requireAndTraceImpl, runLifecycleHookImpl, fastForwardTimersImpl } from "./tools-execute.js";
 import type { DockerSandboxController } from "../sandbox/controller.js";
 import type { EmitFn } from "../events.js";
+import { repairInvestigationExtraction } from "./extraction.js";
+
+const StructuredInvestigationOutput = z.object({
+  findings: z.array(z.object({
+    capability: z.string().min(1),
+    confidence: z.enum(["CONFIRMED", "LIKELY", "SUSPECTED"]),
+    fileLine: z.string().min(1),
+    problem: z.string().min(1),
+    evidence: z.string().min(1),
+    reproductionStrategy: z.string().min(1),
+  })),
+  summary: z.string(),
+});
 
 export async function runInvestigationAgent(
   input: InvestigationInput,
@@ -193,6 +206,16 @@ export async function runInvestigationAgent(
     "Only include suspicious or malicious behaviors as findings. " +
     "Do not include absence-of-risk, benign explanations, legitimate feature use, type-only files, or performance-only observations as findings; put those in the summary. " +
     "If no suspicious behavior remains, return findings: [].\n\n" +
+    "For every finding, all six fields are required:\n" +
+    "- capability: exactly one canonical capability label, never a comma-separated list\n" +
+    "- confidence: preserve the investigation's CONFIRMED, LIKELY, or SUSPECTED value\n" +
+    "- fileLine: the concrete file and line or byte-offset range\n" +
+    "- problem: a concise description of the suspicious source-to-impact behavior\n" +
+    "- evidence: exact source snippets or runtime trace observations that support the problem\n" +
+    "- reproductionStrategy: a separate, safe way to verify the behavior\n\n" +
+    "Never leave problem, evidence, or reproductionStrategy empty. " +
+    "Do not copy reproduction instructions into evidence. " +
+    "A benchmark marker or dataset label is context, not security evidence.\n\n" +
     `Investigation result:\n${result.text}${toolContext}`;
   console.log(`[agent] extraction prompt: ${extractionPrompt.length} chars (${toolCallLog.length} tool calls included)`);
 
@@ -204,10 +227,10 @@ export async function runInvestigationAgent(
   // timeout fired eventually but bench polling gave up first.
   const EXTRACTION_TIMEOUT_MS = 90_000;
   const extractionTimer: { id: ReturnType<typeof setTimeout> | undefined } = { id: undefined };
-  const extraction = await Promise.race([
+  const rawExtraction = await Promise.race([
     generateObject({
       model,
-      schema: InvestigationOutput,
+      schema: StructuredInvestigationOutput,
       prompt: extractionPrompt,
     }),
     new Promise<never>((_, reject) => {
@@ -219,19 +242,20 @@ export async function runInvestigationAgent(
   ]).finally(() => {
     if (extractionTimer.id) clearTimeout(extractionTimer.id);
   }).catch((err) => {
-    console.warn(`[agent] extraction failed: ${err instanceof Error ? err.message : String(err)} — returning empty findings`);
-    return { object: { findings: [], summary: "" } };
+    console.warn(`[agent] extraction failed: ${err instanceof Error ? err.message : String(err)} — recovering grounded fields from agent response`);
+    return null;
   });
+  const extraction = repairInvestigationExtraction(rawExtraction?.object ?? null, result.text);
 
-  console.log(`[agent] extraction complete — ${extraction.object.findings.length} findings`);
-  for (const f of extraction.object.findings) {
+  console.log(`[agent] extraction complete — ${extraction.findings.length} findings`);
+  for (const f of extraction.findings) {
     console.log(`[agent]   [${f.confidence}] ${f.capability} @ ${f.fileLine}: ${f.problem.slice(0, 120)}`);
   }
 
-  log?.writeLog("extraction_result.json", extraction.object);
+  log?.writeLog("extraction_result.json", extraction);
 
   return {
-    ...extraction.object,
+    ...extraction,
     toolCalls: toolCallRecords,
     agentText: result.text,
   };

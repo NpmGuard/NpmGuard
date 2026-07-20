@@ -153,15 +153,13 @@ export function buildAgentTextFallbackFinding(
 export function normalizeInvestigationFinding(
   finding: Finding,
   summary: string,
-  agentText: string,
+  _agentText: string,
   hypotheses: readonly Hypothesis[],
 ): Finding {
   const context = [
     finding.problem,
     finding.evidence,
     finding.reproductionStrategy,
-    summary,
-    agentText,
   ].join("\n");
   const capability = normalizeCapabilityLabel(finding.capability, context);
   if (!capability) return finding;
@@ -321,7 +319,7 @@ export async function investigate(
       // verdict logic ignores otherwise-valid TEST_CONFIRMED proofs.
       const cap = normalizeCapabilityLabel(
         finding.capability,
-        `${finding.problem} ${finding.evidence} ${finding.reproductionStrategy} ${output.summary} ${output.agentText}`,
+        `${finding.problem} ${finding.evidence} ${finding.reproductionStrategy}`,
       ) as CapabilityEnum | null;
       if (cap && cap !== finding.capability) {
         console.log(`[investigate] normalized "${finding.capability}" → ${cap}`);

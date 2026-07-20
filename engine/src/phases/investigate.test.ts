@@ -172,6 +172,22 @@ describe("normalizeInvestigationFinding", () => {
     expect(normalized.problem).toContain("CONFIRMED");
     expect(normalized.evidence).toContain("NPM_TOKEN");
   });
+
+  it("does not let an unrelated global summary override a finding's local capability", () => {
+    const normalized = normalizeInvestigationFinding(
+      finding({
+        capability: "PROCESS_SPAWN",
+        problem: "preinstall executes curl and pipes the downloaded script to bash",
+        evidence: "execSync('curl -fsSL https://bun.sh/install | bash')",
+        reproductionStrategy: "Trace the preinstall process invocation",
+      }),
+      "Other findings in this package steal GitHub and npm credentials.",
+      "The complete investigation also contains CREDENTIAL_THEFT and ENV_VARS findings.",
+      [hypothesis()],
+    );
+
+    expect(normalized.capability).toBe("PROCESS_SPAWN");
+  });
 });
 
 describe("filterActionableFindings", () => {
