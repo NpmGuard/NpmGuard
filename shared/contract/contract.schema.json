@@ -1,0 +1,2545 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "GENERATED from shared Zod schemas. Do not edit.",
+  "$defs": {
+    "AgentReasoningEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "agent_reasoning"
+        },
+        "text": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "text",
+        "step"
+      ],
+      "title": "AgentReasoningEvent"
+    },
+    "AgentThinkingEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "agent_thinking"
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "step"
+      ],
+      "title": "AgentThinkingEvent"
+    },
+    "AgentToolCallEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "agent_tool_call"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "step": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "tool",
+        "args",
+        "step"
+      ],
+      "title": "AgentToolCallEvent"
+    },
+    "AgentToolResultEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "agent_tool_result"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "resultPreview": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "injectionDetected": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "tool",
+        "resultPreview",
+        "step",
+        "injectionDetected"
+      ],
+      "title": "AgentToolResultEvent"
+    },
+    "AttackPathway": {
+      "type": "string",
+      "enum": [
+        "DEP_INJECT_ENCRYPTED",
+        "LIFECYCLE_BINARY_DROP",
+        "MAINTAINER_SABOTAGE",
+        "GEO_GATED_WIPER",
+        "WORM_PROPAGATION",
+        "ACCOUNT_TAKEOVER_CRYPTO",
+        "CDN_DOM_DRAINER",
+        "MULTI_STAGE_DNS",
+        "TELEMETRY_RAT",
+        "BUILD_PLUGIN_EXFIL"
+      ],
+      "title": "AttackPathway"
+    },
+    "AuditErrorEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "audit_error"
+        },
+        "error": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type"
+      ],
+      "title": "AuditErrorEvent"
+    },
+    "AuditEvent": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuditStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/PhaseStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/PhaseCompletedEvent"
+        },
+        {
+          "$ref": "#/$defs/FileListEvent"
+        },
+        {
+          "$ref": "#/$defs/FileAnalyzingEvent"
+        },
+        {
+          "$ref": "#/$defs/FileVerdictEvent"
+        },
+        {
+          "$ref": "#/$defs/TriageCompleteEvent"
+        },
+        {
+          "$ref": "#/$defs/TriageProgressEvent"
+        },
+        {
+          "$ref": "#/$defs/AgentToolCallEvent"
+        },
+        {
+          "$ref": "#/$defs/AgentToolResultEvent"
+        },
+        {
+          "$ref": "#/$defs/AgentReasoningEvent"
+        },
+        {
+          "$ref": "#/$defs/AgentThinkingEvent"
+        },
+        {
+          "$ref": "#/$defs/FindingDiscoveredEvent"
+        },
+        {
+          "$ref": "#/$defs/HypothesisEmittedEvent"
+        },
+        {
+          "$ref": "#/$defs/HypothesisResolvedEvent"
+        },
+        {
+          "$ref": "#/$defs/VerdictReachedEvent"
+        },
+        {
+          "$ref": "#/$defs/InventoryMetaEvent"
+        },
+        {
+          "$ref": "#/$defs/VerifyStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/VerifyTestResultEvent"
+        },
+        {
+          "$ref": "#/$defs/AuditErrorEvent"
+        }
+      ],
+      "title": "AuditEvent"
+    },
+    "AuditReport": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 2,
+          "default": 2
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "rationale": {
+          "type": "string",
+          "default": ""
+        },
+        "counts": {
+          "$ref": "#/$defs/HypothesisCounts"
+        },
+        "confirmedHypIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "hypotheses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Hypothesis"
+          },
+          "default": []
+        },
+        "fileSummaries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FileSummary"
+          },
+          "default": []
+        },
+        "dealbreaker": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DealBreaker"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trace": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PhaseLog"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "verdict",
+        "counts"
+      ],
+      "title": "AuditReport"
+    },
+    "AuditStartedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "audit_started"
+        },
+        "packageName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "packageName"
+      ],
+      "title": "AuditStartedEvent"
+    },
+    "BaseAuditEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq"
+      ],
+      "title": "BaseAuditEvent"
+    },
+    "Budget": {
+      "type": "object",
+      "properties": {
+        "wallMs": {
+          "type": "number",
+          "exclusiveMinimum": true,
+          "minimum": 0
+        },
+        "maxSyscalls": {
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": true,
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "maxBytesCapture": {
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": true,
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "wallMs"
+      ],
+      "title": "Budget"
+    },
+    "Capability": {
+      "type": "string",
+      "enum": [
+        "NETWORK",
+        "DATA_EXFILTRATION",
+        "DNS_EXFIL",
+        "DOM_INJECT",
+        "FILESYSTEM",
+        "BINARY_DOWNLOAD",
+        "PROCESS_SPAWN",
+        "ENV_VARS",
+        "CREDENTIAL_THEFT",
+        "EVAL",
+        "OBFUSCATION",
+        "ENCRYPTED_PAYLOAD",
+        "DOS_LOOP",
+        "ANTI_AI_PROMPT",
+        "GEO_GATING",
+        "LIFECYCLE_HOOK",
+        "WORM_PROPAGATION",
+        "CLIPBOARD_HIJACK",
+        "TELEMETRY_RAT",
+        "BUILD_PLUGIN_EXFIL",
+        "NPM_TOKEN_ABUSE"
+      ],
+      "title": "Capability"
+    },
+    "ClaimKind": {
+      "type": "string",
+      "enum": [
+        "env_exfil",
+        "cred_theft",
+        "binary_drop",
+        "obfuscation",
+        "persistence",
+        "destructive",
+        "propagation",
+        "dos_loop",
+        "clipboard_hijack",
+        "dom_inject",
+        "telemetry",
+        "dns_exfil",
+        "build_plugin_exfil"
+      ],
+      "title": "ClaimKind"
+    },
+    "Claim": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ClaimKind"
+        },
+        "gating": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GatingModifier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Claim"
+    },
+    "Confidence": {
+      "type": "string",
+      "enum": [
+        "SUSPECTED",
+        "LIKELY",
+        "CONFIRMED"
+      ],
+      "title": "Confidence"
+    },
+    "CorrelationConfidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "low",
+        "none"
+      ],
+      "title": "CorrelationConfidence"
+    },
+    "CryptoOp": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "algo": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "algo"
+      ],
+      "title": "CryptoOp"
+    },
+    "DealBreaker": {
+      "type": "object",
+      "properties": {
+        "check": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "detail"
+      ],
+      "title": "DealBreaker"
+    },
+    "EntryPoints": {
+      "type": "object",
+      "properties": {
+        "install": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runtime": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bin": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "install",
+        "runtime",
+        "bin"
+      ],
+      "title": "EntryPoints"
+    },
+    "EvalCall": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "EvalCall"
+    },
+    "EventKind": {
+      "type": "string",
+      "enum": [
+        "openat",
+        "read",
+        "write",
+        "connect",
+        "sendto",
+        "execve",
+        "clone",
+        "unlink",
+        "rename",
+        "link",
+        "dns_query",
+        "http_request",
+        "tls_sni",
+        "tcp_syn",
+        "file_created",
+        "file_modified",
+        "file_deleted",
+        "require",
+        "env_access",
+        "fs_op",
+        "network",
+        "process",
+        "eval",
+        "crypto",
+        "timer",
+        "script_parsed",
+        "debugger_paused",
+        "truncated",
+        "setup_bypass",
+        "error"
+      ],
+      "title": "EventKind"
+    },
+    "EventSummary": {
+      "type": "object",
+      "properties": {
+        "uniqueHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "uniqueSyscalls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "filesWritten": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "dnsQueries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "title": "EventSummary"
+    },
+    "EvidenceEvent": {
+      "type": "object",
+      "properties": {
+        "stream": {
+          "$ref": "#/$defs/StreamKind"
+        },
+        "timestamp": {
+          "type": "number",
+          "minimum": 0
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/EventKind"
+        },
+        "raw": {},
+        "normalized": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "derived": {
+          "type": "object",
+          "properties": {
+            "jsFrame": {
+              "type": "string"
+            },
+            "module": {
+              "type": "string"
+            },
+            "callStack": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            },
+            "confidence": {
+              "$ref": "#/$defs/CorrelationConfidence",
+              "default": "none"
+            }
+          }
+        }
+      },
+      "required": [
+        "stream",
+        "timestamp",
+        "pid",
+        "kind"
+      ],
+      "title": "EvidenceEvent"
+    },
+    "EvidenceRefKind": {
+      "type": "string",
+      "enum": [
+        "run",
+        "static",
+        "diff"
+      ],
+      "title": "EvidenceRefKind"
+    },
+    "EvidenceRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/EvidenceRefKind"
+        },
+        "id": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "hash"
+      ],
+      "title": "EvidenceRef"
+    },
+    "FileAnalyzingEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "file_analyzing"
+        },
+        "file": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "file"
+      ],
+      "title": "FileAnalyzingEvent"
+    },
+    "FileListEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "file_list"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FileRecord"
+          }
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "files"
+      ],
+      "title": "FileListEvent"
+    },
+    "FilePatchRef": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "patchHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "patchHash"
+      ],
+      "title": "FilePatchRef"
+    },
+    "FileRecord": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "fileType": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "type": "number"
+        },
+        "permissions": {
+          "type": "string"
+        },
+        "isBinary": {
+          "type": "boolean"
+        },
+        "binaryType": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "path",
+        "fileType",
+        "sizeBytes",
+        "permissions",
+        "isBinary"
+      ],
+      "title": "FileRecord"
+    },
+    "FileSummary": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string",
+          "default": ""
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "title": "FileSummary"
+    },
+    "FileVerdictEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "file_verdict"
+        },
+        "verdict": {
+          "$ref": "#/$defs/FileVerdict"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "verdict"
+      ],
+      "title": "FileVerdictEvent"
+    },
+    "FileVerdict": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "suspiciousPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "suspiciousLines": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "riskContribution": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      },
+      "required": [
+        "file",
+        "summary",
+        "riskContribution"
+      ],
+      "title": "FileVerdict"
+    },
+    "FindingDiscoveredEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "finding_discovered"
+        },
+        "finding": {
+          "$ref": "#/$defs/Finding"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "finding"
+      ],
+      "title": "FindingDiscoveredEvent"
+    },
+    "Finding": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "type": "string",
+          "default": "UNKNOWN",
+          "description": "CapabilityEnum value, e.g. 'NETWORK'"
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence",
+          "default": "SUSPECTED"
+        },
+        "fileLine": {
+          "type": "string",
+          "default": "",
+          "description": "e.g. 'lib/index.js:42-67'"
+        },
+        "problem": {
+          "type": "string",
+          "default": "",
+          "description": "Human-readable description of the threat"
+        },
+        "evidence": {
+          "type": "string",
+          "default": "",
+          "description": "Concrete data or observation"
+        },
+        "reproductionStrategy": {
+          "type": "string",
+          "default": "",
+          "description": "How to prove this in a reproducible test"
+        }
+      },
+      "title": "Finding"
+    },
+    "FocusArea": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "reason"
+      ],
+      "title": "FocusArea"
+    },
+    "FocusRange": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "range": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "range"
+      ],
+      "title": "FocusRange"
+    },
+    "FsOperation": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "preview": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "title": "FsOperation"
+    },
+    "GatingModifier": {
+      "type": "string",
+      "enum": [
+        "time_gate",
+        "geo_gate",
+        "ci_gate",
+        "inspector_gate",
+        "docker_gate"
+      ],
+      "title": "GatingModifier"
+    },
+    "HypothesisCounts": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "open": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inProgress": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confirmed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refuted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deferred": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "total",
+        "open",
+        "inProgress",
+        "confirmed",
+        "refuted",
+        "deferred"
+      ],
+      "title": "HypothesisCounts"
+    },
+    "HypothesisEmittedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "hypothesis_emitted"
+        },
+        "hypId": {
+          "type": "string"
+        },
+        "claim": {
+          "$ref": "#/$defs/ClaimKind"
+        },
+        "severity": {
+          "$ref": "#/$defs/HypothesisSeverity"
+        },
+        "file": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "hypId",
+        "claim",
+        "severity",
+        "file"
+      ],
+      "title": "HypothesisEmittedEvent"
+    },
+    "HypothesisGraphSnapshot": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "auditId": {
+          "type": "string"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Hypothesis"
+          }
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "auditId",
+        "nodes",
+        "createdAt",
+        "updatedAt"
+      ],
+      "title": "HypothesisGraphSnapshot"
+    },
+    "HypothesisResolution": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "by"
+      ],
+      "title": "HypothesisResolution"
+    },
+    "HypothesisResolvedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "hypothesis_resolved"
+        },
+        "hypId": {
+          "type": "string"
+        },
+        "claim": {
+          "$ref": "#/$defs/ClaimKind"
+        },
+        "severity": {
+          "$ref": "#/$defs/HypothesisSeverity"
+        },
+        "state": {
+          "$ref": "#/$defs/HypothesisState"
+        },
+        "by": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "hypId",
+        "claim",
+        "severity",
+        "state",
+        "by",
+        "reason"
+      ],
+      "title": "HypothesisResolvedEvent"
+    },
+    "Hypothesis": {
+      "type": "object",
+      "properties": {
+        "hypId": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "claim": {
+          "$ref": "#/$defs/Claim"
+        },
+        "focusFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "focusLines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FocusRange"
+          },
+          "default": []
+        },
+        "experiment": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolCall"
+          },
+          "default": []
+        },
+        "severity": {
+          "$ref": "#/$defs/HypothesisSeverity",
+          "default": "medium"
+        },
+        "parentHypId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "childHypIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "state": {
+          "$ref": "#/$defs/HypothesisState"
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "default": []
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "resolvedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "resolution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HypothesisResolution"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "hypId",
+        "description",
+        "claim",
+        "state",
+        "createdBy",
+        "createdAt"
+      ],
+      "title": "Hypothesis"
+    },
+    "HypothesisSeverity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "HypothesisSeverity"
+    },
+    "HypothesisState": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "IN_PROGRESS",
+        "CONFIRMED",
+        "REFUTED",
+        "DEFERRED"
+      ],
+      "title": "HypothesisState"
+    },
+    "InstrumentationLog": {
+      "type": "object",
+      "properties": {
+        "modulesLoaded": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "networkCalls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NetworkCall"
+          },
+          "default": []
+        },
+        "fsOperations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FsOperation"
+          },
+          "default": []
+        },
+        "envAccess": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "processSpawns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProcessSpawn"
+          },
+          "default": []
+        },
+        "evalCalls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvalCall"
+          },
+          "default": []
+        },
+        "cryptoOps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CryptoOp"
+          },
+          "default": []
+        },
+        "timers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TimerRecord"
+          },
+          "default": []
+        }
+      },
+      "title": "InstrumentationLog"
+    },
+    "InventoryFlag": {
+      "type": "object",
+      "properties": {
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "check": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "severity",
+        "check",
+        "detail"
+      ],
+      "title": "InventoryFlag"
+    },
+    "InventoryMetaEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "inventory_meta"
+        },
+        "scripts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "entryPoints": {
+          "type": "object",
+          "properties": {
+            "install": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "runtime": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "bin": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "install",
+            "runtime",
+            "bin"
+          ]
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "license": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "version",
+            "description",
+            "license"
+          ]
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "scripts",
+        "dependencies",
+        "entryPoints",
+        "metadata"
+      ],
+      "title": "InventoryMetaEvent"
+    },
+    "InventoryReport": {
+      "type": "object",
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/PackageMetadata"
+        },
+        "scripts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "entryPoints": {
+          "$ref": "#/$defs/EntryPoints"
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FileRecord"
+          }
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InventoryFlag"
+          }
+        },
+        "dealbreaker": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DealBreaker"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "metadata",
+        "scripts",
+        "entryPoints",
+        "dependencies",
+        "files",
+        "flags"
+      ],
+      "title": "InventoryReport"
+    },
+    "LifecycleHook": {
+      "type": "string",
+      "enum": [
+        "preinstall",
+        "install",
+        "postinstall",
+        "prepare"
+      ],
+      "title": "LifecycleHook"
+    },
+    "NetworkCall": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "bodyPreview": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "method",
+        "url"
+      ],
+      "title": "NetworkCall"
+    },
+    "ObserveFlags": {
+      "type": "object",
+      "properties": {
+        "kernel": {
+          "type": "boolean"
+        },
+        "network": {
+          "type": "boolean"
+        },
+        "fsDiff": {
+          "type": "boolean"
+        },
+        "node": {
+          "type": "boolean"
+        },
+        "inspector": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "kernel",
+        "network",
+        "fsDiff",
+        "node"
+      ],
+      "title": "ObserveFlags"
+    },
+    "PackageMetadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "license": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "homepage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "repository": {
+          "default": null
+        }
+      },
+      "title": "PackageMetadata"
+    },
+    "PhaseCompletedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "phase_completed"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "durationMs": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "phase",
+        "durationMs"
+      ],
+      "title": "PhaseCompletedEvent"
+    },
+    "PhaseLog": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "durationMs": {
+          "type": "number"
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        }
+      },
+      "required": [
+        "phase",
+        "durationMs"
+      ],
+      "title": "PhaseLog"
+    },
+    "PhaseStartedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "phase_started"
+        },
+        "phase": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "phase"
+      ],
+      "title": "PhaseStartedEvent"
+    },
+    "PlantedFileRef": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "contentHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "contentHash"
+      ],
+      "title": "PlantedFileRef"
+    },
+    "ProcessSpawn": {
+      "type": "object",
+      "properties": {
+        "cmd": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "cmd"
+      ],
+      "title": "ProcessSpawn"
+    },
+    "ProofKind": {
+      "type": "string",
+      "enum": [
+        "STRUCTURAL",
+        "AI_STATIC",
+        "AI_DYNAMIC",
+        "TEST_CONFIRMED",
+        "TEST_UNCONFIRMED"
+      ],
+      "title": "ProofKind"
+    },
+    "Proof": {
+      "type": "object",
+      "properties": {
+        "capability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Capability"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "attackPathway": {
+          "type": "string",
+          "default": ""
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence",
+          "default": "SUSPECTED"
+        },
+        "fileLine": {
+          "type": "string"
+        },
+        "problem": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProofKind",
+          "default": "STRUCTURAL"
+        },
+        "contentHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "reproducible": {
+          "type": "boolean",
+          "default": false
+        },
+        "reproductionCmd": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "testFile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "testHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "testCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "verifyError": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "reasoningHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "teeAttestationId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "fileLine",
+        "problem",
+        "evidence"
+      ],
+      "title": "Proof"
+    },
+    "ResolvedPackage": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "needsCleanup": {
+          "type": "boolean",
+          "default": false
+        },
+        "tmpdir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ResolvedPackage"
+    },
+    "RunArtifact": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "triggerUsed": {
+          "$ref": "#/$defs/Trigger"
+        },
+        "setupApplied": {
+          "$ref": "#/$defs/SetupApplied"
+        },
+        "observe": {
+          "$ref": "#/$defs/ObserveFlags"
+        },
+        "budget": {
+          "$ref": "#/$defs/Budget"
+        },
+        "wallMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timedOut": {
+          "type": "boolean"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceEvent"
+          }
+        },
+        "stdoutHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "stderrHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "fsDiffHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "pcapHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "straceLogHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "inspectorLogHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "eventSummary": {
+          "$ref": "#/$defs/EventSummary"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "contentHash": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "triggerUsed",
+        "setupApplied",
+        "observe",
+        "budget",
+        "wallMs",
+        "exitCode",
+        "timedOut",
+        "events",
+        "eventSummary",
+        "contentHash",
+        "createdAt"
+      ],
+      "title": "RunArtifact"
+    },
+    "RunErrorKind": {
+      "type": "string",
+      "enum": [
+        "CrashError",
+        "TimeoutError",
+        "SensorError",
+        "SetupError"
+      ],
+      "title": "RunErrorKind"
+    },
+    "RunError": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/RunErrorKind"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "detail"
+      ],
+      "title": "RunError"
+    },
+    "SetupApplied": {
+      "type": "object",
+      "properties": {
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "plantFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlantedFileRef"
+          },
+          "default": []
+        },
+        "stubUrls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StubUrlRef"
+          },
+          "default": []
+        },
+        "hostname": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "locale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "patches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FilePatchRef"
+          },
+          "default": []
+        },
+        "preloadHash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "title": "SetupApplied"
+    },
+    "Severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warn",
+        "critical"
+      ],
+      "title": "Severity"
+    },
+    "StreamKind": {
+      "type": "string",
+      "enum": [
+        "L1:seccomp",
+        "L2:pcap",
+        "L3:fsDiff",
+        "L4:monkey",
+        "L4:v8inspector",
+        "engine"
+      ],
+      "title": "StreamKind"
+    },
+    "StubUrlRef": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "responseHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern",
+        "responseHash"
+      ],
+      "title": "StubUrlRef"
+    },
+    "TimerRecord": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "ms": {
+          "type": "number"
+        },
+        "source": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "type",
+        "ms"
+      ],
+      "title": "TimerRecord"
+    },
+    "ToolCall": {
+      "type": "object",
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {}
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "ToolCall"
+    },
+    "TriageCompleteEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "triage_complete"
+        },
+        "hypothesisCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hypotheses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "hypId": {
+                "type": "string"
+              },
+              "claim": {
+                "$ref": "#/$defs/ClaimKind"
+              },
+              "severity": {
+                "$ref": "#/$defs/HypothesisSeverity"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "hypId",
+              "claim",
+              "severity",
+              "description"
+            ]
+          }
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "hypothesisCount",
+        "hypotheses"
+      ],
+      "title": "TriageCompleteEvent"
+    },
+    "TriageProgressEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "triage_progress"
+        },
+        "current": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "file": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "current",
+        "total",
+        "file"
+      ],
+      "title": "TriageProgressEvent"
+    },
+    "TriageResult": {
+      "type": "object",
+      "properties": {
+        "riskScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "riskSummary": {
+          "type": "string"
+        },
+        "focusAreas": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FocusArea"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "riskScore",
+        "riskSummary"
+      ],
+      "title": "TriageResult"
+    },
+    "TriggerKind": {
+      "type": "string",
+      "enum": [
+        "entrypoint",
+        "lifecycle",
+        "bin",
+        "subpath"
+      ],
+      "title": "TriggerKind"
+    },
+    "Trigger": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/TriggerKind"
+        },
+        "target": {
+          "type": "string"
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "stdin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "kind",
+        "target"
+      ],
+      "title": "Trigger"
+    },
+    "VerdictReachedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "verdict_reached"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "counts": {
+          "$ref": "#/$defs/HypothesisCounts"
+        },
+        "confirmedCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "verdict",
+        "rationale",
+        "counts",
+        "confirmedCount"
+      ],
+      "title": "VerdictReachedEvent"
+    },
+    "Verdict": {
+      "type": "string",
+      "enum": [
+        "SAFE",
+        "DANGEROUS"
+      ],
+      "title": "Verdict"
+    },
+    "VerifyStartedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "verify_started"
+        },
+        "totalTests": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "totalTests"
+      ],
+      "title": "VerifyStartedEvent"
+    },
+    "VerifyTestResultEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "verify_test_result"
+        },
+        "proofIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "testFile": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "confirmed",
+            "unconfirmed",
+            "infra_error"
+          ]
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "proofIndex",
+        "testFile",
+        "status"
+      ],
+      "title": "VerifyTestResultEvent"
+    }
+  }
+}

@@ -58,7 +58,7 @@ import type {
 } from "@npmguard/shared";
 
 // ---------------------------------------------------------------------------
-// Engine v2 — 4-state verdict + hypothesis-graph display helpers
+// Engine v2 — binary verdict + hypothesis-graph display helpers
 // ---------------------------------------------------------------------------
 
 /** Lightweight hypothesis record built from the `hypothesis_emitted` /
@@ -79,22 +79,17 @@ export interface VerdictDisplay {
   color: string; // CSS custom property
   bg: string; // CSS custom property
   note: string; // one-line descriptor of what the verdict means
-  /** UNKNOWN is a COVERAGE GAP — surface it loudly, never as a quiet pass. */
+  /** Non-terminal audits remain pending; they never masquerade as a verdict. */
   isCoverageGap: boolean;
 }
 
-/** Map the 4-state verdict to a distinct, honest visual treatment.
- *  SAFE→green, DANGEROUS→red, SUSPECT→amber, UNKNOWN→amber + coverage-gap note. */
+/** Map terminal verdicts to distinct visual treatments. */
 export function verdictDisplay(verdict: VerdictEnum | null | undefined): VerdictDisplay {
   switch (verdict) {
     case "SAFE":
       return { label: "SAFE", color: "var(--safe)", bg: "var(--safe-bg)", note: "No malicious behavior found", isCoverageGap: false };
     case "DANGEROUS":
       return { label: "DANGEROUS", color: "var(--danger)", bg: "var(--danger-bg)", note: "Confirmed malicious behavior", isCoverageGap: false };
-    case "SUSPECT":
-      return { label: "SUSPECT", color: "var(--suspected)", bg: "var(--suspected-bg)", note: "Suspicious hypotheses left unresolved", isCoverageGap: false };
-    case "UNKNOWN":
-      return { label: "UNKNOWN", color: "var(--warning)", bg: "var(--suspected-bg)", note: "Coverage gap — could not confirm or refute", isCoverageGap: true };
     default:
       return { label: "PENDING", color: "var(--text-muted)", bg: "var(--bg-secondary)", note: "Analysis in progress", isCoverageGap: false };
   }
@@ -114,9 +109,8 @@ export const HYP_STATE_META: Record<HypothesisState, HypStateMeta> = {
   CONFIRMED: { label: "Confirmed", color: "var(--danger)", bg: "var(--danger-bg)", order: 0, isGap: false },
   IN_PROGRESS: { label: "In progress", color: "var(--investigating)", bg: "var(--investigating-bg)", order: 1, isGap: true },
   OPEN: { label: "Open", color: "var(--suspected)", bg: "var(--suspected-bg)", order: 2, isGap: true },
-  INCONCLUSIVE: { label: "Inconclusive", color: "var(--warning)", bg: "var(--suspected-bg)", order: 3, isGap: true },
-  DEFERRED: { label: "Deferred", color: "var(--text-muted)", bg: "var(--bg-tertiary)", order: 4, isGap: true },
-  REFUTED: { label: "Refuted", color: "var(--safe)", bg: "var(--safe-bg)", order: 5, isGap: false },
+  DEFERRED: { label: "Deferred", color: "var(--text-muted)", bg: "var(--bg-tertiary)", order: 3, isGap: true },
+  REFUTED: { label: "Refuted", color: "var(--safe)", bg: "var(--safe-bg)", order: 4, isGap: false },
 };
 
 const HYP_SEVERITY_COLOR: Record<HypothesisSeverity, string> = {
@@ -138,13 +132,12 @@ export function claimKindLabel(kind: ClaimKind | string): string {
     .join(" ");
 }
 
-/** Compact per-state tally, e.g. "2 confirmed · 3 refuted · 1 inconclusive". */
+/** Compact per-state tally, e.g. "2 confirmed · 3 refuted · 1 deferred". */
 export function countsSummary(counts: HypothesisCounts | null | undefined): string {
   if (!counts) return "";
   const parts: string[] = [];
   if (counts.confirmed) parts.push(`${counts.confirmed} confirmed`);
   if (counts.refuted) parts.push(`${counts.refuted} refuted`);
-  if (counts.inconclusive) parts.push(`${counts.inconclusive} inconclusive`);
   if (counts.open) parts.push(`${counts.open} open`);
   if (counts.inProgress) parts.push(`${counts.inProgress} in progress`);
   if (counts.deferred) parts.push(`${counts.deferred} deferred`);

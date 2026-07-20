@@ -12,5 +12,5 @@ Read `README.md` first. Scope changes to one subproject. Each has its own `CLAUD
 - When a flow depends on on-chain state, verify external state (Basescan, receipt) before blaming code.
 - Keep secrets out of logs, commits, and agent context. Never paste private keys into chats.
 - The CLI package (`cli/`) must stay crypto-dep-minimal but cannot be fully crypto-free — it uses `viem` to encode calldata and wait for receipts, and `@walletconnect/sign-client` for session management. Never add a private-key path to the CLI: the wallet signs, the CLI observes.
-- Payment verification is a trust boundary. Anything that gates audit execution must happen **server-side** in `engine/src/chain.ts` (or the Stripe equivalent), never in the CLI.
-- Reports are stored on disk under `data/reports/<pkg>/<version>.json`. Keep `report-store.ts` as the single source of truth — do not reintroduce IPFS, ENS, or any external pinning service.
+- Payment verification is a trust boundary. Anything that gates audit execution must happen **server-side** in `engine/npmguard/payments.py`, never in the CLI.
+- Reports are stored on disk under `data/reports/<pkg>/<version>.json`. Keep `engine/npmguard/report_store.py` as the single source of truth — do not reintroduce IPFS, ENS, or any external pinning service.

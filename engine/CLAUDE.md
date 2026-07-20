@@ -1,57 +1,38 @@
 # engine — CLAUDE.md
 
-- TypeScript + Vercel AI SDK. Run `npm install` then `npx tsx src/index.ts`.
-- `.env` is runtime config. All vars prefixed `NPMGUARD_`.
-- Reports persist to `data/reports/<pkg>/<version>.json` via `report-store.ts`. Keyed by the **real** version extracted from the tarball metadata, not the requested version. Do not reintroduce `"latest"` fallbacks in save paths.
-
-## Run
-
-```bash
-npm install
-npx tsx src/index.ts              # dev server on :8000
-npm run build && npm start        # production
-```
+- Python 3.12+, FastAPI, Pydantic v2, SQLAlchemy async, Alembic, uv.
+- Runtime configuration is `.env`; application variables use `NPMGUARD_`.
+- Run `uv run pytest` and `uv run ruff check .` after engine changes.
+- `npmguard/contract/models.py` is generated from `shared`; never hand-edit it.
+- Reports remain at `data/reports/<pkg>/<real-version>.json`. The real tarball
+  version is authoritative; never persist a `latest.json` alias.
+- SQL owns durable sessions, event replay, LLM capture, and exact-once payment
+  claims. Do not replace those with process-local maps.
+- Audit failure is an ERROR, never a SAFE verdict or hidden coverage gap.
+- A suspicion can be cleared only by running its compiled experiment under the
+  full oracle. Confirm/refute transitions require evidence.
+- Hypothesis generation is behind `HypothesisGenerator`; keep Kit-specific
+  changes inside `KitHypothesisGenerator`.
+- JavaScript under `npmguard/assets/` is sandbox instrumentation for Node
+  packages, not application backend code.
 
 ## Payment gate
 
-`/audit/stream` accepts three proofs:
+`POST /audit/stream` has exactly three entry paths:
 
-- `stripeSessionId` — verified via the Stripe API
-- `txHash` + `chain` — verified via `src/chain.ts` (Alchemy Base Sepolia / mainnet), decodes `AuditRequested` event and matches `(packageName, version)`
-- neither (dev mode only, requires `NPMGUARD_PAYMENT_REQUIRED=false`)
+1. `txHash + chain`: verify the configured contract event, then atomically claim
+   `(chain, txHash)`.
+2. `stripeSessionId`: verify Stripe, then atomically claim the session id.
+3. No proof: development only when `NPMGUARD_PAYMENT_REQUIRED=false`.
 
-Anti-replay is tracked in `src/chain-payment-map.ts` (in-memory, keyed on `(chain, txHash)`). Stripe has its own dedup via `payment-map.ts`.
+Never launch work before the payment proof is verified and claimed.
 
-When adding a new chain:
-1. Add env vars (`NPMGUARD_<CHAIN>_CONTRACT`, `NPMGUARD_<CHAIN>_RPC_URL`)
-2. Wire it into `chain.ts:makeConfig()`
-3. Extend the `SupportedChain` union in `chain.ts` and the `chain` zod enum in `routes/validation.ts:StreamAuditRequest`
+## Route ownership
 
-## Route layout
-
-`src/index.ts` is just the Hono app setup + CORS + subrouter mounts + `/api/*` mirror + static serving. Handlers live in `src/routes/`:
-
-- `audit.ts` — `/audit`, `/audit/stream` (payment gate is inline by design — it's a trust contract), `/audit/:id/{events,file,report}`, plus the in-memory audit queue for the CRE sync path
-- `payment.ts` — `/checkout`, `/checkout/:sessionId/status`, `/webhooks/stripe`, `/config/public`
-- `demo.ts` — `/demo/*`
-- `registry.ts` — `/packages`, `/package/:name/report`, `/resolve/:name`
-- `validation.ts` — shared zod schemas (`PackageName`, `SemverVersion`, `AuditRequest`, `CheckoutRequest`, `StreamAuditRequest`)
-
-Subrouters are mounted via `app.route("/", subrouter)`. Don't switch to prefix-mounting — the `/api/*` mirror rewrites by calling `app.fetch()`, which relies on everything being on one namespace.
-
-## Test
-
-```bash
-# Inventory only (no LLM, no Docker)
-NPMGUARD_INVESTIGATION_ENABLED=false curl -X POST http://localhost:8000/audit \
-  -H 'Content-Type: application/json' -d '{"packageName": "test-pkg-env-exfil"}'
-
-# Full pipeline (needs LLM key + Docker)
-curl -X POST http://localhost:8000/audit \
-  -H 'Content-Type: application/json' -d '{"packageName": "test-pkg-env-exfil"}'
-
-# On-chain payment path (requires NPMGUARD_BASE_SEPOLIA_CONTRACT + valid txHash)
-curl -X POST http://localhost:8000/audit/stream \
-  -H 'Content-Type: application/json' \
-  -d '{"packageName":"is-number","version":"7.0.0","txHash":"0x...","chain":"base-sepolia"}'
-```
+- `api.py`: FastAPI routes, lifespan, `/api` mirror, static frontend
+- `service.py`: queue, background execution, restart recovery
+- `pipeline.py`: resolve → inventory → intent → flag → hypothesize → graph
+- `orchestrator.py`: full-oracle experiment loop and evidence-bound judgment
+- `payments.py`: Stripe and Base verification
+- `persistence.py`: sessions and exact-once claims
+- `events.py`: durable event log and legacy-compatible SSE wire format

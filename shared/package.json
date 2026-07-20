@@ -16,6 +16,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "contract:export": "tsx src/contract-export.ts",
     "dev": "tsc --watch",
     "prepare": "tsc"
   },
@@ -23,6 +24,8 @@
     "zod": "^3"
   },
   "devDependencies": {
-    "typescript": "^5"
+    "tsx": "^4.21.0",
+    "typescript": "^5",
+    "zod-to-json-schema": "^3.25.2"
   }
 }

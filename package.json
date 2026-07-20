@@ -4,16 +4,18 @@
   "type": "commonjs",
   "workspaces": [
     "shared",
-    "engine",
     "frontend",
     "bench"
   ],
   "scripts": {
+    "contract": "bash scripts/gen-contract.sh",
     "dev": "./run.sh",
-    "dev:engine": "cd engine && npm run dev",
+    "dev:engine": "cd engine && uv run uvicorn npmguard.api:app --reload --port 8000",
     "dev:frontend": "cd frontend && npm run dev",
     "build:shared": "npm -w @npmguard/shared run build",
     "test": "vitest run --root sandbox",
+    "test:engine": "cd engine && uv run pytest",
+    "lint:engine": "cd engine && uv run ruff check . && uv run ruff format --check .",
     "test:watch": "vitest --root sandbox"
   },
   "devDependencies": {
