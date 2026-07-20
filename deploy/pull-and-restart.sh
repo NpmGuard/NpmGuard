@@ -3,7 +3,8 @@
 # NpmGuard — auto-deploy script
 #
 # Called by the webhook listener on every push to main.
-# Pulls latest code, rebuilds engine + frontend, restarts the service.
+# Pulls latest code, migrates the Python engine, rebuilds the frontend,
+# and restarts the service.
 #
 # Logs to /var/log/npmguard-deploy.log
 # Uses a lock file to prevent concurrent deployments.
@@ -30,20 +31,23 @@ log "=== Deploy started ==="
 cd "$REPO_DIR"
 git pull origin main 2>&1 | tee -a "$LOG"
 
-# ── Rebuild engine ───────────────────────────────────────────────────
-log "Building engine..."
+# ── Sync + migrate engine ────────────────────────────────────────────
+log "Syncing Python engine..."
 cd "$REPO_DIR/engine"
-npm install --silent 2>&1 | tee -a "$LOG"
-npx tsc 2>&1 | tee -a "$LOG"
+/root/.local/bin/uv sync --frozen 2>&1 | tee -a "$LOG"
+/root/.local/bin/uv run alembic upgrade head 2>&1 | tee -a "$LOG"
 
 # ── Rebuild frontend ────────────────────────────────────────────────
 log "Building frontend..."
-cd "$REPO_DIR/frontend"
+cd "$REPO_DIR"
 npm install --silent 2>&1 | tee -a "$LOG"
-npx vite build 2>&1 | tee -a "$LOG"
+npm run build:shared 2>&1 | tee -a "$LOG"
+npm --prefix frontend run build 2>&1 | tee -a "$LOG"
 
 # ── Restart service ──────────────────────────────────────────────────
 log "Restarting npmguard service..."
 systemctl restart npmguard 2>&1 | tee -a "$LOG"
+curl --fail --silent --retry 10 --retry-delay 1 http://127.0.0.1:8000/health \
+  2>&1 | tee -a "$LOG"
 
 log "=== Deploy complete ==="

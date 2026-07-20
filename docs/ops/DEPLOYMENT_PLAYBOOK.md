@@ -9,7 +9,7 @@ Internet (:80)
         │
         ├─ /deploy-webhook ──► webhook-server.mjs (:9000)  ← GitHub push events
         │
-        └─ everything else ──► node dist/index.js (:8000)  ← engine API + frontend static
+        └─ everything else ──► FastAPI / uvicorn (:8000)   ← engine API + frontend static
                                       │
                                       └─ Docker (npmguard-verify)  ← sandbox execution
 ```
@@ -34,10 +34,10 @@ GitHub webhook POST ──► nginx /deploy-webhook ──► webhook-server.mjs
                                                         ▼
                                                 pull-and-restart.sh
                                                   1. git pull origin main
-                                                  2. npm install (engine + frontend)
-                                                  3. npx tsc (engine build)
-                                                  4. npx vite build (frontend build)
-                                                  5. systemctl restart npmguard
+                                                  2. uv sync + Alembic upgrade
+                                                  3. build shared contract + frontend
+                                                  4. systemctl restart npmguard
+                                                  5. verify /health
 ```
 
 Deploy logs: `/var/log/npmguard-deploy.log`
@@ -77,7 +77,7 @@ cd /root/NpmGuard && bash deploy/pull-and-restart.sh
 
 - **IP:** 209.38.42.28
 - **OS:** Ubuntu (DigitalOcean Droplet)
-- **Node:** v22
+- **Runtime:** Python 3.12+ via uv; Node v22 for frontend builds and npm sandbox execution
 - **Repo:** `/root/NpmGuard`
 
 ```bash

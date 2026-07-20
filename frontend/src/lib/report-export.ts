@@ -71,8 +71,6 @@ export function verdictBadge(verdict: VerdictEnum | null): string {
   switch (verdict) {
     case "SAFE": return "✓ SAFE";
     case "DANGEROUS": return "⚠ DANGEROUS";
-    case "SUSPECT": return "◐ SUSPECT";
-    case "UNKNOWN": return "? UNKNOWN (coverage gap)";
     default: return "PENDING";
   }
 }

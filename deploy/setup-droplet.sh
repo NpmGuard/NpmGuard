@@ -55,7 +55,7 @@ fi
 avail=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
 (( avail < 5 )) && { log_err "Less than 5 GB free disk space"; exit 1; }
 
-[[ ! -f "$REPO_DIR/engine/package.json" ]] && { log_err "Repo not found at $REPO_DIR"; exit 1; }
+[[ ! -f "$REPO_DIR/engine/pyproject.toml" ]] && { log_err "Repo not found at $REPO_DIR"; exit 1; }
 
 log_ok "Preflight passed (${avail}G free, repo at $REPO_DIR)"
 
@@ -79,9 +79,9 @@ if ! command -v docker &>/dev/null; then
 fi
 log_ok "Installed"
 
-# ── 2. Node.js 22 ────────────────────────────────────────────────────
+# ── 2. Node.js 22 + Python/uv ────────────────────────────────────────
 
-step "[2/7] Node.js"
+step "[2/7] Node.js + Python/uv"
 if node --version 2>/dev/null | grep -q "^v2[2-9]\|^v[3-9]"; then
   log_ok "Node $(node --version) already installed"
 else
@@ -89,6 +89,12 @@ else
   apt-get install -y -qq nodejs > /dev/null 2>&1
   log_ok "Installed Node $(node --version)"
 fi
+
+if ! command -v uv &>/dev/null; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+export PATH="/root/.local/bin:$PATH"
+log_ok "Python $(python3 --version), uv $(uv --version)"
 
 # ── 3. Firewall ──────────────────────────────────────────────────────
 
@@ -161,58 +167,37 @@ systemctl enable docker > /dev/null 2>&1
 docker pull node:22-slim 2>&1 | tail -1
 log_ok "Pulled node:22-slim"
 
-if [[ -f "$REPO_DIR/engine/Dockerfile.verify" ]]; then
-  (cd "$REPO_DIR/engine" && docker build -q -t npmguard-verify -f Dockerfile.verify .) \
-    && log_ok "Built npmguard-verify" \
-    || log_warn "Failed to build npmguard-verify — test verification will be skipped"
-fi
+(cd "$REPO_DIR" && docker build -q -t npmguard-sandbox:v1 -f sandbox/docker/Dockerfile.sandbox .) \
+  && log_ok "Built npmguard-sandbox:v1" \
+  || { log_err "Failed to build sandbox image"; exit 1; }
 
 # ── 7. App build ─────────────────────────────────────────────────────
 
 step "[7/8] App build"
 cd "$REPO_DIR"
 
-(cd engine   && npm install --silent)
-(cd frontend && npm install --silent)
+(cd engine && uv sync --frozen)
+npm install --silent
 log_ok "Dependencies installed"
 
-(cd frontend && npx vite build 2>&1 | tail -3)
-(cd engine   && npx tsc)
-log_ok "Frontend + engine built"
+npm run build:shared
+npm --prefix frontend run build 2>&1 | tail -8
+(cd engine && uv run alembic upgrade head)
+log_ok "Frontend built; engine migrated"
 
 # .env — create template only if missing, never overwrite existing
 if [[ ! -f engine/.env ]]; then
-  cp engine/.env.template engine/.env 2>/dev/null || cat > engine/.env << 'ENVEOF'
-# Server
-NPMGUARD_API_HOST=0.0.0.0
-NPMGUARD_API_PORT=8000
-
-# LLM backend
-NPMGUARD_LLM_BACKEND=openai_compatible
-NPMGUARD_LLM_BASE_URL=https://openrouter.ai/api/v1
-NPMGUARD_LLM_API_KEY=REPLACE_ME
-
-# Per-phase models
-NPMGUARD_TRIAGE_MODEL=deepseek/deepseek-v3.2
-NPMGUARD_INVESTIGATION_MODEL=z-ai/glm-5
-NPMGUARD_TEST_GEN_MODEL=z-ai/glm-5
-
-# Payment gate
-NPMGUARD_PAYMENT_REQUIRED=true
-
-# Stripe
-NPMGUARD_STRIPE_SECRET_KEY=REPLACE_ME
-NPMGUARD_STRIPE_WEBHOOK_SECRET=REPLACE_ME
-NPMGUARD_AUDIT_PRICE_CENTS=400
-
-# CORS
-NPMGUARD_CORS_ORIGIN=https://REPLACE_ME
-ENVEOF
+  cp engine/.env.template engine/.env
+  sed -i 's/^NPMGUARD_ENV=.*/NPMGUARD_ENV=prod/' engine/.env
   log_warn "Created engine/.env — fill in API keys before starting"
 else
   log_ok "engine/.env exists, not overwriting"
 fi
 chmod 600 engine/.env
+
+cp "$REPO_DIR/deploy/npmguard.service" /etc/systemd/system/npmguard.service
+systemctl daemon-reload
+systemctl enable npmguard > /dev/null 2>&1
 
 # ── 8. Webhook auto-deploy ──────────────────────────────────────────
 

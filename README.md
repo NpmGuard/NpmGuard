@@ -40,13 +40,13 @@ flowchart TD
 
     subgraph PIPELINE["Audit pipeline"]
         INVENTORY[Phase 0: Inventory<br/>tarball structural triage]
-        TRIAGE[Phase 1a: LLM risk scoring]
-        INVESTIGATE[Phase 1b: Agentic investigation]
-        TESTGEN[Phase 1c: Exploit test generation]
-        SANDBOX[Phase 2: Docker sandbox execution]
-        INVENTORY --> TRIAGE
-        TRIAGE -->|low risk| VERDICT
-        TRIAGE -->|high risk| INVESTIGATE --> TESTGEN --> SANDBOX --> VERDICT
+        FLAG[High-recall per-file flagging]
+        HYP[Typed hypothesis + experiment generation]
+        SANDBOX[Full-oracle Docker execution]
+        JUDGE[Evidence-bound judgment]
+        INVENTORY --> FLAG
+        FLAG -->|no suspicion| VERDICT
+        FLAG --> HYP --> SANDBOX --> JUDGE --> VERDICT
         VERDICT{Verdict}
     end
 
@@ -135,8 +135,9 @@ requested `(packageName, version)` before running the audit.
 - **Chain**: Base Sepolia (chain id 84532)
 - **Contract**: [`0xBF562626e4Afb883423Ec719e0270DB232bcB9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed)
 
-Anti-replay: the engine maintains a `(chain, txHash)` dedup map so a single
-payment can only launch one audit. The contract itself also prevents
+Anti-replay: the engine atomically persists a `(chain, txHash)` payment claim,
+so a single payment can only launch one audit even across concurrent requests
+or restarts. The contract itself also prevents
 double-payment for the same `(pkg, version)` pair.
 
 See [contracts/README.md](contracts/README.md) for the contract source,
@@ -147,7 +148,7 @@ tests, and deploy instructions (Foundry).
 | Directory | Description |
 |---|---|
 | `cli/` | `npmguard-cli` — the user-facing CLI (`install`, `audit`, `check`) |
-| `engine/` | Audit pipeline — TypeScript + Hono, stores reports in `data/reports/` |
+| `engine/` | FastAPI audit engine, durable state, LLM orchestration, and sandbox control |
 | `frontend/` | React + Vite dashboard — live audit streaming via SSE |
 | `contracts/` | `NpmGuardAuditRequest.sol` + Foundry tests + deploy scripts |
 | `sandbox/` | Dynamic exploitation harness (Vitest) |
@@ -164,7 +165,7 @@ bash run.sh
 Or individually:
 
 ```bash
-cd engine && npm install && npx tsx src/index.ts   # API on :8000
+cd engine && uv sync --all-groups && uv run uvicorn npmguard.api:app --reload
 cd frontend && npm install && npm run dev           # UI on :3000
 ```
 
@@ -179,7 +180,7 @@ node dist/index.js --api http://localhost:8000 install is-number
 
 Production runs on a single DigitalOcean droplet (209.38.42.28):
 
-- `npmguard.service` — the Hono engine on `:8000`
+- `npmguard.service` — the FastAPI engine on `:8000`
 - `npmguard-webhook.service` — GitHub push webhook listener on `127.0.0.1:9000`
 - nginx reverse proxy with Let's Encrypt (`npmguard.com`)
 - Cloudflare in front of `npmguard.com`; `/deploy-webhook` accessed via
@@ -187,7 +188,8 @@ Production runs on a single DigitalOcean droplet (209.38.42.28):
 
 The webhook receives pushes to `main`, validates the HMAC-SHA256
 signature, and spawns `deploy/pull-and-restart.sh` which pulls, runs
-`npm install && tsc`, and restarts systemd services.
+syncs the uv environment, runs Alembic migrations, builds the frontend, and
+restarts systemd services.
 
 Full playbook: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md)
 
@@ -196,13 +198,13 @@ Full playbook: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md
 | Component | Technology |
 |---|---|
 | Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) + [Tailwind](https://tailwindcss.com/) — real-time SSE dashboard |
-| Audit pipeline | TypeScript + [Hono](https://hono.dev/) — inventory, LLM static analysis, Docker sandbox |
+| Audit pipeline | Python + FastAPI + Pydantic + SQLAlchemy — inventory, LLM analysis, Docker sandbox |
 | LLM | [Gemini 2.5 Flash](https://ai.google.dev/) via OpenRouter (OpenAI-compatible) |
 | Fiat payment | [Stripe](https://stripe.com/) checkout + webhook |
 | Crypto payment | Solidity contract on [Base Sepolia](https://docs.base.org/chain/base-contracts) + WalletConnect v2 |
 | Contract tooling | [Foundry](https://book.getfoundry.sh/) — compile, test (fuzz), deploy, Basescan verification |
 | Chain RPC | [Alchemy](https://alchemy.com/) Base Sepolia (+ public fallback) |
-| Storage | Local filesystem (`data/reports/<pkg>/<version>.json`) — no IPFS, no RPC writes |
+| Storage | Filesystem reports plus SQLite/Postgres durable sessions/events/payment claims — no IPFS, no RPC writes |
 | CLI | TypeScript, zero blockchain deps in the binary — wallet signs, engine verifies |
 | Hosting | [DigitalOcean](https://www.digitalocean.com/) + nginx + Let's Encrypt |
 

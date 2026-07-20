@@ -1,0 +1,17 @@
+{
+  "ATTEMPT_STATUSES": [
+    "ok",
+    "timeout",
+    "http_error",
+    "invalid_output",
+    "cancelled"
+  ],
+  "RUN_STATUSES": [
+    "running",
+    "ok",
+    "end_of_rope",
+    "invalid",
+    "budget",
+    "loop_cap"
+  ]
+}

@@ -1,192 +1,203 @@
-import type { FileRecord, FileVerdict, Finding, VerdictEnum } from "./models.js";
-import type { ClaimKind, HypothesisCounts, HypothesisSeverity, HypothesisState } from "./graph.js";
+import { z } from "zod";
+import { HypothesisCountsSchema, HypothesisSeveritySchema, HypothesisStateSchema, ClaimKindSchema } from "./graph.js";
+import { FileRecordSchema, FileVerdictSchema, FindingSchema, VerdictSchema } from "./models.js";
 
-// ---------------------------------------------------------------------------
-// Base — every SSE event carries these fields
-// ---------------------------------------------------------------------------
+export const BaseAuditEventSchema = z.object({
+  auditId: z.string(),
+  timestamp: z.string(),
+  seq: z.number().int().nonnegative(),
+});
+export type BaseAuditEvent = z.infer<typeof BaseAuditEventSchema>;
 
-export interface BaseAuditEvent {
-  auditId: string;
-  timestamp: string;
-  /** Buffer index assigned when the event is pushed onto the session buffer.
-   *  Stable, unique per session, monotonic. */
-  seq: number;
-}
+export const AuditStartedEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("audit_started"),
+  packageName: z.string(),
+});
+export type AuditStartedEvent = z.infer<typeof AuditStartedEventSchema>;
 
-// ---------------------------------------------------------------------------
-// Individual event payloads — kept flat; each event's `type` narrows the union
-// ---------------------------------------------------------------------------
+export const PhaseStartedEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("phase_started"),
+  phase: z.string(),
+});
+export type PhaseStartedEvent = z.infer<typeof PhaseStartedEventSchema>;
 
-export interface AuditStartedEvent extends BaseAuditEvent {
-  type: "audit_started";
-  packageName: string;
-}
+export const PhaseCompletedEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("phase_completed"),
+  phase: z.string(),
+  durationMs: z.number(),
+});
+export type PhaseCompletedEvent = z.infer<typeof PhaseCompletedEventSchema>;
 
-export interface PhaseStartedEvent extends BaseAuditEvent {
-  type: "phase_started";
-  phase: string;
-}
+export const FileListEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("file_list"),
+  files: z.array(FileRecordSchema),
+});
+export type FileListEvent = z.infer<typeof FileListEventSchema>;
 
-export interface PhaseCompletedEvent extends BaseAuditEvent {
-  type: "phase_completed";
-  phase: string;
-  durationMs: number;
-}
+export const FileAnalyzingEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("file_analyzing"),
+  file: z.string(),
+});
+export type FileAnalyzingEvent = z.infer<typeof FileAnalyzingEventSchema>;
 
-export interface FileListEvent extends BaseAuditEvent {
-  type: "file_list";
-  files: FileRecord[];
-}
+export const FileVerdictEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("file_verdict"),
+  verdict: FileVerdictSchema,
+});
+export type FileVerdictEvent = z.infer<typeof FileVerdictEventSchema>;
 
-export interface FileAnalyzingEvent extends BaseAuditEvent {
-  type: "file_analyzing";
-  file: string;
-}
+const TriageHypothesisSchema = z.object({
+  hypId: z.string(),
+  claim: ClaimKindSchema,
+  severity: HypothesisSeveritySchema,
+  description: z.string(),
+});
 
-export interface FileVerdictEvent extends BaseAuditEvent {
-  type: "file_verdict";
-  verdict: FileVerdict;
-}
+export const TriageCompleteEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("triage_complete"),
+  hypothesisCount: z.number().int().nonnegative(),
+  hypotheses: z.array(TriageHypothesisSchema),
+});
+export type TriageCompleteEvent = z.infer<typeof TriageCompleteEventSchema>;
 
-export interface TriageCompleteEvent extends BaseAuditEvent {
-  type: "triage_complete";
-  hypothesisCount: number;
-  hypotheses: Array<{
-    hypId: string;
-    claim: ClaimKind;
-    severity: HypothesisSeverity;
-    description: string;
-  }>;
-}
+export const TriageProgressEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("triage_progress"),
+  current: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  file: z.string(),
+});
+export type TriageProgressEvent = z.infer<typeof TriageProgressEventSchema>;
 
-export interface TriageProgressEvent extends BaseAuditEvent {
-  type: "triage_progress";
-  current: number;
-  total: number;
-  file: string;
-}
+export const AgentToolCallEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("agent_tool_call"),
+  tool: z.string(),
+  args: z.record(z.unknown()),
+  step: z.number().int(),
+});
+export type AgentToolCallEvent = z.infer<typeof AgentToolCallEventSchema>;
 
-export interface AgentToolCallEvent extends BaseAuditEvent {
-  type: "agent_tool_call";
-  tool: string;
-  args: Record<string, unknown>;
-  step: number;
-}
+export const AgentToolResultEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("agent_tool_result"),
+  tool: z.string(),
+  resultPreview: z.string(),
+  step: z.number().int(),
+  injectionDetected: z.boolean(),
+});
+export type AgentToolResultEvent = z.infer<typeof AgentToolResultEventSchema>;
 
-export interface AgentToolResultEvent extends BaseAuditEvent {
-  type: "agent_tool_result";
-  tool: string;
-  resultPreview: string;
-  step: number;
-  injectionDetected: boolean;
-}
+export const AgentReasoningEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("agent_reasoning"),
+  text: z.string(),
+  step: z.number().int(),
+});
+export type AgentReasoningEvent = z.infer<typeof AgentReasoningEventSchema>;
 
-export interface AgentReasoningEvent extends BaseAuditEvent {
-  type: "agent_reasoning";
-  text: string;
-  step: number;
-}
+export const AgentThinkingEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("agent_thinking"),
+  step: z.number().int(),
+});
+export type AgentThinkingEvent = z.infer<typeof AgentThinkingEventSchema>;
 
-export interface AgentThinkingEvent extends BaseAuditEvent {
-  type: "agent_thinking";
-  step: number;
-}
+export const FindingDiscoveredEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("finding_discovered"),
+  finding: FindingSchema,
+});
+export type FindingDiscoveredEvent = z.infer<typeof FindingDiscoveredEventSchema>;
 
-export interface FindingDiscoveredEvent extends BaseAuditEvent {
-  type: "finding_discovered";
-  finding: Finding;
-}
+export const HypothesisEmittedEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("hypothesis_emitted"),
+  hypId: z.string(),
+  claim: ClaimKindSchema,
+  severity: HypothesisSeveritySchema,
+  file: z.string(),
+});
+export type HypothesisEmittedEvent = z.infer<typeof HypothesisEmittedEventSchema>;
 
-export interface HypothesisEmittedEvent extends BaseAuditEvent {
-  type: "hypothesis_emitted";
-  hypId: string;
-  claim: ClaimKind;
-  severity: HypothesisSeverity;
-  file: string;
-}
+export const HypothesisResolvedEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("hypothesis_resolved"),
+  hypId: z.string(),
+  claim: ClaimKindSchema,
+  severity: HypothesisSeveritySchema,
+  state: HypothesisStateSchema,
+  by: z.string(),
+  reason: z.string(),
+});
+export type HypothesisResolvedEvent = z.infer<typeof HypothesisResolvedEventSchema>;
 
-export interface HypothesisResolvedEvent extends BaseAuditEvent {
-  type: "hypothesis_resolved";
-  hypId: string;
-  claim: ClaimKind;
-  severity: HypothesisSeverity;
-  /** Terminal state the orchestrator moved the hypothesis into. */
-  state: HypothesisState;
-  /** Worker that resolved it: "worker:experimenter" | "worker:code-reader" | "orchestrator". */
-  by: string;
-  reason: string;
-}
+export const VerdictReachedEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("verdict_reached"),
+  verdict: VerdictSchema,
+  rationale: z.string(),
+  counts: HypothesisCountsSchema,
+  confirmedCount: z.number().int().nonnegative(),
+});
+export type VerdictReachedEvent = z.infer<typeof VerdictReachedEventSchema>;
 
-export interface VerdictReachedEvent extends BaseAuditEvent {
-  type: "verdict_reached";
-  verdict: VerdictEnum;
-  /** One-line explanation suitable for a report header. */
-  rationale: string;
-  counts: HypothesisCounts;
-  /** Number of CONFIRMED hypotheses (each backed by a RunArtifact). */
-  confirmedCount: number;
-}
+export const InventoryMetaEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("inventory_meta"),
+  scripts: z.record(z.string()),
+  dependencies: z.record(z.record(z.string())),
+  entryPoints: z.object({
+    install: z.array(z.string()),
+    runtime: z.array(z.string()),
+    bin: z.array(z.string()),
+  }),
+  metadata: z.object({
+    name: z.string().nullable(),
+    version: z.string().nullable(),
+    description: z.string().nullable(),
+    license: z.string().nullable(),
+  }),
+});
+export type InventoryMetaEvent = z.infer<typeof InventoryMetaEventSchema>;
 
-export interface InventoryMetaEvent extends BaseAuditEvent {
-  type: "inventory_meta";
-  scripts: Record<string, string>;
-  dependencies: Record<string, Record<string, string>>;
-  entryPoints: { install: string[]; runtime: string[]; bin: string[] };
-  metadata: {
-    name: string | null;
-    version: string | null;
-    description: string | null;
-    license: string | null;
-  };
-}
+export const VerifyStartedEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("verify_started"),
+  totalTests: z.number().int().nonnegative(),
+});
+export type VerifyStartedEvent = z.infer<typeof VerifyStartedEventSchema>;
 
-export interface VerifyStartedEvent extends BaseAuditEvent {
-  type: "verify_started";
-  totalTests: number;
-}
+export const VerifyTestResultEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("verify_test_result"),
+  proofIndex: z.number().int().nonnegative(),
+  testFile: z.string(),
+  status: z.enum(["confirmed", "unconfirmed", "infra_error"]),
+  error: z.string().optional(),
+});
+export type VerifyTestResultEvent = z.infer<typeof VerifyTestResultEventSchema>;
 
-export interface VerifyTestResultEvent extends BaseAuditEvent {
-  type: "verify_test_result";
-  proofIndex: number;
-  testFile: string;
-  status: "confirmed" | "unconfirmed" | "infra_error";
-  error?: string;
-}
+export const AuditErrorEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("audit_error"),
+  error: z.string().optional(),
+  code: z.string().optional(),
+  retryable: z.boolean().optional(),
+});
+export type AuditErrorEvent = z.infer<typeof AuditErrorEventSchema>;
 
-export interface AuditErrorEvent extends BaseAuditEvent {
-  type: "audit_error";
-  error?: string;
-  code?: string;
-  retryable?: boolean;
-}
+export const AuditEventSchema = z.discriminatedUnion("type", [
+  AuditStartedEventSchema,
+  PhaseStartedEventSchema,
+  PhaseCompletedEventSchema,
+  FileListEventSchema,
+  FileAnalyzingEventSchema,
+  FileVerdictEventSchema,
+  TriageCompleteEventSchema,
+  TriageProgressEventSchema,
+  AgentToolCallEventSchema,
+  AgentToolResultEventSchema,
+  AgentReasoningEventSchema,
+  AgentThinkingEventSchema,
+  FindingDiscoveredEventSchema,
+  HypothesisEmittedEventSchema,
+  HypothesisResolvedEventSchema,
+  VerdictReachedEventSchema,
+  InventoryMetaEventSchema,
+  VerifyStartedEventSchema,
+  VerifyTestResultEventSchema,
+  AuditErrorEventSchema,
+]);
+export type AuditEventUnion = z.infer<typeof AuditEventSchema>;
 
-// ---------------------------------------------------------------------------
-// Discriminated union — consumers narrow on `type`
-// ---------------------------------------------------------------------------
-
-export type AuditEventUnion =
-  | AuditStartedEvent
-  | PhaseStartedEvent
-  | PhaseCompletedEvent
-  | FileListEvent
-  | FileAnalyzingEvent
-  | FileVerdictEvent
-  | TriageCompleteEvent
-  | TriageProgressEvent
-  | AgentToolCallEvent
-  | AgentToolResultEvent
-  | AgentReasoningEvent
-  | AgentThinkingEvent
-  | FindingDiscoveredEvent
-  | HypothesisEmittedEvent
-  | HypothesisResolvedEvent
-  | VerdictReachedEvent
-  | InventoryMetaEvent
-  | VerifyStartedEvent
-  | VerifyTestResultEvent
-  | AuditErrorEvent;
-
-/** Canonical list of SSE event-type names — useful for addEventListener wiring. */
 export const EVENT_TYPES = [
   "audit_started",
   "phase_started",
@@ -211,11 +222,4 @@ export const EVENT_TYPES = [
 ] as const;
 
 export type AuditEventType = (typeof EVENT_TYPES)[number];
-
-// ---------------------------------------------------------------------------
-// Emit signature — deliberately loose on the producer side so ad-hoc events
-// (e.g., verify_attempt, verify_regenerating) can be emitted without a typed
-// interface. Consumers narrow via AuditEventUnion.
-// ---------------------------------------------------------------------------
-
 export type EmitFn = (type: string, payload: Record<string, unknown>) => void;

@@ -12,6 +12,7 @@ export const StreamKind = z.enum([
   "L4:v8inspector", // Chrome DevTools Protocol events
   "engine",         // synthetic engine-origin events (truncation, bypass, error)
 ]);
+export const StreamKindSchema = StreamKind;
 export type StreamKind = z.infer<typeof StreamKind>;
 
 export const EventKind = z.enum([
@@ -28,9 +29,11 @@ export const EventKind = z.enum([
   // engine synthetic
   "truncated", "setup_bypass", "error",
 ]);
+export const EventKindSchema = EventKind;
 export type EventKind = z.infer<typeof EventKind>;
 
 export const CorrelationConfidence = z.enum(["high", "low", "none"]);
+export const CorrelationConfidenceSchema = CorrelationConfidence;
 export type CorrelationConfidence = z.infer<typeof CorrelationConfidence>;
 
 export const Event = z.object({
@@ -47,6 +50,7 @@ export const Event = z.object({
     confidence: CorrelationConfidence.default("none"),
   }).optional(),
 });
+export const EvidenceEventSchema = Event;
 export type Event = z.infer<typeof Event>;
 
 // ---------------------------------------------------------------------------
@@ -60,6 +64,7 @@ export type Event = z.infer<typeof Event>;
 // "static" — reserved; no current producer.
 // "diff"   — reserved for the differential engine.
 export const EvidenceRefKind = z.enum(["run", "static", "diff"]);
+export const EvidenceRefKindSchema = EvidenceRefKind;
 export type EvidenceRefKind = z.infer<typeof EvidenceRefKind>;
 
 export const EvidenceRef = z.object({
@@ -67,6 +72,7 @@ export const EvidenceRef = z.object({
   id: z.string(),
   hash: z.string(),
 });
+export const EvidenceRefSchema = EvidenceRef;
 export type EvidenceRef = z.infer<typeof EvidenceRef>;
 
 // ---------------------------------------------------------------------------
@@ -74,9 +80,11 @@ export type EvidenceRef = z.infer<typeof EvidenceRef>;
 // ---------------------------------------------------------------------------
 
 export const TriggerKind = z.enum(["entrypoint", "lifecycle", "bin", "subpath"]);
+export const TriggerKindSchema = TriggerKind;
 export type TriggerKind = z.infer<typeof TriggerKind>;
 
 export const LifecycleHook = z.enum(["preinstall", "install", "postinstall", "prepare"]);
+export const LifecycleHookSchema = LifecycleHook;
 export type LifecycleHook = z.infer<typeof LifecycleHook>;
 
 export const Trigger = z.object({
@@ -85,11 +93,12 @@ export const Trigger = z.object({
   argv: z.array(z.string()).default([]),
   stdin: z.string().nullable().default(null),
 });
+export const TriggerSchema = Trigger;
 export type Trigger = z.infer<typeof Trigger>;
 
 // ---------------------------------------------------------------------------
 // ToolCall — one step of an experiment the LLM composes from the shared tool
-// registry (engine/src/sandbox/tools.ts). `args` is intentionally opaque here:
+// registry (engine/npmguard/experiments.py). `args` is intentionally opaque here:
 // the registry validates it against the named tool's per-tool Zod paramSchema,
 // so the strong typing lives at the single point that both renders the tool
 // list to the prompt and executes the calls. An `args` shape that a tool's
@@ -100,6 +109,7 @@ export const ToolCall = z.object({
   tool: z.string(),
   args: z.record(z.unknown()).default({}),
 });
+export const ToolCallSchema = ToolCall;
 export type ToolCall = z.infer<typeof ToolCall>;
 
 // ---------------------------------------------------------------------------
@@ -110,18 +120,21 @@ export const PlantedFileRef = z.object({
   path: z.string(),
   contentHash: z.string(),
 });
+export const PlantedFileRefSchema = PlantedFileRef;
 export type PlantedFileRef = z.infer<typeof PlantedFileRef>;
 
 export const StubUrlRef = z.object({
   pattern: z.string(),
   responseHash: z.string(),
 });
+export const StubUrlRefSchema = StubUrlRef;
 export type StubUrlRef = z.infer<typeof StubUrlRef>;
 
 export const FilePatchRef = z.object({
   path: z.string(),
   patchHash: z.string(),
 });
+export const FilePatchRefSchema = FilePatchRef;
 export type FilePatchRef = z.infer<typeof FilePatchRef>;
 
 export const SetupApplied = z.object({
@@ -134,6 +147,7 @@ export const SetupApplied = z.object({
   patches: z.array(FilePatchRef).default([]),
   preloadHash: z.string().nullable().default(null),
 });
+export const SetupAppliedSchema = SetupApplied;
 export type SetupApplied = z.infer<typeof SetupApplied>;
 
 // ---------------------------------------------------------------------------
@@ -147,6 +161,7 @@ export const ObserveFlags = z.object({
   node: z.boolean(),
   inspector: z.boolean().default(false), // V8 Inspector added in Sprint 5
 });
+export const ObserveFlagsSchema = ObserveFlags;
 export type ObserveFlags = z.infer<typeof ObserveFlags>;
 
 export const Budget = z.object({
@@ -154,6 +169,7 @@ export const Budget = z.object({
   maxSyscalls: z.number().positive().nullable().default(null),
   maxBytesCapture: z.number().positive().nullable().default(null),
 });
+export const BudgetSchema = Budget;
 export type Budget = z.infer<typeof Budget>;
 
 // ---------------------------------------------------------------------------
@@ -166,12 +182,14 @@ export const RunErrorKind = z.enum([
   "SensorError",   // a sensor failed to start or parse
   "SetupError",    // a manipulation primitive failed to apply
 ]);
+export const RunErrorKindSchema = RunErrorKind;
 export type RunErrorKind = z.infer<typeof RunErrorKind>;
 
 export const RunError = z.object({
   kind: RunErrorKind,
   detail: z.string(),
 });
+export const RunErrorSchema = RunError;
 export type RunError = z.infer<typeof RunError>;
 
 // ---------------------------------------------------------------------------
@@ -184,6 +202,7 @@ export const EventSummary = z.object({
   filesWritten: z.array(z.string()).default([]),
   dnsQueries: z.array(z.string()).default([]),
 });
+export const EventSummarySchema = EventSummary;
 export type EventSummary = z.infer<typeof EventSummary>;
 
 export const RunArtifact = z.object({
@@ -207,4 +226,5 @@ export const RunArtifact = z.object({
   contentHash: z.string(),
   createdAt: z.string(), // ISO timestamp
 });
+export const RunArtifactSchema = RunArtifact;
 export type RunArtifact = z.infer<typeof RunArtifact>;

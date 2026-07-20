@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 if $DEV; then
-  # ── Dev mode: tsx watch + vite dev server ──
+  # ── Dev mode: FastAPI reload + Vite dev server ──
   ./engine/run.sh &
   ENGINE_PID=$!
 

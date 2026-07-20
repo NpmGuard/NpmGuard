@@ -1,7 +1,12 @@
 node_modules
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
 .DS_Store
 .env
 .env.bck
+.env.*.bck
 openclaw/.env.gateway
 dist
 build
@@ -22,6 +27,7 @@ bench/dataset/manifest.json
 # Audit reports — generated outputs, persisted per-environment (prod droplet has
 # its own data/ dir). Don't commit local test runs; they conflict with prod.
 data/reports/
+audit-logs*/
 
 # Sandbox runtime deps installed at bench time.
 sandbox/package.json
