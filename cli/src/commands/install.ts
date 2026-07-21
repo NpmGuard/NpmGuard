@@ -284,8 +284,18 @@ async function handleExistingReport(
     return;
   }
 
-  console.log(chalk.yellow(`  Verdict: ${verdict}`));
-  await promptAndInstallIfAccepted(fullSpec, name, version, opts, "  Proceed with install? (y/N) ");
+  if (verdict === "SUSPECT") {
+    console.log(chalk.yellow("  SUSPECT — actionable signal, not reproduced in the sandbox"));
+  } else {
+    console.log(chalk.gray(`  ${verdict} — no confirmed exploit verdict is available`));
+  }
+  await promptAndInstallIfAccepted(
+    fullSpec,
+    name,
+    version,
+    opts,
+    "  Review and proceed with install? (y/N) ",
+  );
 }
 
 async function promptAndInstallIfAccepted(

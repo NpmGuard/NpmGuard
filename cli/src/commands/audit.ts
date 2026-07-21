@@ -46,7 +46,7 @@ export async function auditCommand(
     );
     console.log();
     console.log(chalk.dim(`View full report: ${apiUrl}/package/${encodeURIComponent(parsed.name)}/report`));
-    return done(verdict === "SAFE" ? 0 : 1);
+    return done(verdict.toUpperCase() === "DANGEROUS" ? 1 : 0);
   }
 
   // 2. Try checkout — if payments not configured (501), go straight to free audit
@@ -172,7 +172,7 @@ export async function auditCommand(
           data.capabilities ?? [],
           data.proofCount ?? data.findings?.length ?? 0,
         );
-        exitCode = data.verdict?.toUpperCase() === "SAFE" ? 0 : 1;
+        exitCode = data.verdict?.toUpperCase() === "DANGEROUS" ? 1 : 0;
       } catch {
         spinner.stop();
       }
