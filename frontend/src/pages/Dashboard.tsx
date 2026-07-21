@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { usePanelStore } from "../stores/panelStore";
 import type {
+  BillingAccount,
   BillingPayload,
   PaywallReason,
+  PublicRepoScanDetailPayload,
+  PublicRepoScanSummary,
   RepoSummary,
   UsageAllowance,
 } from "../lib/panel-types";
@@ -332,6 +335,402 @@ function PlanLedger({
   );
 }
 
+function publicScanTone(scan: PublicRepoScanSummary): "safe" | "danger" | "warning" | "running" | "unknown" {
+  if (scan.status === "running") return "running";
+  if (scan.rollup.verdict === "DANGEROUS") return "danger";
+  if (scan.rollup.verdict === "SUSPECT") return "warning";
+  if (scan.rollup.verdict === "SAFE") return "safe";
+  return "unknown";
+}
+
+function PublicAuditHistory({
+  scans,
+  onOpen,
+}: {
+  scans: PublicRepoScanSummary[];
+  onOpen: (scanId: number) => void;
+}) {
+  if (scans.length === 0) return null;
+
+  return (
+    <section className="public-audit-ledger" aria-labelledby="public-audits-title">
+      <header className="public-audit-ledger__head">
+        <div>
+          <span className="dashboard-kicker">Read-only inspections</span>
+          <h2 id="public-audits-title">Public repository snapshots</h2>
+        </div>
+        <span className="public-audit-ledger__boundary">No target installation</span>
+      </header>
+
+      <div className="public-audit-ledger__rows">
+        {scans.slice(0, 6).map((scan) => {
+          const tone = publicScanTone(scan);
+          const completed = scan.cached + scan.audited + scan.failed;
+          const percentage = scan.total > 0 ? Math.min(100, (completed / scan.total) * 100) : 100;
+          const label =
+            scan.status === "running"
+              ? "Scanning"
+              : scan.rollup.verdict ?? (scan.total === 0 ? "No dependencies" : "Unknown");
+
+          return (
+            <article
+              key={scan.id}
+              className={`public-audit-row public-audit-row--${tone}`}
+              style={{ "--public-audit-tone": `var(--repo-${tone})` } as React.CSSProperties}
+            >
+              <div className="public-audit-row__identity">
+                <span>{scan.owner}</span>
+                <a href={scan.htmlUrl} target="_blank" rel="noreferrer">
+                  {scan.name}
+                  <Icon name="arrow" size={14} />
+                </a>
+                <small>
+                  {scan.lockfilePath} · {scan.defaultBranch}
+                </small>
+              </div>
+
+              <div className="public-audit-row__scope" aria-label="Audit boundaries">
+                <span>PUBLIC</span>
+                <span>SNAPSHOT</span>
+                <span>NO WRITE</span>
+              </div>
+
+              <div className="public-audit-row__result">
+                <span className={`repo-status-pill repo-status-pill--${tone}`}>
+                  {scan.status === "running" && <span className="repo-running-dot" />}
+                  {label}
+                </span>
+                {scan.status === "running" ? (
+                  <div
+                    className="public-audit-row__progress"
+                    role="progressbar"
+                    aria-label={`Auditing ${scan.fullName}`}
+                    aria-valuemin={0}
+                    aria-valuemax={scan.total}
+                    aria-valuenow={completed}
+                  >
+                    <span style={{ width: `${percentage}%` }} />
+                  </div>
+                ) : (
+                  <small>{formatScanDate(scan.startedAt)}</small>
+                )}
+              </div>
+
+              <dl className="public-audit-row__counts">
+                <div>
+                  <dt>Packages</dt>
+                  <dd>{scan.total.toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt>Cache</dt>
+                  <dd>{scan.cached.toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt>Unresolved</dt>
+                  <dd>{scan.failed.toLocaleString()}</dd>
+                </div>
+              </dl>
+
+              <button
+                type="button"
+                className="public-audit-row__open"
+                onClick={() => onOpen(scan.id)}
+                aria-label={`Open audit report for ${scan.fullName}`}
+              >
+                Report
+                <Icon name="arrow" size={14} />
+              </button>
+
+              <span className="public-audit-row__account">Allowance · {scan.accountLogin}</span>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function PublicAuditReportDialog({
+  scanId,
+  onClose,
+  fetchDetail,
+}: {
+  scanId: number;
+  onClose: () => void;
+  fetchDetail: (scanId: number) => Promise<PublicRepoScanDetailPayload | null>;
+}) {
+  const [detail, setDetail] = useState<PublicRepoScanDetailPayload | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchDetail(scanId).then((payload) => {
+      if (cancelled) return;
+      setDetail(payload);
+      setFailed(!payload);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchDetail, scanId]);
+
+  const scan = detail?.scan;
+  const tone = scan ? publicScanTone(scan) : "unknown";
+
+  return (
+    <div className="public-report-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="public-report-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="public-report-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="public-report-dialog__close"
+          onClick={onClose}
+          aria-label="Close public audit report"
+        >
+          <Icon name="close" size={18} />
+        </button>
+
+        {!detail && !failed && (
+          <div className="public-report-dialog__loading" role="status">
+            <span className="dashboard-loading__spinner" />
+            Loading inspection record…
+          </div>
+        )}
+
+        {failed && (
+          <div className="public-report-dialog__loading" role="alert">
+            <Icon name="alert" size={22} />
+            This inspection record could not be loaded.
+          </div>
+        )}
+
+        {detail && scan && (
+          <>
+            <header className="public-report-dialog__head">
+              <div>
+                <span className="dashboard-kicker">Public snapshot #{scan.id}</span>
+                <h2 id="public-report-title">{scan.fullName}</h2>
+                <p>
+                  {scan.lockfilePath} · {scan.defaultBranch} · {formatScanDate(scan.startedAt)}
+                </p>
+              </div>
+              <div className="public-report-dialog__head-status">
+                <span className={`repo-status-pill repo-status-pill--${tone}`}>
+                  {scan.status === "running" && <span className="repo-running-dot" />}
+                  {scan.status === "running" ? "Scanning" : scan.rollup.verdict ?? "No dependencies"}
+                </span>
+                <a href={scan.htmlUrl} target="_blank" rel="noreferrer">
+                  Open on GitHub <Icon name="arrow" size={14} />
+                </a>
+              </div>
+            </header>
+
+            <div className="public-report-dialog__boundary">
+              <span><Icon name="search" size={14} /> Read-only snapshot</span>
+              <span>No Protect</span>
+              <span>No webhook</span>
+              <span>No GitHub Check</span>
+            </div>
+
+            <dl className="public-report-dialog__summary">
+              <div><dt>Packages</dt><dd>{scan.total.toLocaleString()}</dd></div>
+              <div><dt>Dangerous</dt><dd className="is-danger">{scan.rollup.dangerous}</dd></div>
+              <div><dt>Suspect</dt><dd className="is-warning">{scan.rollup.suspect}</dd></div>
+              <div><dt>Unknown</dt><dd>{scan.rollup.unknown}</dd></div>
+              <div><dt>Safe</dt><dd className="is-safe">{scan.rollup.safe}</dd></div>
+              <div><dt>Cached</dt><dd>{scan.cached}</dd></div>
+            </dl>
+
+            <div className="public-report-dialog__table-wrap">
+              {detail.dependenciesTruncated && (
+                <div className="public-report-dialog__truncated">
+                  Showing the 500 highest-priority dependencies. Dangerous, suspect, unknown, and
+                  direct dependencies are listed first.
+                </div>
+              )}
+              <table className="public-report-dialog__table">
+                <thead>
+                  <tr>
+                    <th>Dependency</th>
+                    <th>Source</th>
+                    <th>Verdict</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.dependencies.map((dependency) => {
+                    const verdict = dependency.verdict ?? (dependency.active ? "QUEUED" : "UNRESOLVED");
+                    const depTone =
+                      verdict === "DANGEROUS"
+                        ? "danger"
+                        : verdict === "SUSPECT"
+                          ? "warning"
+                          : verdict === "SAFE"
+                            ? "safe"
+                            : dependency.active
+                              ? "running"
+                              : "unknown";
+                    return (
+                      <tr key={`${dependency.name}@${dependency.version}`}>
+                        <td>
+                          <strong>{dependency.name}</strong>
+                          <span>@{dependency.version}</span>
+                        </td>
+                        <td>
+                          {dependency.direct ? "Direct" : "Transitive"}
+                          {dependency.cached ? <small>Cached verdict</small> : null}
+                        </td>
+                        <td>
+                          <span className={`repo-status-pill repo-status-pill--${depTone}`}>
+                            {dependency.active && <span className="repo-running-dot" />}
+                            {verdict}
+                          </span>
+                        </td>
+                        <td>{dependency.reason || (dependency.active ? "Audit in progress" : "No reproducible verdict")}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {detail.dependencies.length === 0 && (
+                <div className="public-report-dialog__empty">No npm dependencies in this lockfile.</div>
+              )}
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PublicAuditDialog({
+  accounts,
+  busy,
+  error,
+  onClose,
+  onStart,
+}: {
+  accounts: BillingAccount[];
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onStart: (repository: string, installationId: number) => Promise<number | null>;
+}) {
+  const [repository, setRepository] = useState("");
+  const [installationId, setInstallationId] = useState(accounts[0]?.installationId ?? 0);
+  const selected = accounts.find((account) => account.installationId === installationId);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!repository.trim() || !installationId) return;
+    const scanId = await onStart(repository.trim(), installationId);
+    if (scanId) onClose();
+  }
+
+  return (
+    <div className="public-audit-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="public-audit-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="public-audit-dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="public-audit-dialog__close"
+          onClick={onClose}
+          aria-label="Close public repository audit"
+        >
+          <Icon name="close" size={18} />
+        </button>
+
+        <div className="public-audit-dialog__intro">
+          <span className="dashboard-kicker">Read-only audit</span>
+          <div className="public-audit-dialog__mark">
+            <Icon name="search" size={23} />
+          </div>
+          <h2 id="public-audit-dialog-title">Inspect a public repository</h2>
+          <p>
+            Paste any public GitHub repository. NpmGuard reads the root lockfile on its default
+            branch and creates a one-time dependency snapshot.
+          </p>
+          <div className="public-audit-dialog__boundaries" aria-label="Read-only boundaries">
+            <span><b>01</b> Public contents only</span>
+            <span><b>02</b> No install on target</span>
+            <span><b>03</b> No checks or webhooks</span>
+          </div>
+        </div>
+
+        <form className="public-audit-dialog__form" onSubmit={(event) => void submit(event)}>
+          <label>
+            <span>GitHub repository</span>
+            <div className="public-audit-dialog__url">
+              <Icon name="github" size={18} />
+              <input
+                type="text"
+                value={repository}
+                onChange={(event) => setRepository(event.target.value)}
+                placeholder="github.com/owner/repository"
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <small>Accepted: owner/repo or a github.com URL</small>
+          </label>
+
+          <label>
+            <span>Use audit allowance from</span>
+            <select
+              value={installationId}
+              onChange={(event) => setInstallationId(Number(event.target.value))}
+            >
+              {accounts.map((account) => (
+                <option key={account.installationId} value={account.installationId}>
+                  {account.accountLogin} · {account.plan.toUpperCase()}
+                </option>
+              ))}
+            </select>
+            {selected && (
+              <small>
+                {selected.monthlyAudits.remaining === null
+                  ? "Unlimited new package audits"
+                  : `${selected.monthlyAudits.remaining.toLocaleString()} new package audits left this month`}
+                . Cached verdicts do not count.
+              </small>
+            )}
+          </label>
+
+          {error && (
+            <div className="public-audit-dialog__error" role="alert">
+              <Icon name="alert" size={15} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="dashboard-button dashboard-button--primary public-audit-dialog__submit"
+            disabled={busy || !repository.trim() || !installationId}
+          >
+            <Icon name="scan" />
+            {busy ? "Reading public snapshot…" : "Audit snapshot"}
+          </button>
+          <p className="public-audit-dialog__footnote">
+            Manual result only · findings never write to the target repository
+          </p>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function UpgradeDialog({
   reason,
   billing,
@@ -430,6 +829,9 @@ export function Dashboard() {
     billing,
     billingBusyInstallationId,
     billingError,
+    publicScans,
+    publicScanBusy,
+    publicScanError,
     loading,
     error,
     repoActionErrors,
@@ -437,6 +839,9 @@ export function Dashboard() {
     fetchMe,
     refresh,
     refreshBilling,
+    refreshPublicScans,
+    startPublicRepoScan,
+    fetchPublicRepoScanDetail,
     startProCheckout,
     openBillingPortal,
     triggerScan,
@@ -444,9 +849,12 @@ export function Dashboard() {
     markAlertsSeen,
     clearRepoActionError,
     closePaywall,
+    clearPublicScanError,
   } = usePanelStore();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<RepoFilter>("all");
+  const [publicAuditOpen, setPublicAuditOpen] = useState(false);
+  const [publicReportScanId, setPublicReportScanId] = useState<number | null>(null);
   const [busyRepo, setBusyRepo] = useState<{
     id: number;
     action: "audit" | "protect";
@@ -486,7 +894,10 @@ export function Dashboard() {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closePaywall();
+      if (event.key === "Escape") {
+        closePaywall();
+        setPublicAuditOpen(false);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
@@ -494,6 +905,41 @@ export function Dashboard() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [closePaywall, paywall]);
+
+  useEffect(() => {
+    if (!publicAuditOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPublicAuditOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [publicAuditOpen]);
+
+  useEffect(() => {
+    if (publicReportScanId === null) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPublicReportScanId(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [publicReportScanId]);
+
+  const publicScanRunning = publicScans.some((scan) => scan.status === "running");
+  useEffect(() => {
+    if (!user || !publicScanRunning) return;
+    const timer = window.setInterval(() => void refreshPublicScans(), 2500);
+    return () => window.clearInterval(timer);
+  }, [publicScanRunning, refreshPublicScans, user]);
 
   const stats = useMemo(() => {
     const protectedCount = repos.filter((repo) => repo.protected).length;
@@ -607,6 +1053,19 @@ export function Dashboard() {
             </p>
           </div>
           <div className="dashboard-hero__actions">
+            {billing && billing.accounts.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  clearPublicScanError();
+                  setPublicAuditOpen(true);
+                }}
+                className="dashboard-button dashboard-button--inspection"
+              >
+                <Icon name="search" />
+                Audit public repo
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void refresh()}
@@ -676,6 +1135,8 @@ export function Dashboard() {
             </div>
           </div>
         )}
+
+        <PublicAuditHistory scans={publicScans} onOpen={setPublicReportScanId} />
 
         {repos.length > 0 && (
           <section className="portfolio-posture" aria-labelledby="portfolio-title">
@@ -984,8 +1445,27 @@ export function Dashboard() {
           reason={paywall}
           billing={billing}
           busy={billingBusyInstallationId === paywall.installationId}
-          onClose={closePaywall}
+          onClose={() => {
+            closePaywall();
+            setPublicAuditOpen(false);
+          }}
           onUpgrade={() => void startProCheckout(paywall.installationId)}
+        />
+      )}
+      {publicAuditOpen && billing && !paywall && (
+        <PublicAuditDialog
+          accounts={billing.accounts}
+          busy={publicScanBusy}
+          error={publicScanError}
+          onClose={() => setPublicAuditOpen(false)}
+          onStart={startPublicRepoScan}
+        />
+      )}
+      {publicReportScanId !== null && (
+        <PublicAuditReportDialog
+          scanId={publicReportScanId}
+          onClose={() => setPublicReportScanId(null)}
+          fetchDetail={fetchPublicRepoScanDetail}
         />
       )}
     </div>

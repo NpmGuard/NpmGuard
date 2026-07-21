@@ -99,6 +99,50 @@ export interface RepoRollup {
   safe: number;
 }
 
+export interface PublicRepoScanSummary {
+  id: number;
+  installationId: number;
+  accountLogin: string;
+  requestedBy: number;
+  githubRepoId: number;
+  owner: string;
+  name: string;
+  fullName: string;
+  htmlUrl: string;
+  defaultBranch: string;
+  commitSha: string | null;
+  lockfilePath: string;
+  lockfileSha: string;
+  status: "running" | "done";
+  total: number;
+  cached: number;
+  audited: number;
+  failed: number;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  rollup: RepoRollup;
+}
+
+export interface PublicRepoScanDependency {
+  name: string;
+  version: string;
+  direct: boolean;
+  range: string | null;
+  cached: boolean;
+  verdict: string | null;
+  reason: string | null;
+  evidenceCount: number;
+  auditedAt: string | null;
+  active: boolean;
+}
+
+export interface PublicRepoScanDetailPayload {
+  scan: PublicRepoScanSummary;
+  dependencies: PublicRepoScanDependency[];
+  dependenciesTruncated: boolean;
+}
+
 export interface PanelAlert {
   id: number;
   org: string;

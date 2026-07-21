@@ -5,6 +5,8 @@ import type {
   PanelAlert,
   PanelUser,
   PaywallReason,
+  PublicRepoScanDetailPayload,
+  PublicRepoScanSummary,
   RepoDetailPayload,
   RepoSummary,
 } from "../lib/panel-types";
@@ -28,6 +30,9 @@ interface PanelState {
   billing: BillingPayload | null;
   billingBusyInstallationId: number | null;
   billingError: string | null;
+  publicScans: PublicRepoScanSummary[];
+  publicScanBusy: boolean;
+  publicScanError: string | null;
   loading: boolean;
   /** Reserved for failures that prevent the workspace data from loading. */
   error: string | null;
@@ -40,6 +45,9 @@ interface PanelState {
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   refreshBilling: () => Promise<void>;
+  refreshPublicScans: () => Promise<void>;
+  startPublicRepoScan: (repository: string, installationId: number) => Promise<number | null>;
+  fetchPublicRepoScanDetail: (scanId: number) => Promise<PublicRepoScanDetailPayload | null>;
   startProCheckout: (installationId: number) => Promise<boolean>;
   openBillingPortal: (installationId: number) => Promise<boolean>;
   triggerScan: (repoId: number) => Promise<number | null>;
@@ -49,6 +57,7 @@ interface PanelState {
   markAlertsSeen: () => Promise<void>;
   clearRepoActionError: (repoId: number) => void;
   closePaywall: () => void;
+  clearPublicScanError: () => void;
 }
 
 async function jsonOrNull<T>(res: Response): Promise<T | null> {
@@ -79,6 +88,9 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   billing: null,
   billingBusyInstallationId: null,
   billingError: null,
+  publicScans: [],
+  publicScanBusy: false,
+  publicScanError: null,
   loading: false,
   error: null,
   repoActionErrors: {},
@@ -108,6 +120,9 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       billing: null,
       billingBusyInstallationId: null,
       billingError: null,
+      publicScans: [],
+      publicScanBusy: false,
+      publicScanError: null,
       error: null,
       repoActionErrors: {},
       paywall: null,
@@ -131,10 +146,11 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       const orgs = await orgsRes.json();
       set({ installations: orgs.installations, installUrl: orgs.installUrl });
 
-      const [reposRes, alertsRes, billingRes] = await Promise.all([
+      const [reposRes, alertsRes, billingRes, publicScansRes] = await Promise.all([
         fetch(`${API_BASE}/panel/repos`),
         fetch(`${API_BASE}/panel/alerts`),
         fetch(`${API_BASE}/panel/billing`),
+        fetch(`${API_BASE}/panel/public-repos`),
       ]);
 
       const reposData = await jsonOrNull<{ repos?: RepoSummary[]; error?: string }>(reposRes);
@@ -150,6 +166,10 @@ export const usePanelStore = create<PanelState>((set, get) => ({
 
       const alertsData = await jsonOrNull<{ alerts?: PanelAlert[] }>(alertsRes);
       const billingData = await jsonOrNull<BillingPayload>(billingRes);
+      const publicScansData = await jsonOrNull<{
+        scans?: PublicRepoScanSummary[];
+        error?: string;
+      }>(publicScansRes);
       const repos = reposData.repos;
       const alerts = alertsRes.ok ? (alertsData?.alerts ?? []) : [];
       set({
@@ -157,6 +177,10 @@ export const usePanelStore = create<PanelState>((set, get) => ({
         alerts,
         billing: billingRes.ok ? billingData : null,
         billingError: billingRes.ok ? null : "Plan usage could not be refreshed",
+        publicScans: publicScansRes.ok ? (publicScansData?.scans ?? []) : [],
+        publicScanError: publicScansRes.ok
+          ? null
+          : (publicScansData?.error ?? "Public audit history could not be refreshed"),
         loading: false,
       });
     } catch (err) {
@@ -175,6 +199,85 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       set({ billing: data, billingError: null });
     } catch {
       set({ billingError: "Plan usage could not be refreshed" });
+    }
+  },
+
+  refreshPublicScans: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/panel/public-repos`);
+      const data = await jsonOrNull<{ scans?: PublicRepoScanSummary[]; error?: string }>(res);
+      if (!res.ok || !data?.scans) {
+        set({ publicScanError: data?.error ?? "Public audit history could not be refreshed" });
+        return;
+      }
+      set({ publicScans: data.scans, publicScanError: null });
+    } catch {
+      set({ publicScanError: "Public audit history could not be refreshed" });
+    }
+  },
+
+  startPublicRepoScan: async (repository, installationId) => {
+    set({ publicScanBusy: true, publicScanError: null, paywall: null });
+    try {
+      const res = await fetch(`${API_BASE}/panel/public-repos/scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repository, installationId }),
+      });
+      const data = await jsonOrNull<{
+        scanId?: number;
+        error?: string;
+        cap?: boolean;
+        resource?: PaywallReason["resource"];
+        installationId?: number;
+        entitlements?: PaywallReason["entitlements"];
+      }>(res);
+      if ((res.ok || res.status === 409) && data?.scanId) {
+        set({ publicScanBusy: false });
+        await Promise.all([get().refreshPublicScans(), get().refreshBilling()]);
+        return data.scanId;
+      }
+      if (data?.cap && data.resource && data.installationId && data.entitlements) {
+        set((state) => ({
+          publicScanBusy: false,
+          paywall: {
+            message: data.error ?? "Free allowance reached",
+            resource: data.resource!,
+            installationId: data.installationId!,
+            entitlements: data.entitlements!,
+          },
+          billing: state.billing
+            ? {
+                ...state.billing,
+                accounts: state.billing.accounts.map((account) =>
+                  account.installationId === data.installationId ? data.entitlements! : account,
+                ),
+              }
+            : state.billing,
+        }));
+      } else {
+        set({
+          publicScanBusy: false,
+          publicScanError: data?.error ?? `Public audit failed to start (${res.status})`,
+        });
+      }
+    } catch (err) {
+      set({
+        publicScanBusy: false,
+        publicScanError:
+          err instanceof Error ? err.message : "Network error while starting the public audit",
+      });
+    }
+    return null;
+  },
+
+  fetchPublicRepoScanDetail: async (scanId) => {
+    try {
+      const res = await fetch(`${API_BASE}/panel/public-repos/${scanId}`);
+      if (!res.ok) return null;
+      return (await res.json()) as PublicRepoScanDetailPayload;
+    } catch {
+      return null;
     }
   },
 
@@ -390,4 +493,5 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   },
 
   closePaywall: () => set({ paywall: null }),
+  clearPublicScanError: () => set({ publicScanError: null }),
 }));
