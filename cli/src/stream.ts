@@ -56,7 +56,7 @@ export async function streamAuditEvents(
           data.capabilities ?? [],
           data.proofCount ?? data.findings?.length ?? 0,
         );
-        exitCode = verdict === "SAFE" ? 0 : 1;
+        exitCode = verdict === "DANGEROUS" ? 1 : 0;
       } catch {
         spinner.stop();
       }

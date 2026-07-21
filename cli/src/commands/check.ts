@@ -93,6 +93,10 @@ export async function checkCommand(opts: {
       verdictCol = chalk.green("SAFE");
     } else if (r.verdict.toUpperCase() === "DANGEROUS") {
       verdictCol = chalk.red("DANGEROUS");
+    } else if (r.verdict.toUpperCase() === "SUSPECT") {
+      verdictCol = chalk.yellow("SUSPECT");
+    } else if (r.verdict.toUpperCase() === "UNKNOWN") {
+      verdictCol = chalk.gray("UNKNOWN");
     } else {
       verdictCol = chalk.yellow(r.verdict);
     }
@@ -109,12 +113,22 @@ export async function checkCommand(opts: {
   const dangerous = results.filter(
     (r) => r.verdict?.toUpperCase() === "DANGEROUS",
   ).length;
+  const suspect = results.filter(
+    (r) => r.verdict?.toUpperCase() === "SUSPECT",
+  ).length;
+  const unknown = results.filter(
+    (r) => r.verdict?.toUpperCase() === "UNKNOWN",
+  ).length;
   const notAudited = results.filter((r) => r.verdict === null).length;
 
   console.log(
     chalk.green(`${safe} safe`) +
       " | " +
       chalk.red(`${dangerous} dangerous`) +
+      " | " +
+      chalk.yellow(`${suspect} suspect`) +
+      " | " +
+      chalk.gray(`${unknown} unknown`) +
       " | " +
       chalk.gray(`${notAudited} not audited`),
   );

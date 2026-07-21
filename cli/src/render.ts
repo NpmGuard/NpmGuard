@@ -12,21 +12,27 @@ export function renderVerdict(
   capabilities: string[],
   proofCount: number,
 ): void {
-  const isSafe = verdict.toUpperCase() === "SAFE";
-  const color = isSafe ? chalk.green : chalk.red;
-  const bgColor = isSafe ? chalk.bgGreen.white.bold : chalk.bgRed.white.bold;
+  const normalized = verdict.toUpperCase();
+  const presentation =
+    normalized === "SAFE"
+      ? { color: chalk.green, badge: chalk.bgGreen.white.bold }
+      : normalized === "DANGEROUS"
+        ? { color: chalk.red, badge: chalk.bgRed.white.bold }
+        : normalized === "SUSPECT"
+          ? { color: chalk.yellow, badge: chalk.bgYellow.black.bold }
+          : { color: chalk.gray, badge: chalk.bgGray.white.bold };
 
   console.log();
-  console.log(bgColor(`  ${verdict.toUpperCase()}  `));
+  console.log(presentation.badge(`  ${normalized}  `));
   console.log();
 
   if (capabilities.length > 0) {
     console.log(
-      color("Capabilities: ") + capabilities.map((c) => chalk.yellow(c)).join(", "),
+      presentation.color("Capabilities: ") + capabilities.map((c) => chalk.yellow(c)).join(", "),
     );
   }
 
-  console.log(color(`Findings: ${proofCount}`));
+  console.log(presentation.color(`Evidence items: ${proofCount}`));
   console.log();
 }
 
