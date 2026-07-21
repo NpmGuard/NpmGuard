@@ -162,8 +162,8 @@ Each with the options considered and the pick.
 ### 5.10 Rollup + check mapping (forward-compatible with 4-state)
 Severity order `DANGEROUS > SUSPECT > UNKNOWN > SAFE`; repo verdict = max over
 dep verdicts, alongside counts `{dangerous, suspect, unknown/pending, safe}`.
-Today reports emit 2-state — the mapping degrades gracefully. GitHub check
-conclusion: any DANGEROUS → `failure`; else audits pending → stay
+Reports emit all four states. GitHub check conclusion: any DANGEROUS →
+`failure`; else audits pending → stay
 `in_progress`; else → `success` (SUSPECT, when it exists, → `success` +
 warning annotation). Never block on suspicion (decision 12).
 
