@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import type {
+  BillingPayload,
   Installation,
   PanelAlert,
   PanelUser,
+  PaywallReason,
   RepoDetailPayload,
   RepoSummary,
 } from "../lib/panel-types";
@@ -23,23 +25,30 @@ interface PanelState {
   installUrl: string | null;
   repos: RepoSummary[];
   alerts: PanelAlert[];
+  billing: BillingPayload | null;
+  billingBusyInstallationId: number | null;
+  billingError: string | null;
   loading: boolean;
   /** Reserved for failures that prevent the workspace data from loading. */
   error: string | null;
   /** Action failures stay attached to their repository instead of poisoning the whole dashboard. */
   repoActionErrors: Record<number, RepoActionError>;
-  /** Set when the org hit a beta cap — dashboard shows the "talk to us" wall. */
-  capError: string | null;
+  /** Set when an account reaches an allowance and should see the upgrade dialog. */
+  paywall: PaywallReason | null;
 
   fetchMe: () => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  refreshBilling: () => Promise<void>;
+  startProCheckout: (installationId: number) => Promise<boolean>;
+  openBillingPortal: (installationId: number) => Promise<boolean>;
   triggerScan: (repoId: number) => Promise<number | null>;
   setProtect: (repoId: number, on: boolean) => Promise<boolean>;
   resync: (repoId: number) => Promise<boolean>;
   fetchRepoDetail: (owner: string, name: string) => Promise<RepoDetailPayload | null>;
   markAlertsSeen: () => Promise<void>;
   clearRepoActionError: (repoId: number) => void;
+  closePaywall: () => void;
 }
 
 async function jsonOrNull<T>(res: Response): Promise<T | null> {
@@ -67,10 +76,13 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   installUrl: null,
   repos: [],
   alerts: [],
+  billing: null,
+  billingBusyInstallationId: null,
+  billingError: null,
   loading: false,
   error: null,
   repoActionErrors: {},
-  capError: null,
+  paywall: null,
 
   fetchMe: async () => {
     try {
@@ -93,9 +105,12 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       installations: [],
       repos: [],
       alerts: [],
+      billing: null,
+      billingBusyInstallationId: null,
+      billingError: null,
       error: null,
       repoActionErrors: {},
-      capError: null,
+      paywall: null,
     });
   },
 
@@ -116,9 +131,10 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       const orgs = await orgsRes.json();
       set({ installations: orgs.installations, installUrl: orgs.installUrl });
 
-      const [reposRes, alertsRes] = await Promise.all([
+      const [reposRes, alertsRes, billingRes] = await Promise.all([
         fetch(`${API_BASE}/panel/repos`),
         fetch(`${API_BASE}/panel/alerts`),
+        fetch(`${API_BASE}/panel/billing`),
       ]);
 
       const reposData = await jsonOrNull<{ repos?: RepoSummary[]; error?: string }>(reposRes);
@@ -133,25 +149,119 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       }
 
       const alertsData = await jsonOrNull<{ alerts?: PanelAlert[] }>(alertsRes);
+      const billingData = await jsonOrNull<BillingPayload>(billingRes);
       const repos = reposData.repos;
       const alerts = alertsRes.ok ? (alertsData?.alerts ?? []) : [];
-      set({ repos, alerts, loading: false });
+      set({
+        repos,
+        alerts,
+        billing: billingRes.ok ? billingData : null,
+        billingError: billingRes.ok ? null : "Plan usage could not be refreshed",
+        loading: false,
+      });
     } catch (err) {
       set({ loading: false, error: err instanceof Error ? err.message : "Network error" });
     }
   },
 
+  refreshBilling: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/panel/billing`);
+      const data = await jsonOrNull<BillingPayload>(res);
+      if (!res.ok || !data) {
+        set({ billingError: "Plan usage could not be refreshed" });
+        return;
+      }
+      set({ billing: data, billingError: null });
+    } catch {
+      set({ billingError: "Plan usage could not be refreshed" });
+    }
+  },
+
+  startProCheckout: async (installationId) => {
+    set({ billingBusyInstallationId: installationId, billingError: null });
+    try {
+      const res = await fetch(`${API_BASE}/panel/billing/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ installationId }),
+      });
+      const data = await jsonOrNull<{ url?: string; error?: string }>(res);
+      if (!res.ok || !data?.url) {
+        set({
+          billingBusyInstallationId: null,
+          billingError: data?.error ?? "Unable to start checkout",
+        });
+        return false;
+      }
+      window.location.assign(data.url);
+      return true;
+    } catch {
+      set({ billingBusyInstallationId: null, billingError: "Unable to start checkout" });
+      return false;
+    }
+  },
+
+  openBillingPortal: async (installationId) => {
+    set({ billingBusyInstallationId: installationId, billingError: null });
+    try {
+      const res = await fetch(`${API_BASE}/panel/billing/portal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ installationId }),
+      });
+      const data = await jsonOrNull<{ url?: string; error?: string }>(res);
+      if (!res.ok || !data?.url) {
+        set({
+          billingBusyInstallationId: null,
+          billingError: data?.error ?? "Unable to open billing",
+        });
+        return false;
+      }
+      window.location.assign(data.url);
+      return true;
+    } catch {
+      set({ billingBusyInstallationId: null, billingError: "Unable to open billing" });
+      return false;
+    }
+  },
+
   triggerScan: async (repoId) => {
     set((state) => ({
-      capError: null,
+      paywall: null,
       repoActionErrors: withoutRepoActionError(state.repoActionErrors, repoId),
     }));
     try {
       const res = await fetch(`${API_BASE}/panel/repo/${repoId}/scan`, { method: "POST" });
-      const data = await jsonOrNull<{ scanId?: number; error?: string; cap?: boolean }>(res);
-      if (res.ok && data?.scanId) return data.scanId;
-      if (data?.cap) {
-        set({ capError: data.error ?? "Beta limit reached" });
+      const data = await jsonOrNull<{
+        scanId?: number;
+        error?: string;
+        cap?: boolean;
+        resource?: PaywallReason["resource"];
+        installationId?: number;
+        entitlements?: PaywallReason["entitlements"];
+      }>(res);
+      if (res.ok && data?.scanId) {
+        void get().refreshBilling();
+        return data.scanId;
+      }
+      if (data?.cap && data.resource && data.installationId && data.entitlements) {
+        set((state) => ({
+          paywall: {
+            message: data.error ?? "Free allowance reached",
+            resource: data.resource!,
+            installationId: data.installationId!,
+            entitlements: data.entitlements!,
+          },
+          billing: state.billing
+            ? {
+                ...state.billing,
+                accounts: state.billing.accounts.map((account) =>
+                  account.installationId === data.installationId ? data.entitlements! : account,
+                ),
+              }
+            : state.billing,
+        }));
       } else {
         set((state) => ({
           repoActionErrors: {
@@ -179,22 +289,36 @@ export const usePanelStore = create<PanelState>((set, get) => ({
 
   setProtect: async (repoId, on) => {
     set((state) => ({
-      capError: null,
+      paywall: null,
       repoActionErrors: withoutRepoActionError(state.repoActionErrors, repoId),
     }));
     try {
       const res = await fetch(`${API_BASE}/panel/repo/${repoId}/protect`, {
         method: on ? "POST" : "DELETE",
       });
-      const data = await jsonOrNull<{ error?: string; cap?: boolean }>(res);
+      const data = await jsonOrNull<{
+        error?: string;
+        cap?: boolean;
+        resource?: PaywallReason["resource"];
+        installationId?: number;
+        entitlements?: PaywallReason["entitlements"];
+      }>(res);
       if (res.ok) {
         set((state) => ({
           repos: state.repos.map((repo) => (repo.id === repoId ? { ...repo, protected: on } : repo)),
         }));
+        void get().refreshBilling();
         return true;
       }
-      if (data?.cap) {
-        set({ capError: data.error ?? "Beta limit reached" });
+      if (data?.cap && data.resource && data.installationId && data.entitlements) {
+        set({
+          paywall: {
+            message: data.error ?? "Free allowance reached",
+            resource: data.resource,
+            installationId: data.installationId,
+            entitlements: data.entitlements,
+          },
+        });
       } else {
         set((state) => ({
           repoActionErrors: {
@@ -222,7 +346,28 @@ export const usePanelStore = create<PanelState>((set, get) => ({
 
   resync: async (repoId) => {
     const res = await fetch(`${API_BASE}/panel/repo/${repoId}/resync`, { method: "POST" });
-    return res.ok;
+    if (res.ok) {
+      void get().refreshBilling();
+      return true;
+    }
+    const data = await jsonOrNull<{
+      error?: string;
+      cap?: boolean;
+      resource?: PaywallReason["resource"];
+      installationId?: number;
+      entitlements?: PaywallReason["entitlements"];
+    }>(res);
+    if (data?.cap && data.resource && data.installationId && data.entitlements) {
+      set({
+        paywall: {
+          message: data.error ?? "Free allowance reached",
+          resource: data.resource,
+          installationId: data.installationId,
+          entitlements: data.entitlements,
+        },
+      });
+    }
+    return false;
   },
 
   fetchRepoDetail: async (owner, name) => {
@@ -243,4 +388,6 @@ export const usePanelStore = create<PanelState>((set, get) => ({
       repoActionErrors: withoutRepoActionError(state.repoActionErrors, repoId),
     }));
   },
+
+  closePaywall: () => set({ paywall: null }),
 }));

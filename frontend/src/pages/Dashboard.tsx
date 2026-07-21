@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { usePanelStore } from "../stores/panelStore";
-import type { RepoSummary } from "../lib/panel-types";
+import type {
+  BillingPayload,
+  PaywallReason,
+  RepoSummary,
+  UsageAllowance,
+} from "../lib/panel-types";
 
 const API_BASE = "/api";
 
@@ -9,7 +14,10 @@ type RepoFilter = "all" | "protected" | "unscanned" | "attention";
 type IconName =
   | "alert"
   | "arrow"
+  | "billing"
+  | "close"
   | "github"
+  | "lock"
   | "plus"
   | "refresh"
   | "repo"
@@ -37,10 +45,29 @@ function Icon({ name, size = 16 }: IconProps) {
         <path d="m13 6 6 6-6 6" />
       </>
     ),
+    billing: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="M3 10h18" />
+        <path d="M7 15h3" />
+      </>
+    ),
+    close: (
+      <>
+        <path d="m6 6 12 12" />
+        <path d="m18 6-12 12" />
+      </>
+    ),
     github: (
       <>
         <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7A5.4 5.4 0 0 0 19.3 4 5 5 0 0 0 19.1.5S18 0 15 1.8a13.4 13.4 0 0 0-7 0C5 0 3.9.5 3.9.5A5 5 0 0 0 3.7 4a5.4 5.4 0 0 0-1.5 3.7c0 5.4 3.5 6.6 6.8 7A4.8 4.8 0 0 0 8 18v4" />
         <path d="M8 19c-3 .9-3-1.5-4-2" />
+      </>
+    ),
+    lock: (
+      <>
+        <rect x="4" y="10" width="16" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
       </>
     ),
     plus: (
@@ -191,6 +218,206 @@ function ScanStatus({ repo }: { repo: RepoSummary }) {
   );
 }
 
+function formatLimit(value: number, singular: string, plural: string): string {
+  if (value === 0) return `Unlimited ${plural}`;
+  return `${value.toLocaleString()} ${value === 1 ? singular : plural}`;
+}
+
+function formatPrice(billing: BillingPayload | null): string | null {
+  const price = billing?.price;
+  if (!price || price.amount === null) return null;
+  const amount = new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: price.currency.toUpperCase(),
+    maximumFractionDigits: price.amount % 100 === 0 ? 0 : 2,
+  }).format(price.amount / 100);
+  return price.interval ? `${amount}/${price.interval}` : amount;
+}
+
+function AllowanceMeter({
+  label,
+  allowance,
+}: {
+  label: string;
+  allowance: UsageAllowance;
+}) {
+  const unlimited = allowance.limit === 0;
+  const percentage = unlimited
+    ? 0
+    : Math.min(100, Math.round((allowance.used / Math.max(1, allowance.limit)) * 100));
+  return (
+    <div className="plan-meter">
+      <div className="plan-meter__label">
+        <span>{label}</span>
+        <strong>
+          {allowance.used.toLocaleString()} / {unlimited ? "∞" : allowance.limit.toLocaleString()}
+        </strong>
+      </div>
+      <div
+        className="plan-meter__rail"
+        role="progressbar"
+        aria-label={`${label}: ${allowance.used} used${unlimited ? "" : ` of ${allowance.limit}`}`}
+        aria-valuemin={0}
+        aria-valuemax={unlimited ? Math.max(allowance.used, 1) : allowance.limit}
+        aria-valuenow={allowance.used}
+      >
+        <span style={{ width: unlimited ? "12%" : `${percentage}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function PlanLedger({
+  billing,
+  busyInstallationId,
+  onUpgrade,
+  onManage,
+}: {
+  billing: BillingPayload;
+  busyInstallationId: number | null;
+  onUpgrade: (installationId: number) => void;
+  onManage: (installationId: number) => void;
+}) {
+  if (billing.accounts.length === 0) return null;
+  return (
+    <section className="plan-ledger" aria-labelledby="plan-ledger-title">
+      <div className="plan-ledger__intro">
+        <span className="dashboard-kicker" id="plan-ledger-title">
+          Plan allowance
+        </span>
+        <p>Cached package verdicts never use your monthly allowance.</p>
+      </div>
+      <div className="plan-ledger__accounts">
+        {billing.accounts.map((account) => {
+          const busy = busyInstallationId === account.installationId;
+          return (
+            <article className="plan-account" key={account.installationId}>
+              <div className="plan-account__identity">
+                <div>
+                  <strong>{account.accountLogin}</strong>
+                  <span>GitHub account</span>
+                </div>
+                <span className={`plan-account__badge plan-account__badge--${account.plan}`}>
+                  {account.plan}
+                </span>
+              </div>
+              <div className="plan-account__meters">
+                <AllowanceMeter label="Protected repositories" allowance={account.protectedRepos} />
+                <AllowanceMeter label="New package audits this month" allowance={account.monthlyAudits} />
+              </div>
+              <button
+                type="button"
+                className="plan-account__action"
+                disabled={busy || (account.plan === "free" && !billing.checkoutEnabled)}
+                onClick={() =>
+                  account.plan === "pro"
+                    ? onManage(account.installationId)
+                    : onUpgrade(account.installationId)
+                }
+              >
+                <Icon name="billing" size={15} />
+                {busy
+                  ? "Opening…"
+                  : account.plan === "pro"
+                    ? "Manage billing"
+                    : billing.checkoutEnabled
+                      ? "Upgrade to Pro"
+                      : "Pro coming soon"}
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function UpgradeDialog({
+  reason,
+  billing,
+  busy,
+  onClose,
+  onUpgrade,
+}: {
+  reason: PaywallReason;
+  billing: BillingPayload | null;
+  busy: boolean;
+  onClose: () => void;
+  onUpgrade: () => void;
+}) {
+  const pro = billing?.plans.pro;
+  const price = formatPrice(billing);
+  const resourceCopy =
+    reason.resource === "protected_repos"
+      ? "Your protected repository allowance is full. Existing repositories stay protected."
+      : "This scan needs more new package audits than remain in this month's allowance.";
+
+  return (
+    <div className="paywall-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="paywall-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="paywall-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button className="paywall-dialog__close" type="button" onClick={onClose} aria-label="Close">
+          <Icon name="close" size={18} />
+        </button>
+
+        <div className="paywall-dialog__boundary">
+          <span className="dashboard-kicker">Free allowance reached</span>
+          <div className="paywall-dialog__lock">
+            <Icon name="lock" size={22} />
+          </div>
+          <h2 id="paywall-title">Keep {reason.entitlements.accountLogin} under watch</h2>
+          <p>{resourceCopy}</p>
+          <div className="paywall-dialog__usage">
+            <AllowanceMeter
+              label={
+                reason.resource === "protected_repos"
+                  ? "Protected repositories"
+                  : "New package audits this month"
+              }
+              allowance={
+                reason.resource === "protected_repos"
+                  ? reason.entitlements.protectedRepos
+                  : reason.entitlements.monthlyAudits
+              }
+            />
+          </div>
+        </div>
+
+        <div className="paywall-dialog__offer">
+          <div className="paywall-dialog__offer-head">
+            <span>Pro</span>
+            {price && <strong>{price}</strong>}
+          </div>
+          <ul>
+            <li>{pro ? formatLimit(pro.protectedRepos, "protected repository", "protected repositories") : "More protected repositories"}</li>
+            <li>{pro ? `${formatLimit(pro.monthlyAudits, "new package audit", "new package audits")} each month` : "A larger monthly audit allowance"}</li>
+            <li>Unlimited cached verdicts</li>
+            <li>SUSPECT and UNKNOWN findings remain non-blocking</li>
+          </ul>
+          <button
+            className="dashboard-button dashboard-button--primary paywall-dialog__upgrade"
+            type="button"
+            onClick={onUpgrade}
+            disabled={busy || !billing?.checkoutEnabled}
+          >
+            <Icon name="billing" size={16} />
+            {busy ? "Opening secure checkout…" : billing?.checkoutEnabled ? "Continue to Stripe" : "Checkout unavailable"}
+          </button>
+          <button className="paywall-dialog__later" type="button" onClick={onClose}>
+            Not now
+          </button>
+          <small>Stripe manages payment details. NpmGuard never stores card data.</small>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function Dashboard() {
   const navigate = useNavigate();
   const {
@@ -200,16 +427,23 @@ export function Dashboard() {
     installUrl,
     repos,
     alerts,
+    billing,
+    billingBusyInstallationId,
+    billingError,
     loading,
     error,
     repoActionErrors,
-    capError,
+    paywall,
     fetchMe,
     refresh,
+    refreshBilling,
+    startProCheckout,
+    openBillingPortal,
     triggerScan,
     setProtect,
     markAlertsSeen,
     clearRepoActionError,
+    closePaywall,
   } = usePanelStore();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<RepoFilter>("all");
@@ -217,6 +451,10 @@ export function Dashboard() {
     id: number;
     action: "audit" | "protect";
   } | null>(null);
+  const [billingReturn] = useState<"success" | "cancelled" | null>(() => {
+    const value = new URLSearchParams(window.location.search).get("billing");
+    return value === "success" || value === "cancelled" ? value : null;
+  });
 
   useEffect(() => {
     if (!userLoaded) void fetchMe();
@@ -225,6 +463,37 @@ export function Dashboard() {
   useEffect(() => {
     if (user) void refresh();
   }, [user, refresh]);
+
+  useEffect(() => {
+    if (!user || billingReturn !== "success") return;
+    let cancelled = false;
+    let attempts = 0;
+    let timer: number | undefined;
+    const poll = async () => {
+      await refreshBilling();
+      attempts += 1;
+      if (!cancelled && attempts < 6) timer = window.setTimeout(poll, 1800);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [billingReturn, refreshBilling, user]);
+
+  useEffect(() => {
+    if (!paywall) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePaywall();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [closePaywall, paywall]);
 
   const stats = useMemo(() => {
     const protectedCount = repos.filter((repo) => repo.protected).length;
@@ -361,6 +630,53 @@ export function Dashboard() {
           </div>
         </header>
 
+        {billing && (
+          <PlanLedger
+            billing={billing}
+            busyInstallationId={billingBusyInstallationId}
+            onUpgrade={(installationId) => void startProCheckout(installationId)}
+            onManage={(installationId) => void openBillingPortal(installationId)}
+          />
+        )}
+
+        {billingReturn === "success" && (
+          <div className="dashboard-notice dashboard-notice--success" role="status">
+            <Icon name="shield" />
+            <div>
+              <strong>
+                {billing?.accounts.some((account) => account.plan === "pro")
+                  ? "Pro is active"
+                  : "Activating Pro"}
+              </strong>
+              <p>
+                {billing?.accounts.some((account) => account.plan === "pro")
+                  ? "Repository and package-audit allowances have been updated."
+                  : "Stripe confirmed the checkout. This page will update when the signed webhook arrives."}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {billingReturn === "cancelled" && (
+          <div className="dashboard-notice dashboard-notice--warning" role="status">
+            <Icon name="billing" />
+            <div>
+              <strong>Checkout cancelled</strong>
+              <p>Your Free plan and existing protection were not changed.</p>
+            </div>
+          </div>
+        )}
+
+        {billingError && (
+          <div className="dashboard-notice dashboard-notice--warning" role="alert">
+            <Icon name="alert" />
+            <div>
+              <strong>Billing action unavailable</strong>
+              <p>{billingError}</p>
+            </div>
+          </div>
+        )}
+
         {repos.length > 0 && (
           <section className="portfolio-posture" aria-labelledby="portfolio-title">
             <div className="portfolio-posture__top">
@@ -416,20 +732,6 @@ export function Dashboard() {
               </span>
             </div>
           </section>
-        )}
-
-        {capError && (
-          <div className="dashboard-notice dashboard-notice--warning" role="alert">
-            <Icon name="alert" />
-            <div>
-              <strong>Beta limit reached</strong>
-              <p>
-                {capError}. Contact{" "}
-                <a href="mailto:hello@npmguard.com">hello@npmguard.com</a> to
-                increase your allowance.
-              </p>
-            </div>
-          </div>
         )}
 
         {error && (
@@ -677,6 +979,15 @@ export function Dashboard() {
           </>
         )}
       </div>
+      {paywall && (
+        <UpgradeDialog
+          reason={paywall}
+          billing={billing}
+          busy={billingBusyInstallationId === paywall.installationId}
+          onClose={closePaywall}
+          onUpgrade={() => void startProCheckout(paywall.installationId)}
+        />
+      )}
     </div>
   );
 }
