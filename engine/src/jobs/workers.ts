@@ -2,6 +2,7 @@ import { handleDangerousVerdict } from "../alerts/notify.js";
 import { config } from "../config.js";
 import { runAudit } from "../pipeline.js";
 import { saveReport } from "../report-store.js";
+import { refreshPublicScansTouching } from "../scan/public-repo-scan.js";
 import { refreshScansTouching } from "../scan/repo-scan.js";
 import { upsertVerdict } from "../verdict-index.js";
 import { assessAuditReport } from "../proof-quality.js";
@@ -105,5 +106,6 @@ async function runJob(job: JobRow): Promise<void> {
   } finally {
     // Even a terminal failure can complete a scan (last unresolved item)
     refreshScansTouching(job.package_name, job.version);
+    refreshPublicScansTouching(job.package_name, job.version);
   }
 }

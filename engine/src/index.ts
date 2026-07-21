@@ -19,6 +19,7 @@ import { demoRoutes } from "./routes/demo.js";
 import { ghWebhookRoutes } from "./routes/gh-webhooks.js";
 import { panelRoutes } from "./routes/panel.js";
 import { paymentRoutes } from "./routes/payment.js";
+import { publicRepoRoutes } from "./routes/public-repos.js";
 import { registryRoutes } from "./routes/registry.js";
 import { cleanupExpiredSessions } from "./session.js";
 import { installReportHook, rebuildVerdictIndex } from "./verdict-index.js";
@@ -43,6 +44,7 @@ app.route("/", benchRoutes);
 app.route("/", billingRoutes);
 app.route("/", authRoutes);
 app.route("/", panelRoutes);
+app.route("/", publicRepoRoutes);
 app.route("/", ghWebhookRoutes);
 
 app.get("/health", (c) => c.json({ status: "ok" }));

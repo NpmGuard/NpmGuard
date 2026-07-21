@@ -1,6 +1,12 @@
 import type { Octokit } from "@octokit/rest";
-import { describe, expect, it, vi } from "vitest";
-import { findRootLockfile } from "./content.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  fetchPublicRepoInputs,
+  findRootLockfile,
+  PublicRepoFileTooLargeError,
+} from "./content.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 function octokitWithRoot(entries: unknown): Octokit {
   return {
@@ -60,5 +66,74 @@ describe("findRootLockfile", () => {
     ]);
 
     await expect(findRootLockfile(octo, "acme", "docs")).resolves.toBeNull();
+  });
+});
+
+describe("fetchPublicRepoInputs", () => {
+  it("uses one public root listing and downloads only GitHub raw files", async () => {
+    const octo = octokitWithRoot([
+      {
+        type: "file",
+        name: "package-lock.json",
+        path: "package-lock.json",
+        sha: "lock",
+        download_url: "https://raw.githubusercontent.com/acme/web/main/package-lock.json",
+      },
+      {
+        type: "file",
+        name: "package.json",
+        path: "package.json",
+        sha: "manifest",
+        download_url: "https://raw.githubusercontent.com/acme/web/main/package.json",
+      },
+    ]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{"lockfileVersion":3,"packages":{}}'))
+      .mockResolvedValueOnce(new Response('{"dependencies":{"x":"^1.0.0"}}'));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPublicRepoInputs(octo, "acme", "web", "main")).resolves.toMatchObject({
+      lockfile: { path: "package-lock.json", sha: "lock" },
+      manifest: { dependencies: { x: "^1.0.0" } },
+    });
+    expect(octo.rest.repos.getContent).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects non-GitHub raw download hosts", async () => {
+    const octo = octokitWithRoot([
+      {
+        type: "file",
+        name: "yarn.lock",
+        path: "yarn.lock",
+        sha: "lock",
+        download_url: "https://example.com/yarn.lock",
+      },
+    ]);
+    await expect(fetchPublicRepoInputs(octo, "acme", "web")).rejects.toThrow(
+      "unsafe download URL",
+    );
+  });
+
+  it("rejects oversized public lockfiles before reading their body", async () => {
+    const octo = octokitWithRoot([
+      {
+        type: "file",
+        name: "pnpm-lock.yaml",
+        path: "pnpm-lock.yaml",
+        sha: "lock",
+        download_url: "https://raw.githubusercontent.com/acme/web/main/pnpm-lock.yaml",
+      },
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("", { headers: { "content-length": String(21 * 1024 * 1024) } }),
+      ),
+    );
+    await expect(fetchPublicRepoInputs(octo, "acme", "web")).rejects.toBeInstanceOf(
+      PublicRepoFileTooLargeError,
+    );
   });
 });
