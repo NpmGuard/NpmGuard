@@ -16,6 +16,46 @@ export interface Installation {
   suspended: boolean;
 }
 
+export interface UsageAllowance {
+  used: number;
+  limit: number;
+  remaining: number | null;
+}
+
+export interface BillingAccount {
+  installationId: number;
+  accountLogin: string;
+  plan: "free" | "pro";
+  subscriptionStatus: string;
+  protectedRepos: UsageAllowance;
+  monthlyAudits: UsageAllowance;
+}
+
+export interface PlanLimits {
+  protectedRepos: number;
+  monthlyAudits: number;
+}
+
+export interface BillingPrice {
+  amount: number | null;
+  currency: string;
+  interval: string | null;
+}
+
+export interface BillingPayload {
+  accounts: BillingAccount[];
+  plans: { free: PlanLimits; pro: PlanLimits };
+  checkoutEnabled: boolean;
+  price: BillingPrice | null;
+}
+
+export interface PaywallReason {
+  message: string;
+  resource: "protected_repos" | "monthly_audits";
+  installationId: number;
+  entitlements: BillingAccount;
+}
+
 export interface ScanSummary {
   id: number;
   status: "running" | "done" | "failed";
