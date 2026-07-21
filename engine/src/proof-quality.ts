@@ -1,4 +1,4 @@
-import type { AuditReport, Finding, Proof } from "./models.js";
+import type { AuditReport, Finding, Proof, VerdictEnum } from "./models.js";
 
 export interface ProofQualityAssessment {
   accepted: boolean;
@@ -6,7 +6,7 @@ export interface ProofQualityAssessment {
   signals: string[];
 }
 
-export type AuditClassification = "SAFE" | "SUSPECT" | "DANGEROUS" | "UNKNOWN";
+export type AuditClassification = VerdictEnum;
 
 export interface FindingQualityAssessment {
   accepted: boolean;
@@ -631,8 +631,6 @@ export function assessAuditReport(
 
 /**
  * Compatibility wrapper for callers that only need the four-state verdict.
- * AuditReport.verdict remains the legacy SAFE/DANGEROUS transport field until
- * every client supports the richer vocabulary.
  */
 export function classifyAuditReport(
   report: Pick<AuditReport, "verdict" | "proofs" | "findings">,

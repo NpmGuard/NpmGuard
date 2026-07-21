@@ -52,6 +52,16 @@ export type ReportSavedHook = (
 
 let reportSavedHook: ReportSavedHook | null = null;
 
+/** Reclassify legacy two-state reports at the storage boundary. Historical
+ * UNKNOWN/SUSPECT runs were persisted as DANGEROUS, so returning the raw field
+ * would reintroduce false positives even after the four-state transport ships. */
+export function normalizeReportVerdict(report: AuditReport): AuditReport {
+  const classification = assessAuditReport(report).classification;
+  return report.verdict === classification
+    ? report
+    : { ...report, verdict: classification };
+}
+
 export function setReportSavedHook(hook: ReportSavedHook | null): void {
   reportSavedHook = hook;
 }
@@ -69,15 +79,16 @@ export function saveReport(
   requestedVersion: string,
   report: AuditReport,
 ): string {
-  const realVersion = extractReportVersion(report) ?? requestedVersion ?? "latest";
+  const normalizedReport = normalizeReportVerdict(report);
+  const realVersion = extractReportVersion(normalizedReport) ?? requestedVersion ?? "latest";
 
   const dir = reportDir(packageName);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(reportPath(packageName, realVersion), JSON.stringify(report, null, 2));
+  fs.writeFileSync(reportPath(packageName, realVersion), JSON.stringify(normalizedReport, null, 2));
   console.log(`[report-store] saved ${packageName}@${realVersion}`);
 
   try {
-    reportSavedHook?.(packageName, realVersion, report);
+    reportSavedHook?.(packageName, realVersion, normalizedReport);
   } catch (err) {
     // Observer failures must never break report persistence
     console.error("[report-store] saved-hook failed:", err instanceof Error ? err.message : err);
@@ -124,7 +135,8 @@ export function loadReport(
     // Fast path: exact file match
     const p = reportPath(packageName, version);
     if (fs.existsSync(p)) {
-      return { report: JSON.parse(fs.readFileSync(p, "utf-8")), version };
+      const report = JSON.parse(fs.readFileSync(p, "utf-8")) as AuditReport;
+      return { report: normalizeReportVerdict(report), version };
     }
 
     // Slow path: scan all reports in the dir, return one whose embedded
@@ -136,7 +148,7 @@ export function loadReport(
         const report = JSON.parse(fs.readFileSync(assertUnderDataDir(path.join(dir, file)), "utf-8"));
         const embeddedVersion = extractReportVersion(report);
         if (embeddedVersion === version) {
-          return { report, version };
+          return { report: normalizeReportVerdict(report), version };
         }
       } catch {
         // Skip corrupted files
@@ -154,7 +166,10 @@ export function loadReport(
     .sort((a, b) => b.mtime - a.mtime);
 
   const latest = sorted[0]!;
-  const report = JSON.parse(fs.readFileSync(assertUnderDataDir(path.join(dir, latest.file)), "utf-8"));
+  const rawReport = JSON.parse(
+    fs.readFileSync(assertUnderDataDir(path.join(dir, latest.file)), "utf-8"),
+  ) as AuditReport;
+  const report = normalizeReportVerdict(rawReport);
   // Prefer embedded metadata version over filename (which may be "latest")
   const ver = extractReportVersion(report) ?? latest.file.replace(/\.json$/, "");
   return { report, version: ver };
