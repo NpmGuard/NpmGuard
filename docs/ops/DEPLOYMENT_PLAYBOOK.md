@@ -75,19 +75,19 @@ cd /root/NpmGuard && bash deploy/pull-and-restart.sh
 
 ## Server
 
-- **IP:** 209.38.42.28
+- **IP:** 91.99.207.103
 - **OS:** Ubuntu (DigitalOcean Droplet)
 - **Node:** v22
 - **Repo:** `/root/NpmGuard`
 
 ```bash
-ssh root@209.38.42.28
+ssh root@91.99.207.103
 ```
 
 ## Initial server setup
 
 ```bash
-ssh root@209.38.42.28
+ssh root@91.99.207.103
 git clone git@github.com:NpmGuard/NpmGuard.git
 cd NpmGuard
 bash deploy/setup-droplet.sh
@@ -127,8 +127,10 @@ NPMGUARD_SMTP_URL=smtp://user:pass@host:587       # DANGEROUS alert emails
 NPMGUARD_ALERT_FROM="NpmGuard <alerts@npmguard.com>"
 NPMGUARD_SCAN_CONCURRENCY=4
 NPMGUARD_WATCH_INTERVAL_MIN=15
-NPMGUARD_BETA_MAX_PROTECTED_REPOS=10
-NPMGUARD_BETA_MAX_AUDITS_MONTH=5000
+NPMGUARD_FREE_MAX_PROTECTED_REPOS=3
+NPMGUARD_FREE_MAX_AUDITS_MONTH=250
+NPMGUARD_PRO_MAX_PROTECTED_REPOS=25
+NPMGUARD_PRO_MAX_AUDITS_MONTH=5000
 ```
 
 All five required vars must be present or the engine boots with the panel
@@ -137,6 +139,31 @@ missing). Panel state lives in `data/npmguard.db` (SQLite, WAL) — include it
 in any backup that covers `data/reports/`. `better-sqlite3` is a native
 module: deploys must run `npm install` with build tools present (already
 covered by setup-droplet.sh).
+
+## Stripe repository subscriptions
+
+Repository plans are attached to a GitHub App installation, not to an
+individual member. Free includes 3 protected repositories and 250 newly
+audited package versions per calendar month by default. Cache hits do not use
+the monthly allowance.
+
+1. Create one recurring Stripe Price for the Pro plan.
+2. Add its non-secret `price_...` identifier to `engine/.env`:
+
+```bash
+NPMGUARD_STRIPE_PRO_PRICE_ID=price_...
+```
+
+3. Keep the existing signed Stripe endpoint at
+   `https://npmguard.com/webhooks/stripe` and enable these events:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+4. Restart `npmguard` after changing `engine/.env`.
+
+Only Stripe states `active` and `trialing` unlock Pro. The signed webhook is
+the authority; the browser return URL never grants an entitlement by itself.
 
 ## Webhook setup
 
@@ -168,7 +195,7 @@ nginx -t && systemctl reload nginx
 
 Go to **github.com/NpmGuard/NpmGuard → Settings → Webhooks → Add webhook**:
 
-- **Payload URL:** `http://209.38.42.28/deploy-webhook`
+- **Payload URL:** `http://91.99.207.103/deploy-webhook`
 - **Content type:** `application/json`
 - **Secret:** the value from step 1
 - **SSL verification:** Disable (traffic goes directly to the server IP, not through a domain with SSL)
@@ -184,7 +211,7 @@ Go to **github.com/NpmGuard/NpmGuard → Settings → Webhooks → Add webhook**
 git push origin main
 
 # Check the deploy log
-ssh root@209.38.42.28 tail -f /var/log/npmguard-deploy.log
+ssh root@91.99.207.103 tail -f /var/log/npmguard-deploy.log
 ```
 
 ## Firewall
