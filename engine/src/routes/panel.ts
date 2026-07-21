@@ -364,7 +364,13 @@ panelRoutes.get("/panel/repos", async (c) => {
 
 function scanErrorResponse(c: Context, err: unknown) {
   if (err instanceof CapExceededError) {
-    return c.json({ error: err.message, cap: true }, 402);
+    return c.json({
+      error: err.message,
+      cap: true,
+      resource: err.resource,
+      installationId: err.installationId,
+      entitlements: err.entitlements,
+    }, 402);
   }
   if (err instanceof LockfileNotFoundError || err instanceof UnsupportedLockfileError) {
     return c.json({ error: err.message }, 422);
@@ -400,15 +406,18 @@ panelRoutes.post("/panel/repo/:id/protect", async (c) => {
 
   const db = getDb();
   if (!repo.protected_at) {
-    const org = (
-      db.prepare("SELECT account_login FROM installations WHERE id = ?").get(repo.installation_id) as
-        | { account_login: string }
-        | undefined
-    )?.account_login;
     try {
-      assertProtectCap(org ?? repo.owner);
+      assertProtectCap(repo.installation_id);
     } catch (err) {
-      if (err instanceof CapExceededError) return c.json({ error: err.message, cap: true }, 402);
+      if (err instanceof CapExceededError) {
+        return c.json({
+          error: err.message,
+          cap: true,
+          resource: err.resource,
+          installationId: err.installationId,
+          entitlements: err.entitlements,
+        }, 402);
+      }
       throw err;
     }
     db.prepare("UPDATE repos SET protected_at = ?, updated_at = ? WHERE id = ?").run(

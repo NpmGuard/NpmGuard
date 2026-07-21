@@ -27,6 +27,7 @@ const ConfigSchema = z.object({
   creApiKey: z.string().optional(),
   stripeSecretKey: z.string().optional(),
   stripeWebhookSecret: z.string().optional(),
+  stripeProPriceId: z.string().optional(),
   auditPriceCents: z.coerce.number().int().min(50).default(500),
 
   triageModel: z.string().default("claude-haiku-4-5-20251001"),
@@ -69,8 +70,10 @@ const ConfigSchema = z.object({
   panelBaseUrl: z.string().url().default("http://localhost:3000"),
   scanConcurrency: z.coerce.number().int().min(1).max(16).default(4),
   watchIntervalMin: z.coerce.number().int().min(1).default(15),
-  betaMaxProtectedRepos: z.coerce.number().int().min(0).default(10),
-  betaMaxAuditsMonth: z.coerce.number().int().min(0).default(5000),
+  freeMaxProtectedRepos: z.coerce.number().int().min(0).default(3),
+  freeMaxAuditsMonth: z.coerce.number().int().min(0).default(250),
+  proMaxProtectedRepos: z.coerce.number().int().min(0).default(25),
+  proMaxAuditsMonth: z.coerce.number().int().min(0).default(5000),
 });
 
 function loadConfig() {
@@ -88,6 +91,7 @@ function loadConfig() {
     creApiKey: env.NPMGUARD_CRE_API_KEY,
     stripeSecretKey: env.NPMGUARD_STRIPE_SECRET_KEY,
     stripeWebhookSecret: env.NPMGUARD_STRIPE_WEBHOOK_SECRET,
+    stripeProPriceId: env.NPMGUARD_STRIPE_PRO_PRICE_ID,
     auditPriceCents: env.NPMGUARD_AUDIT_PRICE_CENTS,
     triageModel: env.NPMGUARD_TRIAGE_MODEL ?? env.NPMGUARD_LLM_MODEL,
     triageMaxFiles: env.NPMGUARD_TRIAGE_MAX_FILES,
@@ -114,8 +118,10 @@ function loadConfig() {
     panelBaseUrl: env.NPMGUARD_PANEL_BASE_URL,
     scanConcurrency: env.NPMGUARD_SCAN_CONCURRENCY,
     watchIntervalMin: env.NPMGUARD_WATCH_INTERVAL_MIN,
-    betaMaxProtectedRepos: env.NPMGUARD_BETA_MAX_PROTECTED_REPOS,
-    betaMaxAuditsMonth: env.NPMGUARD_BETA_MAX_AUDITS_MONTH,
+    freeMaxProtectedRepos: env.NPMGUARD_FREE_MAX_PROTECTED_REPOS,
+    freeMaxAuditsMonth: env.NPMGUARD_FREE_MAX_AUDITS_MONTH,
+    proMaxProtectedRepos: env.NPMGUARD_PRO_MAX_PROTECTED_REPOS,
+    proMaxAuditsMonth: env.NPMGUARD_PRO_MAX_AUDITS_MONTH,
   };
 
   // Strip undefined keys so Zod defaults apply

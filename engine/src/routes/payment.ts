@@ -1,17 +1,57 @@
 import { Hono } from "hono";
+import type Stripe from "stripe";
 
 import { persistAuditReport, publishStorageArtifactsAfterAudit } from "../audit-persistence.js";
+import {
+  findInstallationForSubscription,
+  updateSubscriptionStatus,
+  upsertSubscription,
+} from "../billing.js";
 import { config, PAYMENT_REQUIRED, STRIPE_ENABLED } from "../config.js";
+import { getDb } from "../db.js";
 import { getChainContractAddress, isChainConfigured, readAuditFee } from "../chain.js";
 import { NpmGuardError } from "../errors.js";
 import { createEmitFn, createSession, finalizeSession } from "../events.js";
 import { getPayment, recordPayment } from "../payment-map.js";
 import { resolveTarballUrl } from "../phases/resolve.js";
 import { runAudit } from "../pipeline.js";
-import { constructWebhookEvent, createCheckoutSession, verifyCheckoutSession } from "../stripe.js";
+import {
+  constructWebhookEvent,
+  createCheckoutSession,
+  getStripe,
+  verifyCheckoutSession,
+} from "../stripe.js";
 import { CheckoutRequest } from "./validation.js";
 
 export const paymentRoutes = new Hono();
+
+function stripeObjectId(value: string | { id: string } | null): string | null {
+  if (!value) return null;
+  return typeof value === "string" ? value : value.id;
+}
+
+function metadataInstallationId(metadata: Stripe.Metadata | null): number | null {
+  const value = Number(metadata?.installationId);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function installationExists(installationId: number): boolean {
+  return !!getDb().prepare("SELECT 1 FROM installations WHERE id = ?").get(installationId);
+}
+
+function persistStripeSubscription(subscription: Stripe.Subscription): boolean {
+  const installationId =
+    metadataInstallationId(subscription.metadata) ??
+    findInstallationForSubscription(subscription.id);
+  if (!installationId || !installationExists(installationId)) return false;
+  upsertSubscription({
+    installationId,
+    customerId: stripeObjectId(subscription.customer),
+    subscriptionId: subscription.id,
+    status: subscription.status,
+  });
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Stripe checkout
@@ -134,6 +174,33 @@ paymentRoutes.post("/webhooks/stripe", async (c) => {
   switch (event.type) {
     case "checkout.session.completed": {
       const stripeSession = event.data.object;
+
+      if (stripeSession.metadata?.kind === "repo_pro_subscription") {
+        const installationId = metadataInstallationId(stripeSession.metadata);
+        const subscriptionId = stripeObjectId(stripeSession.subscription);
+        if (!installationId || !installationExists(installationId) || !subscriptionId) {
+          console.warn("[webhook] invalid repository subscription checkout metadata");
+          break;
+        }
+        try {
+          const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+          upsertSubscription({
+            installationId,
+            customerId: stripeObjectId(stripeSession.customer),
+            subscriptionId,
+            status: subscription.status,
+          });
+          console.log(`[webhook] Pro subscription activated for installation ${installationId}`);
+        } catch (err) {
+          console.error(
+            `[webhook] failed to activate subscription for installation ${installationId}:`,
+            err instanceof Error ? err.message : err,
+          );
+          return c.json({ error: "Failed to activate subscription" }, 500);
+        }
+        break;
+      }
+
       const { packageName, version } = stripeSession.metadata || {};
       console.log(
         `[webhook] checkout.session.completed: ${stripeSession.id} for ${packageName}@${version}`,
@@ -184,6 +251,21 @@ paymentRoutes.post("/webhooks/stripe", async (c) => {
         console.error(`[webhook] failed to start audit for ${packageName}:`, err);
         // Return 500 so Stripe retries the webhook later
         return c.json({ error: "Failed to start audit" }, 500);
+      }
+      break;
+    }
+    case "customer.subscription.created":
+    case "customer.subscription.updated": {
+      const subscription = event.data.object;
+      if (!persistStripeSubscription(subscription)) {
+        console.warn(`[webhook] subscription ${subscription.id} is not linked to an installation`);
+      }
+      break;
+    }
+    case "customer.subscription.deleted": {
+      const subscription = event.data.object;
+      if (!persistStripeSubscription(subscription)) {
+        updateSubscriptionStatus(subscription.id, "canceled");
       }
       break;
     }
