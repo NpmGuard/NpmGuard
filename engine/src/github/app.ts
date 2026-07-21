@@ -42,6 +42,18 @@ export function userOctokit(token: string): Octokit {
   return new Octokit({ auth: token });
 }
 
+let publicClient: Octokit | null = null;
+
+/**
+ * Anonymous GitHub client used only for third-party public repository reads.
+ * Deliberately never accepts credentials: private repositories remain
+ * inaccessible even when the signed-in user can see them personally.
+ */
+export function publicOctokit(): Octokit {
+  if (!publicClient) publicClient = new Octokit({ userAgent: "npmguard-public-audit" });
+  return publicClient;
+}
+
 let cachedSlug: string | null = null;
 
 /** App slug (e.g. "npmguard") — derived once from GET /app, used to build the
