@@ -1,12 +1,14 @@
 import { verify } from "@octokit/webhooks-methods";
 import { Hono } from "hono";
 
-import { config, GITHUB_APP_ENABLED } from "../config.js";
+import { getBillingAccount, updateSubscriptionStatus } from "../billing.js";
+import { config, GITHUB_APP_ENABLED, STRIPE_ENABLED } from "../config.js";
 import { getDb, nowIso } from "../db.js";
 import { createCheckRun } from "../github/checks.js";
 import { LOCKFILE_CANDIDATES } from "../lockfile/index.js";
 import type { RepoRow } from "./panel.js";
 import { deltaRepoScan, LockfileNotFoundError } from "../scan/repo-scan.js";
+import { getStripe } from "../stripe.js";
 import { syncWatchedPackages } from "../watch/poller.js";
 
 // GitHub App webhooks (spec §6, P3). Signature-verified against the raw body;
@@ -129,6 +131,22 @@ async function handlePush(payload: PushPayload): Promise<void> {
   }
 }
 
+async function cancelInstallationSubscription(installationId: number): Promise<void> {
+  const billing = getBillingAccount(installationId);
+  if (
+    !billing?.stripe_subscription_id ||
+    billing.subscription_status === "canceled" ||
+    billing.subscription_status === "incomplete_expired"
+  ) {
+    return;
+  }
+  if (!STRIPE_ENABLED) {
+    throw new Error("Stripe is unavailable while an active repository subscription exists");
+  }
+  const subscription = await getStripe().subscriptions.cancel(billing.stripe_subscription_id);
+  updateSubscriptionStatus(subscription.id, subscription.status);
+}
+
 ghWebhookRoutes.post("/webhooks/github", async (c) => {
   if (!GITHUB_APP_ENABLED || !config.githubWebhookSecret) {
     return c.json({ error: "GitHub webhooks are not configured" }, 503);
@@ -155,6 +173,15 @@ ghWebhookRoutes.post("/webhooks/github", async (c) => {
       const action = payload.action as string;
       const installation = payload.installation as Parameters<typeof upsertInstallation>[0];
       if (action === "deleted") {
+        try {
+          await cancelInstallationSubscription(installation.id);
+        } catch (err) {
+          console.error(
+            `[webhook] refusing to delete installation ${installation.id} before its Stripe subscription is canceled:`,
+            err instanceof Error ? err.message : err,
+          );
+          return c.json({ error: "Unable to cancel repository subscription" }, 502);
+        }
         // Cascades: repos → repo_deps/scans; watch list re-syncs below
         db.prepare("DELETE FROM installations WHERE id = ?").run(installation.id);
         syncWatchedPackages();
