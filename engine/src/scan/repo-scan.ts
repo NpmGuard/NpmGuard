@@ -95,7 +95,7 @@ function createScan(
   const org = orgOf(repo);
 
   const misses = deps.filter((d) => !getVerdict(d.name, d.version));
-  assertAuditBudget(org, misses.length);
+  assertAuditBudget(repo.installation_id, misses.length);
 
   let scanId = 0;
   db.transaction(() => {
@@ -125,7 +125,7 @@ function createScan(
   const inserted = enqueueAuditJobs(
     misses.map((d) => ({ packageName: d.name, version: d.version, org, scanId })),
   );
-  consumeAuditBudget(org, inserted);
+  consumeAuditBudget(repo.installation_id, inserted);
 
   refreshScanProgress(scanId);
   return scanId;

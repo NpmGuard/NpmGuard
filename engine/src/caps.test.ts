@@ -1,12 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { openDb as OpenDb, setDbForTesting as SetDb, DB } from "./db.js";
 
-// Spec §9 test 9: org at cap → rejected with the "talk to us" payload shape
-// (CapExceededError.cap = true); counters are per-month. Caps config is read
-// at import, so the module graph loads after the env is pinned.
-
-process.env.NPMGUARD_BETA_MAX_PROTECTED_REPOS = "2";
-process.env.NPMGUARD_BETA_MAX_AUDITS_MONTH = "10";
+process.env.NPMGUARD_FREE_MAX_PROTECTED_REPOS = "2";
+process.env.NPMGUARD_FREE_MAX_AUDITS_MONTH = "10";
+process.env.NPMGUARD_PRO_MAX_PROTECTED_REPOS = "5";
+process.env.NPMGUARD_PRO_MAX_AUDITS_MONTH = "100";
 
 let db: DB;
 let openDb: typeof OpenDb;
@@ -21,47 +19,106 @@ beforeAll(async () => {
 beforeEach(() => {
   db = openDb(":memory:");
   setDbForTesting(db);
+  db.prepare(
+    "INSERT INTO installations (id, account_login, account_type) VALUES (1, 'acme', 'Organization')",
+  ).run();
+  db.prepare(
+    "INSERT INTO installations (id, account_login, account_type) VALUES (2, 'other', 'Organization')",
+  ).run();
 });
 
-function protectRepos(org: string, count: number): void {
-  db.prepare(
-    "INSERT OR IGNORE INTO installations (id, account_login, account_type) VALUES (1, ?, 'Organization')",
-  ).run(org);
+function protectRepos(installationId: number, count: number): void {
+  const start = (
+    db.prepare("SELECT COUNT(*) AS c FROM repos WHERE installation_id = ?").get(installationId) as {
+      c: number;
+    }
+  ).c;
   for (let i = 0; i < count; i++) {
+    const index = start + i;
+    const id = installationId * 1000 + index;
     db.prepare(
-      "INSERT INTO repos (id, installation_id, owner, name, full_name, protected_at) VALUES (?, 1, 'o', ?, ?, '2026-01-01')",
-    ).run(100 + i, `r${i}`, `o/r${i}`);
+      `INSERT INTO repos
+       (id, installation_id, owner, name, full_name, protected_at)
+       VALUES (?, ?, ?, ?, ?, '2026-01-01')`,
+    ).run(
+      id,
+      installationId,
+      `o${installationId}`,
+      `r${index}`,
+      `o${installationId}/r${index}`,
+    );
   }
 }
 
-describe("protect cap", () => {
-  it("allows protecting below the cap and rejects at it", () => {
-    protectRepos("acme", 1);
-    expect(() => caps.assertProtectCap("acme")).not.toThrow();
-    protectRepos("acme", 0); // already one; add one more repo protected
-    db.prepare(
-      "INSERT INTO repos (id, installation_id, owner, name, full_name, protected_at) VALUES (999, 1, 'o', 'z', 'o/z', '2026-01-01')",
-    ).run();
-    expect(() => caps.assertProtectCap("acme")).toThrow(caps.CapExceededError);
+describe("Free entitlements", () => {
+  it("allows protecting below the Free cap and rejects at it", () => {
+    protectRepos(1, 1);
+    expect(() => caps.assertProtectCap(1)).not.toThrow();
+    protectRepos(1, 1);
+    expect(() => caps.assertProtectCap(1)).toThrow(caps.CapExceededError);
+  });
+
+  it("returns structured usage for the paywall", () => {
+    protectRepos(1, 2);
+    caps.consumeAuditBudget(1, 7);
+    expect(caps.getAccountEntitlements(1)).toMatchObject({
+      installationId: 1,
+      accountLogin: "acme",
+      plan: "free",
+      subscriptionStatus: "inactive",
+      protectedRepos: { used: 2, limit: 2, remaining: 0 },
+      monthlyAudits: { used: 7, limit: 10, remaining: 3 },
+    });
   });
 });
 
-describe("audit budget", () => {
-  it("rejects a scan that would exceed the monthly budget, with cap flag", () => {
-    caps.consumeAuditBudget("acme", 8);
-    expect(() => caps.assertAuditBudget("acme", 2)).not.toThrow();
-    expect(() => caps.assertAuditBudget("acme", 3)).toThrow(caps.CapExceededError);
+describe("monthly audit budget", () => {
+  it("rejects a scan that would exceed the budget", () => {
+    caps.consumeAuditBudget(1, 8);
+    expect(() => caps.assertAuditBudget(1, 2)).not.toThrow();
+    expect(() => caps.assertAuditBudget(1, 3)).toThrow(caps.CapExceededError);
     try {
-      caps.assertAuditBudget("acme", 3);
+      caps.assertAuditBudget(1, 3);
     } catch (err) {
-      expect((err as { cap?: boolean }).cap).toBe(true);
+      expect(err).toMatchObject({
+        cap: true,
+        installationId: 1,
+        resource: "monthly_audits",
+      });
     }
   });
 
-  it("tracks usage per org", () => {
-    caps.consumeAuditBudget("acme", 10);
-    expect(() => caps.assertAuditBudget("other", 10)).not.toThrow();
-    expect(caps.auditsUsedThisMonth("acme")).toBe(10);
-    expect(caps.auditsUsedThisMonth("other")).toBe(0);
+  it("tracks usage per installation", () => {
+    caps.consumeAuditBudget(1, 10);
+    expect(() => caps.assertAuditBudget(2, 10)).not.toThrow();
+    expect(caps.auditsUsedThisMonth(1)).toBe(10);
+    expect(caps.auditsUsedThisMonth(2)).toBe(0);
+  });
+});
+
+describe("Pro entitlements", () => {
+  it("uses the larger limits only for active subscriptions", () => {
+    protectRepos(1, 2);
+    expect(() => caps.assertProtectCap(1)).toThrow(caps.CapExceededError);
+
+    db.prepare(
+      `INSERT INTO billing_accounts
+       (installation_id, stripe_subscription_id, subscription_status)
+       VALUES (1, 'sub_123', 'active')`,
+    ).run();
+
+    expect(caps.getAccountEntitlements(1).plan).toBe("pro");
+    expect(() => caps.assertProtectCap(1)).not.toThrow();
+    caps.consumeAuditBudget(1, 50);
+    expect(() => caps.assertAuditBudget(1, 50)).not.toThrow();
+  });
+
+  it("falls back to Free when Stripe marks the subscription canceled", () => {
+    db.prepare(
+      `INSERT INTO billing_accounts
+       (installation_id, stripe_subscription_id, subscription_status)
+       VALUES (1, 'sub_123', 'canceled')`,
+    ).run();
+    expect(caps.getAccountEntitlements(1).plan).toBe("free");
   });
 });

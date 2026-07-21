@@ -190,6 +190,11 @@ Settings are loaded from environment variables with the `NPMGUARD_` prefix (or a
 | `NPMGUARD_PAYMENT_REQUIRED` | `true` | Require a verified Stripe or on-chain payment proof before starting user audits. Set `false` only for local/dev. |
 | `NPMGUARD_STRIPE_SECRET_KEY` | _(unset)_ | Stripe secret key for checkout sessions |
 | `NPMGUARD_STRIPE_WEBHOOK_SECRET` | _(unset)_ | Stripe webhook signing secret |
+| `NPMGUARD_STRIPE_PRO_PRICE_ID` | _(unset)_ | Recurring Stripe Price used by the repository Pro checkout |
+| `NPMGUARD_FREE_MAX_PROTECTED_REPOS` | `3` | Protected repositories included with Free; `0` means unlimited |
+| `NPMGUARD_FREE_MAX_AUDITS_MONTH` | `250` | New uncached package-version audits included per month with Free |
+| `NPMGUARD_PRO_MAX_PROTECTED_REPOS` | `25` | Protected repositories included with Pro; `0` means unlimited |
+| `NPMGUARD_PRO_MAX_AUDITS_MONTH` | `5000` | New uncached package-version audits included per month with Pro; `0` means unlimited |
 | `NPMGUARD_BASE_SEPOLIA_CONTRACT` | _(unset)_ | `NpmGuardAuditRequest` address on Base Sepolia |
 | `NPMGUARD_BASE_SEPOLIA_RPC_URL` | `https://sepolia.base.org` | RPC URL for Base Sepolia (Alchemy recommended) |
 | `NPMGUARD_BASE_CONTRACT` | _(unset)_ | `NpmGuardAuditRequest` address on Base mainnet |
@@ -208,6 +213,12 @@ Settings are loaded from environment variables with the `NPMGUARD_` prefix (or a
 | `NPMGUARD_ENS_V2_SUBREGISTRY_IMPLEMENTATION_ADDRESS` | ENSv2 Sepolia default | Optional override for the ENSv2 UserRegistry implementation |
 
 If neither `NPMGUARD_BASE_SEPOLIA_CONTRACT` nor `NPMGUARD_BASE_CONTRACT` is set, `/audit/stream` with `txHash` returns `501 "chain not configured"`. Stripe continues to work regardless. If `NPMGUARD_PAYMENT_REQUIRED=true`, missing Stripe config does not make audits free: `/checkout` returns 501 and `/audit/stream` still requires either a valid Stripe session or an on-chain tx proof.
+
+Repository billing is separate from one-off package audit payments. A GitHub
+App installation is the billing account, so organization members share the
+same plan and usage. Cached verdicts do not consume monthly audit allowance.
+Only `active` or `trialing` Stripe subscriptions unlock Pro; webhook updates
+are the server-side source of truth.
 
 ### MiniMax M3 smoke test
 

@@ -1,14 +1,38 @@
 import { config } from "./config.js";
 import { getDb } from "./db.js";
 
-// Beta soft caps (spec decision 9): per-org limits on protected repos and
-// monthly package-audits, with a friendly "talk to us" wall. Hitting a cap
-// is a sales signal, not an error. Watch-triggered audits are NOT charged —
-// they fill the shared report cache and benefit every org.
+// Entitlements are enforced per GitHub App installation. That makes an
+// organization (or a personal installation) the billing account shared by
+// every member who can access it.
+
+export type AccountPlan = "free" | "pro";
+export type CapResource = "protected_repos" | "monthly_audits";
+
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+
+export interface AccountEntitlements {
+  installationId: number;
+  accountLogin: string;
+  plan: AccountPlan;
+  subscriptionStatus: string;
+  protectedRepos: { used: number; limit: number; remaining: number | null };
+  monthlyAudits: { used: number; limit: number; remaining: number | null };
+}
+
+export interface PlanLimits {
+  protectedRepos: number;
+  monthlyAudits: number;
+}
 
 export class CapExceededError extends Error {
   readonly cap = true;
-  constructor(message: string) {
+
+  constructor(
+    message: string,
+    readonly installationId: number,
+    readonly resource: CapResource,
+    readonly entitlements: AccountEntitlements,
+  ) {
     super(message);
     this.name = "CapExceededError";
   }
@@ -18,49 +42,118 @@ function monthKey(): string {
   return new Date().toISOString().slice(0, 7); // YYYY-MM
 }
 
-export function protectedRepoCount(org: string): number {
+function installationAccount(installationId: number): string {
   const row = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS c FROM repos r
-       JOIN installations i ON i.id = r.installation_id
-       WHERE i.account_login = ? AND r.protected_at IS NOT NULL`,
-    )
-    .get(org) as { c: number };
+    .prepare("SELECT account_login FROM installations WHERE id = ?")
+    .get(installationId) as { account_login: string } | undefined;
+  if (!row) throw new Error(`GitHub installation ${installationId} not found`);
+  return row.account_login;
+}
+
+export function accountPlan(installationId: number): {
+  plan: AccountPlan;
+  subscriptionStatus: string;
+} {
+  const row = getDb()
+    .prepare("SELECT subscription_status FROM billing_accounts WHERE installation_id = ?")
+    .get(installationId) as { subscription_status: string } | undefined;
+  const subscriptionStatus = row?.subscription_status ?? "inactive";
+  return {
+    plan: ACTIVE_SUBSCRIPTION_STATUSES.has(subscriptionStatus) ? "pro" : "free",
+    subscriptionStatus,
+  };
+}
+
+function planLimits(plan: AccountPlan): PlanLimits {
+  return plan === "pro"
+    ? {
+        protectedRepos: config.proMaxProtectedRepos,
+        monthlyAudits: config.proMaxAuditsMonth,
+      }
+    : {
+        protectedRepos: config.freeMaxProtectedRepos,
+        monthlyAudits: config.freeMaxAuditsMonth,
+      };
+}
+
+export function getPlanCatalog(): Record<AccountPlan, PlanLimits> {
+  return { free: planLimits("free"), pro: planLimits("pro") };
+}
+
+function remaining(limit: number, used: number): number | null {
+  return limit === 0 ? null : Math.max(0, limit - used);
+}
+
+export function protectedRepoCount(installationId: number): number {
+  const row = getDb()
+    .prepare("SELECT COUNT(*) AS c FROM repos WHERE installation_id = ? AND protected_at IS NOT NULL")
+    .get(installationId) as { c: number };
   return row.c;
 }
 
-export function assertProtectCap(org: string): void {
-  const max = config.betaMaxProtectedRepos;
-  if (max > 0 && protectedRepoCount(org) >= max) {
-    throw new CapExceededError(
-      `Beta limit reached: ${max} protected repos for ${org}`,
-    );
-  }
-}
-
-export function auditsUsedThisMonth(org: string): number {
+export function auditsUsedThisMonth(installationId: number): number {
   const row = getDb()
-    .prepare("SELECT audits FROM org_usage WHERE org = ? AND month = ?")
-    .get(org, monthKey()) as { audits: number } | undefined;
+    .prepare("SELECT audits FROM account_usage WHERE installation_id = ? AND month = ?")
+    .get(installationId, monthKey()) as { audits: number } | undefined;
   return row?.audits ?? 0;
 }
 
-export function assertAuditBudget(org: string, count: number): void {
-  const max = config.betaMaxAuditsMonth;
-  if (max > 0 && auditsUsedThisMonth(org) + count > max) {
+export function getAccountEntitlements(installationId: number): AccountEntitlements {
+  const accountLogin = installationAccount(installationId);
+  const { plan, subscriptionStatus } = accountPlan(installationId);
+  const limits = planLimits(plan);
+  const protectedRepos = protectedRepoCount(installationId);
+  const monthlyAudits = auditsUsedThisMonth(installationId);
+  return {
+    installationId,
+    accountLogin,
+    plan,
+    subscriptionStatus,
+    protectedRepos: {
+      used: protectedRepos,
+      limit: limits.protectedRepos,
+      remaining: remaining(limits.protectedRepos, protectedRepos),
+    },
+    monthlyAudits: {
+      used: monthlyAudits,
+      limit: limits.monthlyAudits,
+      remaining: remaining(limits.monthlyAudits, monthlyAudits),
+    },
+  };
+}
+
+export function assertProtectCap(installationId: number): void {
+  const entitlements = getAccountEntitlements(installationId);
+  const { used, limit } = entitlements.protectedRepos;
+  if (limit > 0 && used >= limit) {
     throw new CapExceededError(
-      `Beta limit reached: this scan needs ${count} new audits but ${org} has ` +
-        `${Math.max(0, max - auditsUsedThisMonth(org))} of ${max} left this month`,
+      `${entitlements.accountLogin} has used all ${limit} ${entitlements.plan.toUpperCase()} protected repositories`,
+      installationId,
+      "protected_repos",
+      entitlements,
     );
   }
 }
 
-export function consumeAuditBudget(org: string, count: number): void {
+export function assertAuditBudget(installationId: number, count: number): void {
+  const entitlements = getAccountEntitlements(installationId);
+  const { used, limit, remaining: available } = entitlements.monthlyAudits;
+  if (limit > 0 && used + count > limit) {
+    throw new CapExceededError(
+      `This scan needs ${count} new package audits, but ${entitlements.accountLogin} has ${available ?? 0} of ${limit} left this month`,
+      installationId,
+      "monthly_audits",
+      entitlements,
+    );
+  }
+}
+
+export function consumeAuditBudget(installationId: number, count: number): void {
   if (count <= 0) return;
   getDb()
     .prepare(
-      `INSERT INTO org_usage (org, month, audits) VALUES (?, ?, ?)
-       ON CONFLICT(org, month) DO UPDATE SET audits = audits + excluded.audits`,
+      `INSERT INTO account_usage (installation_id, month, audits) VALUES (?, ?, ?)
+       ON CONFLICT(installation_id, month) DO UPDATE SET audits = audits + excluded.audits`,
     )
-    .run(org, monthKey(), count);
+    .run(installationId, monthKey(), count);
 }
