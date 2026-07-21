@@ -2,10 +2,9 @@ import type { HypothesisGraph } from "../graph/hypothesis-graph.js";
 import type { Hypothesis } from "@npmguard/shared";
 
 /**
- * The hypothesis-graph-derived verdict. Distinct from the cross-process
- * `VerdictEnum` (SAFE | DANGEROUS) which is exposed on AuditReport today;
- * this one is richer and will replace it once the workers land and the
- * graph starts containing terminal states.
+ * The hypothesis-graph-derived verdict. It uses the same four-state vocabulary
+ * as the cross-process `VerdictEnum`; proof-quality assessment may still
+ * refine the public report classification before it is persisted.
  */
 export type GraphVerdict = "SAFE" | "SUSPECT" | "DANGEROUS" | "UNKNOWN";
 
