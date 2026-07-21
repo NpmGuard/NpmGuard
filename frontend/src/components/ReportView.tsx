@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Finding, Proof, InstrumentationLog } from "../lib/types";
+import type { Finding, Proof, InstrumentationLog, VerdictEnum } from "../lib/types";
 import { computeProofStats } from "../lib/types";
 import { FindingsList } from "./FindingsList";
 import { ProofDetail } from "./ProofDetail";
@@ -14,7 +14,7 @@ import type { ExportableReport } from "../lib/report-export";
 export interface ReportViewProps {
   packageName: string;
   version?: string | null;
-  verdict: "SAFE" | "DANGEROUS" | null;
+  verdict: VerdictEnum | null;
   capabilities: string[];
   findings: Finding[];
   proofs: Proof[];
@@ -38,16 +38,13 @@ interface VerdictDisplay {
   bg: string;
 }
 
-function deriveVerdict(verdict: ReportViewProps["verdict"], findings: Finding[], proofs: Proof[]): VerdictDisplay {
+function deriveVerdict(verdict: ReportViewProps["verdict"]): VerdictDisplay {
   if (verdict === "SAFE") {
     return { label: "SAFE", color: "var(--safe)", bg: "var(--safe-bg)" };
   }
-  const { verified, observed, dealbreaker } = computeProofStats(findings, proofs);
-  if (dealbreaker) return { label: "DANGEROUS", color: "var(--danger)", bg: "var(--danger-bg)" };
-  if (verified > 0) return { label: "DANGEROUS", color: "var(--danger)", bg: "var(--danger-bg)" };
-  if (observed > 0) return { label: "SUSPICIOUS", color: "var(--suspected)", bg: "var(--suspected-bg)" };
   if (verdict === "DANGEROUS") return { label: "DANGEROUS", color: "var(--danger)", bg: "var(--danger-bg)" };
-  return { label: "REVIEW", color: "var(--text-muted)", bg: "var(--bg-tertiary)" };
+  if (verdict === "SUSPECT") return { label: "SUSPECT", color: "var(--suspected)", bg: "var(--suspected-bg)" };
+  return { label: "UNKNOWN", color: "var(--text-muted)", bg: "var(--bg-tertiary)" };
 }
 
 function statsLine(findings: Finding[], proofs: Proof[]): string {
@@ -395,7 +392,7 @@ export function ReportView({
   // Keep selection in range when findings list changes
   const safeIndex = selectedIndex !== null && selectedIndex < findings.length ? selectedIndex : null;
 
-  const display = useMemo(() => deriveVerdict(verdict, findings, proofs), [verdict, findings, proofs]);
+  const display = useMemo(() => deriveVerdict(verdict), [verdict]);
   const stats = useMemo(() => statsLine(findings, proofs), [findings, proofs]);
   const capCounts = useMemo(() => capabilityCounts(findings), [findings]);
 

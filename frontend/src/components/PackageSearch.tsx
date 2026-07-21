@@ -7,7 +7,7 @@ interface PackageSummary {
   auditedAt: string;
 }
 
-type VerdictFilter = "ALL" | "SAFE" | "DANGEROUS" | "UNKNOWN";
+type VerdictFilter = "ALL" | "SAFE" | "SUSPECT" | "DANGEROUS" | "UNKNOWN";
 type SortKey = "auditedAt" | "packageName" | "verdict";
 const PAGE_SIZE = 10;
 
@@ -40,6 +40,13 @@ function verdictColor(verdict: string) {
       color: "var(--danger)",
       background: "var(--danger-bg)",
       borderColor: "rgba(220, 38, 38, 0.22)",
+    };
+  }
+  if (verdict === "SUSPECT") {
+    return {
+      color: "var(--suspected)",
+      background: "var(--suspected-bg)",
+      borderColor: "rgba(180, 120, 20, 0.25)",
     };
   }
   return {
@@ -81,14 +88,15 @@ export function PackageSearch() {
   const stats = useMemo(() => {
     const safe = packages.filter((p) => p.verdict === "SAFE").length;
     const dangerous = packages.filter((p) => p.verdict === "DANGEROUS").length;
-    const unknown = packages.length - safe - dangerous;
+    const suspect = packages.filter((p) => p.verdict === "SUSPECT").length;
+    const unknown = packages.length - safe - dangerous - suspect;
     const latestAudit = packages.reduce<string | null>((latest, pkg) => {
       if (!latest) return pkg.auditedAt;
       return new Date(pkg.auditedAt).getTime() > new Date(latest).getTime()
         ? pkg.auditedAt
         : latest;
     }, null);
-    return { safe, dangerous, unknown, latestAudit };
+    return { safe, suspect, dangerous, unknown, latestAudit };
   }, [packages]);
 
   const filtered = useMemo(() => {
@@ -113,10 +121,6 @@ export function PackageSearch() {
       });
   }, [filter, packages, search, sortKey]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [filter, search, sortKey]);
-
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
@@ -124,7 +128,7 @@ export function PackageSearch() {
   const showingFrom = filtered.length === 0 ? 0 : pageStart + 1;
   const showingTo = Math.min(pageStart + PAGE_SIZE, filtered.length);
 
-  const filters: VerdictFilter[] = ["ALL", "SAFE", "DANGEROUS", "UNKNOWN"];
+  const filters: VerdictFilter[] = ["ALL", "SAFE", "SUSPECT", "DANGEROUS", "UNKNOWN"];
 
   return (
     <div
@@ -271,12 +275,18 @@ export function PackageSearch() {
                   className="verdict-bar"
                   style={{ marginTop: 10 }}
                   role="img"
-                  aria-label={`${stats.safe} safe, ${stats.dangerous} dangerous, ${stats.unknown} unknown`}
+                  aria-label={`${stats.safe} safe, ${stats.suspect} suspect, ${stats.dangerous} dangerous, ${stats.unknown} unknown`}
                 >
                   <span
                     style={{
                       width: `${(stats.safe / packages.length) * 100}%`,
                       background: "var(--safe)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      width: `${(stats.suspect / packages.length) * 100}%`,
+                      background: "var(--suspected)",
                     }}
                   />
                   <span
@@ -321,7 +331,10 @@ export function PackageSearch() {
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             placeholder="Search package or version"
             aria-label="Search package or version"
             style={{
@@ -356,7 +369,10 @@ export function PackageSearch() {
                 <button
                   key={item}
                   type="button"
-                  onClick={() => setFilter(item)}
+                  onClick={() => {
+                    setFilter(item);
+                    setPage(1);
+                  }}
                   style={{
                     height: 30,
                     padding: "0 10px",
@@ -378,7 +394,10 @@ export function PackageSearch() {
 
           <select
             value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            onChange={(e) => {
+              setSortKey(e.target.value as SortKey);
+              setPage(1);
+            }}
             aria-label="Sort packages"
             style={{
               height: 38,

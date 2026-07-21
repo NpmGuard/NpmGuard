@@ -3,7 +3,7 @@ import { useAuditStore } from "../stores/auditStore";
 import { useTypewriter } from "../hooks/useTypewriter";
 import { useCountUp } from "../hooks/useCountUp";
 import { PHASE_WAIT_LABELS, LIFECYCLE_SCRIPTS, readFileArg, fileFromFileLine, computeProofStats } from "../lib/types";
-import type { AgentStep, Finding, PipelineLogEntry } from "../lib/types";
+import type { AgentStep, Finding, PipelineLogEntry, VerdictEnum } from "../lib/types";
 
 // ── Sub-components ──
 
@@ -374,7 +374,7 @@ function PipelineLogItem({ entry }: { entry: PipelineLogEntry }) {
   }
 }
 
-function CompletionItem({ verdict }: { verdict: "SAFE" | "DANGEROUS" }) {
+function CompletionItem({ verdict }: { verdict: VerdictEnum }) {
   const proofs = useAuditStore((s) => s.proofs);
   const findings = useAuditStore((s) => s.findings);
   const { verified, observed, dealbreaker } = computeProofStats(findings, proofs);
@@ -389,32 +389,27 @@ function CompletionItem({ verdict }: { verdict: "SAFE" | "DANGEROUS" }) {
     color = "var(--safe)";
     bg = "var(--safe-bg)";
     icon = "\u2713";
-  } else if (dealbreaker) {
+  } else if (verdict === "DANGEROUS" && dealbreaker) {
     summary = `Dealbreaker detected — ${dealbreaker.problem}. Skipped to DANGEROUS.`;
     color = "var(--danger)";
     bg = "var(--danger-bg)";
     icon = "\u2717";
-  } else if (verified > 0) {
+  } else if (verdict === "DANGEROUS" && verified > 0) {
     const rest = findings.length - verified;
     summary = `${verified} finding${verified !== 1 ? "s" : ""} verified by exploit tests.${rest > 0 ? ` ${rest} additional flagged.` : ""}`;
     color = "var(--danger)";
     bg = "var(--danger-bg)";
     icon = "\u2717";
-  } else if (observed > 0) {
-    summary = `${observed} finding${observed !== 1 ? "s" : ""} observed at runtime but not verified by tests. Review recommended.`;
+  } else if (verdict === "SUSPECT") {
+    summary = `${Math.max(observed, findings.length)} actionable signal${Math.max(observed, findings.length) !== 1 ? "s" : ""}, with no admitted exploit reproduction. Non-blocking review recommended.`;
     color = "var(--suspected)";
     bg = "var(--suspected-bg)";
     icon = "?";
-  } else if (findings.length > 0) {
-    summary = `${findings.length} finding${findings.length !== 1 ? "s" : ""} flagged by static analysis but none verified. Manual review recommended.`;
+  } else {
+    summary = "The audit could not produce a confirmed classification. No blocking verdict was issued.";
     color = "var(--text-muted)";
     bg = "var(--bg-secondary)";
     icon = "?";
-  } else {
-    summary = "Analysis complete. No findings.";
-    color = "var(--safe)";
-    bg = "var(--safe-bg)";
-    icon = "\u2713";
   }
 
   return (

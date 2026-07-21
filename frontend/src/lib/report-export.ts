@@ -1,4 +1,4 @@
-import type { Finding, Proof, InstrumentationLog } from "./types";
+import type { Finding, Proof, InstrumentationLog, VerdictEnum } from "./types";
 
 // ---------------------------------------------------------------------------
 // Shared input shape for the 3 export formats. Mirrors what PackageLookup and
@@ -8,7 +8,7 @@ import type { Finding, Proof, InstrumentationLog } from "./types";
 export interface ExportableReport {
   packageName: string;
   version?: string | null;
-  verdict: "SAFE" | "DANGEROUS" | null;
+  verdict: VerdictEnum | null;
   capabilities: string[];
   findings: Finding[];
   proofs: Proof[];
@@ -171,7 +171,14 @@ export async function exportAsMarkdown(report: ExportableReport): Promise<void> 
   const lines: string[] = [];
   lines.push(`# NpmGuard audit: \`${report.packageName}@${report.version ?? "unknown"}\``);
   lines.push("");
-  const verdictBadge = report.verdict === "SAFE" ? "✓ SAFE" : report.verdict === "DANGEROUS" ? "⚠ DANGEROUS" : "REVIEW";
+  const verdictBadge =
+    report.verdict === "SAFE"
+      ? "✓ SAFE"
+      : report.verdict === "DANGEROUS"
+        ? "⛔ DANGEROUS"
+        : report.verdict === "SUSPECT"
+          ? "⚠ SUSPECT"
+          : "? UNKNOWN";
   lines.push(`**Verdict: ${verdictBadge}** · ${stats.verified} verified · ${stats.observed} observed · ${stats.flagged} flagged`);
   lines.push("");
 

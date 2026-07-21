@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { ReportView } from "./ReportView";
 import { trailFromTrace } from "../lib/report-helpers";
-import type { Finding, Proof, InstrumentationLog } from "../lib/types";
+import type { Finding, Proof, InstrumentationLog, VerdictEnum } from "../lib/types";
 
 function navigate(href: string) {
   history.pushState(null, "", href);
@@ -12,7 +12,7 @@ interface ReportData {
   packageName: string;
   version: string;
   report: {
-    verdict: "SAFE" | "DANGEROUS";
+    verdict: VerdictEnum;
     capabilities: string[];
     findings: Finding[];
     proofs: Proof[];
@@ -27,21 +27,22 @@ interface ReportData {
 }
 
 export function PackageLookup({ packageName, version: requestedVersion }: { packageName: string; version?: string }) {
-  const [data, setData] = useState<ReportData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const requestKey = `${packageName}@${requestedVersion ?? "latest"}`;
+  const [result, setResult] = useState<{
+    key: string;
+    status: "loading" | "ready" | "not-found";
+    data: ReportData | null;
+  }>({ key: requestKey, status: "loading", data: null });
 
   useEffect(() => {
-    setLoading(true);
-    setNotFound(false);
-    setData(null);
-
+    const controller = new AbortController();
     const query = requestedVersion ? `?version=${encodeURIComponent(requestedVersion)}` : "";
-    fetch(`/api/package/${encodeURIComponent(packageName)}/report${query}`)
+    fetch(`/api/package/${encodeURIComponent(packageName)}/report${query}`, {
+      signal: controller.signal,
+    })
       .then((r) => {
         if (r.status === 404) {
-          setNotFound(true);
-          setLoading(false);
+          setResult({ key: requestKey, status: "not-found", data: null });
           return null;
         }
         if (!r.ok) throw new Error(`${r.status}`);
@@ -49,17 +50,22 @@ export function PackageLookup({ packageName, version: requestedVersion }: { pack
       })
       .then((json) => {
         if (json) {
-          setData(json);
-          setLoading(false);
+          setResult({ key: requestKey, status: "ready", data: json });
         }
       })
-      .catch(() => {
-        setNotFound(true);
-        setLoading(false);
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setResult({ key: requestKey, status: "not-found", data: null });
       });
-  }, [packageName, requestedVersion]);
+    return () => controller.abort();
+  }, [packageName, requestKey, requestedVersion]);
 
-  if (loading) {
+  const current = result.key === requestKey
+    ? result
+    : { key: requestKey, status: "loading" as const, data: null };
+  const { data } = current;
+
+  if (current.status === "loading") {
     return (
       <div
         className="flex-1 flex items-center justify-center"
@@ -70,7 +76,7 @@ export function PackageLookup({ packageName, version: requestedVersion }: { pack
     );
   }
 
-  if (notFound || !data) {
+  if (current.status === "not-found" || !data) {
     return (
       <div
         className="flex-1 flex flex-col items-center justify-center"
