@@ -1,4 +1,4 @@
-import type { FileRecord, FileVerdict, Finding, FocusArea } from "./models.js";
+import type { FileRecord, FileVerdict, Finding, FocusArea, VerdictEnum } from "./models.js";
 
 // ---------------------------------------------------------------------------
 // Base — every SSE event carries these fields
@@ -94,7 +94,7 @@ export interface FindingDiscoveredEvent extends BaseAuditEvent {
 
 export interface VerdictReachedEvent extends BaseAuditEvent {
   type: "verdict_reached";
-  verdict: "SAFE" | "DANGEROUS";
+  verdict: VerdictEnum;
   capabilities: string[];
   proofCount: number;
 }

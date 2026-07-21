@@ -4,7 +4,7 @@ import { z } from "zod";
 // Enums — cross-process audit vocabulary
 // ---------------------------------------------------------------------------
 
-export const VerdictEnum = z.enum(["SAFE", "DANGEROUS"]);
+export const VerdictEnum = z.enum(["SAFE", "SUSPECT", "DANGEROUS", "UNKNOWN"]);
 export type VerdictEnum = z.infer<typeof VerdictEnum>;
 
 export const CapabilityEnum = z.enum([
