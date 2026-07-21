@@ -20,6 +20,7 @@ import { startAuditLog, type AuditLogger } from "./audit-log.js";
 import { ArtifactStore } from "./evidence/artifact-store.js";
 import type { EmitFn } from "./events.js";
 import { setSessionPackagePath, setSessionCleanup } from "./events.js";
+import { assessAuditReport } from "./proof-quality.js";
 
 function hasRunArtifactEvidence(refs: readonly { kind: string; id: string }[]): boolean {
   return refs.some((ref) => ref.kind === "run" && ref.id.startsWith("run_"));
@@ -674,26 +675,16 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
     // Persist final graph state
     log.writeLog("graph-final.json", graph.serialize());
 
-    // Graph-derived verdict is authoritative. Until AuditReport/CLI/frontend
-    // grow the richer 4-state vocabulary, keep the public 2-state mapping
-    // conservative: only graph SAFE with no confirmed proof maps to SAFE.
-    // SUSPECT/UNKNOWN become DANGEROUS so the CLI warns instead of silently
-    // installing an under-investigated package.
-    //
+    // The graph records investigation completeness. The public classification
+    // then applies the stricter proof-quality boundary: DANGEROUS requires an
+    // admitted reproducer or the deterministic shell-pipe rule, while an
+    // actionable static signal remains SUSPECT.
     const graphVerdict = deriveGraphVerdict(graph);
-    const hasConfirmedProof = verifiedProofs.some((p) => p.kind === "TEST_CONFIRMED");
-    const verdict =
-      graphVerdict.verdict === "SAFE" && !hasConfirmedProof
-        ? "SAFE"
-        : "DANGEROUS";
-    console.log(
-      `[pipeline] graph verdict: ${graphVerdict.verdict} → report verdict: ${verdict} — ${graphVerdict.rationale}`,
-    );
     log.writeLog("graph-verdict.json", graphVerdict);
     emit?.("graph_verdict", { ...graphVerdict });
 
-    const report: AuditReport = {
-      verdict,
+    const draftReport: AuditReport = {
+      verdict: graphVerdict.verdict,
       capabilities: investigationResult.capabilities,
       proofs: verifiedProofs,
       triage: null,
@@ -701,6 +692,11 @@ export async function runAudit(packageName: string, emit?: EmitFn, auditId?: str
       trace,
       runtimeEvidence: null,
     };
+    const assessment = assessAuditReport(draftReport);
+    const report: AuditReport = { ...draftReport, verdict: assessment.classification };
+    console.log(
+      `[pipeline] graph verdict: ${graphVerdict.verdict} → report verdict: ${report.verdict} — ${assessment.summary}`,
+    );
     log.writeLog("report.json", report);
     console.log(`[pipeline] full logs saved to ${log.runDir}`);
 
