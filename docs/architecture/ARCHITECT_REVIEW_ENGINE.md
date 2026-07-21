@@ -44,11 +44,10 @@ resolve → inventory → intent-extraction → triage (→ Hypothesis[]) →
 
 ### What's next
 
-1. **4-state verdict in AuditReport** — internal `GraphVerdict` exists but AuditReport still uses 2-state SAFE|DANGEROUS. Needs shared schema → CLI → frontend cascade.
-2. **Frontend hypothesis graph UI** — SSE events fire (`hypothesis_emitted`, `experiment_confirmed`, `graph_verdict`) but frontend ignores them. Add timeline + state indicators.
-3. **Remaining experimenter strategies** — 6/13 claim kinds implemented. dom_inject, clipboard_hijack, telemetry, propagation, destructive, build_plugin_exfil return null.
-4. **Report bundle layout** — flat JSON → `report.json + artifacts/<hash>/` with content-addressed blobs.
-5. **Real npm package testing** — only verified on local test fixtures. Real packages exercise download + larger file counts.
+1. **Frontend hypothesis graph UI** — SSE events fire (`hypothesis_emitted`, `experiment_confirmed`, `graph_verdict`) but frontend ignores them. Add timeline + state indicators.
+2. **Remaining experimenter strategies** — 6/13 claim kinds implemented. dom_inject, clipboard_hijack, telemetry, propagation, destructive, build_plugin_exfil return null.
+3. **Report bundle layout** — flat JSON → `report.json + artifacts/<hash>/` with content-addressed blobs.
+4. **Real npm package testing** — only verified on local test fixtures. Real packages exercise download + larger file counts.
 
 ---
 
