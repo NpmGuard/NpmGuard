@@ -47,7 +47,14 @@ function deriveVerdict(verdict: ReportViewProps["verdict"]): VerdictDisplay {
   return { label: "UNKNOWN", color: "var(--text-muted)", bg: "var(--bg-tertiary)" };
 }
 
-function statsLine(findings: Finding[], proofs: Proof[]): string {
+function statsLine(
+  verdict: ReportViewProps["verdict"],
+  findings: Finding[],
+  proofs: Proof[],
+): string {
+  if (verdict === "SAFE" && findings.length > 0) {
+    return `${findings.length} signal${findings.length === 1 ? "" : "s"} rejected · no exploit evidence`;
+  }
   const { verified, observed, rest, dealbreaker } = computeProofStats(findings, proofs);
   if (dealbreaker) return `Dealbreaker: ${dealbreaker.problem}`;
   if (verified > 0) return `${verified} verified${rest > 0 ? ` · ${rest} flagged` : ""}`;
@@ -393,7 +400,7 @@ export function ReportView({
   const safeIndex = selectedIndex !== null && selectedIndex < findings.length ? selectedIndex : null;
 
   const display = useMemo(() => deriveVerdict(verdict), [verdict]);
-  const stats = useMemo(() => statsLine(findings, proofs), [findings, proofs]);
+  const stats = useMemo(() => statsLine(verdict, findings, proofs), [verdict, findings, proofs]);
   const capCounts = useMemo(() => capabilityCounts(findings), [findings]);
 
   // Unique capabilities to display: union of report-level capabilities and finding-derived
@@ -500,7 +507,7 @@ export function ReportView({
         </div>
 
         {/* Capability chips with counts */}
-        {displayCaps.length > 0 && (
+        {displayCaps.length > 0 && verdict !== "SAFE" && (
           <div
             style={{
               marginTop: 10,
@@ -556,6 +563,7 @@ export function ReportView({
           <FindingsList
             findings={findings}
             proofs={proofs}
+            classification={verdict}
             selectedIndex={safeIndex}
             onSelect={setSelectedIndex}
           />
@@ -573,6 +581,7 @@ export function ReportView({
             <ProofDetail
               finding={safeIndex !== null ? findings[safeIndex] : null}
               proof={safeIndex !== null ? proofs[safeIndex] : undefined}
+              rejected={verdict === "SAFE"}
               fetchSource={fetchSource}
               runtimeEvidence={runtimeEvidence}
             />

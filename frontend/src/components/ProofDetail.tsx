@@ -11,6 +11,9 @@ type Tab = "source" | "proof" | "runtime" | "why";
 export interface ProofDetailProps {
   finding: Finding | null;
   proof: Proof | undefined;
+  /** The report-level classifier rejected this raw signal. It remains visible
+   * for audit transparency but must not read like an active finding. */
+  rejected?: boolean;
   /**
    * If provided, used to fetch the source file by relative path. Returns null
    * when not available (e.g. cached package report after tarball cleanup).
@@ -173,37 +176,60 @@ function SourceTab({
 }) {
   const fileLine = proof?.fileLine || finding.fileLine || "";
   const { file, ranges } = splitFileLine(fileLine);
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const sourceKey = file ?? "no-source";
+  const [source, setSource] = useState<{
+    key: string;
+    status: "idle" | "loading" | "ready" | "error";
+    content: string | null;
+    error: string | null;
+  }>({
+    key: sourceKey,
+    status: file && fetchSource ? "loading" : "idle",
+    content: null,
+    error: null,
+  });
 
   useEffect(() => {
-    setContent(null);
-    setError(null);
     if (!file || !fetchSource) return;
     let cancelled = false;
-    setLoading(true);
     fetchSource(file)
       .then((c) => {
         if (cancelled) return;
         if (c == null) {
-          setError("Source not available for cached reports.");
+          setSource({
+            key: sourceKey,
+            status: "error",
+            content: null,
+            error: "Source not available for cached reports.",
+          });
         } else {
-          setContent(c);
+          setSource({ key: sourceKey, status: "ready", content: c, error: null });
         }
       })
       .catch(() => {
         if (cancelled) return;
-        setError("Failed to load source.");
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
+        setSource({
+          key: sourceKey,
+          status: "error",
+          content: null,
+          error: "Failed to load source.",
+        });
       });
     return () => {
       cancelled = true;
     };
-  }, [file, fetchSource]);
+  }, [file, fetchSource, sourceKey]);
+
+  const currentSource = source.key === sourceKey
+    ? source
+    : {
+        key: sourceKey,
+        status: file && fetchSource ? "loading" as const : "idle" as const,
+        content: null,
+        error: null,
+      };
+  const loading = currentSource.status === "loading";
+  const { content, error } = currentSource;
 
   const extensions = useMemo(
     () => [
@@ -759,7 +785,13 @@ function WhyTab({ finding, proof }: { finding: Finding; proof: Proof | undefined
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ProofDetail({ finding, proof, fetchSource, runtimeEvidence }: ProofDetailProps) {
+export function ProofDetail({
+  finding,
+  proof,
+  rejected = false,
+  fetchSource,
+  runtimeEvidence,
+}: ProofDetailProps) {
   // Cached reports have no source fetcher — landing on an empty Source tab
   // reads as broken, so lead with the explanation instead.
   const defaultTab: Tab = fetchSource ? "source" : "why";
@@ -793,6 +825,22 @@ export function ProofDetail({ finding, proof, fetchSource, runtimeEvidence }: Pr
 
   return (
     <div className="flex-1 flex flex-col min-h-0" style={{ background: "var(--bg)" }}>
+      {rejected && (
+        <div
+          role="status"
+          style={{
+            padding: "9px 16px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--safe-bg)",
+            color: "var(--safe)",
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.67rem",
+            lineHeight: 1.45,
+          }}
+        >
+          Rejected signal — kept in the audit trail for transparency; it did not affect the SAFE verdict.
+        </div>
+      )}
       {/* Tab bar */}
       <div
         className="shrink-0 flex"
