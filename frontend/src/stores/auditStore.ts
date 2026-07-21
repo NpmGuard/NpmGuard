@@ -12,6 +12,7 @@ import type {
   PipelineLogEntry,
   InventoryMeta,
   InstrumentationLog,
+  VerdictEnum,
 } from "../lib/types";
 import { PHASE_ORDER, PHASE_LABELS, LIFECYCLE_SCRIPTS, RISK_SUSPICIOUS_THRESHOLD, riskContributionToStatus, readFileArg } from "../lib/types";
 
@@ -47,7 +48,7 @@ interface AuditState {
   findings: Finding[];
 
   // Verdict
-  verdict: "SAFE" | "DANGEROUS" | null;
+  verdict: VerdictEnum | null;
   capabilities: string[];
   proofCount: number;
   proofs: Proof[];

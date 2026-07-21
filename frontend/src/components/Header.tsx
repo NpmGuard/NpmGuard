@@ -35,7 +35,11 @@ export function Header() {
   const statusColor = verdict
     ? verdict === "DANGEROUS"
       ? "var(--danger)"
-      : "var(--safe)"
+      : verdict === "SUSPECT"
+        ? "var(--suspected)"
+        : verdict === "SAFE"
+          ? "var(--safe)"
+          : "var(--text-muted)"
     : "var(--investigating)";
 
   const goHome = () => {

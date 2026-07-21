@@ -27,25 +27,15 @@ export function VerdictBanner() {
 
   const { verified, observed, rest, dealbreaker } = computeProofStats(findings, proofs);
 
-  // Derive display label + color from what was actually proven
-  let displayLabel: string;
-  let displayColor: string;
-  if (verdict === "SAFE") {
-    displayLabel = "SAFE";
-    displayColor = "var(--safe)";
-  } else if (dealbreaker) {
-    displayLabel = "DANGEROUS";
-    displayColor = "var(--danger)";
-  } else if (verified > 0) {
-    displayLabel = "DANGEROUS";
-    displayColor = "var(--danger)";
-  } else if (observed > 0) {
-    displayLabel = "SUSPICIOUS";
-    displayColor = "var(--suspected)";
-  } else {
-    displayLabel = "REVIEW";
-    displayColor = "var(--text-muted)";
-  }
+  const displayLabel = verdict;
+  const displayColor =
+    verdict === "SAFE"
+      ? "var(--safe)"
+      : verdict === "DANGEROUS"
+        ? "var(--danger)"
+        : verdict === "SUSPECT"
+          ? "var(--suspected)"
+          : "var(--text-muted)";
 
   let statsText: string;
   if (dealbreaker) {
@@ -57,7 +47,7 @@ export function VerdictBanner() {
   } else if (findings.length > 0) {
     statsText = `${findings.length} flagged · none verified`;
   } else {
-    statsText = verdict === "SAFE" ? "No issues found" : "Analysis complete";
+    statsText = verdict === "SAFE" ? "No issues found" : verdict === "UNKNOWN" ? "Analysis incomplete" : "Analysis complete";
   }
 
   return (

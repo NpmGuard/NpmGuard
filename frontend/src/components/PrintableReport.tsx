@@ -34,11 +34,9 @@ function deriveDisplay(report: ExportableReport): { label: string; statsLine: st
   const { verified, observed, rest, dealbreaker } = computeProofStats(report.findings, report.proofs);
   let label: string;
   if (report.verdict === "SAFE") label = "SAFE";
-  else if (dealbreaker) label = "DANGEROUS";
-  else if (verified > 0) label = "DANGEROUS";
-  else if (observed > 0) label = "SUSPICIOUS";
   else if (report.verdict === "DANGEROUS") label = "DANGEROUS";
-  else label = "REVIEW";
+  else if (report.verdict === "SUSPECT") label = "SUSPECT";
+  else label = "UNKNOWN";
 
   let statsLine: string;
   if (dealbreaker) statsLine = `Dealbreaker: ${dealbreaker.problem}`;
