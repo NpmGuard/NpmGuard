@@ -94,17 +94,42 @@ describe("installation lifecycle", () => {
     });
   });
 
-  it("deleted → cascades installation, repos, and their deps", async () => {
+  it("deleted → cascades installation, repos, deps, and inactive billing state", async () => {
     await deliver("installation", {
       action: "created",
       installation: INSTALLATION,
       repositories: [{ id: 1001, name: "web", full_name: "acme/web", private: false }],
     });
     db.prepare("INSERT INTO repo_deps (repo_id, name, version, direct) VALUES (1001, 'x', '1.0.0', 0)").run();
+    db.prepare(
+      `INSERT INTO billing_accounts (
+         installation_id, stripe_subscription_id, subscription_status
+       ) VALUES (42, 'sub_canceled', 'canceled')`,
+    ).run();
 
-    await deliver("installation", { action: "deleted", installation: INSTALLATION });
+    const res = await deliver("installation", { action: "deleted", installation: INSTALLATION });
+    expect(res.status).toBe(202);
     expect(db.prepare("SELECT COUNT(*) c FROM repos").get()).toMatchObject({ c: 0 });
     expect(db.prepare("SELECT COUNT(*) c FROM repo_deps").get()).toMatchObject({ c: 0 });
+    expect(db.prepare("SELECT COUNT(*) c FROM billing_accounts").get()).toMatchObject({ c: 0 });
+  });
+
+  it("keeps installation data when an active subscription cannot be canceled", async () => {
+    await deliver("installation", {
+      action: "created",
+      installation: INSTALLATION,
+      repositories: [{ id: 1001, name: "web", full_name: "acme/web", private: false }],
+    });
+    db.prepare(
+      `INSERT INTO billing_accounts (
+         installation_id, stripe_subscription_id, subscription_status
+       ) VALUES (42, 'sub_active', 'active')`,
+    ).run();
+
+    const res = await deliver("installation", { action: "deleted", installation: INSTALLATION });
+    expect(res.status).toBe(502);
+    expect(db.prepare("SELECT COUNT(*) c FROM installations").get()).toMatchObject({ c: 1 });
+    expect(db.prepare("SELECT COUNT(*) c FROM billing_accounts").get()).toMatchObject({ c: 1 });
   });
 
   it("installation_repositories removed → prunes exactly those repos", async () => {
