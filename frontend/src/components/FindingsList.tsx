@@ -1,4 +1,4 @@
-import type { Finding, Proof } from "../lib/types";
+import type { Finding, Proof, VerdictEnum } from "../lib/types";
 import { verificationStatus, type VerificationStatus as Status } from "../lib/report-helpers";
 
 // Primary capability used for grouping. Findings can declare
@@ -37,11 +37,18 @@ function groupByCapability(findings: Finding[], proofs: Proof[]): Group[] {
 export interface FindingsListProps {
   findings: Finding[];
   proofs: Proof[];
+  classification: VerdictEnum | null;
   selectedIndex: number | null;
   onSelect: (index: number) => void;
 }
 
-export function FindingsList({ findings, proofs, selectedIndex, onSelect }: FindingsListProps) {
+export function FindingsList({
+  findings,
+  proofs,
+  classification,
+  selectedIndex,
+  onSelect,
+}: FindingsListProps) {
   if (findings.length === 0) {
     return (
       <div
@@ -63,6 +70,7 @@ export function FindingsList({ findings, proofs, selectedIndex, onSelect }: Find
   }
 
   const groups = groupByCapability(findings, proofs);
+  const rejected = classification === "SAFE";
 
   return (
     <div
@@ -76,7 +84,7 @@ export function FindingsList({ findings, proofs, selectedIndex, onSelect }: Find
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <span className="section-header">Findings</span>
+        <span className="section-header">{rejected ? "Rejected signals" : "Findings"}</span>
         <span
           style={{
             fontFamily: "var(--font-mono)",
@@ -124,7 +132,7 @@ export function FindingsList({ findings, proofs, selectedIndex, onSelect }: Find
                   textAlign: "left",
                   padding: "10px 16px",
                   border: "none",
-                  borderLeft: `3px solid ${status.border}`,
+                  borderLeft: `3px solid ${rejected ? "var(--safe)" : status.border}`,
                   background: isSelected ? "var(--bg-secondary)" : "transparent",
                   cursor: "pointer",
                   borderBottom: "1px solid var(--border)",
@@ -165,11 +173,11 @@ export function FindingsList({ findings, proofs, selectedIndex, onSelect }: Find
                       padding: "2px 6px",
                       borderRadius: 3,
                       flexShrink: 0,
-                      background: status.bg,
-                      color: status.color,
+                      background: rejected ? "var(--safe-bg)" : status.bg,
+                      color: rejected ? "var(--safe)" : status.color,
                     }}
                   >
-                    {status.label === "VERIFIED" ? "✓ " : ""}{status.label}
+                    {rejected ? "REJECTED" : <>{status.label === "VERIFIED" ? "✓ " : ""}{status.label}</>}
                   </span>
                 </div>
                 {finding.fileLine && (
@@ -184,7 +192,7 @@ export function FindingsList({ findings, proofs, selectedIndex, onSelect }: Find
                     {finding.fileLine}
                   </div>
                 )}
-                {proof?.confidence && proof.confidence !== "SUSPECTED" && (
+                {!rejected && proof?.confidence && proof.confidence !== "SUSPECTED" && (
                   <div
                     style={{
                       marginTop: 4,
@@ -205,4 +213,3 @@ export function FindingsList({ findings, proofs, selectedIndex, onSelect }: Find
     </div>
   );
 }
-
