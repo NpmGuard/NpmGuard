@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from kit_llm import LlmClient
+from kit_llm import CandidateRejected, LlmClient
 
 from .audit_log import AuditLog
 from .config import Settings
@@ -57,19 +58,37 @@ async def judge_evidence(
     audit_id: str,
 ) -> JudgeResult:
     focus = ", ".join(f"{line.file}:{line.range}" for line in hypothesis.focusLines or [])
+    setup = json.dumps(
+        [call.model_dump(mode="json") for call in hypothesis.experiment or []],
+        separators=(",", ":"),
+    )
     prompt = (
         f"## Stated purpose (benign baseline)\n{stated_purpose or '(unknown)'}\n\n"
         f"## Hypothesis {hypothesis.hypId}\n- claim: {hypothesis.claim.kind}"
         f"{f' (gated: {hypothesis.claim.gating})' if hypothesis.claim.gating else ''}\n"
         f"- severity: {hypothesis.severity}\n- description: {hypothesis.description}\n"
         f"- suspected code: {focus or ', '.join(hypothesis.focusFiles or []) or '(unspecified)'}\n\n"
+        f"## Experiment setup\n{setup}\n"
+        "Setup is test context, not proof. Use it to associate planted canary values with observed events; decide only from the timeline.\n\n"
         f"## Execution timeline\n{timeline.text}\n\n## Task\nDid the suspected behavior happen? Cite exact timeline ids for malicious=true."
     )
+
+    def validate_verdict(candidate: JudgeVerdict) -> None:
+        cited = set(candidate.citedEvents)
+        if candidate.malicious and not cited:
+            raise CandidateRejected("malicious=true requires at least one cited timeline event")
+        unknown = cited - timeline.ids
+        if unknown:
+            raise CandidateRejected(f"unknown timeline event ids: {sorted(unknown)}")
+        if not candidate.malicious and cited:
+            raise CandidateRejected("malicious=false must not cite events")
+
     try:
         result = await llm.run(
             "judge",
             vars={},
             messages=[{"role": "user", "content": prompt}],
+            validate=validate_verdict,
             context=("audit", audit_id),
         )
         verdict = JudgeVerdict.model_validate(result.output)

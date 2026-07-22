@@ -5,11 +5,11 @@ import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Literal, Protocol
+from typing import Literal, Protocol, get_args
 
-from pydantic import BaseModel, Field, create_model, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
 
-from kit_llm import LlmClient
+from kit_llm import BudgetExhausted, CandidateRejected, LlmClient
 
 from .config import SOURCE_FILE_TYPES
 from .contract.models import (
@@ -48,6 +48,7 @@ Capability = Literal[
     "BUILD_PLUGIN_EXFIL",
     "NPM_TOKEN_ABUSE",
 ]
+CAPABILITY_VALUES = frozenset(get_args(Capability))
 ClaimKind = Literal[
     "env_exfil",
     "cred_theft",
@@ -68,13 +69,21 @@ Severity = Literal["low", "medium", "high", "critical"]
 
 
 class PackageIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     statedPurpose: str
-    expectedCapabilities: list[Capability]
+    expectedCapabilities: list[str] = Field(max_length=12)
     rationale: str
 
 
 class FlagDraft(BaseModel):
-    lines: list[str] = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    lines: list[str] = Field(
+        min_length=1,
+        max_length=12,
+        description="Compact 1-based line ranges only (for example 12-18), never copied source text.",
+    )
     why: str
 
     @model_validator(mode="before")
@@ -102,6 +111,16 @@ class FlagDraft(BaseModel):
             normalized["why"] = (
                 normalized.get("description") or normalized.get("reason") or normalized.get("flag")
             )
+        for alias in (
+            "lineRanges",
+            "line_range",
+            "start_line",
+            "end_line",
+            "description",
+            "reason",
+            "flag",
+        ):
+            normalized.pop(alias, None)
         return normalized
 
     @field_validator("lines", mode="before")
@@ -120,21 +139,54 @@ class FlagDraft(BaseModel):
                 and all(isinstance(part, int) for part in item)
             ):
                 normalized.append(f"{item[0]}-{item[1]}")
+            elif isinstance(item, str):
+                stripped = item.strip()
+                if match := re.fullmatch(r"(\d+)\s*-\s*(\d+)", stripped):
+                    normalized.append(f"{match.group(1)}-{match.group(2)}")
+                elif match := (
+                    re.fullmatch(r"(\d+)", stripped)
+                    or re.match(r"(\d+)\s*:.*", stripped, re.S)
+                ):
+                    normalized.append(f"{match.group(1)}-{match.group(1)}")
+                else:
+                    normalized.append(stripped)
             else:
-                normalized.append(item)
+                raise ValueError(f"invalid line range {item!r}")
         return normalized
 
 
 class FileFlagResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     summary: str
-    capabilities: list[str] = Field(default_factory=list)
-    flags: list[FlagDraft] = Field(default_factory=list)
+    capabilities: list[Capability]
+    flags: list[FlagDraft] = Field(max_length=8)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_bounded_response(cls, value):
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        capabilities = normalized.get("capabilities", [])
+        if isinstance(capabilities, dict):
+            capabilities = [name for name, enabled in capabilities.items() if enabled]
+        if isinstance(capabilities, list):
+            normalized["capabilities"] = [
+                item for item in capabilities if item in CAPABILITY_VALUES
+            ][:12]
+        flags = normalized.get("flags")
+        if isinstance(flags, list):
+            normalized["flags"] = flags[:8]
+        return normalized
 
 
 class JudgeVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     malicious: bool
     reason: str
-    citedEvents: list[str] = Field(default_factory=list)
+    citedEvents: list[str]
 
 
 class Flag(BaseModel):
@@ -148,84 +200,102 @@ class FlagOutput(BaseModel):
     fileSummaries: list[FileSummary]
 
 
-class SetEnvCall(BaseModel):
-    tool: Literal["setEnv"]
-    env: dict[str, str]
+class StrictLlmOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
-class PlantFileSpec(BaseModel):
+class EnvVarDraft(StrictLlmOutput):
+    name: str = Field(
+        description="Environment variable name. Never set CI to the string 'false'; JavaScript treats it as truthy."
+    )
+    value: str
+
+
+class PlantFileSpec(StrictLlmOutput):
     path: str
     content: str
 
 
-class PlantFilesCall(BaseModel):
-    tool: Literal["plantFiles"]
-    files: list[PlantFileSpec] = Field(min_length=1)
+class HeaderDraft(StrictLlmOutput):
+    name: str
+    value: str
 
 
-class SetDateCall(BaseModel):
-    tool: Literal["setDate"]
-    iso: str
-
-
-class StubSpec(BaseModel):
+class StubSpec(StrictLlmOutput):
     pattern: str
-    responseStatus: int | None = None
-    responseBody: str | None = None
-    responseHeaders: dict[str, str] | None = None
+    responseStatus: int
+    responseBody: str
+    responseHeaders: list[HeaderDraft]
 
 
-class StubUrlCall(BaseModel):
-    tool: Literal["stubUrl"]
-    stubs: list[StubSpec] = Field(min_length=1)
-
-
-class Replacement(BaseModel):
+class Replacement(StrictLlmOutput):
     pattern: str
     replacement: str
 
 
-class PatchSpec(BaseModel):
+class PatchSpec(StrictLlmOutput):
     path: str
     replacements: list[Replacement] = Field(min_length=1)
 
 
-class PatchFileCall(BaseModel):
-    tool: Literal["patchFile"]
-    patches: list[PatchSpec] = Field(min_length=1)
-
-
-class PreloadCall(BaseModel):
-    tool: Literal["preload"]
-    code: str
-
-
-SetupCall = Annotated[
-    SetEnvCall | PlantFilesCall | SetDateCall | StubUrlCall | PatchFileCall | PreloadCall,
-    Field(discriminator="tool"),
-]
-
-
-class ClaimDraft(BaseModel):
+class ClaimDraft(StrictLlmOutput):
     kind: ClaimKind
-    gating: Gating | None = None
+    gating: Gating | None
+
+
+class ExperimentSetupPlan(StrictLlmOutput):
+    environment: list[EnvVarDraft] = Field(
+        description="Only variables that must be injected. Omit CI when the sandbox already starts without it."
+    )
+    files: list[PlantFileSpec]
+    dateIso: str | None
+    urlStubs: list[StubSpec]
+    filePatches: list[PatchSpec]
+    preloadCode: str | None
 
 
 def hypothesis_submission(targets: list[str]) -> type[BaseModel]:
-    target_literal = Literal.__getitem__(tuple(targets))
-    trigger = create_model("HypothesisTrigger", target=(target_literal, ...))
     return create_model(
-        "HypothesisSubmission",
+        "HypothesisPlan",
+        __base__=StrictLlmOutput,
         description=(str, ...),
         claim=(ClaimDraft, ...),
         severity=(Severity, ...),
-        setup=(list[SetupCall], ...),
-        trigger=(trigger, ...),
+        setup=(ExperimentSetupPlan, ...),
+        triggerTarget=(
+            str,
+            Field(
+                description=(
+                    "Exact existing entry point to execute, one of: "
+                    + ", ".join(targets)
+                    + ". If custom invocation code is needed, return that JavaScript here; "
+                    "the application will plant and execute /pkg/npmguard-driver.js."
+                )
+            ),
+        ),
     )
 
 
 def number_lines(contents: str) -> str:
     return "\n".join(f"{index + 1}: {line}" for index, line in enumerate(contents.splitlines()))
+
+
+async def _gather_fail_fast(coroutines) -> None:
+    """Cancel sibling model calls as soon as one phase item fails.
+
+    asyncio.gather propagates the first exception but otherwise leaves sibling
+    awaitables running. For concurrent LLM phases that turns one deterministic
+    contract failure into many billed calls.
+    """
+    tasks = [asyncio.create_task(coroutine) for coroutine in coroutines]
+    try:
+        await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 README_CANDIDATES = (
@@ -318,7 +388,7 @@ async def run_flag(
     def noise(path: str) -> bool:
         return bool(
             path.endswith(".d.ts")
-            or re.search(r"(^|/)(__tests__|__mocks__)/", path)
+            or re.search(r"(^|/)(test|tests|__tests__|__mocks__)/", path)
             or re.search(r"\.(test|spec)\.(js|ts|mjs|cjs|tsx|mts)$", path)
         )
 
@@ -350,6 +420,7 @@ async def run_flag(
                 kb = round(len(contents) / 1024)
                 response = FileFlagResponse(
                     summary=f"File is {kb}KB — too large for the FLAG read",
+                    capabilities=[],
                     flags=[
                         FlagDraft(
                             lines=["1-1"],
@@ -358,19 +429,66 @@ async def run_flag(
                     ],
                 )
             elif not contents.strip():
-                response = FileFlagResponse(summary="Empty file")
+                response = FileFlagResponse(summary="Empty file", capabilities=[], flags=[])
             else:
                 if emitter:
                     await emitter.emit("file_analyzing", {"file": file.path})
                 prompt = f"## Package intent\n- statedPurpose: {intent.statedPurpose}\n- expectedCapabilities: {', '.join(intent.expectedCapabilities) or '(none)'}\n- rationale: {intent.rationale}\n\n## File: {file.path}\n```\n{number_lines(contents)}\n```"
                 if facts.get(file.path):
                     prompt += "\n\n## Structural facts\n" + "\n".join(facts[file.path])
-                prompt += "\n\n## Task\nReturn summary, capabilities, and zero or more thin flags with exact line ranges."
+                prompt += (
+                    "\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, "
+                    "and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. "
+                    "Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access "
+                    "when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+                )
+
+                def validate_response(candidate: FileFlagResponse) -> None:
+                    source_lines = contents.splitlines()
+                    line_count = max(1, len(source_lines))
+                    for draft in candidate.flags:
+                        canonical: list[str] = []
+                        for line_range in draft.lines:
+                            match = re.fullmatch(r"(\d+)-(\d+)", line_range)
+                            if match is None:
+                                snippet = line_range.strip()
+                                matches = [
+                                    index
+                                    for index, source in enumerate(source_lines, 1)
+                                    if source.strip() == snippet
+                                ]
+                                if not matches and snippet:
+                                    matches = [
+                                        index
+                                        for index, source in enumerate(source_lines, 1)
+                                        if snippet in source
+                                    ]
+                                if not matches:
+                                    raise CandidateRejected(
+                                        f"line value {line_range!r} is neither a range nor source text from the file"
+                                    )
+                                canonical.extend(f"{index}-{index}" for index in matches[:1])
+                                continue
+                            start, end = map(int, match.groups())
+                            if start < 1 or end < start or end > line_count:
+                                raise CandidateRejected(
+                                    f"line range {line_range!r} is outside 1-{line_count}"
+                                )
+                            canonical.append(f"{start}-{end}")
+                        draft.lines = list(dict.fromkeys(canonical))
+                    if not candidate.flags and any(
+                        pattern.search(candidate.summary) for pattern in CRITICAL_SUMMARY
+                    ):
+                        raise CandidateRejected(
+                            "summary describes credential theft or exfiltration but flags is empty"
+                        )
+
                 try:
                     result = await llm.run(
                         "flag",
                         vars={},
                         messages=[{"role": "user", "content": prompt}],
+                        validate=validate_response,
                         context=("audit", audit_id),
                     )
                     response = FileFlagResponse.model_validate(result.output)
@@ -378,13 +496,6 @@ async def run_flag(
                     raise AuditIncompleteError(
                         "flag", f"could not analyze {file.path}: model call failed: {exc}"
                     ) from exc
-                if not response.flags and any(
-                    pattern.search(response.summary) for pattern in CRITICAL_SUMMARY
-                ):
-                    raise AuditIncompleteError(
-                        "flag",
-                        f'{file.path}: summary describes a risk but emitted no flag — "{response.summary[:160]}"',
-                    )
             responses[index] = (file.path, response)
             async with lock:
                 complete += 1
@@ -394,7 +505,7 @@ async def run_flag(
                         {"current": complete, "total": len(source_files), "file": file.path},
                     )
 
-    await asyncio.gather(*(analyze(index) for index in range(len(source_files))))
+    await _gather_fail_fast(analyze(index) for index in range(len(source_files)))
     flags, summaries = [], []
     for item in responses:
         assert item is not None
@@ -454,35 +565,111 @@ class KitHypothesisGenerator:
             f"## Package intent\n- statedPurpose: {intent.statedPurpose}\n- expectedCapabilities: {', '.join(intent.expectedCapabilities) or '(none)'}\n\n"
             f"## Flag\n- file: {flag.file}\n- lines: {', '.join(flag.lines)}\n- why: {flag.why}\n\n"
             f"## Entry points\n- install: {', '.join(entry_points.install) or '(none)'}\n- runtime: {', '.join(entry_points.runtime) or '(none)'}\n- bin: {', '.join(entry_points.bin) or '(none)'}\n\n"
-            f"## Flagged code\n### {flag.file}\n```\n{number_lines(focus)}\n```\n\n## Available tools\n{TOOL_CATALOG}\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+            f"## Flagged code\n### {flag.file}\n```\n{number_lines(focus)}\n```\n\n## Available setup mechanisms\n{TOOL_CATALOG}\n\n"
+            "Return one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. "
+            f"Set triggerTarget to exactly one of: {', '.join(targets)}. If exercising a library API requires custom JavaScript, "
+            "put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. "
+            "The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\n"
+            "Suggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
         )
-        try:
-            result = await self.llm.run(
-                "hypothesis",
-                vars={},
-                messages=[{"role": "user", "content": prompt}],
-                output=output,
-                output_transport="tool",
-                context=("audit", audit_id),
-            )
-            submission = result.output
-            calls = []
-            for setup in submission.setup:
-                value = setup.model_dump(mode="json", exclude_none=True)
-                name = value.pop("tool")
-                calls.append(ToolCall(tool=name, args=value))
+
+        def decode_plan(submission: BaseModel) -> tuple[BaseModel, list[ToolCall]]:
+            setup = submission.setup
+            calls: list[ToolCall] = []
+            target = submission.triggerTarget.strip()
+            for prefix in ("runtime:", "install:", "bin:"):
+                if target.startswith(prefix):
+                    target = target[len(prefix) :].strip()
+            driver_code: str | None = None
+            if target not in targets:
+                if "\n" in target or re.search(r"\b(?:const|let|var|require|import)\b|[;{}]", target):
+                    driver_code = target
+                    target = "/pkg/npmguard-driver.js"
+                else:
+                    raise CandidateRejected(
+                        f"triggerTarget must be one of {targets!r} or contain a JavaScript driver"
+                    )
+            if setup.environment:
+                env: dict[str, str] = {}
+                for item in setup.environment:
+                    if item.name in env:
+                        raise CandidateRejected(f"duplicate environment variable {item.name!r}")
+                    env[item.name] = item.value
+                if re.search(r"if\s*\(\s*process\.env\.CI\s*\)", focus) and env.get("CI"):
+                    raise CandidateRejected(
+                        "CI is tested by JavaScript truthiness; omit CI or set it to an empty string, never 'false'"
+                    )
+                calls.append(ToolCall(tool="setEnv", args={"env": env}))
+            files = [item.model_dump(mode="json") for item in setup.files]
+            if driver_code is not None:
+                if any(item["path"] == target for item in files):
+                    raise CandidateRejected(f"duplicate planted driver path {target!r}")
+                files.append({"path": target, "content": driver_code})
+            if files:
+                calls.append(
+                    ToolCall(
+                        tool="plantFiles",
+                        args={"files": files},
+                    )
+                )
+            if setup.dateIso is not None:
+                calls.append(ToolCall(tool="setDate", args={"iso": setup.dateIso}))
+            if setup.urlStubs:
+                stubs = []
+                for stub in setup.urlStubs:
+                    headers: dict[str, str] = {}
+                    for header in stub.responseHeaders:
+                        if header.name in headers:
+                            raise CandidateRejected(f"duplicate response header {header.name!r}")
+                        headers[header.name] = header.value
+                    stubs.append(
+                        {
+                            "pattern": stub.pattern,
+                            "responseStatus": stub.responseStatus,
+                            "responseBody": stub.responseBody,
+                            "responseHeaders": headers,
+                        }
+                    )
+                calls.append(ToolCall(tool="stubUrl", args={"stubs": stubs}))
+            if setup.filePatches:
+                calls.append(
+                    ToolCall(
+                        tool="patchFile",
+                        args={
+                            "patches": [
+                                patch.model_dump(mode="json") for patch in setup.filePatches
+                            ]
+                        },
+                    )
+                )
+            if setup.preloadCode is not None:
+                calls.append(ToolCall(tool="preload", args={"code": setup.preloadCode}))
             calls.append(
                 ToolCall(
                     tool="trigger",
                     args={
                         "kind": "entrypoint",
-                        "target": submission.trigger.target,
+                        "target": target,
                         "argv": [],
                         "stdin": None,
                     },
                 )
             )
             compile_experiment(calls)
+            return submission, calls
+
+        try:
+            result = await self.llm.run(
+                "hypothesis",
+                vars={},
+                messages=[{"role": "user", "content": prompt}],
+                output=output,
+                decode=decode_plan,
+                context=("audit", audit_id),
+            )
+            submission, calls = result.output
+        except BudgetExhausted:
+            raise  # spend exhaustion is terminal — never retried by the fallback
         except Exception as exc:
             raise AuditIncompleteError(
                 "hypothesize", f"could not arm {flag.file} ({flag.why}) after bounded repair: {exc}"
@@ -547,5 +734,5 @@ async def run_hypothesize(
                     },
                 )
 
-    await asyncio.gather(*(arm(index) for index in range(len(flags))))
+    await _gather_fail_fast(arm(index) for index in range(len(flags)))
     return [hypothesis for hypothesis in output if hypothesis is not None]

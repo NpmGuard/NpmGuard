@@ -5,6 +5,7 @@ never reaches app code. The loop itself lives in client.run_agent; this
 module owns tool definition, the OpenAI tool-def shape, and dispatch."""
 
 import json
+import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +21,21 @@ class Tool:
     params: type[BaseModel]
     handler: ToolHandler
     description: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip() or len(self.name) > 64:
+            raise ValueError("tool name must be a non-empty string of at most 64 characters")
+        if not (isinstance(self.params, type) and issubclass(self.params, BaseModel)):
+            raise TypeError("tool params must be a pydantic model class")
+        if not callable(self.handler):
+            raise TypeError("tool handler must be callable")
+        if not (
+            inspect.iscoroutinefunction(self.handler)
+            or inspect.iscoroutinefunction(getattr(self.handler, "__call__", None))
+        ):
+            raise TypeError("tool handler must be async")
+        if not isinstance(self.description, str):
+            raise TypeError("tool description must be a string")
 
     def definition(self) -> dict[str, Any]:
         """The OpenAI function-tool definition sent to the provider."""

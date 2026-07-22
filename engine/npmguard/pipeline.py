@@ -23,6 +23,7 @@ from .errors import AuditIncompleteError, AuditTimeoutError
 from .events import AuditEmitter
 from .evidence import ArtifactStore
 from .graph import HypothesisGraph, build_graph, derive_graph_verdict
+from .hypothesis_agent import FallbackHypothesisGenerator, TwoPhaseHypothesisGenerator
 from .inventory import analyze_inventory
 from .orchestrator import run_orchestrator
 from .persistence import AuditSessionStore
@@ -148,7 +149,11 @@ class AuditPipeline:
         self.settings = settings
         self.llm = llm
         self.sessions = sessions
-        self.hypothesis_generator = hypothesis_generator or KitHypothesisGenerator(llm)
+        # One-shot primary, agentic two-phase fallback: the union arms the flags
+        # one-shot alone can't (measured no single approach wins every route).
+        self.hypothesis_generator = hypothesis_generator or FallbackHypothesisGenerator(
+            KitHypothesisGenerator(llm), TwoPhaseHypothesisGenerator(llm)
+        )
 
     async def run(
         self,

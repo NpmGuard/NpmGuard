@@ -34,7 +34,7 @@ class CachedTokens(RootModel[StrictInt]):
 
 
 class CostUsd(RootModel[StrictFloat]):
-    root: StrictFloat = Field(..., ge=0.0)
+    root: StrictFloat = Field(..., ge=0.0, le=1.7976931348623157e308)
 
 
 class Usage(BaseModel):
@@ -55,18 +55,18 @@ class Status(StrEnum):
     ok = 'ok'
     timeout = 'timeout'
     http_error = 'http_error'
+    provider_error = 'provider_error'
+    client_error = 'client_error'
     invalid_output = 'invalid_output'
+    truncated = 'truncated'
+    refused = 'refused'
     cancelled = 'cancelled'
 
 
-class Usage1(BaseModel):
-    model_config = ConfigDict(
-        extra='forbid',
-    )
-    in_tokens: InTokens | None
-    out_tokens: OutTokens | None
-    cached_tokens: CachedTokens | None
-    cost_usd: CostUsd | None
+class Transport(StrEnum):
+    text = 'text'
+    json_object = 'json_object'
+    strict_schema = 'strict_schema'
 
 
 class AttemptRecord(BaseModel):
@@ -85,9 +85,18 @@ class AttemptRecord(BaseModel):
     output: Any
     status: Status
     error: StrictStr | None
-    usage: Usage1
+    in_tokens: InTokens | None
+    out_tokens: OutTokens | None
+    cached_tokens: CachedTokens | None
+    cost_usd: CostUsd | None
     provider_call_id: StrictStr | None
+    cost_lookup_attempts: StrictInt = Field(..., ge=0, le=9007199254740991)
+    actual_model: StrictStr | None
+    provider: StrictStr | None
+    finish_reason: StrictStr | None
+    transport: Transport | None
     latency_ms: StrictInt = Field(..., ge=0, le=9007199254740991)
+    request_id: StrictStr | None
     ts: StrictStr = Field(
         ...,
         pattern='^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$',
@@ -101,10 +110,12 @@ class Status1(StrEnum):
     invalid = 'invalid'
     budget = 'budget'
     loop_cap = 'loop_cap'
+    client_error = 'client_error'
+    cancelled = 'cancelled'
 
 
 class TotalCostUsd(RootModel[StrictFloat]):
-    root: StrictFloat = Field(..., ge=0.0)
+    root: StrictFloat = Field(..., ge=0.0, le=1.7976931348623157e308)
 
 
 class FinishedAt(RootModel[StrictStr]):

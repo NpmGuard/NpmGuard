@@ -199,7 +199,7 @@ Full playbook: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md
 |---|---|
 | Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) + [Tailwind](https://tailwindcss.com/) — real-time SSE dashboard |
 | Audit pipeline | Python + FastAPI + Pydantic + SQLAlchemy — inventory, LLM analysis, Docker sandbox |
-| LLM | [Gemini 2.5 Flash](https://ai.google.dev/) via OpenRouter (OpenAI-compatible) |
+| LLM | [DeepSeek V4 Flash](https://www.deepseek.com/) via OpenRouter (OpenAI-compatible) |
 | Fiat payment | [Stripe](https://stripe.com/) checkout + webhook |
 | Crypto payment | Solidity contract on [Base Sepolia](https://docs.base.org/chain/base-contracts) + WalletConnect v2 |
 | Contract tooling | [Foundry](https://book.getfoundry.sh/) — compile, test (fuzz), deploy, Basescan verification |

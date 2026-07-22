@@ -3,7 +3,12 @@ dev/small deployments, Postgres for prod. Modules use SQLAlchemy through
 this factory and never name an engine."""
 
 from sqlalchemy import MetaData, event
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 
 # Deterministic constraint names so Alembic migrations are portable.
@@ -45,5 +50,5 @@ def make_engine(database_url: str) -> AsyncEngine:
     return engine
 
 
-def make_session_factory(engine: AsyncEngine) -> async_sessionmaker:
+def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)

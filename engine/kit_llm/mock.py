@@ -6,11 +6,9 @@ boundary). Exported as an app testing utility.
 Scripts are keyed by ROLE; each role holds a sequence of steps handed
 out in order, the last repeating forever — a one-item sequence IS a
 canned answer, a multi-item sequence scripts an agentic loop. A step
-may be: a str (raw content), a pydantic instance (serialized to JSON, so
-it round-trips through the caller's parser, including through a forced
-output tool), a ToolOutputStep (raw candidate arguments for repair
-tests), a ToolCallStep (agentic, P2), or an Exception instance (raised —
-scripts transport failures)."""
+may be: a str (raw content), a pydantic instance (serialized to JSON so it
+round-trips through the caller's parser), a ToolCallStep (agentic, P2), or an
+Exception instance (raised — scripts transport failures)."""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -28,14 +26,7 @@ class ToolCallStep:
     calls: list[tuple[str, dict[str, Any]]]  # (tool name, arguments)
 
 
-@dataclass(frozen=True)
-class ToolOutputStep:
-    """Raw arguments emitted through the request's forced output tool."""
-
-    arguments: dict[str, Any]
-
-
-Step = str | BaseModel | ToolOutputStep | ToolCallStep | Exception
+Step = str | BaseModel | ToolCallStep | Exception
 
 
 @dataclass
@@ -70,20 +61,8 @@ class ScriptedLlm:
                 }
                 for i, (name, arguments) in enumerate(step.calls)
             ]
-        elif isinstance(step, (BaseModel, ToolOutputStep)) and request.tool_choice is not None:
-            name = _forced_tool_name(request.tool_choice)
-            arguments = step.model_dump() if isinstance(step, BaseModel) else step.arguments
-            tool_calls = [
-                {
-                    "id": f"scripted-tc-{self._calls}-0",
-                    "type": "function",
-                    "function": {"name": name, "arguments": _json(arguments)},
-                }
-            ]
         elif isinstance(step, BaseModel):
             content = step.model_dump_json()
-        elif isinstance(step, ToolOutputStep):
-            raise AssertionError("ToolOutputStep requires a forced output tool")
         else:
             content = step
         return ProviderResult(
@@ -113,15 +92,6 @@ class ScriptedLlm:
 
     async def aclose(self) -> None:
         return None  # nothing to release — the scripts are in memory
-
-
-def _forced_tool_name(choice: dict[str, Any] | str) -> str:
-    if not isinstance(choice, dict):
-        raise AssertionError("ScriptedLlm needs a named forced tool choice")
-    function = choice.get("function")
-    if not isinstance(function, dict) or not isinstance(function.get("name"), str):
-        raise AssertionError("ScriptedLlm needs a named forced tool choice")
-    return function["name"]
 
 
 def _json(value: dict[str, Any]) -> str:

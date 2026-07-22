@@ -3,8 +3,17 @@
     "ok",
     "timeout",
     "http_error",
+    "provider_error",
+    "client_error",
     "invalid_output",
+    "truncated",
+    "refused",
     "cancelled"
+  ],
+  "ATTEMPT_TRANSPORTS": [
+    "text",
+    "json_object",
+    "strict_schema"
   ],
   "RUN_STATUSES": [
     "running",
@@ -12,6 +21,9 @@
     "end_of_rope",
     "invalid",
     "budget",
-    "loop_cap"
-  ]
+    "loop_cap",
+    "client_error",
+    "cancelled"
+  ],
+  "TOKEN_COUNT_MAX": 9007199254740991
 }

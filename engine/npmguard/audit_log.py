@@ -9,6 +9,16 @@ from pydantic import BaseModel
 from .config import REPO_ROOT
 
 
+def _json_value(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", exclude_none=False)
+    if isinstance(value, dict):
+        return {key: _json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_value(item) for item in value]
+    return value
+
+
 class AuditLog:
     def __init__(self, package_name: str) -> None:
         stamp = datetime.now(UTC).isoformat().replace(":", "-").replace(".", "-")
@@ -20,8 +30,7 @@ class AuditLog:
     def write(self, name: str, data: Any) -> Path:
         self._counter += 1
         path = self.run_dir / f"{self._counter:02d}_{name}"
-        if isinstance(data, BaseModel):
-            data = data.model_dump(mode="json", exclude_none=False)
+        data = _json_value(data)
         content = data if isinstance(data, str) else json.dumps(data, indent=2, ensure_ascii=False)
         path.write_text(content, encoding="utf-8")
         return path

@@ -1,10 +1,20 @@
-from kit_llm import ScriptedLlm, ToolOutputStep
+import json
+
+from kit_llm import ScriptedLlm
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard.config import Settings
 from npmguard.contract.models import EntryPoints
+from npmguard.inventory import analyze_inventory
 from npmguard.llm_runtime import build_npmguard_llm
-from npmguard.phases import Flag, FlagDraft, KitHypothesisGenerator, PackageIntent
+from npmguard.phases import (
+    Flag,
+    FlagDraft,
+    KitHypothesisGenerator,
+    PackageIntent,
+    hypothesis_submission,
+    run_flag,
+)
 
 
 def test_flag_draft_normalizes_common_provider_line_shapes() -> None:
@@ -24,9 +34,59 @@ def test_flag_draft_normalizes_common_provider_line_shapes() -> None:
         "3-3",
         "5-5",
     ]
+    assert FlagDraft.model_validate(
+        {"lines": ["13: ", "14: return value"], "why": "numbered source lines"}
+    ).lines == ["13-13", "14-14"]
 
 
-async def test_kit_tool_transport_arms_hypothesis_after_bounded_repair(tmp_path) -> None:
+async def test_flag_resolves_copied_source_text_to_line_range(tmp_path) -> None:
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'flag.sqlite3'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(metadata.create_all)
+    sessions = make_session_factory(engine)
+    provider = ScriptedLlm(
+        {
+            "flag": [
+                json.dumps(
+                    {
+                        "summary": "reads a token",
+                        "capabilities": ["ENV_VARS"],
+                        "flags": [
+                            {
+                                "lines": ["const token = process.env.NPM_TOKEN;"],
+                                "why": "reads a sensitive npm token",
+                            }
+                        ],
+                    }
+                )
+            ]
+        }
+    )
+    llm = build_npmguard_llm(sessions, Settings(_env_file=None), provider=provider)
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "package.json").write_text(
+        json.dumps({"name": "fixture", "main": "index.js"}), encoding="utf-8"
+    )
+    (package / "index.js").write_text(
+        "module.exports = () => {\nconst token = process.env.NPM_TOKEN;\n};\n",
+        encoding="utf-8",
+    )
+
+    result = await run_flag(
+        package,
+        await analyze_inventory(package),
+        PackageIntent(statedPurpose="fixture", expectedCapabilities=[], rationale="manifest"),
+        llm,
+        "audit-1",
+    )
+
+    assert result.flags[0].lines == ["2-2"]
+    await llm.aclose()
+    await engine.dispose()
+
+
+async def test_kit_schema_transport_arms_hypothesis_after_bounded_repair(tmp_path) -> None:
     engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'llm.sqlite3'}")
     async with engine.begin() as connection:
         await connection.run_sync(metadata.create_all)
@@ -35,14 +95,21 @@ async def test_kit_tool_transport_arms_hypothesis_after_bounded_repair(tmp_path)
         "description": "index.js reads an npm token and posts it remotely",
         "claim": {"kind": "env_exfil", "gating": None},
         "severity": "high",
-        "setup": [{"tool": "setEnv", "env": {"NPM_TOKEN": "canary"}}],
-        "trigger": {"target": "index.js"},
+        "setup": {
+            "environment": [{"name": "NPM_TOKEN", "value": "canary"}],
+            "files": [],
+            "dateIso": None,
+            "urlStubs": [],
+            "filePatches": [],
+            "preloadCode": None,
+        },
+        "triggerTarget": "index.js",
     }
     provider = ScriptedLlm(
         {
             "hypothesis": [
-                ToolOutputStep({"description": "missing required fields"}),
-                ToolOutputStep(valid),
+                json.dumps({"description": "missing required fields"}),
+                json.dumps(valid),
             ]
         }
     )
@@ -69,5 +136,122 @@ async def test_kit_tool_transport_arms_hypothesis_after_bounded_repair(tmp_path)
     assert [call.tool for call in result.experiment] == ["setEnv", "trigger"]
     assert result.experiment[-1].args["target"] == "index.js"
     assert provider._calls == 2
+    await llm.aclose()
+    await engine.dispose()
+
+
+async def test_semantically_invalid_hypothesis_is_repaired_inside_kit(tmp_path) -> None:
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'semantic.sqlite3'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(metadata.create_all)
+    sessions = make_session_factory(engine)
+    base = {
+        "description": "index.js runs only when CI is truthy",
+        "claim": {"kind": "env_exfil", "gating": "ci_gate"},
+        "severity": "high",
+        "setup": {
+            "environment": [{"name": "CI", "value": "false"}],
+            "files": [],
+            "dateIso": None,
+            "urlStubs": [],
+            "filePatches": [],
+            "preloadCode": None,
+        },
+        "triggerTarget": "index.js",
+    }
+    repaired = json.loads(json.dumps(base))
+    repaired["setup"]["environment"] = []
+    provider = ScriptedLlm({"hypothesis": [json.dumps(base), json.dumps(repaired)]})
+    llm = build_npmguard_llm(sessions, Settings(_env_file=None), provider=provider)
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "index.js").write_text(
+        "if (process.env.CI) fetch('https://bad.test')", encoding="utf-8"
+    )
+
+    result = await KitHypothesisGenerator(llm).generate(
+        Flag(file="index.js", lines=["1-1"], why="CI-gated network call"),
+        package_path=package,
+        intent=PackageIntent(
+            statedPurpose="string utility", expectedCapabilities=[], rationale="manifest"
+        ),
+        entry_points=EntryPoints(install=[], runtime=["index.js"], bin=[]),
+        hypothesis_id="hyp-0001",
+        created_at="2026-07-20T00:00:00Z",
+        audit_id="audit-1",
+    )
+
+    assert [call.tool for call in result.experiment] == ["trigger"]
+    assert provider._calls == 2
+    await llm.aclose()
+    await engine.dispose()
+
+
+def test_hypothesis_wire_schema_is_strict_and_provider_portable() -> None:
+    schema = hypothesis_submission(["index.js"]).model_json_schema()
+
+    def assert_strict_object(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert node.get("additionalProperties") is False
+                properties = node.get("properties", {})
+                assert set(node.get("required", [])) == set(properties)
+            for value in node.values():
+                assert_strict_object(value)
+        elif isinstance(node, list):
+            for value in node:
+                assert_strict_object(value)
+
+    assert_strict_object(schema)
+    serialized = json.dumps(schema)
+    assert "discriminator" not in serialized
+    assert '"additionalProperties": {' not in serialized
+
+
+async def test_custom_hypothesis_driver_is_planted_and_triggered(tmp_path) -> None:
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'driver.sqlite3'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(metadata.create_all)
+    sessions = make_session_factory(engine)
+    provider = ScriptedLlm(
+        {
+            "hypothesis": [
+                json.dumps(
+                    {
+                        "description": "invoke the flagged exported function",
+                        "claim": {"kind": "env_exfil", "gating": None},
+                        "severity": "medium",
+                        "setup": {
+                            "environment": [],
+                            "files": [],
+                            "dateIso": None,
+                            "urlStubs": [],
+                            "filePatches": [],
+                            "preloadCode": None,
+                        },
+                        "triggerTarget": "const lib = require('./index.js'); lib.run();",
+                    }
+                )
+            ]
+        }
+    )
+    llm = build_npmguard_llm(sessions, Settings(_env_file=None), provider=provider)
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "index.js").write_text("exports.run = () => {}", encoding="utf-8")
+
+    result = await KitHypothesisGenerator(llm).generate(
+        Flag(file="index.js", lines=["1-1"], why="suspicious export"),
+        package_path=package,
+        intent=PackageIntent(statedPurpose="library", expectedCapabilities=[], rationale="manifest"),
+        entry_points=EntryPoints(install=[], runtime=["index.js"], bin=[]),
+        hypothesis_id="hyp-0001",
+        created_at="2026-07-20T00:00:00Z",
+        audit_id="audit-1",
+    )
+
+    assert [call.tool for call in result.experiment] == ["plantFiles", "trigger"]
+    assert result.experiment[0].args["files"][0]["path"] == "/pkg/npmguard-driver.js"
+    assert result.experiment[1].args["target"] == "/pkg/npmguard-driver.js"
     await llm.aclose()
     await engine.dispose()
