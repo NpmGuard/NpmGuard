@@ -13,8 +13,9 @@ class BudgetExhausted(KitError):
 
 
 class EndOfRope(KitError):
-    """Every model in the role's chain failed at the transport level
-    (timeout / HTTP error). The attempt summary rides in details."""
+    """Every model in the role's chain failed before a usable candidate
+    (timeout, HTTP failure, or provider error envelope). The attributed
+    attempt summary rides in details."""
 
     code = "KIT-1102"
     http_status = 503
@@ -22,9 +23,10 @@ class EndOfRope(KitError):
 
 
 class OutputInvalid(KitError):
-    """Every model in the chain ANSWERED, but nothing survived the
-    parser (repair retries included). Distinct from EndOfRope: these
-    attempts were billed."""
+    """At least one model answered, but no candidate survived response,
+    parse, semantic, and decode checks (bounded repairs included). Other
+    models may also have failed at transport; the billed candidate remains
+    the decisive distinction from EndOfRope."""
 
     code = "KIT-1103"
     http_status = 502
@@ -33,7 +35,27 @@ class OutputInvalid(KitError):
 
 class LoopBudgetExceeded(KitError):
     """An agentic run hit max_steps or max_cost_usd before producing a
-    final answer. The transcript up to the cap is fully captured."""
+    final answer. Provider attempts up to the cap remain captured."""
 
     code = "KIT-1104"
     http_status = 502
+
+
+class ClientHookError(KitError):
+    """A caller-supplied validate/decode/tool/token hook crashed.
+
+    This is an application bug, not a candidate rejection: Kit must not spend
+    money repairing or falling back after it.
+    """
+
+    code = "KIT-1105"
+    http_status = 500
+
+
+class CandidateRejected(Exception):
+    """Explicitly reject a structurally parsed candidate from a client hook.
+
+    Raising this from ``validate`` or ``decode`` enters Kit's bounded
+    repair-then-model-fallback path. Any other hook exception becomes
+    ``ClientHookError`` and aborts without another provider call.
+    """

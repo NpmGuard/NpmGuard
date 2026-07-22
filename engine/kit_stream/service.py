@@ -16,10 +16,12 @@ import asyncio
 import json
 import random
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 import sqlalchemy as sa
+import structlog
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -27,8 +29,19 @@ from kit_spine import Conflict, now_iso
 from kit_spine.ports import EventNotifier, validate_channel
 from kit_stream.models import stream_events
 
+log = structlog.get_logger("kit.stream")
+
 APPEND_RETRIES = 10
+APPEND_RETRY_BASE_SECONDS = 0.002
 READ_BATCH = 500
+
+
+class AppendContention(Conflict):
+    """Append kept colliding with concurrent writers. Same KIT-0409 code;
+    retryable — the contention is purely transient, a caller obeying the
+    retryable flag succeeds a moment later."""
+
+    retryable = True
 
 
 def _envelope(row: sa.Row) -> dict[str, Any]:
@@ -51,13 +64,18 @@ class StreamService:
         *,
         read_batch: int = READ_BATCH,
         append_retries: int = APPEND_RETRIES,
+        retry_base_seconds: float = APPEND_RETRY_BASE_SECONDS,
+        random_source: Callable[[], float] = random.random,
     ) -> None:
-        # read_batch and append_retries are implementation-created class
-        # boundaries — injectable so tests can reach them (TESTING.md).
+        # read_batch, append_retries, and the backoff knobs are
+        # implementation-created class boundaries — injectable so tests can
+        # reach them (TESTING.md: injectable time and randomness).
         self._sessions = session_factory
         self._notifier = notifier
         self._read_batch = read_batch
         self._append_retries = append_retries
+        self._retry_base = retry_base_seconds
+        self._random = random_source
         self._notify_tasks: set[asyncio.Task] = set()  # keep-alive refs
 
     async def append(
@@ -101,7 +119,7 @@ class StreamService:
             try:
                 seq = (await session.execute(statement)).scalar_one()
             except IntegrityError as error:
-                raise Conflict(
+                raise AppendContention(
                     f"append to {channel!r} collided inside the caller's transaction"
                 ) from error
             self._notify_on_commit(session, channel)
@@ -112,11 +130,18 @@ class StreamService:
                 async with self._sessions() as own, own.begin():
                     seq = (await own.execute(statement)).scalar_one()
             except IntegrityError:
-                await asyncio.sleep(random.uniform(0, 0.002 * 2**attempt))
+                await asyncio.sleep(self._random() * self._retry_base * 2**attempt)
                 continue
-            await self._notifier.notify(channel)
+            try:
+                await self._notifier.notify(channel)
+            except Exception:
+                # the row is durably committed — failing the append now would
+                # push callers into retrying a WRITE that already happened,
+                # duplicating the event under a new seq. A wake is best-effort;
+                # a lost notify self-heals within one heartbeat (docstring).
+                log.warning("post-commit notify failed", channel=channel, exc_info=True)
             return envelope(seq)
-        raise Conflict(
+        raise AppendContention(
             f"append to {channel!r} kept colliding after {self._append_retries} attempts"
         )
 
@@ -126,22 +151,33 @@ class StreamService:
         listeners per session drains a channel set, so repeated appends on
         one transaction wake each channel once."""
         info = session.sync_session.info
-        pending: set[str] = info.setdefault("kit_stream_pending_notify", set())
-        pending.add(channel)
+        # (notifier, channel) pairs, not bare channels: the pending set is
+        # session-global, and two services with different notifiers can share
+        # one borrowed session — each channel must wake through ITS notifier
+        pending: set[tuple[EventNotifier, str]] = info.setdefault(
+            "kit_stream_pending_notify", set()
+        )
+        pending.add((self._notifier, channel))
         if info.get("kit_stream_notify_armed"):
             return
         info["kit_stream_notify_armed"] = True
         loop = asyncio.get_running_loop()
 
-        @sa.event.listens_for(session.sync_session, "after_commit")
+        def _consume(task: asyncio.Task) -> None:
+            self._notify_tasks.discard(task)
+            if not task.cancelled() and task.exception() is not None:
+                # best-effort wake (see append) — but never silently swallowed
+                log.warning("post-commit notify failed", error=str(task.exception()))
+
+        @event.listens_for(session.sync_session, "after_commit")
         def _fire(_sync_session) -> None:
-            for ready in pending:
-                task = loop.create_task(self._notifier.notify(ready))
+            for notifier, ready in pending:
+                task = loop.create_task(notifier.notify(ready))
                 self._notify_tasks.add(task)
-                task.add_done_callback(self._notify_tasks.discard)
+                task.add_done_callback(_consume)
             pending.clear()
 
-        @sa.event.listens_for(session.sync_session, "after_rollback")
+        @event.listens_for(session.sync_session, "after_rollback")
         def _drop(_sync_session) -> None:
             pending.clear()
 
@@ -160,7 +196,7 @@ class StreamService:
 
     async def sse(
         self, channel: str, after: int, heartbeat: float
-    ) -> AsyncIterator[str]:
+    ) -> AsyncGenerator[str, None]:
         """Replay from the cursor, then follow live. Subscribe BEFORE the
         first read — the reverse order can miss an event appended between
         read and subscribe."""
@@ -186,13 +222,23 @@ class StreamService:
                     yield ": keep-alive\n\n"
 
     async def prune(self, channel: str, before: int) -> int:
-        """Delete events with seq < before. The log is append-only for
-        consumers; retention is the owner's call."""
+        """Delete events with seq < before, always retaining the newest row.
+        The log is append-only for consumers; retention is the owner's call —
+        but an emptied channel would restart seq allocation at 0, silently
+        breaking the monotonic-seq promise consumers dedupe by."""
         validate_channel(channel)
         async with self._sessions() as session, session.begin():
+            head = await session.scalar(
+                sa.select(sa.func.max(stream_events.c.seq)).where(
+                    stream_events.c.channel == channel
+                )
+            )
+            if head is None:
+                return 0
             result = await session.execute(
                 stream_events.delete().where(
-                    stream_events.c.channel == channel, stream_events.c.seq < before
+                    stream_events.c.channel == channel,
+                    stream_events.c.seq < min(before, head),
                 )
             )
             return result.rowcount

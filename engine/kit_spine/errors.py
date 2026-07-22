@@ -9,6 +9,7 @@ from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -88,7 +89,11 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-        err = ValidationFailed("request validation failed", details={"errors": exc.errors()})
+        # jsonable_encoder is load-bearing: pydantic embeds the raw ValueError
+        # instance in ctx for custom-validator failures, and JSONResponse
+        # would raise on it — turning a 400 into an opaque 500
+        details = {"errors": jsonable_encoder(exc.errors())}
+        err = ValidationFailed("request validation failed", details=details)
         return JSONResponse(status_code=err.http_status, content=err.to_body())
 
     @app.exception_handler(Exception)
