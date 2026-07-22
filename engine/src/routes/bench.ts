@@ -100,7 +100,10 @@ type BenchRunSummary = {
   rows: BenchRow[];
 };
 
-const RESULTS_DIR = path.resolve(process.cwd(), "../bench/results");
+const configuredResultsDir = process.env.NPMGUARD_BENCH_RESULTS_DIR?.trim();
+const RESULTS_DIR = path.resolve(
+  configuredResultsDir || path.resolve(process.cwd(), "../bench/results"),
+);
 const MAX_RUNS = 20;
 
 export const benchRoutes = new Hono();

@@ -171,6 +171,7 @@ Settings are loaded from environment variables with the `NPMGUARD_` prefix (or a
 |---|---|---|
 | `NPMGUARD_API_HOST` | `0.0.0.0` | API listen host |
 | `NPMGUARD_API_PORT` | `8000` | API listen port |
+| `NPMGUARD_BENCH_RESULTS_DIR` | `../bench/results` from the engine working directory | Persistent directory containing benchmark result JSON files served by `/bench/results` |
 | `NPMGUARD_LLM_BACKEND` | `anthropic` | LLM backend: `anthropic`, `google`, or `openai_compatible` |
 | `NPMGUARD_LLM_BASE_URL` | _(unset)_ | OpenAI-compatible endpoint |
 | `NPMGUARD_LLM_API_KEY` | _(unset)_ | API key for OpenAI-compatible or Google backend |
