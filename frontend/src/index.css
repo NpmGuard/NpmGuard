@@ -366,9 +366,11 @@ button:focus:not(:focus-visible) {
 
 .certificate-verify-dialog {
   position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   width: min(620px, 100%);
   max-height: calc(100vh - 48px);
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 14px;
   background:
@@ -440,6 +442,13 @@ button:focus:not(:focus-visible) {
   color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.certificate-verify-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .certificate-verify-status {

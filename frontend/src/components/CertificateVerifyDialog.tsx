@@ -85,88 +85,90 @@ export function CertificateVerifyDialog({
           </p>
         </header>
 
-        <div
-          className={`certificate-verify-status certificate-verify-status--${verificationState}`}
-          role="status"
-        >
-          <span className="certificate-verify-status__mark" aria-hidden="true">
-            {verificationState === "loading"
-              ? "···"
-              : verificationState === "valid"
-                ? "✓"
-                : "!"}
-          </span>
-          <div>
-            <strong>
+        <div className="certificate-verify-body">
+          <div
+            className={`certificate-verify-status certificate-verify-status--${verificationState}`}
+            role="status"
+          >
+            <span className="certificate-verify-status__mark" aria-hidden="true">
               {verificationState === "loading"
-                ? "Reconstructing proof"
+                ? "···"
                 : verificationState === "valid"
-                  ? "Valid on-chain"
-                  : verificationState === "invalid"
-                    ? "Proof mismatch"
-                    : "Could not verify"}
-            </strong>
-            <span>
-              {verificationState === "loading"
-                ? "Hashing the report and reading Base…"
-                : verificationState === "valid"
-                  ? "The report is included in the root published on Base."
-                  : error ?? "At least one verification step did not match."}
+                  ? "✓"
+                  : "!"}
             </span>
+            <div>
+              <strong>
+                {verificationState === "loading"
+                  ? "Reconstructing proof"
+                  : verificationState === "valid"
+                    ? "Valid on-chain"
+                    : verificationState === "invalid"
+                      ? "Proof mismatch"
+                      : "Could not verify"}
+              </strong>
+              <span>
+                {verificationState === "loading"
+                  ? "Hashing the report and reading Base…"
+                  : verificationState === "valid"
+                    ? "The report is included in the root published on Base."
+                    : error ?? "At least one verification step did not match."}
+              </span>
+            </div>
           </div>
-        </div>
 
-        <ol className="certificate-verify-trace">
-          {(result?.checks ??
-            [
-              { id: "report", label: "Report integrity" },
-              { id: "certificate", label: "Certificate leaf" },
-              { id: "merkle", label: "Merkle path" },
-              { id: "manifest", label: "Batch manifest" },
-              { id: "chain", label: "Base transaction" },
-            ]).map((check) => {
-            const passed = "passed" in check ? check.passed : null;
-            return (
-              <li
-                key={check.id}
-                className={
-                  passed === null
-                    ? "is-pending"
-                    : passed
-                      ? "is-valid"
-                      : "is-invalid"
-                }
-              >
-                <span className="certificate-verify-trace__node" aria-hidden="true">
-                  {passed === null ? "" : passed ? "✓" : "×"}
-                </span>
-                <div>
-                  <strong>{check.label}</strong>
-                  <span>
-                    {"detail" in check ? check.detail : "Waiting for verification"}
+          <ol className="certificate-verify-trace">
+            {(result?.checks ??
+              [
+                { id: "report", label: "Report integrity" },
+                { id: "certificate", label: "Certificate leaf" },
+                { id: "merkle", label: "Merkle path" },
+                { id: "manifest", label: "Batch manifest" },
+                { id: "chain", label: "Base transaction" },
+              ]).map((check) => {
+              const passed = "passed" in check ? check.passed : null;
+              return (
+                <li
+                  key={check.id}
+                  className={
+                    passed === null
+                      ? "is-pending"
+                      : passed
+                        ? "is-valid"
+                        : "is-invalid"
+                  }
+                >
+                  <span className="certificate-verify-trace__node" aria-hidden="true">
+                    {passed === null ? "" : passed ? "✓" : "×"}
                   </span>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
+                  <div>
+                    <strong>{check.label}</strong>
+                    <span>
+                      {"detail" in check ? check.detail : "Waiting for verification"}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
 
-        {result && (
-          <dl className="certificate-verify-ledger">
-            <div>
-              <dt>Merkle root</dt>
-              <dd title={result.certificate.anchor.merkleRoot}>
-                {shortHash(result.certificate.anchor.merkleRoot)}
-              </dd>
-            </div>
-            <div>
-              <dt>Certificate</dt>
-              <dd title={result.certificate.certificateHash}>
-                {shortHash(result.certificate.certificateHash)}
-              </dd>
-            </div>
-          </dl>
-        )}
+          {result && (
+            <dl className="certificate-verify-ledger">
+              <div>
+                <dt>Merkle root</dt>
+                <dd title={result.certificate.anchor.merkleRoot}>
+                  {shortHash(result.certificate.anchor.merkleRoot)}
+                </dd>
+              </div>
+              <div>
+                <dt>Certificate</dt>
+                <dd title={result.certificate.certificateHash}>
+                  {shortHash(result.certificate.certificateHash)}
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
 
         <footer className="certificate-verify-actions">
           <span>Calculated locally in this browser</span>
