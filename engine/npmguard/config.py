@@ -39,6 +39,7 @@ class Settings(KitSettings):
 
     queue_size: int = Field(default=50, ge=1)
     max_running_sessions: int = Field(default=100, ge=1)
+    shutdown_deadline_seconds: float = Field(default=10, gt=0)
 
     triage_model: str = "claude-haiku-4-5-20251001"
     triage_max_files: int = Field(default=80, ge=1, le=1000)

@@ -402,6 +402,14 @@ class AgentToolResultEvent(BaseModel):
     injectionDetected: bool
 
 
+class AuditEnqueuedEvent(BaseModel):
+    auditId: str
+    timestamp: str
+    seq: Annotated[int, Field(ge=0)]
+    type: Literal['audit_enqueued']
+    queuePosition: Annotated[int, Field(ge=0)]
+
+
 class AuditErrorEvent(BaseModel):
     auditId: str
     timestamp: str
@@ -749,6 +757,7 @@ class VerifyTestResultEvent(BaseModel):
 class AuditEvent(
     RootModel[
         AuditStartedEvent
+        | AuditEnqueuedEvent
         | PhaseStartedEvent
         | PhaseCompletedEvent
         | FileListEvent
@@ -772,6 +781,7 @@ class AuditEvent(
 ):
     root: Annotated[
         AuditStartedEvent
+        | AuditEnqueuedEvent
         | PhaseStartedEvent
         | PhaseCompletedEvent
         | FileListEvent

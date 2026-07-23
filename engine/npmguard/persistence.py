@@ -47,7 +47,7 @@ class AuditSession:
     audit_id: str
     package_name: str
     requested_version: str | None
-    status: Literal["running", "done", "error"]
+    status: Literal["queued", "running", "done", "error"]
     package_path: str | None
     file_contents: dict[str, str] | None
     report: dict[str, Any] | None
@@ -61,35 +61,41 @@ def _session(row: sa.RowMapping) -> AuditSession:
 
 
 class AuditSessionStore:
-    def __init__(self, sessions: async_sessionmaker, *, max_running: int = 100) -> None:
+    def __init__(self, sessions: async_sessionmaker) -> None:
         self._sessions = sessions
-        self._max_running = max_running
 
-    async def create(self, package_name: str, version: str | None = None) -> AuditSession:
+    async def create(
+        self,
+        package_name: str,
+        version: str | None = None,
+        *,
+        file_contents: dict[str, str] | None = None,
+        package_path: str | None = None,
+    ) -> AuditSession:
+        # Rows are born 'queued'. The wait-queue bound (queued_count vs queue_size)
+        # is enforced by AuditService.reserve() BEFORE create/claim — there is no
+        # DB running-count cap here anymore. `file_contents`/`package_path` let the
+        # demo path create its tagged row atomically (file_contents IS NOT NULL is
+        # the de-facto demo tag; real audits never write file_contents on create).
         now = now_iso()
         audit_id = str(uuid4())
+        values: dict[str, Any] = dict(
+            audit_id=audit_id,
+            package_name=package_name,
+            requested_version=version,
+            status="queued",
+            created_at=now,
+            updated_at=now,
+        )
+        # Only set file_contents/package_path when provided. The JSON column
+        # renders an explicit Python None as JSON 'null', which would defeat the
+        # `file_contents IS NULL` demo filter — so omit them to keep SQL NULL.
+        if file_contents is not None:
+            values["file_contents"] = file_contents
+        if package_path is not None:
+            values["package_path"] = package_path
         async with self._sessions() as session, session.begin():
-            running = (
-                await session.execute(
-                    sa.select(sa.func.count())
-                    .select_from(audit_sessions)
-                    .where(audit_sessions.c.status == "running")
-                )
-            ).scalar_one()
-            if running >= self._max_running:
-                from .errors import SessionLimitError
-
-                raise SessionLimitError()
-            await session.execute(
-                audit_sessions.insert().values(
-                    audit_id=audit_id,
-                    package_name=package_name,
-                    requested_version=version,
-                    status="running",
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
+            await session.execute(audit_sessions.insert().values(**values))
         result = await self.get(audit_id)
         assert result is not None
         return result
@@ -108,13 +114,82 @@ class AuditSessionStore:
         return _session(row) if row is not None else None
 
     async def running(self) -> list[AuditSession]:
+        # Excludes demo replays (file_contents IS NOT NULL): those are driven by
+        # DemoService, never by AuditService, and must not be swept into 0031
+        # restart recovery.
         async with self._sessions() as session:
             rows = (
                 await session.execute(
-                    sa.select(audit_sessions).where(audit_sessions.c.status == "running")
+                    sa.select(audit_sessions).where(
+                        audit_sessions.c.status == "running",
+                        audit_sessions.c.file_contents.is_(None),
+                    )
                 )
             ).mappings()
             return [_session(row) for row in rows]
+
+    async def queued(self) -> list[AuditSession]:
+        # Durable wait-queue rows (excludes demo). Restart recovery re-enqueues
+        # these rather than erroring them — a claimed paid audit is never dropped.
+        async with self._sessions() as session:
+            rows = (
+                await session.execute(
+                    sa.select(audit_sessions).where(
+                        audit_sessions.c.status == "queued",
+                        audit_sessions.c.file_contents.is_(None),
+                    )
+                )
+            ).mappings()
+            return [_session(row) for row in rows]
+
+    async def queued_count(self) -> int:
+        # The real admission bound (checked by AuditService.reserve). Demo rows are
+        # excluded so a running demo never eats a real audit's queue slot.
+        async with self._sessions() as session:
+            return (
+                await session.execute(
+                    sa.select(sa.func.count())
+                    .select_from(audit_sessions)
+                    .where(
+                        audit_sessions.c.status == "queued",
+                        audit_sessions.c.file_contents.is_(None),
+                    )
+                )
+            ).scalar_one()
+
+    async def mark_running(self, audit_id: str) -> bool:
+        # Guarded queued->running transition. Returns whether THIS call won it.
+        # A rowcount of 0 means the row was closed/reset/already-running between
+        # dequeue and here — the worker must skip it, so this is NOT an assert.
+        statement = (
+            audit_sessions.update()
+            .where(
+                audit_sessions.c.audit_id == audit_id,
+                audit_sessions.c.status == "queued",
+            )
+            .values(status="running", updated_at=now_iso())
+        )
+        async with self._sessions() as session, session.begin():
+            rowcount = (await session.execute(statement)).rowcount
+        return rowcount == 1
+
+    async def reset_to_queued(self, audit_id: str) -> None:
+        # Guarded error->queued transition, clearing the terminal payload. Makes a
+        # claimed-but-errored paid audit genuinely retryable (submit re-runs it).
+        statement = (
+            audit_sessions.update()
+            .where(
+                audit_sessions.c.audit_id == audit_id,
+                audit_sessions.c.status == "error",
+            )
+            .values(status="queued", error=None, report=None, updated_at=now_iso())
+        )
+        async with self._sessions() as session, session.begin():
+            rowcount = (await session.execute(statement)).rowcount
+        assert rowcount == 1, (
+            f"reset_to_queued({audit_id}): matched {rowcount} error rows "
+            "(row missing or not in error state)"
+        )
 
     async def set_package_path(self, audit_id: str, path: str) -> None:
         await self._update(audit_id, package_path=path)
@@ -144,7 +219,7 @@ class AuditSessionStore:
             audit_sessions.update()
             .where(
                 audit_sessions.c.audit_id == audit_id,
-                audit_sessions.c.status == "running",
+                audit_sessions.c.status.in_(("queued", "running")),
             )
             .values(
                 report=report,
@@ -158,11 +233,12 @@ class AuditSessionStore:
         else:
             async with self._sessions() as own, own.begin():
                 rowcount = (await own.execute(statement)).rowcount
-        # INVARIANT: finalize transitions exactly one row running -> done|error.
-        # A missing or already-terminal row is a lifecycle bug — raise loudly,
-        # never a silent no-op or a done->error overwrite.
+        # INVARIANT: finalize transitions exactly one non-terminal (queued|running)
+        # row -> done|error. A missing or already-terminal row is a lifecycle bug —
+        # raise loudly, never a silent no-op or a done->error overwrite. The guard
+        # includes 'queued' so close/recovery can finalize a never-run queued row.
         assert rowcount == 1, (
-            f"finalize({audit_id}): matched {rowcount} running rows "
+            f"finalize({audit_id}): matched {rowcount} non-terminal rows "
             "(row missing or already terminal)"
         )
 
@@ -209,7 +285,7 @@ class AuditSessionStore:
                         audit_id=audit_id,
                         package_name=package_name,
                         requested_version=version,
-                        status="running",
+                        status="queued",
                         created_at=now,
                         updated_at=now,
                     )
