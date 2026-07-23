@@ -1,0 +1,114 @@
+[
+  {
+    "hypId": "hyp-0001",
+    "description": "The 'is-number' package uses implicit type conversion for string inputs. If a malicious string like a canary token was passed, this could trigger a side effect from the Number() constructor being implicitly invoked, for example through a getter on String.prototype. This experiment verifies that a specially crafted String object with a getter for its valueOf method does not trigger any side effects during the implicit conversion.",
+    "claim": {
+      "kind": "telemetry",
+      "gating": null
+    },
+    "focusFiles": [
+      "index.js"
+    ],
+    "focusLines": [
+      {
+        "file": "index.js",
+        "range": "10-16"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/pkg/npmguard-driver.js",
+              "content": "const isNumber = require('./index.js');\n\n// Create a specially crafted String object with a getter for valueOf\nconst maliciousString = new String('NPMGUARD_CANARY_TOKEN_f8e2d91a');\nObject.defineProperty(maliciousString, 'valueOf', {\n  get: function() {\n    // In a real scenario, this getter could exfiltrate data or perform other malicious actions\n    console.log('NPMGUARD_CANARY_VALUEOF_GETTER_CALLED');\n    return '123'; // Return a valid number string to allow the original function to proceed\n  }\n});\n\nisNumber(maliciousString);"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "/pkg/npmguard-driver.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "low",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-22T20:12:59.705132Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0002",
+    "description": "The package uses feature detection for `Number.isFinite`. While this is benign in itself, a malicious actor could potentially exploit dynamic capability checks to alter behavior based on the detected environment, especially if the feature detection logic were more complex or tied to system calls. This experiment confirms this capability.",
+    "claim": {
+      "kind": "obfuscation",
+      "gating": null
+    },
+    "focusFiles": [
+      "index.js"
+    ],
+    "focusLines": [
+      {
+        "file": "index.js",
+        "range": "15-15"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/pkg/npmguard-driver.js",
+              "content": "const isNumber = require('./index.js');\nglobalThis.NPMGUARD_CANARY_TOKEN_f8e2d91a = 'true';\nisNumber('123');"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "patchFile",
+        "args": {
+          "patches": [
+            {
+              "path": "index.js",
+              "replacements": [
+                {
+                  "pattern": "return Number.isFinite ? Number.isFinite(+num) : isFinite(+num);",
+                  "replacement": "if (typeof globalThis.NPMGUARD_CANARY_TOKEN_f8e2d91a !== 'undefined') { throw new Error('NPMGUARD_CANARY_TOKEN_f8e2d91a_HIT'); } return Number.isFinite ? Number.isFinite(+num) : isFinite(+num);"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "/pkg/npmguard-driver.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "low",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-22T20:12:59.705132Z",
+    "resolvedAt": null,
+    "resolution": null
+  }
+]

@@ -1,0 +1,79 @@
+[project]
+name = "npmguard-engine"
+version = "0.1.0"
+description = "NpmGuard audit engine"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.20",
+    "alembic>=1.13",
+    "asyncpg>=0.30",
+    "email-validator>=2.2",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "openai>=1.55",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "rfc8785>=0.1.4",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "stripe>=12.0",
+    "structlog>=24.4",
+    "uvicorn[standard]>=0.32",
+    "web3>=7.0",
+]
+
+[project.scripts]
+npmguard-engine = "npmguard.main:main"
+npmguard-ops = "npmguard.ops:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["npmguard", "kit_spine", "kit_llm", "kit_stream"]
+
+[dependency-groups]
+dev = [
+    "datamodel-code-generator>=0.26",
+    "psycopg2-binary>=2.9",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-m 'not e2e and not llm_live'"
+markers = [
+    "e2e: full-stack test against a real uvicorn server (opt in with -m e2e)",
+    "docker: requires a working docker daemon and the sandbox image (NPMGUARD_TEST_DOCKER=0 forces off)",
+    "postgres: requires Postgres (NPMGUARD_TEST_PG_DSN, else throwaway docker container, else skip)",
+    "cli: requires the built CLI bundle (cli/dist)",
+    "llm_live: hits a real LLM provider (NPMGUARD_TEST_LLM_LIVE=1 + real key; opt in with -m llm_live)",
+]
+filterwarnings = [
+    "error",
+    # starlette's TestClient warns until httpx2 is adopted; not our code path to fix here
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+    # web3 imports websockets.legacy at module import; upstream migration pending
+    "ignore:websockets.legacy is deprecated:DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    "kit_llm",
+    "kit_spine",
+    "kit_stream",
+    "npmguard/contract/models.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+ignore = ["E501"]

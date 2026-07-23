@@ -1,0 +1,72 @@
+# Timeline — run_a22b3bafe61c4de79b15cd08aa · trigger=entrypoint:index.js
+# setup: env NPMGUARD_CANARY_TOKEN_f8e2d91a
+
+── [L4] node calls — logical order, no clock ──
+e1    require  fs
+e2    require  http
+e3    require  https
+e4    require  child_process
+e5    require  crypto
+e6    require  inspector
+e7    require  module
+e8    script   require("/pkg/index.js")  [dynamically compiled · 24c]
+e9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]
+e10   script   require("/pkg/index.js")  [dynamically compiled · 24c]
+e11   require  /pkg/index.js
+e12   fs       /pkg/index.js (readFileSync)
+e13   require  dns
+
+── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──
+e14   t+0.18s       [L1]  exec     /usr/local/bin/node ["node", "--require", "/tmp/_instrument.js", "-e", "require(\\\"/pkg/index.js\\\")", "--", "/pkg/index.js"]
+e15   t+0.18s       [L1]  open     /etc/ld.so.cache
+e16   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2
+e17   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2
+e18   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6
+e19   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6
+e20   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6
+e21   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6
+e22   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e23   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e24   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0
+e25   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0
+e26   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6
+e27   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6
+e28   t+0.20s       [L1]  open     /etc/ssl/openssl.cnf
+e29   t+0.20-0.20s  [L1]  read     /etc/ssl/openssl.cnf  [x5]
+e30   t+0.21s       [L1]  open     /proc/version_signature
+e31   t+0.21s       [L1]  read     /proc/version_signature
+e32   t+0.21s       [L1]  write    fd:5
+e33   t+0.21-0.22s  [L1]  clone      [x10]
+e34   t+0.22s       [L1]  open     /proc/self/cgroup
+e35   t+0.22s       [L1]  read     /proc/self/cgroup
+e36   t+0.22s       [L1]  open     /sys/fs/cgroup//memory.max
+e37   t+0.22s       [L1]  read     /sys/fs/cgroup//memory.max
+e38   t+0.22s       [L1]  open     /sys/fs/cgroup//memory.high
+e39   t+0.22s       [L1]  read     /sys/fs/cgroup//memory.high
+e40   t+0.22s       [L1]  open     /proc/meminfo
+e41   t+0.22s       [L1]  read     /proc/meminfo
+e42   t+0.22s       [L1]  open     /proc/self/maps
+e43   t+0.22-0.22s  [L1]  read     /proc/self/maps  [x6]
+e44   t+0.22s       [L1]  open     /proc/self/maps
+e45   t+0.22s       [L1]  read     /proc/self/maps
+e46   t+0.25-0.25s  [L1]  clone      [x2]
+e47   t+0.26s       [L1]  open     /pkg/package.json
+e48   t+0.26s       [L1]  open     /tmp/npmguard-preload.js
+e49   t+0.26s       [L1]  read     /tmp/npmguard-preload.js
+e50   t+0.26s       [L1]  open     /tmp/_instrument.js
+e51   t+0.26-0.26s  [L1]  read     /tmp/_instrument.js  [x2]
+e52   t+0.28-0.28s  [L1]  clone      [x2]
+e53   t+0.28-0.29s  [L1]  write    fd:16  [x2]
+e54   t+0.39s       [L1]  open     /pkg/index.js
+e55   t+0.39-0.39s  [L1]  read     /pkg/index.js  [x2]
+e56   t+0.39s       [L1]  open     /etc/resolv.conf
+e57   t+0.39s       [L1]  read     /etc/resolv.conf
+e58   t+0.39s       [L1]  open     /etc/nsswitch.conf
+e59   t+0.39s       [L1]  read     /etc/nsswitch.conf
+e60   t+0.39s       [L1]  open     /etc/netsvc.conf
+e61   t+0.39s       [L1]  open     /etc/svc.conf
+e62   t+0.40s       [L1]  open     /dev/null
+e63   t+0.40s       [L1]  write    stdout
+e64   t+0.40s       [L1]  read     fd:16
+e65   t+0.41s       [L1]  write    fd:12
+e66   t+0.41s       [L1]  read     fd:12

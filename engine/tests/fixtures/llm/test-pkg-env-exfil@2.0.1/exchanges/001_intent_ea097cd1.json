@@ -1,0 +1,54 @@
+{
+  "id": "001_intent_ea097cd1",
+  "role": "intent",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You infer an npm package's stated intent from its manifest and README.\n\nBe conservative about expected capabilities. Pick only capabilities a direct,\nlegitimate implementation needs. Never infer intent from source code. Ignore\nmarketing language and describe the package's functional claim."
+        },
+        {
+          "role": "user",
+          "content": "## Package manifest\n- name: test-pkg-env-exfil\n- version: 2.0.1\n- description: Smart configuration loader with environment detection\n- license: MIT\n- homepage: (none)\n- keywords: config, env, loader, dotenv\n\n## Runtime dependencies\n(none)\n\n## Declared bin entries\n(none)\n\n## README\n(no README found)\n\n## Task\nInfer statedPurpose, a conservative expectedCapabilities list, and rationale."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-ea097cd1",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "AtlasCloud",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"expectedCapabilities\": [\n    \"load configuration files\",\n    \"detect environment variables\",\n    \"parse .env files\"\n  ],\n  \"rationale\": \"The package name, description, and keywords indicate it is a configuration loader that works with environment detection and .env files. The description explicitly states 'Smart configuration loader with environment detection' and keywords include 'config', 'env', 'loader', 'dotenv'. As no runtime dependencies or bin entries are declared, the expected capabilities are limited to basic configuration loading and environment variable detection, without any network access or file system operations beyond reading configuration files.\"\n, \"statedPurpose\": \"Smart configuration loader with environment detection\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 161,
+        "completion_tokens": 139,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "121bd4c6a0db",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:06:53.990Z",
+    "recordedLatencyMs": 4724
+  }
+}

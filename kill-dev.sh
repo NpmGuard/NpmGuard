@@ -14,9 +14,7 @@ kill_by_port 8000 "engine"
 kill_by_port 3000 "frontend"
 kill_by_port 5173 "frontend (vite)"
 
-# tsx/node running engine
-pkill -f "tsx src/index.ts" 2>/dev/null && echo "Killed tsx engine processes"
-pkill -f "node dist/index.js" 2>/dev/null && echo "Killed node engine processes"
+pkill -f "uvicorn npmguard.api:app" 2>/dev/null && echo "Killed uvicorn engine processes"
 pkill -f "vite.*frontend" 2>/dev/null && echo "Killed vite processes"
 
 echo "Done."

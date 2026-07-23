@@ -18,7 +18,7 @@ Run against the engine directly to avoid public nginx rate limits:
 ```bash
 cd engine
 NPMGUARD_CRE_API_KEY="$NPMGUARD_CRE_API_KEY" \
-npm run audit:latest -- \
+uv run npmguard-ops audit-latest \
   --api http://127.0.0.1:8000 \
   --watchlist config/watchlist-smoke.json \
   --limit 5 \
@@ -35,7 +35,7 @@ unexpected dangerous verdicts, or a p95 latency regression:
 
 ```bash
 cd engine
-npm run bench:check -- \
+uv run npmguard-ops bench-check \
   --results-dir ../bench/results \
   --min-rows 25 \
   --max-timeouts 0 \
@@ -52,7 +52,7 @@ and exits non-zero when a threshold is breached.
 ```bash
 cd engine
 NPMGUARD_CRE_API_KEY="$NPMGUARD_CRE_API_KEY" \
-npm run audit:latest -- \
+uv run npmguard-ops audit-latest \
   --api http://127.0.0.1:8000 \
   --watchlist config/watchlist-packages.json \
   --limit 25 \
@@ -68,7 +68,7 @@ result rows, including already-audited packages and timeouts.
 
 Compare models by keeping the watchlist, engine commit, and sandbox config
 constant. For each provider, restart the engine with the provider-specific LLM
-environment, run `npm run smoke:llm`, then run the same `audit:latest` command.
+environment, verify the configured provider, then run the same `audit-latest` command.
 
 Recommended first matrix:
 

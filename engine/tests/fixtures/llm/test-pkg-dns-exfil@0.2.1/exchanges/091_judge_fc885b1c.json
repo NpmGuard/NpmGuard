@@ -1,0 +1,54 @@
+{
+  "id": "091_judge_fc885b1c",
+  "role": "judge",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Judge one hypothesis against one observed execution timeline. The package's\nstated purpose is the benign baseline. Decide only from events in the timeline.\nA malicious decision must cite at least one exact event id present there. If the\nsuspected behavior did not happen, return malicious=false and no citations."
+        },
+        {
+          "role": "user",
+          "content": "## Stated purpose (benign baseline)\nDNS resolution with caching\n\n## Hypothesis hyp-0013\n- claim: build_plugin_exfil (gated: geo_gate)\n- severity: critical\n- description: Dynamic compilation of decrypted payload in lib/loader.js leads to arbitrary code execution.\n- suspected code: lib/loader.js:34-36\n\n## Experiment setup\n[{\"tool\":\"preload\",\"args\":{\"code\":\"const crypto = require('crypto');\\nconst fs = require('fs');\\nconst path = require('path');\\n\\n// The key from the flagged code\\nconst _k1 = \\\"s4ndw0rm\\\";\\nconst _k2 = \\\"_k3y_\\\";\\nconst _k3 = \\\"2024\\\";\\nconst _k4 = \\\"_v3ry_s3cr3t\\\";\\nconst KEY_MATERIAL = _k1 + _k2 + _k3 + _k4;\\nconst key = crypto.createHash('sha256').update(KEY_MATERIAL).digest();\\n\\n// Create a payload that will execute when decrypted\\nconst payload = `\\nconst fs = require('fs');\\nconst path = require('path');\\n// Signal that we achieved code execution\\nconst flagPath = '/tmp/executed.flag';\\nfs.writeFileSync(flagPath, 'code_execution_achieved_' + Date.now());\\nconsole.log('STAGE2: Code execution achieved!');\\n`;\\n\\n// Encrypt it\\nconst iv = crypto.randomBytes(12);\\nconst cipher = crypto.createCipheriv('aes-256-gcm', key, iv);\\nlet encrypted = cipher.update(payload, 'utf8', 'hex');\\nencrypted += cipher.final('hex');\\nconst authTag = cipher.getAuthTag().toString('hex');\\n\\n// Write the encrypted file\\nconst encDir = '/pkg/lib';\\nif (!fs.existsSync(encDir)) {\\n    fs.mkdirSync(encDir, { recursive: true });\\n}\\nconst content = iv.toString('hex') + ':' + authTag + ':' + encrypted;\\nfs.writeFileSync(path.join(encDir, 'stage2.enc'), content);\\nconsole.log('Encrypted stage2 file written to:', path.join(encDir, 'stage2.enc'));\"}},{\"tool\":\"trigger\",\"args\":{\"kind\":\"entrypoint\",\"target\":\"lib/loader.js\",\"argv\":[],\"stdin\":null}}]\nSetup is test context, not proof. Use it to associate planted canary values with observed events; decide only from the timeline.\n\n## Execution timeline\n# Timeline — run_2167acaa5d9940b280339c07ff · trigger=entrypoint:lib/loader.js\n# setup: (none)\n\n── [L4] node calls — logical order, no clock ──\ne1    require  fs\ne2    require  http\ne3    require  https\ne4    require  child_process\ne5    require  crypto\ne6    require  inspector\ne7    require  module\ne8    script   require(\"/pkg/lib/loader.js\")  [dynamically compiled · 29c]\ne9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]\ne10   script   require(\"/pkg/lib/loader.js\")  [dynamically compiled · 29c]\ne11   require  /pkg/lib/loader.js\ne12   fs       /pkg/lib/loader.js (readFileSync)\ne13   require  crypto\ne14   require  fs\ne15   require  path\ne16   fs       /pkg/lib/stage2.enc (readFileSync)\ne17   crypto   createHash sha256\ne18   crypto   createDecipheriv aes-256-gcm\ne19   require  module\ne20   script   const fs = require('fs'); const path = require('path'); // Signal that we achieved code execution co…  [dynamically compiled · 256c]\ne21   require  fs\ne22   require  path\ne23   fs       /tmp/executed.flag (writeFileSync)\n\n── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──\ne24   t+0.18s       [L1]  exec     /usr/local/bin/node [\"node\", \"--require\", \"/tmp/_instrument.js\", \"-e\", \"require(\\\\\\\"/pkg/lib/loader.js\\\\\\\")\", \"--\", \"/pkg/lib/loader.js\"]\ne25   t+0.18s       [L1]  open     /etc/ld.so.cache\ne26   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2\ne27   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2\ne28   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6\ne29   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6\ne30   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6\ne31   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6\ne32   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne33   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne34   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0\ne35   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0\ne36   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6\ne37   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6\ne38   t+0.19s       [L1]  open     /etc/ssl/openssl.cnf\ne39   t+0.19-0.19s  [L1]  read     /etc/ssl/openssl.cnf  [x5]\ne40   t+0.19s       [L1]  open     /proc/version_signature\ne41   t+0.19s       [L1]  read     /proc/version_signature\ne42   t+0.19s       [L1]  write    fd:5\ne43   t+0.19-0.19s  [L1]  clone      [x10]\ne44   t+0.20s       [L1]  open     /proc/self/cgroup\ne45   t+0.20s       [L1]  read     /proc/self/cgroup\ne46   t+0.20s       [L1]  open     /sys/fs/cgroup//memory.max\ne47   t+0.20s       [L1]  read     /sys/fs/cgroup//memory.max\ne48   t+0.20s       [L1]  open     /sys/fs/cgroup//memory.high\ne49   t+0.20s       [L1]  read     /sys/fs/cgroup//memory.high\ne50   t+0.20s       [L1]  open     /proc/meminfo\ne51   t+0.20s       [L1]  read     /proc/meminfo\ne52   t+0.20s       [L1]  open     /proc/self/maps\ne53   t+0.20-0.20s  [L1]  read     /proc/self/maps  [x6]\ne54   t+0.20s       [L1]  open     /proc/self/maps\ne55   t+0.20s       [L1]  read     /proc/self/maps\ne56   t+0.22-0.22s  [L1]  clone      [x2]\ne57   t+0.23s       [L1]  open     /pkg/package.json\ne58   t+0.23s       [L1]  open     /tmp/npmguard-preload.js\ne59   t+0.23-0.23s  [L1]  read     /tmp/npmguard-preload.js  [x2]\ne60   t+0.24s       [L3]  modify   /pkg/lib/stage2.enc\ne61   t+0.24s       [L1]  open     /pkg/lib/stage2.enc\ne62   t+0.24s       [L1]  write    /pkg/lib/stage2.enc\ne63   t+0.24s       [L1]  open     /dev/null\ne64   t+0.24s       [L1]  write    stdout\ne65   t+0.24s       [L1]  open     /tmp/_instrument.js\ne66   t+0.24-0.24s  [L1]  read     /tmp/_instrument.js  [x2]\ne67   t+0.25-0.25s  [L1]  clone      [x2]\ne68   t+0.25-0.25s  [L1]  write    fd:16  [x2]\ne69   t+0.30s       [L1]  open     /pkg/lib/loader.js\ne70   t+0.30-0.30s  [L1]  read     /pkg/lib/loader.js  [x2]\ne71   t+0.30s       [L1]  open     /pkg/lib/stage2.enc\ne72   t+0.30-0.30s  [L1]  read     /pkg/lib/stage2.enc  [x2]\ne73   t+0.30s       [L1]  open     /tmp/executed.flag\ne74   t+0.30s       [L1]  write    /tmp/executed.flag\ne75   t+0.30-0.30s  [L1]  write    stdout  [x2]\ne76   t+0.30s       [L1]  read     fd:16\ne77   t+0.31s       [L1]  write    fd:12\ne78   t+0.31s       [L1]  read     fd:12\n\n## Task\nDid the suspected behavior happen? Cite exact timeline ids for malicious=true."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-fc885b1c",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Morph",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\"malicious\": true, \"reason\": \"The hypothesis claims that lib/loader.js dynamically decrypts an encrypted payload and executes it via dynamic compilation, leading to arbitrary code execution. The timeline shows that after reading the encrypted file /pkg/lib/stage2.enc (e16, e72), the process performs cryptographic operations (e17, e18) and then dynamically compiles and executes a script containing code that writes to /tmp/executed.flag (e20, e23, e74). This matches the described malicious behavior exactly.\", \"citedEvents\": [\"e16\", \"e17\", \"e18\", \"e20\", \"e23\", \"e74\"]}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 2735,
+        "completion_tokens": 143,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "97539fc621ac",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:54:12.739Z",
+    "recordedLatencyMs": 5263
+  }
+}

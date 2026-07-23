@@ -1,0 +1,4 @@
+{
+  "note": "Canary-token secret-scan allowlist. A secret-scan hit is acceptable without an entry here iff its exact matched substring occurs verbatim in committed sandbox/test-fixtures/** or engine/prompts/** (the fixtures legitimately exfiltrate fake credentials and the prompts quote them). Anything else needs a justified entry below or fixture_lint fails.",
+  "entries": []
+}

