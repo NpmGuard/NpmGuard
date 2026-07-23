@@ -217,17 +217,29 @@ async def run_orchestrator(
                 )
                 summary.confirmed += 1
             else:
-                error_kind = result.artifact.error.kind if result.artifact.error else None
+                error = result.artifact.error
+                error_kind = error.kind if error else None
+                # A crash at module resolution means the program-under-test never
+                # loaded (e.g. an uninstalled dependency), so the suspected path
+                # never ran. That is a coverage gap, not a refutation — deferring
+                # keeps a broken run from laundering an unproven suspicion into SAFE.
+                unresolved_module = (
+                    error_kind == "CrashError"
+                    and error is not None
+                    and ("Cannot find module" in error.detail or "MODULE_NOT_FOUND" in error.detail)
+                )
                 if (
                     error_kind in {"SetupError", "SensorError", "TimeoutError"}
                     or result.judge_failed
+                    or unresolved_module
                 ):
                     graph.add_evidence(hypothesis.hypId, [result.evidence_ref])
-                    reason = (
-                        f"Judge could not evaluate the run: {result.reason}"
-                        if result.judge_failed
-                        else f"Observation incomplete ({error_kind}): {result.reason}"
-                    )
+                    if result.judge_failed:
+                        reason = f"Judge could not evaluate the run: {result.reason}"
+                    elif unresolved_module:
+                        reason = f"Program-under-test could not be loaded ({error.detail})"
+                    else:
+                        reason = f"Observation incomplete ({error_kind}): {result.reason}"
                     graph.transition(
                         hypothesis.hypId, "DEFERRED", by="worker:experimenter", reason=reason
                     )

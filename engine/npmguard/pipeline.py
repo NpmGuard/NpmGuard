@@ -19,6 +19,7 @@ from .contract.models import (
     HypothesisCounts,
     PhaseLog,
 )
+from .deps import provision_dependencies
 from .errors import AuditIncompleteError, AuditTimeoutError
 from .events import AuditEmitter
 from .evidence import ArtifactStore
@@ -187,6 +188,27 @@ class AuditPipeline:
         )
         await self.sessions.set_package_path(audit_id, str(resolved.path))
         try:
+            deps = await provision_dependencies(resolved.path, self.settings)
+            log.write(
+                "dependencies.json",
+                {
+                    "installed": deps.installed,
+                    "packageCount": deps.package_count,
+                    "skipped": deps.skipped_reason,
+                    "error": deps.error,
+                },
+            )
+            if emitter:
+                await emitter.emit(
+                    "dependencies_provisioned",
+                    {
+                        "installed": deps.installed,
+                        "packageCount": deps.package_count,
+                        "skipped": deps.skipped_reason,
+                        "error": deps.error,
+                    },
+                )
+
             inventory, phase = await _timed_phase(
                 "inventory",
                 lambda: analyze_inventory(resolved.path),
