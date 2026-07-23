@@ -10,6 +10,7 @@ import { z } from "zod";
 // verdict — it is a retryable AuditIncompleteError, so "we couldn't check" can
 // never leak out as a result.
 export const VerdictEnum = z.enum(["SAFE", "DANGEROUS"]);
+export const VerdictSchema = VerdictEnum;
 export type VerdictEnum = z.infer<typeof VerdictEnum>;
 
 export const CapabilityEnum = z.enum([
@@ -43,9 +44,11 @@ export const CapabilityEnum = z.enum([
   "BUILD_PLUGIN_EXFIL",
   "NPM_TOKEN_ABUSE",
 ]);
+export const CapabilitySchema = CapabilityEnum;
 export type CapabilityEnum = z.infer<typeof CapabilityEnum>;
 
 export const Confidence = z.enum(["SUSPECTED", "LIKELY", "CONFIRMED"]);
+export const ConfidenceSchema = Confidence;
 export type Confidence = z.infer<typeof Confidence>;
 
 export const ProofKind = z.enum([
@@ -55,6 +58,7 @@ export const ProofKind = z.enum([
   "TEST_CONFIRMED",
   "TEST_UNCONFIRMED",
 ]);
+export const ProofKindSchema = ProofKind;
 export type ProofKind = z.infer<typeof ProofKind>;
 
 export const AttackPathway = z.enum([
@@ -69,9 +73,11 @@ export const AttackPathway = z.enum([
   "TELEMETRY_RAT",
   "BUILD_PLUGIN_EXFIL",
 ]);
+export const AttackPathwaySchema = AttackPathway;
 export type AttackPathway = z.infer<typeof AttackPathway>;
 
 export const Severity = z.enum(["info", "warn", "critical"]);
+export const SeveritySchema = Severity;
 export type Severity = z.infer<typeof Severity>;
 
 // ---------------------------------------------------------------------------
@@ -85,6 +91,7 @@ export const FocusArea = z.object({
   lines: z.string().optional(),
   reason: z.string(),
 });
+export const FocusAreaSchema = FocusArea;
 export type FocusArea = z.infer<typeof FocusArea>;
 
 export const TriageResult = z.object({
@@ -92,6 +99,7 @@ export const TriageResult = z.object({
   riskSummary: z.string(),
   focusAreas: z.array(FocusArea).default([]),
 });
+export const TriageResultSchema = TriageResult;
 export type TriageResult = z.infer<typeof TriageResult>;
 
 export const FileVerdict = z.object({
@@ -103,6 +111,7 @@ export const FileVerdict = z.object({
   summary: z.string(),
   riskContribution: z.number().int().min(0).max(10),
 });
+export const FileVerdictSchema = FileVerdict;
 export type FileVerdict = z.infer<typeof FileVerdict>;
 
 // One-line per-file summary emitted by triage MAP. Carried on the report so
@@ -112,6 +121,7 @@ export const FileSummary = z.object({
   summary: z.string().default(""),
   capabilities: z.array(z.string()).default([]),
 });
+export const FileSummarySchema = FileSummary;
 export type FileSummary = z.infer<typeof FileSummary>;
 
 export const Finding = z.object({
@@ -125,6 +135,7 @@ export const Finding = z.object({
   evidence: z.string().default("").describe("Concrete data or observation"),
   reproductionStrategy: z.string().default("").describe("How to prove this in a reproducible test"),
 });
+export const FindingSchema = Finding;
 export type Finding = z.infer<typeof Finding>;
 
 export const Proof = z.object({
@@ -150,6 +161,7 @@ export const Proof = z.object({
   reasoningHash: z.string().nullable().default(null),
   teeAttestationId: z.string().nullable().default(null),
 });
+export const ProofSchema = Proof;
 export type Proof = z.infer<typeof Proof>;
 
 export const FileRecord = z.object({
@@ -160,6 +172,7 @@ export const FileRecord = z.object({
   isBinary: z.boolean(),
   binaryType: z.string().nullable().default(null),
 });
+export const FileRecordSchema = FileRecord;
 export type FileRecord = z.infer<typeof FileRecord>;
 
 // ---------------------------------------------------------------------------
@@ -173,6 +186,7 @@ export const NetworkCall = z.object({
   url: z.string(),
   bodyPreview: z.string().default(""),
 });
+export const NetworkCallSchema = NetworkCall;
 export type NetworkCall = z.infer<typeof NetworkCall>;
 
 export const FsOperation = z.object({
@@ -180,23 +194,27 @@ export const FsOperation = z.object({
   path: z.string(),
   preview: z.string().default(""),
 });
+export const FsOperationSchema = FsOperation;
 export type FsOperation = z.infer<typeof FsOperation>;
 
 export const ProcessSpawn = z.object({
   cmd: z.string(),
   args: z.array(z.string()).default([]),
 });
+export const ProcessSpawnSchema = ProcessSpawn;
 export type ProcessSpawn = z.infer<typeof ProcessSpawn>;
 
 export const EvalCall = z.object({
   code: z.string(),
 });
+export const EvalCallSchema = EvalCall;
 export type EvalCall = z.infer<typeof EvalCall>;
 
 export const CryptoOp = z.object({
   method: z.string(),
   algo: z.string(),
 });
+export const CryptoOpSchema = CryptoOp;
 export type CryptoOp = z.infer<typeof CryptoOp>;
 
 export const TimerRecord = z.object({
@@ -204,6 +222,7 @@ export const TimerRecord = z.object({
   ms: z.number(),
   source: z.string().default(""),
 });
+export const TimerRecordSchema = TimerRecord;
 export type TimerRecord = z.infer<typeof TimerRecord>;
 
 export const InstrumentationLog = z.object({
@@ -216,4 +235,5 @@ export const InstrumentationLog = z.object({
   cryptoOps: z.array(CryptoOp).default([]),
   timers: z.array(TimerRecord).default([]),
 });
+export const InstrumentationLogSchema = InstrumentationLog;
 export type InstrumentationLog = z.infer<typeof InstrumentationLog>;

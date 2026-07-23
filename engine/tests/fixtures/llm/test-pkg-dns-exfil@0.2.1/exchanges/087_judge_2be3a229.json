@@ -1,0 +1,54 @@
+{
+  "id": "087_judge_2be3a229",
+  "role": "judge",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Judge one hypothesis against one observed execution timeline. The package's\nstated purpose is the benign baseline. Decide only from events in the timeline.\nA malicious decision must cite at least one exact event id present there. If the\nsuspected behavior did not happen, return malicious=false and no citations."
+        },
+        {
+          "role": "user",
+          "content": "## Stated purpose (benign baseline)\nDNS resolution with caching\n\n## Hypothesis hyp-0010\n- claim: cred_theft (gated: docker_gate)\n- severity: critical\n- description: lib/loader.js decrypts an encrypted stage2 payload during package load, which is a hidden code execution backdoor\n- suspected code: lib/loader.js:7-11\n\n## Experiment setup\n[{\"tool\":\"preload\",\"args\":{\"code\":\"const crypto = require('crypto');\\nconst fs = require('fs');\\nconst path = require('path');\\n\\nconst _k1 = \\\"s4ndw0rm\\\";\\nconst _k2 = \\\"_k3y_\\\";\\nconst _k3 = \\\"2024\\\";\\nconst _k4 = \\\"_v3ry_s3cr3t\\\";\\nconst KEY_MATERIAL = _k1 + _k2 + _k3 + _k4;\\nconst key = crypto.createHash('sha256').update(KEY_MATERIAL).digest();\\nconst iv = crypto.randomBytes(12);\\nconst plaintext = \\\"console.log('STAGE2_EXECUTED');\\\";\\nconst cipher = crypto.createCipheriv('aes-256-gcm', key, iv);\\nlet encrypted = cipher.update(plaintext, 'utf8', 'hex');\\nencrypted += cipher.final('hex');\\nconst authTag = cipher.getAuthTag();\\nconst payload = iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;\\nfs.writeFileSync('/pkg/lib/stage2.enc', payload);\"}},{\"tool\":\"trigger\",\"args\":{\"kind\":\"entrypoint\",\"target\":\"index.js\",\"argv\":[],\"stdin\":null}}]\nSetup is test context, not proof. Use it to associate planted canary values with observed events; decide only from the timeline.\n\n## Execution timeline\n# Timeline — run_1072272afea740129a8679ce6c · trigger=entrypoint:index.js\n# setup: (none)\n\n── [L4] node calls — logical order, no clock ──\ne1    require  fs\ne2    require  http\ne3    require  https\ne4    require  child_process\ne5    require  crypto\ne6    require  inspector\ne7    require  module\ne8    script   require(\"/pkg/index.js\")  [dynamically compiled · 24c]\ne9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]\ne10   script   require(\"/pkg/index.js\")  [dynamically compiled · 24c]\ne11   require  /pkg/index.js\ne12   fs       /pkg/index.js (readFileSync)\ne13   require  dns\n\n── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──\ne14   t+0.18s       [L1]  exec     /usr/local/bin/node [\"node\", \"--require\", \"/tmp/_instrument.js\", \"-e\", \"require(\\\\\\\"/pkg/index.js\\\\\\\")\", \"--\", \"/pkg/index.js\"]\ne15   t+0.18s       [L1]  open     /etc/ld.so.cache\ne16   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2\ne17   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2\ne18   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6\ne19   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6\ne20   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6\ne21   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6\ne22   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne23   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne24   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0\ne25   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0\ne26   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6\ne27   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6\ne28   t+0.21s       [L1]  open     /etc/ssl/openssl.cnf\ne29   t+0.21-0.21s  [L1]  read     /etc/ssl/openssl.cnf  [x5]\ne30   t+0.21s       [L1]  open     /proc/version_signature\ne31   t+0.21s       [L1]  read     /proc/version_signature\ne32   t+0.21s       [L1]  write    fd:5\ne33   t+0.21-0.22s  [L1]  clone      [x10]\ne34   t+0.22s       [L1]  open     /proc/self/cgroup\ne35   t+0.22s       [L1]  read     /proc/self/cgroup\ne36   t+0.22s       [L1]  open     /sys/fs/cgroup//memory.max\ne37   t+0.22s       [L1]  read     /sys/fs/cgroup//memory.max\ne38   t+0.22s       [L1]  open     /sys/fs/cgroup//memory.high\ne39   t+0.22s       [L1]  read     /sys/fs/cgroup//memory.high\ne40   t+0.22s       [L1]  open     /proc/meminfo\ne41   t+0.22s       [L1]  read     /proc/meminfo\ne42   t+0.22s       [L1]  open     /proc/self/maps\ne43   t+0.22-0.22s  [L1]  read     /proc/self/maps  [x6]\ne44   t+0.22s       [L1]  open     /proc/self/maps\ne45   t+0.22s       [L1]  read     /proc/self/maps\ne46   t+0.25-0.25s  [L1]  clone      [x2]\ne47   t+0.25s       [L1]  open     /pkg/package.json\ne48   t+0.25s       [L1]  open     /tmp/npmguard-preload.js\ne49   t+0.25-0.25s  [L1]  read     /tmp/npmguard-preload.js  [x2]\ne50   t+0.26s       [L3]  modify   /pkg/lib/stage2.enc\ne51   t+0.26s       [L1]  open     /pkg/lib/stage2.enc\ne52   t+0.26s       [L1]  write    /pkg/lib/stage2.enc\ne53   t+0.26s       [L1]  open     /tmp/_instrument.js\ne54   t+0.26-0.26s  [L1]  read     /tmp/_instrument.js  [x2]\ne55   t+0.26-0.26s  [L1]  clone      [x2]\ne56   t+0.27-0.27s  [L1]  write    fd:16  [x2]\ne57   t+0.30s       [L1]  open     /pkg/index.js\ne58   t+0.30-0.30s  [L1]  read     /pkg/index.js  [x2]\ne59   t+0.30s       [L1]  open     /etc/resolv.conf\ne60   t+0.31s       [L1]  read     /etc/resolv.conf\ne61   t+0.31s       [L1]  open     /etc/nsswitch.conf\ne62   t+0.31s       [L1]  read     /etc/nsswitch.conf\ne63   t+0.31s       [L1]  open     /etc/netsvc.conf\ne64   t+0.31s       [L1]  open     /etc/svc.conf\ne65   t+0.31s       [L1]  open     /dev/null\ne66   t+0.31s       [L1]  write    stdout\ne67   t+0.31s       [L1]  read     fd:16\ne68   t+0.31s       [L1]  write    fd:12\ne69   t+0.31s       [L1]  read     fd:12\n\n## Task\nDid the suspected behavior happen? Cite exact timeline ids for malicious=true."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-2be3a229",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "DeepInfra",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\"malicious\": false, \"reason\": \"The timeline does not contain any event where lib/loader.js is loaded, nor any decryption operation, nor the execution of a decrypted payload. All observed filesystem and module events are consistent with the stated purpose of DNS resolution with caching (e.g., read of /etc/resolv.conf, /etc/nsswitch.conf). The preloaded encrypted file (e50–e52) was created by the experiment setup, not by the package itself, and no code reads or decrypts it during execution.\" , \"citedEvents\": []}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 2311,
+        "completion_tokens": 123,
+        "prompt_tokens_details": {
+          "cached_tokens": 64
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "97539fc621ac",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:53:05.197Z",
+    "recordedLatencyMs": 6272
+  }
+}

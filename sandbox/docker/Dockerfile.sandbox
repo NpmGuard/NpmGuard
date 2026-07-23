@@ -1,4 +1,4 @@
-# NpmGuard sandbox image — used by engine/src/evidence/run-under-observation.ts
+# NpmGuard sandbox image — used by engine/npmguard/observation.py
 # to host every package execution under the v2 pipeline.
 #
 # Contents added by Phase A:
@@ -8,7 +8,7 @@
 #   - Sprint 5 will add: V8 Inspector socket expectations (runtime flag).
 #
 # Build:   docker build -t npmguard-sandbox:v1 -f sandbox/docker/Dockerfile.sandbox .
-# Config:  set NPMGUARD_SANDBOX_IMAGE=npmguard-sandbox:v1 (default in engine/src/config.ts)
+# Config:  set NPMGUARD_SANDBOX_IMAGE=npmguard-sandbox:v1
 
 FROM node:22-slim
 

@@ -51,5 +51,5 @@ forge script script/Deploy.s.sol:Deploy \
 
 echo
 echo "✓ Deployed. Copy the address above into:"
-echo "  - engine/.env  (AUDIT_CONTRACT_ADDRESS=0x...)"
+echo "  - engine/.env  (NPMGUARD_BASE_SEPOLIA_CONTRACT=0x...)"
 echo "  - cli/src/contract.ts"

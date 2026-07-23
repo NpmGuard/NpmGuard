@@ -1,0 +1,73 @@
+# Timeline — run_a667278bfd6845ce994ecb1cb8 · trigger=entrypoint:/pkg/npmguard-driver.js
+# setup: planted /pkg/npmguard-driver.js
+# note: run error — CrashError: node exited 1; stderr: node:internal/modules/cjs/loader:1386
+  throw err;
+  ^
+
+Error: Cannot find module './/pkg/npmguard-driver.js'
+Require stack:
+- /pkg/[eval]
+    at Function.<anonymous> (node:internal/modules/cjs/loader:1383:15)
+    at Module._resolveFilename (/tmp/_instrument.js:9:23)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1025:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1030:22)
+    at Function._load (node:internal/modules/cjs/loader:1192:37)
+    at TracingChannel.tra
+
+── [L4] node calls — logical order, no clock ──
+e1    require  fs
+e2    require  http
+e3    require  https
+e4    require  child_process
+e5    require  crypto
+e6    require  inspector
+e7    require  module
+e8    script   require(".//pkg/npmguard-driver.js")  [dynamically compiled · 36c]
+e9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]
+e10   script   require(".//pkg/npmguard-driver.js")  [dynamically compiled · 36c]
+e11   require  .//pkg/npmguard-driver.js
+
+── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──
+e12   t+0.22s       [L1]  exec     /usr/local/bin/node ["node", "--require", "/tmp/_instrument.js", "-e", "require(\\\".//pkg/npmguard-driver.js\\\")"]
+e13   t+0.22s       [L1]  open     /etc/ld.so.cache
+e14   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2
+e15   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2
+e16   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6
+e17   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6
+e18   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6
+e19   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6
+e20   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e21   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e22   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0
+e23   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0
+e24   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6
+e25   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6
+e26   t+0.24s       [L1]  open     /etc/ssl/openssl.cnf
+e27   t+0.24-0.25s  [L1]  read     /etc/ssl/openssl.cnf  [x5]
+e28   t+0.25s       [L1]  open     /proc/version_signature
+e29   t+0.25s       [L1]  read     /proc/version_signature
+e30   t+0.25s       [L1]  write    fd:5
+e31   t+0.25-0.26s  [L1]  clone      [x10]
+e32   t+0.26s       [L1]  open     /proc/self/cgroup
+e33   t+0.26s       [L1]  read     /proc/self/cgroup
+e34   t+0.26s       [L1]  open     /sys/fs/cgroup//memory.max
+e35   t+0.26s       [L1]  read     /sys/fs/cgroup//memory.max
+e36   t+0.26s       [L1]  open     /sys/fs/cgroup//memory.high
+e37   t+0.26s       [L1]  read     /sys/fs/cgroup//memory.high
+e38   t+0.26s       [L1]  open     /proc/meminfo
+e39   t+0.26s       [L1]  read     /proc/meminfo
+e40   t+0.26s       [L1]  open     /proc/self/maps
+e41   t+0.26-0.26s  [L1]  read     /proc/self/maps  [x6]
+e42   t+0.26s       [L1]  open     /proc/self/maps
+e43   t+0.26s       [L1]  read     /proc/self/maps
+e44   t+0.29-0.29s  [L1]  clone      [x2]
+e45   t+0.29s       [L1]  open     /pkg/package.json
+e46   t+0.29s       [L1]  open     /tmp/_instrument.js
+e47   t+0.29-0.29s  [L1]  read     /tmp/_instrument.js  [x2]
+e48   t+0.30-0.30s  [L1]  clone      [x2]
+e49   t+0.30-0.31s  [L1]  write    fd:16  [x2]
+e50   t+0.35s       [L1]  open     /dev/null
+e51   t+0.35s       [L1]  write    stdout
+e52   t+0.35-0.35s  [L1]  write    stderr  [x2]
+e53   t+0.35s       [L1]  write    fd:12
+e54   t+0.35s       [L1]  read     fd:12

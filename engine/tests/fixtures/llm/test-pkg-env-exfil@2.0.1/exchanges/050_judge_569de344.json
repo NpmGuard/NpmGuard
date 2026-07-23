@@ -1,0 +1,54 @@
+{
+  "id": "050_judge_569de344",
+  "role": "judge",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Judge one hypothesis against one observed execution timeline. The package's\nstated purpose is the benign baseline. Decide only from events in the timeline.\nA malicious decision must cite at least one exact event id present there. If the\nsuspected behavior did not happen, return malicious=false and no citations."
+        },
+        {
+          "role": "user",
+          "content": "## Stated purpose (benign baseline)\nSmart configuration loader with environment detection\n\n## Hypothesis hyp-0008\n- claim: cred_theft (gated: docker_gate)\n- severity: critical\n- description: Probe IMDS and exfiltrate all stolen data\n- suspected code: setup.js:120-120, setup.js:123-123\n\n## Experiment setup\n[{\"tool\":\"setEnv\",\"args\":{\"env\":{\"NPM_TOKEN\":\"npm_12345secrettoken\",\"AWS_ACCESS_KEY_ID\":\"AKIA123456789\",\"HOME\":\"/home/node\"}}},{\"tool\":\"plantFiles\",\"args\":{\"files\":[{\"path\":\"/home/node/.npmrc\",\"content\":\"//registry.npmjs.org/:_authToken=npm_12345secrettoken\"},{\"path\":\"/home/node/.ssh/id_rsa\",\"content\":\"-----BEGIN RSA PRIVATE KEY-----\\nFAKEKEYDATA\\n-----END RSA PRIVATE KEY-----\"},{\"path\":\"/home/node/.aws/credentials\",\"content\":\"[default]\\naws_access_key_id=AKIA123456789\\naws_secret_access_key=secretkey123\"}]}},{\"tool\":\"stubUrl\",\"args\":{\"stubs\":[{\"pattern\":\"http://169.254.169.254/latest/meta-data/*\",\"responseStatus\":200,\"responseBody\":\"ami-id: ami-123456\\ninstance-id: i-1234567890\\npublic-ip: 1.2.3.4\",\"responseHeaders\":{\"Content-Type\":\"text/plain\"}},{\"pattern\":\"http://localhost:9999/exfil\",\"responseStatus\":200,\"responseBody\":\"ok\",\"responseHeaders\":{\"Content-Type\":\"text/plain\"}}]}},{\"tool\":\"trigger\",\"args\":{\"kind\":\"entrypoint\",\"target\":\"setup.js\",\"argv\":[],\"stdin\":null}}]\nSetup is test context, not proof. Use it to associate planted canary values with observed events; decide only from the timeline.\n\n## Execution timeline\n# Timeline — run_e8596819e848454e91d54b5a5e · trigger=entrypoint:setup.js\n# setup: env NPM_TOKEN, AWS_ACCESS_KEY_ID, HOME · planted ~/.npmrc, ~/.ssh/id_rsa, ~/.aws/credentials\n\n── [L4] node calls — logical order, no clock ──\ne1    require  fs\ne2    require  http\ne3    require  https\ne4    require  child_process\ne5    require  crypto\ne6    require  inspector\ne7    require  module\ne8    script   require(\"/pkg/setup.js\")  [dynamically compiled · 24c]\ne9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]\ne10   script   require(\"/pkg/setup.js\")  [dynamically compiled · 24c]\ne11   require  /pkg/setup.js\ne12   fs       /pkg/setup.js (readFileSync)\ne13   require  http\ne14   require  https\ne15   require  os\ne16   require  fs\ne17   require  path\ne18   env      NPM_TOKEN  [x2]\ne19   env      npm_config_registry\ne20   env      npm_config__auth\ne21   env      AWS_ACCESS_KEY_ID  [x2]\ne22   env      AWS_SECRET_ACCESS_KEY\ne23   env      AWS_SESSION_TOKEN\ne24   env      GITHUB_TOKEN\ne25   env      GH_TOKEN\ne26   env      GITLAB_TOKEN\ne27   env      AZURE_CLIENT_SECRET\ne28   env      DOCKER_AUTH_CONFIG\ne29   env      CI\ne30   env      JENKINS_URL\ne31   env      TRAVIS\ne32   env      CIRCLE_TOKEN\ne33   env      HOSTNAME  [x2]\ne34   env      USER\ne35   env      HOME  [x2]\ne36   env      PATH\ne37   env      HOSTNAME\ne38   env      HTTP_PROXY\ne39   env      HTTPS_PROXY\ne40   env      https_proxy\ne41   env      NO_PROXY\ne42   env      NPMGUARD_STUB_PORT\ne43   env      NPM_TOKEN\ne44   env      AWS_ACCESS_KEY_ID\ne45   env      HOME\ne46   env      http_proxy\ne47   env      NPMGUARD_STUBS\ne48   env      NODE_VERSION\ne49   env      YARN_VERSION\ne50   env      NODE_ENV\ne51   fs       ~/.npmrc (readFileSync)\ne52   fs       ~/.yarnrc (readFileSync)\ne53   fs       ~/.ssh/id_rsa (readFileSync)\ne54   fs       ~/.ssh/id_ed25519 (readFileSync)\ne55   fs       ~/.aws/credentials (readFileSync)\ne56   fs       ~/.aws/config (readFileSync)\ne57   fs       ~/.gitconfig (readFileSync)\ne58   fs       ~/.docker/config.json (readFileSync)\ne59   fs       ~/.kube/config (readFileSync)\ne60   net      POST http://localhost/exfil\n\n── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──\ne61   t+0.19s       [L1]  exec     /usr/local/bin/node [\"node\", \"--require\", \"/tmp/_instrument.js\", \"-e\", \"require(\\\\\\\"/pkg/setup.js\\\\\\\")\", \"--\", \"/pkg/setup.js\"]\ne62   t+0.20s       [L1]  open     /etc/ld.so.cache\ne63   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2\ne64   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2\ne65   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6\ne66   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6\ne67   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6\ne68   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6\ne69   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne70   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne71   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0\ne72   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0\ne73   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6\ne74   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6\ne75   t+0.22s       [L1]  open     /etc/ssl/openssl.cnf\ne76   t+0.22-0.22s  [L1]  read     /etc/ssl/openssl.cnf  [x5]\ne77   t+0.23s       [L1]  open     /proc/version_signature\ne78   t+0.23s       [L1]  read     /proc/version_signature\ne79   t+0.23s       [L1]  write    fd:5\ne80   t+0.23-0.24s  [L1]  clone      [x10]\ne81   t+0.24s       [L1]  open     /proc/self/cgroup\ne82   t+0.24s       [L1]  read     /proc/self/cgroup\ne83   t+0.24s       [L1]  open     /sys/fs/cgroup//memory.max\ne84   t+0.24s       [L1]  read     /sys/fs/cgroup//memory.max\ne85   t+0.24s       [L1]  open     /sys/fs/cgroup//memory.high\ne86   t+0.24s       [L1]  read     /sys/fs/cgroup//memory.high\ne87   t+0.24s       [L1]  open     /proc/meminfo\ne88   t+0.24s       [L1]  read     /proc/meminfo\ne89   t+0.24s       [L1]  open     /proc/self/maps\ne90   t+0.24-0.25s  [L1]  read     /proc/self/maps  [x6]\ne91   t+0.25s       [L1]  open     /proc/self/maps\ne92   t+0.25s       [L1]  read     /proc/self/maps\ne93   t+0.29-0.29s  [L1]  clone      [x2]\ne94   t+0.30s       [L1]  open     /pkg/package.json\ne95   t+0.30s       [L1]  open     /tmp/_instrument.js\ne96   t+0.30-0.30s  [L1]  read     /tmp/_instrument.js  [x2]\ne97   t+0.31-0.31s  [L1]  clone      [x2]\ne98   t+0.32-0.32s  [L1]  write    fd:16  [x2]\ne99   t+0.36s       [L1]  open     /pkg/setup.js\ne100  t+0.36-0.36s  [L1]  read     /pkg/setup.js  [x2]\ne101  t+0.36s       [L1]  open     /etc/localtime\ne102  t+0.36-0.36s  [L1]  read     /etc/localtime  [x2]\ne103  t+0.36-0.36s  [L1]  connect  /etc/localtime  [x2]\ne104  t+0.37s       [L1]  open     /etc/nsswitch.conf\ne105  t+0.37-0.37s  [L1]  read     /etc/nsswitch.conf  [x2]\ne106  t+0.37s       [L1]  open     /etc/passwd\ne107  t+0.37s       [L1]  read     /etc/passwd\ne108  t+0.37s       [L1]  open     ~/.npmrc\ne109  t+0.37-0.37s  [L1]  read     ~/.npmrc  [x2]\ne110  t+0.37s       [L1]  open     ~/.yarnrc\ne111  t+0.37s       [L1]  open     ~/.ssh/id_rsa\ne112  t+0.37-0.37s  [L1]  read     ~/.ssh/id_rsa  [x2]\ne113  t+0.37s       [L1]  open     ~/.ssh/id_ed25519\ne114  t+0.37s       [L1]  open     ~/.aws/credentials\ne115  t+0.37-0.37s  [L1]  read     ~/.aws/credentials  [x2]\ne116  t+0.37s       [L1]  open     ~/.aws/config\ne117  t+0.37s       [L1]  open     ~/.gitconfig\ne118  t+0.37s       [L1]  open     ~/.docker/config.json\ne119  t+0.37s       [L1]  open     ~/.kube/config\ne120  t+0.37s       [L1]  open     /dev/null\ne121  t+0.38s       [L1]  connect  socket\ne122  t+0.38s       [L1]  read     fd:16\ne123  t+0.38s       [L1]  write    socket\ne124  t+0.38s       [L1]  read     socket\ne125  t+0.39s       [L1]  open     /etc/resolv.conf\ne126  t+0.39s       [L1]  read     /etc/resolv.conf\ne127  t+0.39s       [L1]  open     /etc/nsswitch.conf\ne128  t+0.39s       [L1]  read     /etc/nsswitch.conf\ne129  t+0.39s       [L1]  open     /etc/netsvc.conf\ne130  t+0.39s       [L1]  open     /etc/svc.conf\ne131  t+0.40-0.40s  [L1]  clone      [x8]\ne132  t+0.40s       [L1]  send     /etc/nsswitch.conf\ne133  t+0.40s       [L1]  open     /etc/host.conf\ne134  t+0.40-0.40s  [L1]  read     /etc/host.conf  [x3]\ne135  t+0.40-0.40s  [L1]  connect  /etc/host.conf  [x2]\ne136  t+0.40s       [L1]  open     /etc/hosts\ne137  t+0.40-0.40s  [L1]  read     /etc/hosts  [x2]\ne138  t+0.40s       [L1]  open     /etc/gai.conf\ne139  t+0.40-0.40s  [L1]  read     /etc/gai.conf  [x2]\ne140  t+0.40s       [L1]  connect  /etc/gai.conf\ne141  t+0.40s       [L1]  write    fd:16\ne142  t+0.41s       [L1]  read     fd:16\ne143  t+0.41s       [L1]  connect  /etc/gai.conf\ne144  t+0.41s       [L1]  write    stdout\ne145  t+0.42s       [L1]  write    fd:12\ne146  t+0.42s       [L1]  read     fd:12\ne147  t+2.33s       [L2]  http     GET 169.254.169.254/latest/meta-data/\n\n## Task\nDid the suspected behavior happen? Cite exact timeline ids for malicious=true."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-569de344",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Venice",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\"citedEvents\":[\"e147\"],\"malicious\":true,\"reason\":\"The hypothesis predicts probing IMDS at 169.254.169.254/latest/meta-data/ and exfiltrating stolen data. Event e147 shows an HTTP GET to that exact endpoint, confirming the IMDS probe. Additionally, events e51–e59 read sensitive files (.npmrc, .ssh/id_rsa, .aws/credentials, etc.), and event e60 shows a POST to localhost/exfil, which matches the exfiltration step. The timeline thus shows credential theft and exfiltration as hypothesized.\"}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 3624,
+        "completion_tokens": 128,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "97539fc621ac",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:12:34.968Z",
+    "recordedLatencyMs": 9566
+  }
+}

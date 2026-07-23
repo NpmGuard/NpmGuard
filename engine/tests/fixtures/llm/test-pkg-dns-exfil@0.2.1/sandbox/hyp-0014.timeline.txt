@@ -1,0 +1,71 @@
+# Timeline — run_5e07d8f854d249268cf340b8dd · trigger=entrypoint:lib/loader.js
+# setup: env NPMGUARD_CANARY_TOKEN_f8e2d91a · planted /pkg/lib/stage2.enc, /pkg/lib/stage2.js
+
+── [L4] node calls — logical order, no clock ──
+e1    require  fs
+e2    require  http
+e3    require  https
+e4    require  child_process
+e5    require  crypto
+e6    require  inspector
+e7    require  module
+e8    script   require("/pkg/lib/loader.js")  [dynamically compiled · 29c]
+e9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]
+e10   script   require("/pkg/lib/loader.js")  [dynamically compiled · 29c]
+e11   require  /pkg/lib/loader.js
+e12   fs       /pkg/lib/loader.js (readFileSync)
+e13   require  crypto
+e14   require  fs
+e15   require  path
+e16   fs       /pkg/lib/stage2.enc (readFileSync)
+e17   crypto   createHash sha256
+e18   crypto   createDecipheriv aes-256-gcm
+
+── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──
+e19   t+0.20s       [L1]  exec     /usr/local/bin/node ["node", "--require", "/tmp/_instrument.js", "-e", "require(\\\"/pkg/lib/loader.js\\\")", "--", "/pkg/lib/loader.js"]
+e20   t+0.20s       [L1]  open     /etc/ld.so.cache
+e21   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2
+e22   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2
+e23   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6
+e24   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6
+e25   t+0.21s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6
+e26   t+0.21s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6
+e27   t+0.21s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e28   t+0.21s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e29   t+0.21s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0
+e30   t+0.21s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0
+e31   t+0.21s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6
+e32   t+0.21s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6
+e33   t+0.23s       [L1]  open     /etc/ssl/openssl.cnf
+e34   t+0.23-0.23s  [L1]  read     /etc/ssl/openssl.cnf  [x5]
+e35   t+0.23s       [L1]  open     /proc/version_signature
+e36   t+0.23s       [L1]  read     /proc/version_signature
+e37   t+0.23s       [L1]  write    fd:5
+e38   t+0.23-0.24s  [L1]  clone      [x10]
+e39   t+0.24s       [L1]  open     /proc/self/cgroup
+e40   t+0.24s       [L1]  read     /proc/self/cgroup
+e41   t+0.24s       [L1]  open     /sys/fs/cgroup//memory.max
+e42   t+0.24s       [L1]  read     /sys/fs/cgroup//memory.max
+e43   t+0.24s       [L1]  open     /sys/fs/cgroup//memory.high
+e44   t+0.24s       [L1]  read     /sys/fs/cgroup//memory.high
+e45   t+0.24s       [L1]  open     /proc/meminfo
+e46   t+0.24s       [L1]  read     /proc/meminfo
+e47   t+0.24s       [L1]  open     /proc/self/maps
+e48   t+0.24-0.24s  [L1]  read     /proc/self/maps  [x6]
+e49   t+0.25s       [L1]  open     /proc/self/maps
+e50   t+0.25s       [L1]  read     /proc/self/maps
+e51   t+0.28-0.28s  [L1]  clone      [x2]
+e52   t+0.28s       [L1]  open     /pkg/package.json
+e53   t+0.29s       [L1]  open     /tmp/_instrument.js
+e54   t+0.29-0.29s  [L1]  read     /tmp/_instrument.js  [x2]
+e55   t+0.30-0.30s  [L1]  clone      [x2]
+e56   t+0.30-0.31s  [L1]  write    fd:16  [x2]
+e57   t+0.36s       [L1]  open     /pkg/lib/loader.js
+e58   t+0.36-0.36s  [L1]  read     /pkg/lib/loader.js  [x2]
+e59   t+0.36s       [L1]  open     /pkg/lib/stage2.enc
+e60   t+0.36-0.36s  [L1]  read     /pkg/lib/stage2.enc  [x2]
+e61   t+0.36s       [L1]  open     /dev/null
+e62   t+0.37s       [L1]  write    stdout
+e63   t+0.37s       [L1]  read     fd:16
+e64   t+0.38s       [L1]  write    fd:12
+e65   t+0.38s       [L1]  read     fd:12

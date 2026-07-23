@@ -102,7 +102,7 @@ interface VersionInfo {
 
 async function fetchEngineVersion(api: string): Promise<VersionInfo> {
   // Best-effort — the engine doesn't yet expose a /version endpoint, so
-  // we fall back to the env var convention used in engine/src/config.ts.
+  // we fall back to the env var convention used by engine/npmguard/config.py.
   const fallback: VersionInfo = {
     modelId: process.env.NPMGUARD_TRIAGE_MODEL || "unknown",
     sandboxImageDigest: null,
