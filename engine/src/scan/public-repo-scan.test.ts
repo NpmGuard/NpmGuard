@@ -104,8 +104,8 @@ describe("public repository scan lifecycle", () => {
     expect(computePublicScanRollup(id)).toMatchObject({ verdict: "SAFE", safe: 1 });
     expect(getAccountEntitlements(42).publicRepoAudits).toMatchObject({
       used: 1,
-      limit: 2,
-      remaining: 1,
+      limit: 1,
+      remaining: 0,
     });
     expect(auditsUsedThisMonth(42)).toBe(0);
   });
@@ -142,7 +142,7 @@ describe("public repository scan lifecycle", () => {
     expect(db.prepare("SELECT COUNT(*) AS c FROM jobs").get()).toMatchObject({ c: 1 });
   });
 
-  it("allows re-audits and rejects the third distinct Free repository", () => {
+  it("allows re-audits and rejects a second distinct Free repository", () => {
     db.prepare(
       `INSERT INTO package_verdicts (name, version, verdict, audited_at)
        VALUES ('safe-pkg', '1.0.0', 'SAFE', '2026-01-01')`,
@@ -151,32 +151,24 @@ describe("public repository scan lifecycle", () => {
 
     createPublicRepoScan(scanInput(deps));
     createPublicRepoScan(scanInput(deps, { lockfileSha: "new-sha" }));
-    createPublicRepoScan(
-      scanInput(deps, {
-        githubRepoId: 456,
-        name: "second",
-        fullName: "public-org/second",
-        htmlUrl: "https://github.com/public-org/second",
-      }),
-    );
 
     expect(getAccountEntitlements(42).publicRepoAudits).toMatchObject({
-      used: 2,
-      limit: 2,
+      used: 1,
+      limit: 1,
       remaining: 0,
     });
     expect(() =>
       createPublicRepoScan(
         scanInput(deps, {
-          githubRepoId: 789,
-          name: "third",
-          fullName: "public-org/third",
-          htmlUrl: "https://github.com/public-org/third",
+          githubRepoId: 456,
+          name: "second",
+          fullName: "public-org/second",
+          htmlUrl: "https://github.com/public-org/second",
         }),
       ),
     ).toThrow(/Re-auditing an existing repository remains free/);
     expect(db.prepare("SELECT COUNT(*) AS c FROM public_repo_scans").get()).toMatchObject({
-      c: 3,
+      c: 2,
     });
   });
 });

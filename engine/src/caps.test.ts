@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { openDb as OpenDb, setDbForTesting as SetDb, DB } from "./db.js";
 
 process.env.NPMGUARD_FREE_MAX_PROTECTED_REPOS = "2";
-process.env.NPMGUARD_FREE_MAX_PUBLIC_REPO_AUDITS = "2";
+process.env.NPMGUARD_FREE_MAX_PUBLIC_REPO_AUDITS = "1";
 process.env.NPMGUARD_FREE_MAX_AUDITS_MONTH = "10";
 process.env.NPMGUARD_PRO_MAX_PROTECTED_REPOS = "5";
 process.env.NPMGUARD_PRO_MAX_PUBLIC_REPO_AUDITS = "0";
@@ -87,7 +87,7 @@ describe("Free entitlements", () => {
       plan: "free",
       subscriptionStatus: "inactive",
       protectedRepos: { used: 2, limit: 2, remaining: 0 },
-      publicRepoAudits: { used: 1, limit: 2, remaining: 1 },
+      publicRepoAudits: { used: 1, limit: 1, remaining: 0 },
       monthlyAudits: { used: 7, limit: 10, remaining: 3 },
     });
   });
@@ -98,12 +98,9 @@ describe("public repository audit allowance", () => {
     auditPublicRepo(1, 101);
     expect(caps.publicRepoAuditCount(1)).toBe(1);
     expect(() => caps.assertPublicRepoAuditCap(1, 101)).not.toThrow();
-    expect(() => caps.assertPublicRepoAuditCap(1, 102)).not.toThrow();
-
-    auditPublicRepo(1, 102);
-    expect(() => caps.assertPublicRepoAuditCap(1, 103)).toThrow(caps.CapExceededError);
+    expect(() => caps.assertPublicRepoAuditCap(1, 102)).toThrow(caps.CapExceededError);
     try {
-      caps.assertPublicRepoAuditCap(1, 103);
+      caps.assertPublicRepoAuditCap(1, 102);
     } catch (err) {
       expect(err).toMatchObject({
         cap: true,
