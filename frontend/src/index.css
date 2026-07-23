@@ -1286,8 +1286,8 @@ html.urushi .dashboard-button--primary {
   color: var(--safe);
 }
 
-/* Plan allowance is presented as an engineering ledger: two measured
-   resources, one account boundary, no vague "credits" abstraction. */
+/* Plan allowance is presented as an engineering ledger: one shared repository
+   boundary per account, without splitting Audit and Protect into fake buckets. */
 .plan-ledger {
   position: relative;
   display: grid;
@@ -1402,7 +1402,7 @@ html.urushi .dashboard-button--primary {
 .plan-account__meters {
   min-width: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 

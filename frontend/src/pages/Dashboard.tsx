@@ -288,7 +288,7 @@ function PlanLedger({
         <span className="dashboard-kicker" id="plan-ledger-title">
           Plan allowance
         </span>
-        <p>Re-auditing the same public repository never consumes another slot.</p>
+        <p>Audit and Protect share one allowance. The same repository only counts once.</p>
       </div>
       <div className="plan-ledger__accounts">
         {billing.accounts.map((account) => {
@@ -305,11 +305,7 @@ function PlanLedger({
                 </span>
               </div>
               <div className="plan-account__meters">
-                <AllowanceMeter label="Protected repositories" allowance={account.protectedRepos} />
-                <AllowanceMeter
-                  label="Public repository audits"
-                  allowance={account.publicRepoAudits}
-                />
+                <AllowanceMeter label="Repositories" allowance={account.repositories} />
               </div>
               <button
                 type="button"
@@ -749,13 +745,13 @@ function PublicAuditDialog({
             </select>
             {selected && (
               <small>
-                {selected.publicRepoAudits.remaining === null
-                  ? "Unlimited public repository audits."
-                  : selected.publicRepoAudits.remaining === 0
-                    ? "Free repository allowance used. Existing repositories can still be re-audited."
-                    : `${selected.publicRepoAudits.remaining.toLocaleString()} new public ${
-                        selected.publicRepoAudits.remaining === 1 ? "repository" : "repositories"
-                      } left. Re-audits are free.`}
+                {selected.repositories.remaining === null
+                  ? "Unlimited repositories."
+                  : selected.repositories.remaining === 0
+                    ? "Repository allowance used. Re-auditing or protecting the same repository remains free."
+                    : `${selected.repositories.remaining.toLocaleString()} new ${
+                        selected.repositories.remaining === 1 ? "repository" : "repositories"
+                      } left. Audit and Protect share this allowance.`}
               </small>
             )}
           </label>
@@ -799,24 +795,14 @@ function UpgradeDialog({
 }) {
   const pro = billing?.plans.pro;
   const price = formatPrice(billing);
-  const resourceCopy =
-    reason.resource === "protected_repos"
-      ? "Your protected repository allowance is full. Existing repositories stay protected."
-      : reason.resource === "public_repo_audits"
-        ? "Free includes one public repository. Re-auditing it remains free."
-        : "This protected repository needs more new package audits than remain in this month's allowance.";
-  const usageLabel =
-    reason.resource === "protected_repos"
-      ? "Protected repositories"
-      : reason.resource === "public_repo_audits"
-        ? "Public repository audits"
-        : "New package audits this month";
-  const usageAllowance =
-    reason.resource === "protected_repos"
-      ? reason.entitlements.protectedRepos
-      : reason.resource === "public_repo_audits"
-        ? reason.entitlements.publicRepoAudits
-        : reason.entitlements.monthlyAudits;
+  const repositoryCap = reason.resource === "repositories";
+  const resourceCopy = repositoryCap
+    ? "Free includes one repository total across Audit and Protect. Using the same repository again remains free."
+    : "This repository needs more new package audits than remain in this month's allowance.";
+  const usageLabel = repositoryCap ? "Repositories" : "New package audits this month";
+  const usageAllowance = repositoryCap
+    ? reason.entitlements.repositories
+    : reason.entitlements.monthlyAudits;
 
   return (
     <div className="paywall-backdrop" role="presentation" onMouseDown={onClose}>
@@ -837,8 +823,8 @@ function UpgradeDialog({
             <Icon name="lock" size={22} />
           </div>
           <h2 id="paywall-title">
-            {reason.resource === "public_repo_audits"
-              ? `Audit more repositories with ${reason.entitlements.accountLogin}`
+            {repositoryCap
+              ? `Add more repositories to ${reason.entitlements.accountLogin}`
               : `Keep ${reason.entitlements.accountLogin} under watch`}
           </h2>
           <p>{resourceCopy}</p>
@@ -853,9 +839,9 @@ function UpgradeDialog({
             {price && <strong>{price}</strong>}
           </div>
           <ul>
-            <li>{pro ? formatLimit(pro.protectedRepos, "protected repository", "protected repositories") : "More protected repositories"}</li>
-            <li>{pro ? formatLimit(pro.publicRepoAudits, "public repository audit", "public repository audits") : "More public repository audits"}</li>
-            <li>All dependencies included in each public repository audit</li>
+            <li>{pro ? formatLimit(pro.repositories, "repository", "repositories") : "More repositories"}</li>
+            <li>Use each slot for a public audit or continuous protection</li>
+            <li>All dependencies included in each repository audit</li>
             <li>Unlimited cached verdicts</li>
             <li>SUSPECT and UNKNOWN findings remain non-blocking</li>
           </ul>
