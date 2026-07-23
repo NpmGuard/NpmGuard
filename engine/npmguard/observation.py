@@ -185,7 +185,8 @@ async def run_under_observation(
 
     try:
         if observed.network:
-            await asyncio.sleep(0.3)
+            # start_pcap returns only once tcpdump has confirmed it is capturing
+            # (readiness barrier in sensors.py) — no warm-up sleep needed here.
             try:
                 await start_pcap(container)
             except Exception as exc:
