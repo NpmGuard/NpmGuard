@@ -130,7 +130,10 @@ async def test_s11_cold_connect_wire_format(engine_factory, mock_llm: MockLlmCli
     assert _ids(frames) == list(range(len(frames)))
 
     types = event_types(frames)
-    assert types[0] == "audit_started"
+    # Single-owner rework: audit_enqueued (emitted at submit) is now the head
+    # frame; audit_started follows when the worker begins execution.
+    assert types[0] == "audit_enqueued"
+    assert types[1] == "audit_started"
     assert types[-1] == "verdict_reached"
     # A single-terminal claim over the truncated collection would be a tautology
     # (collect_frames stops at the first terminal) — drain the FULL durable log.
@@ -194,7 +197,8 @@ async def test_s12_late_join_full_replay_plus_tail(engine_factory, mock_llm: Moc
     assert _ids(late_frames) == _ids(cold_frames)
     assert event_types(late_frames) == event_types(cold_frames)
     # Replay part: events emitted BEFORE the join; tail part: the terminal event.
-    assert event_types(late_frames)[0] == "audit_started"
+    # audit_enqueued (seq 0, emitted at submit) is the head of the full replay.
+    assert event_types(late_frames)[0] == "audit_enqueued"
     assert event_types(late_frames)[-1] == "verdict_reached"
 
 

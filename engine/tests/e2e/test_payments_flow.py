@@ -582,13 +582,16 @@ async def test_launch_path_parity(engine_factory, mock_llm):
     assert wait_report_file(persisted)["verdict"] == "SAFE"
 
 
-async def test_parallel_stream_launches_not_queue_serialized(engine_factory, mock_llm):
-    """S27 divergence pin: N free /audit/stream launches run in PARALLEL, bypassing the
-    single-worker queue that serializes /audit — only the session cap bounds them.
+async def test_parallel_stream_launches_run_concurrently(engine_factory, mock_llm):
+    """S27 (single-owner rework): N free /audit/stream launches run CONCURRENTLY through
+    the shared worker pool. There is no queue bypass anymore — all paths funnel through
+    the one owner queue; concurrency comes from the pool width (max_concurrent, default
+    NPMGUARD_MAX_RUNNING_SESSIONS=100), which comfortably admits two at once.
 
-    # UNENFORCED: pinned current behavior, intended-or-hole per scenario-adversarial §1.
     Proof by timing with a 2x margin: each intent call stalls PARALLEL_PIN_DELAY_MS in the
     mock, so two SERIALIZED audits would need >= 2 delays of wall time; parallel ≈ one.
+    (A max_concurrent=1 pool WOULD serialize them — that bound is exercised by
+    test_bounds_inputs S24/S25.)
     """
     mock_llm.load(
         scripted_roles={

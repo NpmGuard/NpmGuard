@@ -7,19 +7,20 @@
 #   C2 same class on postgres (true concurrent writers) — the only honest proof
 #      of the exactly-once claim under concurrency; gated on NPMGUARD_TEST_PG_DSN
 #   C3 losing claim leaves NO orphan session row (session+claim are one txn)
-#   C4 session state durable: finalize → status done + report readable
+#   C4 session state durable: rows born 'queued'; finalize → status done + report
 #   C5 claim durable across engine restart — a fresh store over the same DB
 #      returns the original audit id, created=False
-#   C6 claim_payment at the max_running boundary — PINNED, UNENFORCED: unlike
-#      create(), claim_payment inserts its running session with NO cap check,
-#      so PAID audits bypass the session cap entirely (api.py routes all paid
-#      launches through claim_payment). Intended-or-hole: a maintainer decision.
-#   C7 finalize guard — INVARIANT: finalize transitions exactly one row
-#      running->done|error; a re-finalize (the old silent done->error overwrite)
-#      and a finalize of a nonexistent audit_id both RAISE, and the terminal row
-#      is never overwritten.
+#   C6 (single-owner flip) the running-count session cap is GONE: create() and
+#      claim_payment() both insert a 'queued' row and consult no cap. Backpressure
+#      is the wait-queue bound (queued_count vs queue_size) via AuditService.
+#      reserve(), so create() no longer takes max_running. Also covers the new
+#      mark_running (queued->running, once) + reset_to_queued (error->queued) guards.
+#   C7 finalize guard — INVARIANT: finalize transitions exactly one NON-TERMINAL
+#      (queued|running) row -> done|error; it succeeds on a queued row (close/
+#      recovery), and a re-finalize or a finalize of a nonexistent audit_id RAISE,
+#      never overwriting a terminal row.
 #   C8 transaction() seam — a raise inside the block rolls back a joined
-#      finalize (row stays running); this is what makes the row transition and
+#      finalize (row stays 'queued'); this is what makes the row transition and
 #      the terminal-event append atomic in AuditService._finish.
 # Adversarial pass: 2026-07-23/W6 — C1 alone was vacuous for the concurrency
 # clause (sqlite serializes); C2/C3/C5 add the MVCC, atomicity, and restart axes.
@@ -122,9 +123,11 @@ async def test_losing_claim_leaves_no_orphan_session(db) -> None:
 
 
 async def test_session_state_is_durable(db) -> None:
-    """C4: finalize persists status=done and the report payload."""
+    """C4: a row is born 'queued'; finalize persists status=done and the report
+    payload (the guard accepts queued->done directly)."""
     store, _engine = db
     session = await store.create("left-pad", "1.3.0")
+    assert session.status == "queued"  # rows are born queued, not running
     await store.set_package_path(session.audit_id, "/tmp/package")
     await store.finalize(session.audit_id, {"verdict": "SAFE"})
     restored = await store.get(session.audit_id)
@@ -133,28 +136,36 @@ async def test_session_state_is_durable(db) -> None:
     assert restored.report == {"verdict": "SAFE"}
 
 
-async def test_finalize_requires_exactly_one_running_row(db) -> None:
-    """C7 — INVARIANT: finalize transitions exactly one row running->done|error.
-    A second finalize (the old silent done->error flip after a post-finalize
-    failure) raises and leaves the terminal row untouched; a finalize of a
-    nonexistent audit_id raises instead of updating zero rows."""
+async def test_finalize_requires_exactly_one_non_terminal_row(db) -> None:
+    """C7 — INVARIANT: finalize transitions exactly one non-terminal (queued|
+    running) row -> done|error. It succeeds on a queued row (the close/recovery
+    path); a second finalize (the old silent done->error flip) raises and leaves
+    the terminal row untouched; a finalize of a nonexistent audit_id raises."""
     store, _engine = db
+    # a freshly-created queued row finalizes straight to terminal (close path)
+    queued = await store.create("queued-pkg", "1.0.0")
+    assert queued.status == "queued"
+    await store.finalize(queued.audit_id, None, "shutting down")
+    assert (await store.get(queued.audit_id)).status == "error"
+
     session = await store.create("left-pad", "1.3.0")
+    await store.mark_running(session.audit_id)  # queued -> running
     await store.finalize(session.audit_id, {"verdict": "SAFE"})
-    with pytest.raises(AssertionError, match="matched 0 running rows"):
+    with pytest.raises(AssertionError, match="matched 0 non-terminal rows"):
         await store.finalize(session.audit_id, None, "late failure")
     restored = await store.get(session.audit_id)
     assert restored is not None
     assert restored.status == "done"  # the terminal row was never overwritten
     assert restored.error is None
-    with pytest.raises(AssertionError, match="matched 0 running rows"):
+    with pytest.raises(AssertionError, match="matched 0 non-terminal rows"):
         await store.finalize("no-such-audit", {"verdict": "SAFE"})
 
 
 async def test_transaction_rolls_back_composed_writes(db) -> None:
     """C8: an exception inside transaction() rolls back the joined finalize —
-    the row is still 'running'. AuditService._finish relies on this to keep the
-    running->terminal transition and the terminal-event append atomic."""
+    the row is still 'queued' (its pre-finalize state). AuditService._finish
+    relies on this to keep the non-terminal->terminal transition and the
+    terminal-event append atomic."""
     store, _engine = db
     session = await store.create("left-pad", "1.3.0")
     with pytest.raises(RuntimeError, match="append failed"):
@@ -163,32 +174,50 @@ async def test_transaction_rolls_back_composed_writes(db) -> None:
             raise RuntimeError("append failed")
     restored = await store.get(session.audit_id)
     assert restored is not None
-    assert restored.status == "running"  # nothing committed — recovery can repair
+    assert restored.status == "queued"  # nothing committed — recovery can repair
 
 
-async def test_claim_payment_bypasses_session_cap_pinned(tmp_path) -> None:
-    """C6 — PINNED, UNENFORCED: with max_running=1 already saturated by create(),
-    claim_payment still inserts a SECOND running session — paid audits are not
-    subject to the cap. If the cap is ever meant to gate paid launches too,
-    claim_payment must run the same running-count check and this pin flips to
-    expecting SessionLimitError."""
+async def test_create_and_claim_insert_queued_and_have_no_cap(tmp_path) -> None:
+    """C6 (flipped): the running-count session cap is gone. Both admission
+    inserts — free create() and paid claim_payment() — land a 'queued' row, and
+    neither consults any cap. Backpressure is now the wait-queue bound
+    (queued_count vs queue_size), enforced by AuditService.reserve(), not a DB
+    running-count gate — so create() no longer takes a max_running argument."""
     url = f"sqlite+aiosqlite:///{tmp_path / 'cap.sqlite3'}"
     engine = make_engine(url)
     async with engine.begin() as connection:
         await connection.run_sync(metadata.create_all)
-    store = AuditSessionStore(make_session_factory(engine), max_running=1)
+    store = AuditSessionStore(make_session_factory(engine))
     try:
-        await store.create("free-pkg", "1.0.0")  # saturates the cap
-        from npmguard.errors import SessionLimitError
-
-        with pytest.raises(SessionLimitError):
-            await store.create("free-pkg-2", "1.0.0")  # create() enforces it
+        free = await store.create("free-pkg", "1.0.0")
+        assert free.status == "queued"  # born queued
+        again = await store.create("free-pkg-2", "1.0.0")  # no cap: never refuses
+        assert again.status == "queued"
         paid, created = await store.claim_payment("stripe", "cs_cap", "paid-pkg", "1.0.0")
-        assert created is True  # pinned bypass: the claim path ignored the cap
-        assert paid.status == "running"
-        assert await _session_count(engine) == 2  # cap=1, yet two running rows
+        assert created is True
+        assert paid.status == "queued"  # paid claim also lands queued
+        assert await store.queued_count() == 3  # all three counted by the bound
+        assert await _session_count(engine) == 3
     finally:
         await engine.dispose()
+
+
+async def test_mark_running_and_reset_to_queued_guards(db) -> None:
+    """queued->running is won exactly once (a second mark_running returns False);
+    error->queued reset clears the terminal payload and is guarded to the error
+    state (asserts on a non-error row)."""
+    store, _engine = db
+    session = await store.create("guard-pkg", "1.0.0")
+    assert await store.mark_running(session.audit_id) is True
+    assert await store.mark_running(session.audit_id) is False  # already running
+    await store.finalize(session.audit_id, None, "boom")
+    assert (await store.get(session.audit_id)).status == "error"
+    await store.reset_to_queued(session.audit_id)
+    restored = await store.get(session.audit_id)
+    assert restored.status == "queued"
+    assert restored.error is None and restored.report is None
+    with pytest.raises(AssertionError):
+        await store.reset_to_queued(session.audit_id)  # not in error state now
 
 
 async def test_claim_is_visible_after_restart(tmp_path) -> None:

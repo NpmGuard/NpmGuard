@@ -399,7 +399,9 @@ async def test_concurrent_claims_exactly_once_and_no_orphan_sessions(tmp_path) -
             )
         assert len({session.audit_id for session, _ in claims}) == 1
         assert sum(created for _, created in claims) == 1
-        assert len(await store.running()) == 1  # no orphan sessions from losers
+        # a claimed row is born 'queued' (single-owner model); the positive probe
+        # is that exactly ONE live session row exists — no orphan from the losers.
+        assert await store.queued_count() == 1
     finally:
         await engine.dispose()
 
@@ -423,7 +425,7 @@ async def test_concurrent_claims_exactly_once_postgres() -> None:
             )
         assert len({session.audit_id for session, _ in claims}) == 1
         assert sum(created for _, created in claims) == 1
-        assert len(await store.running()) == 1
+        assert await store.queued_count() == 1
     finally:
         await engine.dispose()
         provisioner.stop()

@@ -177,9 +177,10 @@ async def test_s2_dangerous_confirmed_live_docker(
     resolved_states = {frame.data["state"] for frame in find_frames(frames, "hypothesis_resolved")}
     assert "CONFIRMED" in resolved_states
 
-    # Live run emits the same event vocabulary the recorded audit did.
+    # Live run emits the recorded vocabulary plus audit_enqueued — the single-owner
+    # queue adds that lifecycle frame at submit, and the recorded skeletons predate it.
     skeleton = json.loads((SSE_FIXTURES / f"{package}.skeleton.json").read_text(encoding="utf-8"))
-    assert set(event_types(frames)) == set(skeleton["eventTypes"])
+    assert set(event_types(frames)) - {"audit_enqueued"} == set(skeleton["eventTypes"])
 
     report = _wait_report_file(_report_path(engine, package, manifest["packageVersion"]))
     assert report["verdict"] == "DANGEROUS"

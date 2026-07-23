@@ -214,51 +214,19 @@ test encodes the wrong convention, change the convention's document first.
 - Real-scale load: bounds tested shrunken via `NPMGUARD_QUEUE_SIZE`/`…_MAX_RUNNING_SESSIONS`.
 - sqlite corruption / disk-full: tests the OS, not the engine.
 
-## FINDINGS (report-only; tracked here, not silently fixed)
+## FINDINGS
 
-- **Terminal event precedes durable persistence** (`service.py`): the pipeline
-  emits `verdict_reached` BEFORE `sessions.finalize()` and `save_report()`
-  (and `_fail_interrupted` emits its 0031 before finalizing), so a client that
-  saw the terminal SSE frame can observe a missing report file or a 202 from
-  `/audit/:id/report`. Observed as a real 1-in-2 e2e flake (S29). Test-side
-  containment: every post-terminal persistence probe polls bounded via
-  `tests/support/waits.py`. The invariant fix — persist before emitting the
-  terminal event, so "terminal frame ⇒ durably persisted" — is a maintainer
-  decision (design-by-invariants favors it).
-- **Paid audits bypass the session cap** (`persistence.py` `claim_payment`):
-  unlike `create()`, `claim_payment` inserts its running session with no
-  `max_running` check, and `api.py` routes ALL paid launches through it — the
-  cap only bounds free/CRE audits. Pinned: `test_persistence.py` C6.
-- **`enqueue` is check-then-act** (`service.py`): `queue.full()` → `await
-  sessions.create` → `await queue.put`; two concurrent enqueues at one free
-  slot both pass the check and the loser blocks unboundedly inside `put()`
-  with its session already created and counting toward the cap. Pinned:
-  `test_service_queue.py` C14.
-- **`close()` orphans the in-flight QUEUED item** (`service.py`): cancelling
-  the worker rips through `_execute`; the item's future never resolves and its
-  session stays `running` until the next `start()` recovery. Pinned:
-  `test_service_queue.py` C15.
-- **Unarmed hypothesis aborts the whole orchestrator run**
-  (`orchestrator.py`): the dispatch-time `AssertionError` is raised outside
-  the try, so one unarmed hypothesis prevents every sibling from being
-  dispatched — the only in-run bug that escapes the "one bug must not abort
-  siblings" except-clauses. Pinned: `test_orchestrator_success.py` C18.
-- **pcap start race** (`observation.py` sensor start): tcpdump is started
-  detached after container start with no capture-readiness barrier — the
-  earliest network events of an experiment can escape the pcap, i.e. a
-  fast-exfil package can be falsely REFUTED. Real correctness risk; fix is a
-  readiness probe, not a longer sleep.
-- **Unbounded shutdown await** (`api.py` lifespan → `audits.close()`): an
-  in-flight stalled audit makes SIGTERM hang past any grace. Pinned:
-  `test_lifecycle.py::test_shutdown_with_inflight_audit_is_not_graceful`,
-  `test_service_queue.py` C13.
-- **`/audit/stream` bypasses the CRE queue**: stream launches run parallel
-  while queued audits serialize — intended-or-UNENFORCED divergence. Pinned:
-  `test_service_queue.py` C4, `test_payments_flow.py::test_parallel_stream_launches_not_queue_serialized`.
+Open (report-only; tracked here, not silently fixed):
+
 - **CLI exit-0-on-CLOSED hazard** (`cli/` scope, out of engine): `es.onerror`
   resolves verdict UNKNOWN / exit 0 when EventSource reaches readyState CLOSED
   (e.g. a 404 events URL) — a missing audit session exits 0. Untested: no
   engine path produces the repro naturally.
+- **Docker leak on worker-cancel** (`service.py` → `observation.py`,
+  pre-existing, UNVERIFIED): when `close()` cancels a worker mid-`_execute`,
+  `CancelledError` propagates past `_execute`'s `except Exception`; whether an
+  in-flight sandbox container is torn down before the task dies is untraced.
+  Worth a dedicated check; unrelated to the lifecycle rework.
 - **Reports-vs-DB desync** (observed on the prod snapshot that seeded the
   fixture corpus): report files existed with no matching audit session, and
   11 deterministic child-success smoke runs left audit-log dirs with no
@@ -269,8 +237,54 @@ test encodes the wrong convention, change the convention's document first.
   unreachable — the slice pins this as a finding
   (`test_replay_slices.py::test_is_number_stale_artifacts_defer_under_current_rule`).
 
+Config note — **`NPMGUARD_MAX_RUNNING_SESSIONS` is now a hard concurrency cap.**
+Since the single-owner rework it sizes the worker pool: the maximum number of
+audits (hence Docker sandboxes) executing at once, not a soft session-row cap.
+The default (100) far exceeds what a small host can hold; set it to the number
+of concurrent full-oracle sandboxes the deployment's RAM allows.
+
 Fixed since first tracked (regression-enforced, no longer open):
 
+- **Launch-lifecycle cluster → single execution owner.** Paid audits bypassing
+  the session cap, `enqueue` check-then-act, `close()` orphaning the queued
+  item, the unbounded shutdown await, and `/audit/stream` bypassing the queue
+  were all instances of one root cause: five session-creation paths with no
+  execution owner, so `status='running'` promised nothing. Fixed by funnelling
+  every path through `AuditService.submit`/`admit`: `status` splits
+  `queued`/`running` (running ⟺ an owned worker will finalize it); a bounded
+  wait queue feeds a fixed `max_concurrent` worker pool; paid audits QUEUE and
+  are refused (503, before the payment is claimed) only when the queue is full;
+  `reserve`-then-create removes the check-then-act; `close(deadline)` resolves
+  every future and leaves no `running` row; restart re-enqueues durable
+  `queued` rows so a claimed paid audit is never dropped. The adversarial pass
+  additionally closed a graceful-shutdown drop (a clean restart used to error
+  queued paid audits while a crash resumed them) and a concurrent-retry
+  spurious 500. Enforced: `test_service_queue.py` (queued / admission /
+  idempotent-submit / recovery / bounded-close classes), `test_persistence.py`,
+  and e2e `test_lifecycle.py` (S31/S32), `test_bounds_inputs.py` (S24/S25),
+  `test_stream.py`, `test_payments_flow.py`.
+- **Terminal event precedes durable persistence** → fixed: `finalize` is a
+  guarded `running→terminal` transition committed in one transaction with the
+  terminal SSE event, after the report is saved — so a terminal frame implies a
+  durable report. Enforced: the `test_persistence.py` / `test_service_queue.py`
+  durability classes; the S29 flake is gone at the source (the `waits.py`
+  helpers are now instant).
+- **`resolve` mutated the committed fixture tree** → fixed: resolve returns a
+  private disposable workdir (fixtures copied into a tmpdir; escaping symlinks
+  rejected as for tarballs, closing a live-malware host-escape). Enforced:
+  `test_resolve.py`.
+- **`extract_intent` fabricated on terminal errors** → fixed: `BudgetExhausted`
+  and bugs propagate (a fallback intent is marked degraded); `run_hypothesize`
+  asserts every flag is armed rather than dropping Nones. Enforced:
+  `test_hypothesis_generation.py`.
+- **Unarmed hypothesis aborted the whole run** → fixed: enforced at graph
+  admission (`build_graph`), not dispatch, so one unarmed hypothesis no longer
+  strands its siblings. Enforced: `test_hypothesis_agent.py` / `test_graph.py`.
+- **pcap start race** → fixed: `start_pcap` waits for tcpdump's capture-ready
+  marker (raises `SensorError` → DEFER on failure, never a silent empty
+  capture), and the traced-syscall map is total (no fabricated `openat`).
+  Enforced: `test_sensors.py` + the dns-exfil live-docker e2e still captures the
+  DNS burst.
 - **Stripe 15.x verify crash**: stripe 15.x `StripeObject` is not a dict, so
   `metadata.get(...)` raised for every metadata-bearing session → all
   Stripe-success flows 402. Fixed: `payments.py` reads metadata via a
