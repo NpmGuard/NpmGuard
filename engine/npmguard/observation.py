@@ -40,6 +40,10 @@ from .sensors import (
 
 SANDBOX_WORKDIR = "/pkg"
 
+# `docker run` can fail transiently under concurrent-audit load; retry the
+# side-effect-free container start this many times before deferring the audit.
+_CONTAINER_START_ATTEMPTS = 3
+
 DEFAULT_OBSERVE = {
     "kernel": False,
     "network": False,
@@ -154,14 +158,29 @@ async def run_under_observation(
     timed_out = False
     stdout_hash = stderr_hash = fs_diff_hash = pcap_hash = strace_hash = None
 
-    try:
-        start = await docker_exec(spec_to_docker_args(spec, container), 30_000)
-    except FileNotFoundError as exc:
-        raise DockerUnavailableError() from exc
+    # Container start is a transient point under concurrent load — the docker
+    # daemon can briefly fail to allocate (daemon/resource contention). It is the
+    # first side-effect-free step, so retry it a few times with backoff before
+    # giving up (a fresh `docker run` almost always succeeds), clearing any
+    # half-created name between attempts. The docker stderr is preserved in
+    # RunUnderObservationError.detail so a genuine (non-transient) failure stays
+    # diagnosable rather than surfacing as an opaque "Worker error".
+    start = None
+    for attempt in range(_CONTAINER_START_ATTEMPTS):
+        try:
+            start = await docker_exec(spec_to_docker_args(spec, container), 30_000)
+        except FileNotFoundError as exc:
+            raise DockerUnavailableError() from exc
+        if start.exit_code == 0:
+            break
+        await docker_exec(["rm", "-f", container], 10_000)
+        if attempt < _CONTAINER_START_ATTEMPTS - 1:
+            await asyncio.sleep(0.5 * (attempt + 1))
     if start.exit_code:
         raise RunUnderObservationError(
             "failed to start sandbox container",
-            f"docker run exit={start.exit_code}: {start.stderr[:500]}",
+            f"docker run exit={start.exit_code} after {_CONTAINER_START_ATTEMPTS} attempts: "
+            f"{start.stderr[:500]}",
         )
 
     try:
