@@ -81,6 +81,12 @@ class HypothesisGraph:
 
     def add(self, hypothesis: Hypothesis) -> Hypothesis:
         parsed = Hypothesis.model_validate(hypothesis)
+        if parsed.state == "OPEN" and not parsed.experiment:
+            # INVARIANT: every OPEN node admitted to the graph carries a
+            # non-empty compiled experiment — the generators return an armed,
+            # dry-run-verified Hypothesis or raise, so dispatch can trust any
+            # node it picks without re-checking.
+            raise AssertionError(f"graph: unarmed hypothesis {parsed.hypId} admitted as OPEN")
         if parsed.hypId in self._nodes:
             raise HypothesisGraphError(f"duplicate hypId: {parsed.hypId}")
         if parsed.parentHypId is not None:

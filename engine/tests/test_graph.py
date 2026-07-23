@@ -8,13 +8,15 @@
 #   C4 near-duplicate hypotheses merge; snapshot save/load round-trips
 #   C5 the injected clock stamps created/updated/resolved times — time is a
 #      parameter, not ambient state
+#   C6 admission asserts armed: an OPEN node with an empty experiment never
+#      enters the graph (generators guarantee armed-or-raise; dispatch trusts it)
 # Adversarial pass: 2026-07-23/W6 — C5 added; previously nothing pinned the
 # already-injectable clock seam, letting a wall-clock regression in silently.
 from pathlib import Path
 
 import pytest
 
-from npmguard.contract.models import Claim, EvidenceRef, FocusRange, Hypothesis
+from npmguard.contract.models import Claim, EvidenceRef, FocusRange, Hypothesis, ToolCall
 from npmguard.graph import (
     HypothesisGraph,
     HypothesisGraphError,
@@ -30,7 +32,8 @@ def hypothesis(hypothesis_id: str = "hyp-1", **changes) -> Hypothesis:
         "claim": Claim(kind="env_exfil"),
         "focusFiles": ["index.js"],
         "focusLines": [FocusRange(file="index.js", range="4-8")],
-        "experiment": [],
+        # OPEN nodes must be armed (C6) — the fixture carries a real trigger.
+        "experiment": [ToolCall(tool="trigger", args={"kind": "entrypoint", "target": "index.js"})],
         "severity": "high",
         "parentHypId": None,
         "childHypIds": [],
@@ -102,6 +105,16 @@ def test_merge_and_persistence_round_trip(tmp_path: Path) -> None:
     graph.save_to(path)
     restored = HypothesisGraph.load_from(path)
     assert restored.serialize() == graph.serialize()
+
+
+def test_unarmed_open_hypothesis_is_refused_at_admission() -> None:
+    """C6: an OPEN node without a compiled experiment is a code bug upstream —
+    admission asserts the armed invariant instead of storing a node the
+    orchestrator could dispatch nothing for."""
+    graph = HypothesisGraph("audit-1")
+    with pytest.raises(AssertionError, match="unarmed hypothesis"):
+        graph.add(hypothesis(experiment=[]))
+    assert graph.size == 0
 
 
 def test_injected_clock_stamps_every_mutation() -> None:
