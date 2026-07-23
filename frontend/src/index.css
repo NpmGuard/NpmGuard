@@ -1127,23 +1127,28 @@ html.urushi .dashboard-button--primary {
   white-space: nowrap;
 }
 
-.public-audit-row__identity a {
+.public-audit-row__identity button {
   min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin: 2px 0 3px;
+  padding: 0;
+  border: 0;
   overflow: hidden;
+  background: transparent;
   color: var(--text);
   font-family: var(--font-heading);
   font-size: 0.85rem;
   font-weight: 750;
-  text-decoration: none;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.public-audit-row__identity a:hover {
+.public-audit-row__identity button:hover,
+.public-audit-row__identity button:focus-visible {
   color: var(--accent-light);
 }
 

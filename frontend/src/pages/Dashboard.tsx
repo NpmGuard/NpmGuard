@@ -383,10 +383,14 @@ function PublicAuditHistory({
             >
               <div className="public-audit-row__identity">
                 <span>{scan.owner}</span>
-                <a href={scan.htmlUrl} target="_blank" rel="noreferrer">
+                <button
+                  type="button"
+                  onClick={() => onOpen(scan.id)}
+                  aria-label={`Open audit progress for ${scan.fullName}`}
+                >
                   {scan.name}
                   <Icon name="arrow" size={14} />
-                </a>
+                </button>
                 <small>
                   {scan.lockfilePath} · {scan.defaultBranch}
                 </small>
@@ -440,7 +444,7 @@ function PublicAuditHistory({
                 onClick={() => onOpen(scan.id)}
                 aria-label={`Open audit report for ${scan.fullName}`}
               >
-                Report
+                {scan.status === "running" ? "View progress" : "Report"}
                 <Icon name="arrow" size={14} />
               </button>
 
@@ -467,13 +471,28 @@ function PublicAuditReportDialog({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchDetail(scanId).then((payload) => {
+    let refreshTimer: number | undefined;
+
+    const loadDetail = async () => {
+      const payload = await fetchDetail(scanId);
       if (cancelled) return;
       setDetail(payload);
       setFailed(!payload);
-    });
+
+      if (payload?.scan.status === "running") {
+        refreshTimer = window.setTimeout(() => {
+          void loadDetail();
+        }, 2_500);
+      }
+    };
+
+    void loadDetail();
+
     return () => {
       cancelled = true;
+      if (refreshTimer !== undefined) {
+        window.clearTimeout(refreshTimer);
+      }
     };
   }, [fetchDetail, scanId]);
 
