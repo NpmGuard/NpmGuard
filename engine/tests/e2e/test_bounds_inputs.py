@@ -1,10 +1,17 @@
 # CLASS MAP — bounds + error-y inputs (e2e: real engine, shrunken K5 knobs, registry stub)
-# Axes: bound kind (queue depth / running-session cap) × session state counted
+# Axes: bound kind (wait-queue depth / execution concurrency) × session state counted
 #       (executing / queued / done) × input shape (name / semver / body / package content)
-#   S24 queue full (NPMGUARD_QUEUE_SIZE=1) → 503 NPMGUARD-0040 retryable [C5-adjacent]
-#   S25a running-session cap (MAX_RUNNING=1) → 503 NPMGUARD-0050 retryable
-#   S25b done sessions do NOT count toward the cap
-#   S25c queued-but-unstarted sessions DO count (status=running rows from creation)
+# Single-owner rework (2026): the running-count session cap (NPMGUARD-0050) is retired.
+# Two independent bounds now — execution concurrency = max_concurrent
+# (NPMGUARD_MAX_RUNNING_SESSIONS) and the wait-queue depth = queue_size
+# (NPMGUARD_QUEUE_SIZE). Over-concurrency QUEUES; only a full wait queue refuses (0040).
+#   S24 queue full (QUEUE_SIZE=1, max_concurrent=1: one executing + one queued) → the next
+#       admission is 503 NPMGUARD-0040 retryable [C5-adjacent]
+#   S25a (flip) max_concurrent=1 + a busy worker → the second concurrent audit is ACCEPTED
+#       and QUEUES (200 + audit_enqueued), never refused (0050 is gone)
+#   S25b done sessions free their execution slot — the next audit runs
+#   S25c (flip) a queued-but-unstarted session counts toward the WAIT-QUEUE bound, so a full
+#       queue refuses the next admission with 0040 (not the retired 0050 cap)
 #   S28 two concurrent free audits of the same pkg@version both complete; a reader
 #       polling GET /package/:name/report never sees a torn/corrupt report (F2 atomic save)
 #   S29 scoped @org/pkg end-to-end PROBE: audit → nested report dir → /package route →
@@ -107,13 +114,15 @@ def _add_registry_package(
 
 
 async def test_queue_full_returns_retryable_503(engine_factory, mock_llm):
-    """S24: with NPMGUARD_QUEUE_SIZE=1, a third CRE audit (one executing, one queued) →
-    503 NPMGUARD-0040 retryable in the _audit_error shape."""
+    """S24: with max_concurrent=1 (one executing, not counted toward the queue) and
+    NPMGUARD_QUEUE_SIZE=1, a third CRE audit (one executing + one queued fills the
+    bound) → 503 NPMGUARD-0040 retryable in the _audit_error shape."""
     mock_llm.load(scripted_roles=_stalling_roles())
     engine = engine_factory(
         llm_url=mock_llm.v1_url,
         cre_api_key=CRE_KEY,
         queue_size=1,
+        max_running_sessions=1,  # one executes; further admissions must QUEUE
         llm_timeout_seconds=STALL_LLM_TIMEOUT_SECONDS,
     )
 
@@ -141,26 +150,30 @@ async def test_queue_full_returns_retryable_503(engine_factory, mock_llm):
     assert body["error"] == "Audit failed"
 
 
-async def test_session_cap_rejects_second_running_audit(engine_factory, mock_llm):
-    """S25a: MAX_RUNNING_SESSIONS=1 → a second concurrent audit is refused with
-    503 NPMGUARD-0050 retryable (kit error envelope — raised outside the route's catch)."""
+async def test_second_concurrent_audit_queues_not_refused(engine_factory, mock_llm):
+    """S25a (flip): MAX_RUNNING_SESSIONS bounds execution CONCURRENCY, not admission.
+    With max_concurrent=1 and a busy worker, a second concurrent audit is ACCEPTED
+    and QUEUES (200 + audit_enqueued on its channel) rather than being refused — the
+    running-count cap (NPMGUARD-0050) is retired in favor of the wait-queue bound."""
     mock_llm.load(scripted_roles=_stalling_roles())
     engine = engine_factory(
         llm_url=mock_llm.v1_url,
         max_running_sessions=1,
+        queue_size=5,  # room to queue — the concurrency bound must not refuse
         llm_timeout_seconds=STALL_LLM_TIMEOUT_SECONDS,
     )
     started = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION)
     await _first_frame_of_type(engine.base_url, started["auditId"], "audit_started")
 
-    refused = await _post(
+    second = await _post(
         f"{engine.base_url}/audit/stream",
         json={"packageName": ENV_EXFIL_PKG, "version": ENV_EXFIL_VERSION},
     )
-    assert refused.status_code == 503, refused.text
-    error = refused.json()["error"]
-    assert error["code"] == "NPMGUARD-0050"
-    assert error["retryable"] is True
+    assert second.status_code == 200, second.text  # queued behind the worker, not refused
+    audit_id = second.json()["auditId"]
+    # admitted-and-waiting is observable: audit_enqueued is durable on its channel
+    enqueued = await _first_frame_of_type(engine.base_url, audit_id, "audit_enqueued")
+    assert enqueued.type == "audit_enqueued"
 
 
 async def test_done_sessions_do_not_count_toward_cap(engine_factory, mock_llm):
@@ -181,15 +194,17 @@ async def test_done_sessions_do_not_count_toward_cap(engine_factory, mock_llm):
     assert terminal_frame(frames).data["verdict"] == "SAFE"
 
 
-async def test_queued_sessions_count_toward_cap(engine_factory, mock_llm):
-    """S25c: CRE-queued audits are status=running rows from creation, so a full cap of
-    executing+queued sessions refuses the next create with NPMGUARD-0050."""
+async def test_queued_sessions_count_toward_queue_bound(engine_factory, mock_llm):
+    """S25c (flip): a QUEUED-but-unstarted session counts toward the wait-queue bound
+    (queue_size), not the retired running-count cap. With max_concurrent=1 and
+    queue_size=1, one executing (not counted) + one queued fills the bound, so the
+    next admission is refused with NPMGUARD-0040 (queue full) — never the old 0050."""
     mock_llm.load(scripted_roles=_stalling_roles())
     engine = engine_factory(
         llm_url=mock_llm.v1_url,
         cre_api_key=CRE_KEY,
-        max_running_sessions=2,
-        queue_size=10,
+        max_running_sessions=1,
+        queue_size=1,
         llm_timeout_seconds=STALL_LLM_TIMEOUT_SECONDS,
     )
     first = await _post(
@@ -205,14 +220,15 @@ async def test_queued_sessions_count_toward_cap(engine_factory, mock_llm):
         json={"packageName": ENV_EXFIL_PKG, "version": ENV_EXFIL_VERSION},
         headers={"x-api-key": CRE_KEY},
     )
-    assert queued.status_code == 202  # queued, never started — but status=running
+    assert queued.status_code == 202  # admitted into the size-1 wait queue (queued_count=1)
 
     refused = await _post(
         f"{engine.base_url}/audit/stream",
         json={"packageName": ENV_EXFIL_PKG, "version": ENV_EXFIL_VERSION},
     )
     assert refused.status_code == 503, refused.text
-    assert refused.json()["error"]["code"] == "NPMGUARD-0050"
+    # free /audit/stream refusal goes through the route catch → the flat _audit_error shape
+    assert refused.json()["code"] == "NPMGUARD-0040"  # the queued session filled the bound
 
 
 # ---------------------------------------------------------------------------

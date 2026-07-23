@@ -1,13 +1,16 @@
 """Bounded waits for post-terminal persistence probes.
 
-The engine emits the terminal SSE event BEFORE it finalizes the session and
-saves the report file (service.py: pipeline.run() emits verdict_reached, then
-sessions.finalize(), then save_report(); _fail_interrupted emits before it
-finalizes too). A client that saw the terminal frame can therefore beat the
-durable write. Every probe of post-terminal STATE (report file on disk, the
-/audit/:id/report route leaving 202) must poll bounded — these helpers are the
-single place that encodes that rule. Observed for real: S29 flaked 1-in-2 on
-`persisted.is_file()` right after the terminal frame (A2 verify pass).
+The engine now writes the report file BEFORE the row turns terminal and commits
+the terminal SSE event in the SAME transaction as running->done (service.py
+_execute: save_report(), then _finish() = finalize + event append in one txn;
+_recover finalizes interrupted rows the same way). But the /audit/:id/report
+route reads a SEPARATE connection, so a client that saw the terminal frame over
+SSE can still observe a 202 (or a not-yet-visible file) for a beat before that
+committed write is visible to the reading connection. Every probe of
+post-terminal STATE (report file on disk, the /audit/:id/report route leaving
+202) must poll bounded — these helpers are the single place that encodes that
+rule. Observed for real: S29 flaked 1-in-2 on `persisted.is_file()` right after
+the terminal frame (A2 verify pass).
 """
 
 from __future__ import annotations
