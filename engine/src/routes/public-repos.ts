@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 
-import { CapExceededError } from "../caps.js";
+import { assertPublicRepoAuditCap, CapExceededError } from "../caps.js";
 import { getDb } from "../db.js";
 import { publicOctokit } from "../github/app.js";
 import { fetchPublicRepoInputs, PublicRepoFileTooLargeError } from "../github/content.js";
@@ -195,6 +195,7 @@ publicRepoRoutes.post("/panel/public-repos/scan", async (c) => {
     if (running) {
       return c.json({ error: "An audit is already running for this repository", scanId: running.id }, 409);
     }
+    assertPublicRepoAuditCap(installationId, repo.id);
 
     const inputs = await fetchPublicRepoInputs(
       octo,

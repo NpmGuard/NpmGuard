@@ -193,8 +193,10 @@ Settings are loaded from environment variables with the `NPMGUARD_` prefix (or a
 | `NPMGUARD_STRIPE_WEBHOOK_SECRET` | _(unset)_ | Stripe webhook signing secret |
 | `NPMGUARD_STRIPE_PRO_PRICE_ID` | _(unset)_ | Recurring Stripe Price used by the repository Pro checkout |
 | `NPMGUARD_FREE_MAX_PROTECTED_REPOS` | `3` | Protected repositories included with Free; `0` means unlimited |
+| `NPMGUARD_FREE_MAX_PUBLIC_REPO_AUDITS` | `2` | Distinct public GitHub repositories included with Free; re-auditing the same GitHub repository does not consume another slot |
 | `NPMGUARD_FREE_MAX_AUDITS_MONTH` | `250` | New uncached package-version audits included per month with Free |
 | `NPMGUARD_PRO_MAX_PROTECTED_REPOS` | `25` | Protected repositories included with Pro; `0` means unlimited |
+| `NPMGUARD_PRO_MAX_PUBLIC_REPO_AUDITS` | `0` | Distinct public GitHub repositories included with Pro; `0` means unlimited |
 | `NPMGUARD_PRO_MAX_AUDITS_MONTH` | `5000` | New uncached package-version audits included per month with Pro; `0` means unlimited |
 | `NPMGUARD_BASE_SEPOLIA_CONTRACT` | _(unset)_ | `NpmGuardAuditRequest` address on Base Sepolia |
 | `NPMGUARD_BASE_SEPOLIA_RPC_URL` | `https://sepolia.base.org` | RPC URL for Base Sepolia (Alchemy recommended) |

@@ -71,8 +71,10 @@ const ConfigSchema = z.object({
   scanConcurrency: z.coerce.number().int().min(1).max(16).default(4),
   watchIntervalMin: z.coerce.number().int().min(1).default(15),
   freeMaxProtectedRepos: z.coerce.number().int().min(0).default(3),
+  freeMaxPublicRepoAudits: z.coerce.number().int().min(0).default(2),
   freeMaxAuditsMonth: z.coerce.number().int().min(0).default(250),
   proMaxProtectedRepos: z.coerce.number().int().min(0).default(25),
+  proMaxPublicRepoAudits: z.coerce.number().int().min(0).default(0),
   proMaxAuditsMonth: z.coerce.number().int().min(0).default(5000),
 });
 
@@ -119,8 +121,10 @@ function loadConfig() {
     scanConcurrency: env.NPMGUARD_SCAN_CONCURRENCY,
     watchIntervalMin: env.NPMGUARD_WATCH_INTERVAL_MIN,
     freeMaxProtectedRepos: env.NPMGUARD_FREE_MAX_PROTECTED_REPOS,
+    freeMaxPublicRepoAudits: env.NPMGUARD_FREE_MAX_PUBLIC_REPO_AUDITS,
     freeMaxAuditsMonth: env.NPMGUARD_FREE_MAX_AUDITS_MONTH,
     proMaxProtectedRepos: env.NPMGUARD_PRO_MAX_PROTECTED_REPOS,
+    proMaxPublicRepoAudits: env.NPMGUARD_PRO_MAX_PUBLIC_REPO_AUDITS,
     proMaxAuditsMonth: env.NPMGUARD_PRO_MAX_AUDITS_MONTH,
   };
 

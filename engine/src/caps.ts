@@ -6,7 +6,7 @@ import { getDb } from "./db.js";
 // every member who can access it.
 
 export type AccountPlan = "free" | "pro";
-export type CapResource = "protected_repos" | "monthly_audits";
+export type CapResource = "protected_repos" | "public_repo_audits" | "monthly_audits";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 
@@ -16,11 +16,13 @@ export interface AccountEntitlements {
   plan: AccountPlan;
   subscriptionStatus: string;
   protectedRepos: { used: number; limit: number; remaining: number | null };
+  publicRepoAudits: { used: number; limit: number; remaining: number | null };
   monthlyAudits: { used: number; limit: number; remaining: number | null };
 }
 
 export interface PlanLimits {
   protectedRepos: number;
+  publicRepoAudits: number;
   monthlyAudits: number;
 }
 
@@ -68,10 +70,12 @@ function planLimits(plan: AccountPlan): PlanLimits {
   return plan === "pro"
     ? {
         protectedRepos: config.proMaxProtectedRepos,
+        publicRepoAudits: config.proMaxPublicRepoAudits,
         monthlyAudits: config.proMaxAuditsMonth,
       }
     : {
         protectedRepos: config.freeMaxProtectedRepos,
+        publicRepoAudits: config.freeMaxPublicRepoAudits,
         monthlyAudits: config.freeMaxAuditsMonth,
       };
 }
@@ -91,6 +95,15 @@ export function protectedRepoCount(installationId: number): number {
   return row.c;
 }
 
+export function publicRepoAuditCount(installationId: number): number {
+  const row = getDb()
+    .prepare(
+      "SELECT COUNT(DISTINCT github_repo_id) AS c FROM public_repo_scans WHERE installation_id = ?",
+    )
+    .get(installationId) as { c: number };
+  return row.c;
+}
+
 export function auditsUsedThisMonth(installationId: number): number {
   const row = getDb()
     .prepare("SELECT audits FROM account_usage WHERE installation_id = ? AND month = ?")
@@ -103,6 +116,7 @@ export function getAccountEntitlements(installationId: number): AccountEntitleme
   const { plan, subscriptionStatus } = accountPlan(installationId);
   const limits = planLimits(plan);
   const protectedRepos = protectedRepoCount(installationId);
+  const publicRepoAudits = publicRepoAuditCount(installationId);
   const monthlyAudits = auditsUsedThisMonth(installationId);
   return {
     installationId,
@@ -113,6 +127,11 @@ export function getAccountEntitlements(installationId: number): AccountEntitleme
       used: protectedRepos,
       limit: limits.protectedRepos,
       remaining: remaining(limits.protectedRepos, protectedRepos),
+    },
+    publicRepoAudits: {
+      used: publicRepoAudits,
+      limit: limits.publicRepoAudits,
+      remaining: remaining(limits.publicRepoAudits, publicRepoAudits),
     },
     monthlyAudits: {
       used: monthlyAudits,
@@ -130,6 +149,31 @@ export function assertProtectCap(installationId: number): void {
       `${entitlements.accountLogin} has used all ${limit} ${entitlements.plan.toUpperCase()} protected repositories`,
       installationId,
       "protected_repos",
+      entitlements,
+    );
+  }
+}
+
+export function assertPublicRepoAuditCap(
+  installationId: number,
+  githubRepoId: number,
+): void {
+  const alreadyAudited = !!getDb()
+    .prepare(
+      `SELECT 1 FROM public_repo_scans
+       WHERE installation_id = ? AND github_repo_id = ?
+       LIMIT 1`,
+    )
+    .get(installationId, githubRepoId);
+  if (alreadyAudited) return;
+
+  const entitlements = getAccountEntitlements(installationId);
+  const { used, limit } = entitlements.publicRepoAudits;
+  if (limit > 0 && used >= limit) {
+    throw new CapExceededError(
+      `${entitlements.accountLogin} has used all ${limit} ${entitlements.plan.toUpperCase()} public repository audits. Re-auditing an existing repository remains free.`,
+      installationId,
+      "public_repo_audits",
       entitlements,
     );
   }

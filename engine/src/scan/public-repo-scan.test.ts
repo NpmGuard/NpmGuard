@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { auditsUsedThisMonth, consumeAuditBudget, getAccountEntitlements } from "../caps.js";
+import { auditsUsedThisMonth, getAccountEntitlements } from "../caps.js";
 import { openDb, setDbForTesting, type DB } from "../db.js";
 import type { LockfileDep } from "../lockfile/index.js";
 import {
@@ -9,6 +9,7 @@ import {
   InvalidPublicRepoReferenceError,
   parsePublicRepoReference,
   refreshPublicScansTouching,
+  type CreatePublicRepoScanInput,
 } from "./public-repo-scan.js";
 
 let db: DB;
@@ -29,7 +30,10 @@ function dep(name: string, version: string): LockfileDep {
   return { name, version, direct: true, range: `^${version}` };
 }
 
-function scanInput(deps: LockfileDep[]) {
+function scanInput(
+  deps: LockfileDep[],
+  overrides: Partial<CreatePublicRepoScanInput> = {},
+): CreatePublicRepoScanInput {
   return {
     installationId: 42,
     requestedBy: 7,
@@ -44,6 +48,7 @@ function scanInput(deps: LockfileDep[]) {
     lockfileSha: "abc123",
     deps,
     accountLogin: "acme",
+    ...overrides,
   };
 }
 
@@ -82,7 +87,7 @@ describe("parsePublicRepoReference", () => {
 });
 
 describe("public repository scan lifecycle", () => {
-  it("finishes immediately from cache without consuming allowance", () => {
+  it("finishes immediately from cache and consumes one repository slot", () => {
     db.prepare(
       `INSERT INTO package_verdicts (name, version, verdict, audited_at)
        VALUES ('safe-pkg', '1.0.0', 'SAFE', '2026-01-01')`,
@@ -97,14 +102,19 @@ describe("public repository scan lifecycle", () => {
       failed: 0,
     });
     expect(computePublicScanRollup(id)).toMatchObject({ verdict: "SAFE", safe: 1 });
+    expect(getAccountEntitlements(42).publicRepoAudits).toMatchObject({
+      used: 1,
+      limit: 2,
+      remaining: 1,
+    });
     expect(auditsUsedThisMonth(42)).toBe(0);
   });
 
-  it("queues uncached work, charges once, and completes when the shared job settles", () => {
+  it("queues all uncached work without charging the package allowance", () => {
     const id = createPublicRepoScan(scanInput([dep("fresh-pkg", "2.0.0")]));
     expect(scanRow(id).status).toBe("running");
     expect(findRunningPublicScan(42, "PUBLIC-ORG/PUBLIC-REPO")).toEqual({ id });
-    expect(auditsUsedThisMonth(42)).toBe(1);
+    expect(auditsUsedThisMonth(42)).toBe(0);
     expect(db.prepare("SELECT scan_id, state FROM jobs").get()).toMatchObject({
       scan_id: null,
       state: "queued",
@@ -132,12 +142,41 @@ describe("public repository scan lifecycle", () => {
     expect(db.prepare("SELECT COUNT(*) AS c FROM jobs").get()).toMatchObject({ c: 1 });
   });
 
-  it("rejects over-budget work before creating a scan", () => {
-    const limit = getAccountEntitlements(42).monthlyAudits.limit;
-    consumeAuditBudget(42, limit);
-    expect(() => createPublicRepoScan(scanInput([dep("over-cap", "1.0.0")]))).toThrow(
-      /left this month/,
+  it("allows re-audits and rejects the third distinct Free repository", () => {
+    db.prepare(
+      `INSERT INTO package_verdicts (name, version, verdict, audited_at)
+       VALUES ('safe-pkg', '1.0.0', 'SAFE', '2026-01-01')`,
+    ).run();
+    const deps = [dep("safe-pkg", "1.0.0")];
+
+    createPublicRepoScan(scanInput(deps));
+    createPublicRepoScan(scanInput(deps, { lockfileSha: "new-sha" }));
+    createPublicRepoScan(
+      scanInput(deps, {
+        githubRepoId: 456,
+        name: "second",
+        fullName: "public-org/second",
+        htmlUrl: "https://github.com/public-org/second",
+      }),
     );
-    expect(db.prepare("SELECT COUNT(*) AS c FROM public_repo_scans").get()).toMatchObject({ c: 0 });
+
+    expect(getAccountEntitlements(42).publicRepoAudits).toMatchObject({
+      used: 2,
+      limit: 2,
+      remaining: 0,
+    });
+    expect(() =>
+      createPublicRepoScan(
+        scanInput(deps, {
+          githubRepoId: 789,
+          name: "third",
+          fullName: "public-org/third",
+          htmlUrl: "https://github.com/public-org/third",
+        }),
+      ),
+    ).toThrow(/Re-auditing an existing repository remains free/);
+    expect(db.prepare("SELECT COUNT(*) AS c FROM public_repo_scans").get()).toMatchObject({
+      c: 3,
+    });
   });
 });
