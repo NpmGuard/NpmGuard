@@ -16,6 +16,14 @@
 - JavaScript under `npmguard/assets/` is sandbox instrumentation for Node
   packages, not application backend code.
 
+## Testing
+
+See [TESTING.md](TESTING.md) for tiers, class maps, and the replay-fixture
+system. One rule to know: LLM fixtures replay real captured traffic,
+content-matched and pinned to prompt hashes — editing `prompts/` requires a
+re-record (the loader fails loud).
+Run `scripts/gate.sh` before pushing.
+
 ## Payment gate
 
 `POST /audit/stream` has exactly three entry paths:
