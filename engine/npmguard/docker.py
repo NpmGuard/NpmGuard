@@ -15,12 +15,18 @@ class ExecResult:
     timed_out: bool
 
 
-async def docker_exec(args: list[str], timeout_ms: int) -> ExecResult:
+async def docker_exec(args: list[str], timeout_ms: int, stdin: bytes | None = None) -> ExecResult:
     process = await asyncio.create_subprocess_exec(
-        "docker", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        "docker",
+        *args,
+        stdin=asyncio.subprocess.PIPE if stdin is not None else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout_ms / 1000)
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(input=stdin), timeout_ms / 1000
+        )
     except TimeoutError:
         process.kill()
         stdout, stderr = await process.communicate()

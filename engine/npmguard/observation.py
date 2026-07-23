@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import posixpath
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +38,8 @@ from .sensors import (
     wrap_with_strace,
 )
 
+SANDBOX_WORKDIR = "/pkg"
+
 DEFAULT_OBSERVE = {
     "kernel": False,
     "network": False,
@@ -56,11 +59,19 @@ class RunUnderObservationError(RuntimeError):
 def build_trigger_command(trigger: Trigger, l4: bool) -> list[str] | None:
     flags = ["--require", "/tmp/_instrument.js"] if l4 else []
     if trigger.kind == "entrypoint":
-        relative = trigger.target if trigger.target.startswith(".") else f"./{trigger.target}"
-        return ["node", *flags, "-e", f"require({json.dumps(relative)})"]
-    if trigger.kind == "subpath":
-        return ["node", *flags, "-e", f"require({json.dumps(trigger.target)})"]
-    return None
+        # Resolve like a shell against the sandbox workdir: an absolute path (e.g. a
+        # planted /pkg/driver.js) stays absolute; a relative path resolves against
+        # /pkg. require() the absolute result so there is no node_modules ambiguity.
+        spec = posixpath.normpath(posixpath.join(SANDBOX_WORKDIR, trigger.target))
+    elif trigger.kind == "subpath":
+        # A subpath export is a module specifier, not a filesystem path.
+        spec = trigger.target
+    else:
+        return None
+    # Mirror a normal `node <spec> <argv...>` invocation: argv[1] is the entry,
+    # argv[2:] the caller's args. `--` guards args that start with "-". stdin is
+    # piped separately at exec time (docker exec -i), not encoded in argv.
+    return ["node", *flags, "-e", f"require({json.dumps(spec)})", "--", spec, *(trigger.argv or [])]
 
 
 async def run_under_observation(
@@ -162,14 +173,14 @@ async def run_under_observation(
                     detail=f"trigger.kind='{compiled.trigger.kind}' has no run command",
                 )
             else:
-                result = await docker_exec(
-                    [
-                        "exec",
-                        container,
-                        *(wrap_with_strace(command) if observed.kernel else command),
-                    ],
-                    int(limits.wallMs),
+                wrapped = wrap_with_strace(command) if observed.kernel else command
+                stdin_bytes = (
+                    compiled.trigger.stdin.encode()
+                    if compiled.trigger.stdin is not None
+                    else None
                 )
+                exec_args = ["exec", *(["-i"] if stdin_bytes is not None else []), container, *wrapped]
+                result = await docker_exec(exec_args, int(limits.wallMs), stdin=stdin_bytes)
                 exit_code, timed_out = result.exit_code, result.timed_out
                 stdout_hash = sha256_hex(result.stdout) if result.stdout else None
                 stderr_hash = sha256_hex(result.stderr) if result.stderr else None
