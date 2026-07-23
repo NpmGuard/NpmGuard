@@ -73,7 +73,7 @@ async function resolveInstallTarget(
       if (Date.now() < deadline) await delay(3000);
     } while (Date.now() < deadline);
 
-    return { spec: fullSpec, detail: "npm registry (ENS/Pinata publication not available yet)" };
+    return { spec: fullSpec, detail: "" };
   }
 
   if (source === "npm") {
