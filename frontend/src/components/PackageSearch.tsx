@@ -5,6 +5,15 @@ interface PackageSummary {
   version: string;
   verdict: string;
   auditedAt: string;
+  certificate: {
+    status: "anchored" | "pending_anchor" | "not_available";
+    certificateHash: string | null;
+    anchor: {
+      chain: "base-sepolia" | "base";
+      batchId: string;
+      transactionHash: `0x${string}`;
+    } | null;
+  };
 }
 
 type VerdictFilter = "ALL" | "SAFE" | "SUSPECT" | "DANGEROUS" | "UNKNOWN";
@@ -58,6 +67,16 @@ function verdictColor(verdict: string) {
 
 function statLabel(count: number, singular: string, plural = `${singular}s`) {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+}
+
+function transactionUrl(pkg: PackageSummary): string | null {
+  const anchor = pkg.certificate?.anchor;
+  if (!anchor) return null;
+  const explorer =
+    anchor.chain === "base"
+      ? "https://basescan.org/tx/"
+      : "https://sepolia.basescan.org/tx/";
+  return `${explorer}${anchor.transactionHash}`;
 }
 
 export function PackageSearch() {
@@ -462,22 +481,34 @@ export function PackageSearch() {
                 <span>Version</span>
                 <span>Verdict</span>
                 <span>Audited</span>
+                <span>Proof</span>
               </div>
 
               {visiblePackages.map((pkg) => {
                 const colors = verdictColor(pkg.verdict);
+                const proofUrl = transactionUrl(pkg);
                 return (
-                  <button
+                  <div
                     key={`${pkg.packageName}@${pkg.version}`}
-                    type="button"
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open audit report for ${pkg.packageName}@${pkg.version}`}
                     onClick={() => navigate(`/package/${pkg.packageName}`)}
+                    onKeyDown={(event) => {
+                      if (
+                        event.currentTarget === event.target &&
+                        (event.key === "Enter" || event.key === " ")
+                      ) {
+                        event.preventDefault();
+                        navigate(`/package/${pkg.packageName}`);
+                      }
+                    }}
                     className="grid package-table-row"
                     style={{
                       gap: 16,
                       alignItems: "center",
                       width: "100%",
                       padding: "13px 16px",
-                      border: "none",
                       borderBottom: "1px solid var(--border)",
                       color: "var(--text)",
                       cursor: "pointer",
@@ -535,7 +566,35 @@ export function PackageSearch() {
                     >
                       {formatDate(pkg.auditedAt)}
                     </span>
-                  </button>
+                    <span className="package-table-proof">
+                      {proofUrl && pkg.certificate.anchor ? (
+                        <a
+                          className="package-proof-link"
+                          href={proofUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={pkg.certificate.certificateHash ?? undefined}
+                          aria-label={`Open Merkle proof batch ${pkg.certificate.anchor.batchId} for ${pkg.packageName} on Basescan`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          Batch #{pkg.certificate.anchor.batchId}
+                          <span aria-hidden="true">↗</span>
+                        </a>
+                      ) : pkg.certificate?.status === "pending_anchor" ? (
+                        <span
+                          className="package-proof-pending"
+                          title="The certificate will be anchored with its repository batch"
+                        >
+                          <span className="package-proof-dot" aria-hidden="true" />
+                          Anchoring
+                        </span>
+                      ) : (
+                        <span className="package-proof-missing" aria-label="No on-chain proof">
+                          —
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 );
               })}
               </div>

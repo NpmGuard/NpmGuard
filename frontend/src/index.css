@@ -283,7 +283,7 @@ button:focus:not(:focus-visible) {
 /* ── Packages monitor ── */
 .package-table-header,
 .package-table-row {
-  grid-template-columns: minmax(220px, 1.3fr) 120px 140px 150px;
+  grid-template-columns: minmax(220px, 1.3fr) 100px 120px 150px 130px;
 }
 .package-table-row {
   background: none;
@@ -291,6 +291,64 @@ button:focus:not(:focus-visible) {
 }
 .package-table-row:hover {
   background: var(--bg-tertiary);
+}
+.package-table-row:focus-visible {
+  outline: 2px solid var(--accent-light);
+  outline-offset: -2px;
+}
+
+.package-table-proof {
+  justify-self: start;
+}
+
+.package-proof-link,
+.package-proof-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.package-proof-link {
+  border: 1px solid color-mix(in srgb, var(--accent-light) 28%, var(--border));
+  background: var(--accent-bg);
+  color: var(--accent-light);
+  text-decoration: none;
+}
+
+.package-proof-link:hover {
+  border-color: color-mix(in srgb, var(--accent-light) 55%, var(--border));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.package-proof-link:focus-visible {
+  outline: 2px solid var(--accent-light);
+  outline-offset: 2px;
+}
+
+.package-proof-pending {
+  color: var(--text-muted);
+}
+
+.package-proof-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--investigating);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--investigating) 14%, transparent);
+}
+
+.package-proof-missing {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
 /* Stacked verdict proportion bar (Cloudflare-style severity strip) */
@@ -335,7 +393,14 @@ button:focus:not(:focus-visible) {
   }
 
   .package-table-audited {
-    grid-column: 1 / -1;
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .package-table-proof {
+    grid-column: 2;
+    grid-row: 3;
+    justify-self: end;
   }
 }
 
