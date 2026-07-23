@@ -4,7 +4,7 @@ import { streamSSE } from "hono/streaming";
 import type { Context } from "hono";
 import type { Octokit } from "@octokit/rest";
 
-import { assertProtectCap, CapExceededError } from "../caps.js";
+import { assertRepositoryCap, CapExceededError } from "../caps.js";
 import { GITHUB_APP_ENABLED } from "../config.js";
 import { getDb, nowIso } from "../db.js";
 import { appSlug, getUserAccessToken, userOctokit } from "../github/app.js";
@@ -407,7 +407,7 @@ panelRoutes.post("/panel/repo/:id/protect", async (c) => {
   const db = getDb();
   if (!repo.protected_at) {
     try {
-      assertProtectCap(repo.installation_id);
+      assertRepositoryCap(repo.installation_id, repo.id);
     } catch (err) {
       if (err instanceof CapExceededError) {
         return c.json({

@@ -70,11 +70,9 @@ const ConfigSchema = z.object({
   panelBaseUrl: z.string().url().default("http://localhost:3000"),
   scanConcurrency: z.coerce.number().int().min(1).max(16).default(4),
   watchIntervalMin: z.coerce.number().int().min(1).default(15),
-  freeMaxProtectedRepos: z.coerce.number().int().min(0).default(1),
-  freeMaxPublicRepoAudits: z.coerce.number().int().min(0).default(1),
+  freeMaxRepositories: z.coerce.number().int().min(0).default(1),
   freeMaxAuditsMonth: z.coerce.number().int().min(0).default(250),
-  proMaxProtectedRepos: z.coerce.number().int().min(0).default(25),
-  proMaxPublicRepoAudits: z.coerce.number().int().min(0).default(0),
+  proMaxRepositories: z.coerce.number().int().min(0).default(25),
   proMaxAuditsMonth: z.coerce.number().int().min(0).default(5000),
 });
 
@@ -120,11 +118,9 @@ function loadConfig() {
     panelBaseUrl: env.NPMGUARD_PANEL_BASE_URL,
     scanConcurrency: env.NPMGUARD_SCAN_CONCURRENCY,
     watchIntervalMin: env.NPMGUARD_WATCH_INTERVAL_MIN,
-    freeMaxProtectedRepos: env.NPMGUARD_FREE_MAX_PROTECTED_REPOS,
-    freeMaxPublicRepoAudits: env.NPMGUARD_FREE_MAX_PUBLIC_REPO_AUDITS,
+    freeMaxRepositories: env.NPMGUARD_FREE_MAX_REPOSITORIES,
     freeMaxAuditsMonth: env.NPMGUARD_FREE_MAX_AUDITS_MONTH,
-    proMaxProtectedRepos: env.NPMGUARD_PRO_MAX_PROTECTED_REPOS,
-    proMaxPublicRepoAudits: env.NPMGUARD_PRO_MAX_PUBLIC_REPO_AUDITS,
+    proMaxRepositories: env.NPMGUARD_PRO_MAX_REPOSITORIES,
     proMaxAuditsMonth: env.NPMGUARD_PRO_MAX_AUDITS_MONTH,
   };
 
