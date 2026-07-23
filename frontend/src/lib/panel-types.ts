@@ -28,11 +28,13 @@ export interface BillingAccount {
   plan: "free" | "pro";
   subscriptionStatus: string;
   protectedRepos: UsageAllowance;
+  publicRepoAudits: UsageAllowance;
   monthlyAudits: UsageAllowance;
 }
 
 export interface PlanLimits {
   protectedRepos: number;
+  publicRepoAudits: number;
   monthlyAudits: number;
 }
 
@@ -51,7 +53,7 @@ export interface BillingPayload {
 
 export interface PaywallReason {
   message: string;
-  resource: "protected_repos" | "monthly_audits";
+  resource: "protected_repos" | "public_repo_audits" | "monthly_audits";
   installationId: number;
   entitlements: BillingAccount;
 }

@@ -288,7 +288,7 @@ function PlanLedger({
         <span className="dashboard-kicker" id="plan-ledger-title">
           Plan allowance
         </span>
-        <p>Cached package verdicts never use your monthly allowance.</p>
+        <p>Re-auditing the same public repository never consumes another slot.</p>
       </div>
       <div className="plan-ledger__accounts">
         {billing.accounts.map((account) => {
@@ -306,7 +306,10 @@ function PlanLedger({
               </div>
               <div className="plan-account__meters">
                 <AllowanceMeter label="Protected repositories" allowance={account.protectedRepos} />
-                <AllowanceMeter label="New package audits this month" allowance={account.monthlyAudits} />
+                <AllowanceMeter
+                  label="Public repository audits"
+                  allowance={account.publicRepoAudits}
+                />
               </div>
               <button
                 type="button"
@@ -686,7 +689,7 @@ function PublicAuditDialog({
           </label>
 
           <label>
-            <span>Use audit allowance from</span>
+            <span>Use repository allowance from</span>
             <select
               value={installationId}
               onChange={(event) => setInstallationId(Number(event.target.value))}
@@ -699,10 +702,13 @@ function PublicAuditDialog({
             </select>
             {selected && (
               <small>
-                {selected.monthlyAudits.remaining === null
-                  ? "Unlimited new package audits"
-                  : `${selected.monthlyAudits.remaining.toLocaleString()} new package audits left this month`}
-                . Cached verdicts do not count.
+                {selected.publicRepoAudits.remaining === null
+                  ? "Unlimited public repository audits."
+                  : selected.publicRepoAudits.remaining === 0
+                    ? "Free repository allowance used. Existing repositories can still be re-audited."
+                    : `${selected.publicRepoAudits.remaining.toLocaleString()} new public ${
+                        selected.publicRepoAudits.remaining === 1 ? "repository" : "repositories"
+                      } left. Re-audits are free.`}
               </small>
             )}
           </label>
@@ -749,7 +755,21 @@ function UpgradeDialog({
   const resourceCopy =
     reason.resource === "protected_repos"
       ? "Your protected repository allowance is full. Existing repositories stay protected."
-      : "This scan needs more new package audits than remain in this month's allowance.";
+      : reason.resource === "public_repo_audits"
+        ? "Free includes two distinct public repositories. Re-auditing one you already scanned remains free."
+        : "This protected repository needs more new package audits than remain in this month's allowance.";
+  const usageLabel =
+    reason.resource === "protected_repos"
+      ? "Protected repositories"
+      : reason.resource === "public_repo_audits"
+        ? "Public repository audits"
+        : "New package audits this month";
+  const usageAllowance =
+    reason.resource === "protected_repos"
+      ? reason.entitlements.protectedRepos
+      : reason.resource === "public_repo_audits"
+        ? reason.entitlements.publicRepoAudits
+        : reason.entitlements.monthlyAudits;
 
   return (
     <div className="paywall-backdrop" role="presentation" onMouseDown={onClose}>
@@ -769,21 +789,14 @@ function UpgradeDialog({
           <div className="paywall-dialog__lock">
             <Icon name="lock" size={22} />
           </div>
-          <h2 id="paywall-title">Keep {reason.entitlements.accountLogin} under watch</h2>
+          <h2 id="paywall-title">
+            {reason.resource === "public_repo_audits"
+              ? `Audit more repositories with ${reason.entitlements.accountLogin}`
+              : `Keep ${reason.entitlements.accountLogin} under watch`}
+          </h2>
           <p>{resourceCopy}</p>
           <div className="paywall-dialog__usage">
-            <AllowanceMeter
-              label={
-                reason.resource === "protected_repos"
-                  ? "Protected repositories"
-                  : "New package audits this month"
-              }
-              allowance={
-                reason.resource === "protected_repos"
-                  ? reason.entitlements.protectedRepos
-                  : reason.entitlements.monthlyAudits
-              }
-            />
+            <AllowanceMeter label={usageLabel} allowance={usageAllowance} />
           </div>
         </div>
 
@@ -794,7 +807,8 @@ function UpgradeDialog({
           </div>
           <ul>
             <li>{pro ? formatLimit(pro.protectedRepos, "protected repository", "protected repositories") : "More protected repositories"}</li>
-            <li>{pro ? `${formatLimit(pro.monthlyAudits, "new package audit", "new package audits")} each month` : "A larger monthly audit allowance"}</li>
+            <li>{pro ? formatLimit(pro.publicRepoAudits, "public repository audit", "public repository audits") : "More public repository audits"}</li>
+            <li>All dependencies included in each public repository audit</li>
             <li>Unlimited cached verdicts</li>
             <li>SUSPECT and UNKNOWN findings remain non-blocking</li>
           </ul>
@@ -1109,7 +1123,7 @@ export function Dashboard() {
               </strong>
               <p>
                 {billing?.accounts.some((account) => account.plan === "pro")
-                  ? "Repository and package-audit allowances have been updated."
+                  ? "Your repository allowances have been updated."
                   : "Stripe confirmed the checkout. This page will update when the signed webhook arrives."}
               </p>
             </div>
