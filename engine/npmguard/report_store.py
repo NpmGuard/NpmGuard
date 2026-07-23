@@ -1,11 +1,12 @@
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .config import REPO_ROOT
 
-DATA_DIR = (REPO_ROOT / "data" / "reports").resolve()
+DATA_DIR = (Path(os.environ.get("NPMGUARD_DATA_DIR") or REPO_ROOT / "data") / "reports").resolve()
 
 
 def _under_data_dir(target: Path) -> Path:
@@ -43,12 +44,18 @@ def extract_report_version(report: Any) -> str | None:
 
 def save_report(package_name: str, requested_version: str, report: Any) -> str:
     value = _as_dict(report)
-    real_version = extract_report_version(value) or requested_version or "latest"
+    real_version = extract_report_version(value) or requested_version
+    if not real_version or real_version == "latest":
+        raise ValueError(
+            f"Cannot save report for {package_name}: no concrete version in report or request"
+            " — a latest.json alias must never be persisted"
+        )
     directory = _report_dir(package_name)
     directory.mkdir(parents=True, exist_ok=True)
-    _report_path(package_name, real_version).write_text(
-        json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    path = _report_path(package_name, real_version)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
     if requested_version and requested_version not in (real_version, "latest"):
         _report_path(package_name, requested_version).unlink(missing_ok=True)
     return real_version
@@ -58,10 +65,14 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
     directory = _report_dir(package_name)
     if not directory.exists():
         return None
+    if version == "latest":  # valid request input; never a stored filename
+        version = None
     if version:
         exact = _report_path(package_name, version)
-        if exact.exists():
+        try:
             return json.loads(exact.read_text(encoding="utf-8")), version
+        except (OSError, json.JSONDecodeError):
+            pass  # missing or corrupt: the exact hit is only a fast path — scan instead
         for file in directory.glob("*.json"):
             try:
                 report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
@@ -71,11 +82,13 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
                 return report, version
         return None
     files = sorted(directory.glob("*.json"), key=lambda file: file.stat().st_mtime, reverse=True)
-    if not files:
-        return None
-    latest = files[0]
-    report = json.loads(_under_data_dir(latest).read_text(encoding="utf-8"))
-    return report, extract_report_version(report) or latest.stem
+    for file in files:
+        try:
+            report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        return report, extract_report_version(report) or file.stem
+    return None
 
 
 def _public(package_name: str) -> bool:

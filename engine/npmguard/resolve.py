@@ -1,3 +1,4 @@
+import os
 import shutil
 import tarfile
 import tempfile
@@ -9,7 +10,7 @@ import httpx
 from .config import REPO_ROOT
 from .errors import PackageNotFoundError
 
-NPM_REGISTRY = "https://registry.npmjs.org"
+NPM_REGISTRY = os.environ.get("NPMGUARD_NPM_REGISTRY") or "https://registry.npmjs.org"
 
 
 @dataclass(frozen=True)

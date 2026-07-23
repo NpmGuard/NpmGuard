@@ -513,6 +513,10 @@ async def benchmark_results() -> dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    if settings.mock_llm and settings.env == "prod":
+        raise RuntimeError(
+            "Refusing to start: NPMGUARD_MOCK_LLM=true is forbidden when NPMGUARD_ENV=prod"
+        )
     setup_logging(settings.log_level)
     if settings.database_url.startswith("sqlite"):
         Path(settings.database_url.rsplit("///", 1)[-1]).parent.mkdir(parents=True, exist_ok=True)
@@ -524,10 +528,10 @@ async def lifespan(app: FastAPI):
     notifier = make_notifier(settings.database_url)
     await notifier.start()
     stream = StreamService(sessions_factory, notifier)
-    sessions = AuditSessionStore(sessions_factory)
+    sessions = AuditSessionStore(sessions_factory, max_running=settings.max_running_sessions)
     llm = build_npmguard_llm(sessions_factory, settings)
     pipeline = AuditPipeline(settings, llm, sessions)
-    audits = AuditService(pipeline, sessions, stream)
+    audits = AuditService(pipeline, sessions, stream, queue_size=settings.queue_size)
     await audits.start()
     app.state.runtime = Runtime(
         settings, engine, sessions, stream, llm, audits, DemoService(sessions, stream)
