@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { CertificateVerifyDialog } from "./CertificateVerifyDialog";
 
 interface PackageSummary {
   packageName: string;
@@ -69,16 +70,6 @@ function statLabel(count: number, singular: string, plural = `${singular}s`) {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 }
 
-function transactionUrl(pkg: PackageSummary): string | null {
-  const anchor = pkg.certificate?.anchor;
-  if (!anchor) return null;
-  const explorer =
-    anchor.chain === "base"
-      ? "https://basescan.org/tx/"
-      : "https://sepolia.basescan.org/tx/";
-  return `${explorer}${anchor.transactionHash}`;
-}
-
 export function PackageSearch() {
   const [packages, setPackages] = useState<PackageSummary[]>([]);
   const [search, setSearch] = useState("");
@@ -87,6 +78,10 @@ export function PackageSearch() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [verifyTarget, setVerifyTarget] = useState<{
+    packageName: string;
+    version: string;
+  } | null>(null);
 
   useEffect(() => {
     fetch("/api/packages")
@@ -486,7 +481,6 @@ export function PackageSearch() {
 
               {visiblePackages.map((pkg) => {
                 const colors = verdictColor(pkg.verdict);
-                const proofUrl = transactionUrl(pkg);
                 return (
                   <div
                     key={`${pkg.packageName}@${pkg.version}`}
@@ -567,19 +561,23 @@ export function PackageSearch() {
                       {formatDate(pkg.auditedAt)}
                     </span>
                     <span className="package-table-proof">
-                      {proofUrl && pkg.certificate.anchor ? (
-                        <a
+                      {pkg.certificate.anchor ? (
+                        <button
+                          type="button"
                           className="package-proof-link"
-                          href={proofUrl}
-                          target="_blank"
-                          rel="noreferrer"
                           title={pkg.certificate.certificateHash ?? undefined}
-                          aria-label={`Open Merkle proof batch ${pkg.certificate.anchor.batchId} for ${pkg.packageName} on Basescan`}
-                          onClick={(event) => event.stopPropagation()}
+                          aria-label={`Verify Merkle proof batch ${pkg.certificate.anchor.batchId} for ${pkg.packageName}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setVerifyTarget({
+                              packageName: pkg.packageName,
+                              version: pkg.version,
+                            });
+                          }}
                         >
-                          Batch #{pkg.certificate.anchor.batchId}
-                          <span aria-hidden="true">↗</span>
-                        </a>
+                          Verify #{pkg.certificate.anchor.batchId}
+                          <span aria-hidden="true">→</span>
+                        </button>
                       ) : pkg.certificate?.status === "pending_anchor" ? (
                         <span
                           className="package-proof-pending"
@@ -673,6 +671,13 @@ export function PackageSearch() {
           )}
         </div>
       </section>
+      {verifyTarget && (
+        <CertificateVerifyDialog
+          packageName={verifyTarget.packageName}
+          version={verifyTarget.version}
+          onClose={() => setVerifyTarget(null)}
+        />
+      )}
     </div>
   );
 }
