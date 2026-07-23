@@ -251,11 +251,15 @@ async def run_orchestrator(
                     summary.refuted += 1
         except Exception as exc:
             if graph.get(hypothesis.hypId).state == "IN_PROGRESS":
+                # Surface .detail (e.g. RunUnderObservationError carries the docker
+                # stderr) so a deferred worker error names its actual cause instead
+                # of an opaque one-liner.
+                detail = getattr(exc, "detail", None)
                 graph.transition(
                     hypothesis.hypId,
                     "DEFERRED",
                     by="worker:experimenter",
-                    reason=f"Worker error: {exc}",
+                    reason=f"Worker error: {exc}" + (f" — {detail}" if detail else ""),
                 )
                 summary.deferred += 1
         await _emit_resolved(emitter, graph.get(hypothesis.hypId))
