@@ -1,7 +1,9 @@
-# CLASS MAP — sensor parsers (pure parsing halves of the L1/L2/L3 sensors;
-# container ops — snapshot/pcap docker execs — are e2e/docker-tier, not here)
+# CLASS MAP — sensor parsers + pcap lifecycle barriers (pure parsing halves of
+# the L1/L2/L3 sensors; snapshot docker execs are e2e/docker-tier, pcap barrier
+# logic is unit-tested here against a stubbed docker_exec and live at e2e tier)
 # Axes: strace line format variants, syscall normalization, snapshot line shape,
-#       fs-diff event polarity, tshark packet layer mix + malformed input
+#       fs-diff event polarity, tshark packet layer mix + malformed input,
+#       pcap readiness/flush marker outcomes
 #   C1 strace wrapper preserves the command; pid/no-pid line variants parse;
 #      unfinished lines are dropped, not misparsed
 #   C2 strace log normalizes security-relevant fields (paths, addr:port, argv)
@@ -12,11 +14,29 @@
 #   C5 parse_tshark_json buckets dns/http/tls packets with relative-time
 #      nanosecond timestamps; dns wins when layers coexist in one packet
 #   C6 parse_tshark_json malformed input → [] (garbage, non-list, bad timestamp)
+#   C7 SYSCALL_KIND is total over TRACED_SYSCALLS — recvfrom/accept/accept4
+#      collapse to honest socket families (read/connect, exact syscall in raw);
+#      an unmapped syscall raises, never fabricates 'openat'
+#   C8 start_pcap readiness barrier — returns only on tcpdump's 'listening on'
+#      marker; early death and deadline expiry raise (→ SensorError → DEFER),
+#      never a silent dead capture
+#   C9 stop_pcap — a capture that died mid-run raises; collection waits for
+#      tcpdump's flush-and-exit; tshark failure raises instead of degrading to
+#      zero network events
 # Adversarial pass: 2026-07-23/W6 — added the pure parse_snapshot and
 # parse_tshark_json partitions (previously untested).
+# Invariant pass: 2026-07-23 sensor-fidelity — C7-C9 flip the pinned
+# evidence-loss behaviors (sleep-armed pcap, fabricated 'openat' default) into
+# asserted invariants.
 import json
 
+import pytest
+
+from npmguard import sensors
+from npmguard.docker import ExecResult
 from npmguard.sensors import (
+    SYSCALL_KIND,
+    TRACED_SYSCALLS,
     diff_snapshots,
     parse_snapshot,
     parse_strace_line,
@@ -24,6 +44,10 @@ from npmguard.sensors import (
     parse_tshark_json,
     wrap_with_strace,
 )
+
+
+def _ok(stdout: str = "") -> ExecResult:
+    return ExecResult(stdout, "", 0, False)
 
 
 def test_strace_wrapper_and_variants() -> None:
@@ -139,3 +163,153 @@ def test_parse_tshark_json_malformed_input_yields_no_events() -> None:
     )
     assert [event.kind for event in events] == ["dns_query"]
     assert events[0].timestamp == 0
+
+
+def test_syscall_kind_is_total_and_inbound_network_maps_to_honest_kinds() -> None:
+    """C7: every traced syscall has an explicit kind; recvfrom/accept/accept4
+    collapse into their honest socket families (read / connect) with real
+    normalized fields — never fabricated 'openat' opens with empty paths."""
+    assert set(SYSCALL_KIND) == set(TRACED_SYSCALLS)
+    log = (
+        '1700000001.000000 recvfrom(5, "beacon", 6, 0, NULL, NULL) = 6\n'
+        '1700000002.000000 accept4(3, {sin_port=htons(4444), sin_addr="9.9.9.9"},'
+        " [16], SOCK_CLOEXEC) = 7\n"
+        "1700000003.000000 accept(3, NULL, NULL) = 8\n"
+    )
+    events = parse_strace_log(log, 1_700_000_000)
+    assert [event.kind for event in events] == ["read", "connect", "connect"]
+    assert events[0].normalized == {"ret": "6", "fd": 5}
+    assert events[1].normalized == {"ret": "7", "addr": "9.9.9.9", "port": 4444}
+    assert all(event.raw.startswith(("recvfrom(", "accept")) for event in events)
+
+
+def test_unmapped_traced_syscall_fails_loud_never_fabricates() -> None:
+    """C7: a syscall outside SYSCALL_KIND is a programming error — parse raises
+    instead of showing the judge a fabricated kind."""
+    with pytest.raises(AssertionError, match="no evidence kind"):
+        parse_strace_log("1700000001.000000 madvise(0x7f0000, 4096, 4) = 0\n", 1_700_000_000)
+
+
+async def test_start_pcap_returns_only_when_tcpdump_confirms_capture(monkeypatch) -> None:
+    """C8: the launch exec returning proves nothing — start_pcap polls for the
+    'listening on' marker and returns only once it appears."""
+    probes = 0
+
+    async def fake(args, timeout_ms, stdin=None):
+        nonlocal probes
+        if "-d" in args:
+            return _ok()
+        probes += 1
+        return _ok("READY\n" if probes >= 3 else "")
+
+    monkeypatch.setattr(sensors, "docker_exec", fake)
+    await sensors.start_pcap("c1")
+    assert probes == 3  # returned exactly at the marker, not before
+
+
+async def test_start_pcap_dead_tcpdump_raises_with_captured_reason(monkeypatch) -> None:
+    """C8: tcpdump exiting before the marker (bad interface, perms) raises with
+    its stderr — never proceeds into a dead capture."""
+
+    async def fake(args, timeout_ms, stdin=None):
+        if "-d" in args:
+            return _ok()
+        return _ok("DEAD\ntcpdump: any: You don't have permission\n")
+
+    monkeypatch.setattr(sensors, "docker_exec", fake)
+    with pytest.raises(RuntimeError, match="exited before capturing.*permission"):
+        await sensors.start_pcap("c1")
+
+
+async def test_start_pcap_deadline_expiry_raises(monkeypatch) -> None:
+    """C8: no marker within the deadline → raise (SensorError → DEFER), never a
+    hopeful return into an unconfirmed capture."""
+
+    async def fake(args, timeout_ms, stdin=None):
+        return _ok()
+
+    monkeypatch.setattr(sensors, "docker_exec", fake)
+    monkeypatch.setattr(sensors, "PCAP_READY_DEADLINE_SEC", 0.0)
+    with pytest.raises(RuntimeError, match="did not confirm capture"):
+        await sensors.start_pcap("c1")
+
+
+async def test_stop_pcap_raises_when_capture_died_mid_run(monkeypatch) -> None:
+    """C9: pkill matching nothing means evidence was silently lost between start
+    and stop — that is an error, not an empty pcap that could refute."""
+
+    async def fake(args, timeout_ms, stdin=None):
+        assert "pkill" in args  # must fail before any collection exec
+        return ExecResult("", "", 1, False)
+
+    monkeypatch.setattr(sensors, "docker_exec", fake)
+    with pytest.raises(RuntimeError, match="capture died mid-run"):
+        await sensors.stop_pcap("c1")
+
+
+async def test_stop_pcap_waits_for_flush_then_collects(monkeypatch) -> None:
+    """C9: collection starts only after tcpdump has exited (TERM handler flushed
+    and closed the dump file); pcap bytes and parsed events come back."""
+    import base64 as b64
+
+    pgrep_polls = 0
+    order: list[str] = []
+
+    async def fake(args, timeout_ms, stdin=None):
+        nonlocal pgrep_polls
+        joined = " ".join(args)
+        if "pkill" in args:
+            order.append("pkill")
+            return _ok()
+        if "pgrep" in joined:
+            pgrep_polls += 1
+            order.append("pgrep")
+            return _ok("4242\n" if pgrep_polls < 3 else "")
+        if "base64" in args:
+            order.append("base64")
+            return _ok(b64.b64encode(b"PCAPBYTES").decode())
+        assert "tshark" in args
+        order.append("tshark")
+        return _ok("[]")
+
+    monkeypatch.setattr(sensors, "docker_exec", fake)
+    result = await sensors.stop_pcap("c1")
+    assert result.raw_pcap == b"PCAPBYTES"
+    assert result.events == []
+    assert order == ["pkill", "pgrep", "pgrep", "pgrep", "base64", "tshark"]
+
+
+async def test_stop_pcap_failed_liveness_probe_is_not_exit_confirmation(monkeypatch) -> None:
+    """C9: a failing probe exec (docker contention) also has empty stdout but
+    proves nothing about tcpdump — the barrier must not break out and read a
+    possibly-live capture; it deadlines into a raise (SensorError → DEFER)."""
+
+    async def fake(args, timeout_ms, stdin=None):
+        if "pkill" in args:
+            return _ok()
+        assert "pgrep" in " ".join(args)  # must never reach collection
+        return ExecResult("", "error during connect: daemon busy", 1, False)
+
+    monkeypatch.setattr(sensors, "docker_exec", fake)
+    monkeypatch.setattr(sensors, "PCAP_FLUSH_DEADLINE_SEC", 0.0)
+    with pytest.raises(RuntimeError, match="did not flush"):
+        await sensors.stop_pcap("c1")
+
+
+async def test_stop_pcap_tshark_failure_raises_not_zero_events(monkeypatch) -> None:
+    """C9: a failed tshark parse is missing evidence, not absent traffic — it
+    raises instead of silently returning no network events."""
+    import base64 as b64
+
+    async def fake(args, timeout_ms, stdin=None):
+        if "pkill" in args:
+            return _ok()
+        if "pgrep" in " ".join(args):
+            return _ok("")
+        if "base64" in args:
+            return _ok(b64.b64encode(b"PCAPBYTES").decode())
+        return ExecResult("", "tshark: cut short in the middle of a packet", 2, False)
+
+    monkeypatch.setattr(sensors, "docker_exec", fake)
+    with pytest.raises(RuntimeError, match="tshark parse failed"):
+        await sensors.stop_pcap("c1")

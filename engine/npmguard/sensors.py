@@ -33,6 +33,37 @@ TRACED_SYSCALLS = (
     "fork",
     "vfork",
 )
+# INVARIANT: every syscall in TRACED_SYSCALLS has an EXPLICIT evidence kind —
+# an unmapped traced syscall must fail loud in parse_strace_log, never surface
+# to the judge under a fabricated kind. Checked at import so a TRACED_SYSCALLS
+# edit cannot outrun this table. Values collapse syscall families into the
+# contract's fixed EventKind vocabulary (shared/src/evidence.ts); the exact
+# syscall is preserved in the event's `raw`. recvfrom is a socket read;
+# accept/accept4 join connect's connection-established family (peer addr:port).
+SYSCALL_KIND = {
+    "open": "openat",
+    "openat": "openat",
+    "read": "read",
+    "write": "write",
+    "connect": "connect",
+    "sendto": "sendto",
+    "recvfrom": "read",
+    "accept": "connect",
+    "accept4": "connect",
+    "execve": "execve",
+    "clone": "clone",
+    "clone3": "clone",
+    "fork": "clone",
+    "vfork": "clone",
+    "unlink": "unlink",
+    "unlinkat": "unlink",
+    "rename": "rename",
+    "renameat": "rename",
+    "renameat2": "rename",
+    "link": "link",
+    "linkat": "link",
+}
+assert set(SYSCALL_KIND) == set(TRACED_SYSCALLS), "TRACED_SYSCALLS/SYSCALL_KIND drift"
 STRACE_TAIL = r"(\w+)\((.*)\)\s+=\s+(-?\d+|0x[0-9a-f]+|\?)(?:\s|$)"
 STRACE_FORMATS = (
     (re.compile(r"^(\d+)\s+(\d+\.\d+)\s+" + STRACE_TAIL), True),
@@ -77,41 +108,27 @@ def _quoted(args: str) -> list[str]:
 
 def parse_strace_log(log: str, run_start_sec: float) -> list[EvidenceEvent]:
     events = []
-    mapping = {
-        "open": "openat",
-        "openat": "openat",
-        "read": "read",
-        "write": "write",
-        "connect": "connect",
-        "sendto": "sendto",
-        "execve": "execve",
-        "clone": "clone",
-        "clone3": "clone",
-        "fork": "clone",
-        "vfork": "clone",
-        "unlink": "unlink",
-        "unlinkat": "unlink",
-        "rename": "rename",
-        "renameat": "rename",
-        "renameat2": "rename",
-        "link": "link",
-        "linkat": "link",
-    }
     for line in log.splitlines():
         parsed = parse_strace_line(line)
         if parsed is None:
             continue
         pid, timestamp, syscall, args, result = parsed
+        kind = SYSCALL_KIND.get(syscall)
+        if kind is None:
+            raise AssertionError(
+                f"parse_strace_log: syscall '{syscall}' has no evidence kind — "
+                "refusing to fabricate one"
+            )
         normalized: dict[str, Any] = {"ret": result}
         quotes = _quoted(args)
         if syscall in {"open", "openat"}:
             normalized["path"] = quotes[0] if quotes else ""
         elif syscall == "execve":
             normalized.update(path=quotes[0] if quotes else "", argv=quotes[1:])
-        elif syscall in {"read", "write"}:
+        elif syscall in {"read", "write", "recvfrom"}:
             match = re.match(r"^(\d+)", args)
             normalized["fd"] = int(match.group(1)) if match else None
-        elif syscall in {"connect", "sendto"}:
+        elif syscall in {"connect", "sendto", "accept", "accept4"}:
             address = re.search(r'sin_addr="([^"]+)"', args) or re.search(
                 r'sin6_addr="([^"]+)"', args
             )
@@ -131,7 +148,7 @@ def parse_strace_log(log: str, run_start_sec: float) -> list[EvidenceEvent]:
                 stream="L1:seccomp",
                 timestamp=max(0, round((timestamp - run_start_sec) * 1e9)),
                 pid=pid or 0,
-                kind=mapping.get(syscall, "openat"),
+                kind=kind,
                 raw=f"{syscall}({args}) = {result}",
                 normalized=normalized,
             )
@@ -238,7 +255,16 @@ async def snapshot_post(
     )
 
 
+PCAP_FILE = "/tmp/npmguard-capture.pcap"
+PCAP_STDERR = "/tmp/npmguard-capture.err"
+PCAP_READY_DEADLINE_SEC = 15.0
+PCAP_FLUSH_DEADLINE_SEC = 10.0
+
+
 async def start_pcap(container: str) -> None:
+    # Launch detached with tcpdump's own stderr captured to tmpfs (docker logs
+    # only shows PID 1, so an exec -d crash is otherwise invisible). `exec` keeps
+    # the process name 'tcpdump' for the pgrep/pkill probes below.
     result = await docker_exec(
         [
             "exec",
@@ -246,20 +272,38 @@ async def start_pcap(container: str) -> None:
             "--user",
             "0",
             container,
-            "tcpdump",
-            "-i",
-            "any",
-            "-U",
-            "-Z",
-            "root",
-            "-w",
-            "/tmp/npmguard-capture.pcap",
+            "sh",
+            "-c",
+            f"exec tcpdump -i any -U -Z root -w {PCAP_FILE} 2>{PCAP_STDERR}",
         ],
         10_000,
     )
     if result.exit_code:
         raise RuntimeError(f"pcap failed to launch tcpdump: {result.stderr[:300]}")
-    await asyncio.sleep(1.5)
+    # INVARIANT: start_pcap returns <=> tcpdump is CONFIRMED capturing — its
+    # 'listening on' stderr line is the capture-ready marker. `exec -d` returning
+    # proves only that the exec was created; a trigger must never fire into a
+    # dead capture (silently dropping the network-evidence burst). Bounded wait
+    # on tcpdump's OWN signals: the marker succeeds; a nonempty stderr with the
+    # process gone fails FAST with the captured reason; otherwise time out. On
+    # any failure raise (-> SensorError -> DEFER), never proceed uncaptured.
+    probe = (
+        f"if grep -q 'listening on' {PCAP_STDERR} 2>/dev/null; then echo READY; "
+        f"elif [ -s {PCAP_STDERR} ] && ! pgrep -x tcpdump >/dev/null; then "
+        f"echo DEAD; cat {PCAP_STDERR}; fi"
+    )
+    deadline = asyncio.get_running_loop().time() + PCAP_READY_DEADLINE_SEC
+    while asyncio.get_running_loop().time() < deadline:
+        check = await docker_exec(["exec", "--user", "0", container, "sh", "-c", probe], 5_000)
+        out = (check.stdout or "").strip()
+        if out.startswith("READY"):
+            return
+        if out.startswith("DEAD"):
+            raise RuntimeError(f"tcpdump exited before capturing: {out[4:].strip()[:300]}")
+        await asyncio.sleep(0.1)
+    raise RuntimeError(
+        f"tcpdump did not confirm capture ('listening on') within {PCAP_READY_DEADLINE_SEC:g}s"
+    )
 
 
 def _deep_field(value: Any, key: str) -> str | None:
@@ -348,10 +392,36 @@ class PcapResult:
 
 
 async def stop_pcap(container: str) -> PcapResult:
-    await docker_exec(["exec", "--user", "0", container, "pkill", "-TERM", "tcpdump"], 5_000)
-    await asyncio.sleep(0.2)
+    # INVARIANT: tcpdump was capturing continuously from start_pcap until this
+    # TERM. pkill matching no process means the capture died mid-run and network
+    # evidence was silently lost — a SensorError (-> DEFER), never an empty pcap
+    # that could refute.
+    stopped = await docker_exec(
+        ["exec", "--user", "0", container, "pkill", "-TERM", "tcpdump"], 5_000
+    )
+    if stopped.exit_code:
+        raise RuntimeError(
+            f"tcpdump was not running at stop — capture died mid-run: {stopped.stderr[:300]}"
+        )
+    # Barrier: tcpdump's TERM handler flushes and closes the dump file; its exit
+    # is the flushed-and-complete marker (a fixed sleep can read a torn file).
+    deadline = asyncio.get_running_loop().time() + PCAP_FLUSH_DEADLINE_SEC
+    while True:
+        alive = await docker_exec(
+            ["exec", "--user", "0", container, "sh", "-c", "pgrep -x tcpdump || true"], 5_000
+        )
+        # Only a SUCCESSFUL probe with empty output confirms exit — a failed or
+        # timed-out exec (docker contention) also has empty stdout and proves
+        # nothing; treating it as exit would read a possibly-live, torn capture.
+        if alive.exit_code == 0 and not alive.stdout.strip():
+            break
+        if asyncio.get_running_loop().time() >= deadline:
+            raise RuntimeError(
+                f"tcpdump did not flush and exit within {PCAP_FLUSH_DEADLINE_SEC:g}s of SIGTERM"
+            )
+        await asyncio.sleep(0.1)
     copied = await docker_exec(
-        ["exec", "--user", "0", container, "base64", "-w0", "/tmp/npmguard-capture.pcap"], 30_000
+        ["exec", "--user", "0", container, "base64", "-w0", PCAP_FILE], 30_000
     )
     if copied.exit_code:
         raise RuntimeError(f"pcap read failed: {copied.stderr[:300]}")
@@ -361,7 +431,7 @@ async def stop_pcap(container: str) -> PcapResult:
             container,
             "tshark",
             "-r",
-            "/tmp/npmguard-capture.pcap",
+            PCAP_FILE,
             "-T",
             "json",
             "-Y",
@@ -370,7 +440,7 @@ async def stop_pcap(container: str) -> PcapResult:
         ],
         30_000,
     )
-    return PcapResult(
-        parse_tshark_json(tshark.stdout) if tshark.exit_code == 0 else [],
-        base64.b64decode(copied.stdout.strip()),
-    )
+    if tshark.exit_code:
+        # A failed parse is missing evidence, not absent traffic — fail loud.
+        raise RuntimeError(f"tshark parse failed: {tshark.stderr[:300]}")
+    return PcapResult(parse_tshark_json(tshark.stdout), base64.b64decode(copied.stdout.strip()))
