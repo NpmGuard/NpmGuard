@@ -222,11 +222,6 @@ Open (report-only; tracked here, not silently fixed):
   resolves verdict UNKNOWN / exit 0 when EventSource reaches readyState CLOSED
   (e.g. a 404 events URL) — a missing audit session exits 0. Untested: no
   engine path produces the repro naturally.
-- **Docker leak on worker-cancel** (`service.py` → `observation.py`,
-  pre-existing, UNVERIFIED): when `close()` cancels a worker mid-`_execute`,
-  `CancelledError` propagates past `_execute`'s `except Exception`; whether an
-  in-flight sandbox container is torn down before the task dies is untraced.
-  Worth a dedicated check; unrelated to the lifecycle rework.
 - **Reports-vs-DB desync** (observed on the prod snapshot that seeded the
   fixture corpus): report files existed with no matching audit session, and
   11 deterministic child-success smoke runs left audit-log dirs with no
@@ -285,6 +280,14 @@ Fixed since first tracked (regression-enforced, no longer open):
   capture), and the traced-syscall map is total (no fabricated `openat`).
   Enforced: `test_sensors.py` + the dns-exfil live-docker e2e still captures the
   DNS burst.
+- **Docker container leak on worker-cancel** → investigated + hardened: it does
+  NOT reproduce — `docker run`/`rm` run as CLI subprocesses the daemon completes
+  independent of the coroutine, so the `finally`'s `rm -f` finishes removing the
+  container even when the `await` is cancelled (verified with real docker across
+  single-cancel, double-cancel-during-cleanup, and cancel-during-start: zero
+  leaks). The one structural gap — container start sat outside the try/finally —
+  is closed with an explicit `CancelledError` cleanup in `observation.py`. The
+  docker e2e tier leaves zero `npmguard-run-*` containers.
 - **Stripe 15.x verify crash**: stripe 15.x `StripeObject` is not a dict, so
   `metadata.get(...)` raised for every metadata-bearing session → all
   Stripe-success flows 402. Fixed: `payments.py` reads metadata via a
