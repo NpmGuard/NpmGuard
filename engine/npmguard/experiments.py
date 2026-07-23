@@ -252,18 +252,48 @@ def _stub_url(args: dict[str, Any]) -> Manipulation:
         await write_file_in_container(
             container, "/tmp/npmguard-stub-proxy.js", (ASSETS / "stub-proxy.js").read_bytes()
         )
+        # Launch detached, capturing the proxy's own stderr to tmpfs (docker logs
+        # only shows PID 1, so an exec -d crash is otherwise invisible).
         result = await docker_exec(
-            ["exec", "-d", container, "node", "/tmp/npmguard-stub-proxy.js"], 10_000
+            [
+                "exec",
+                "-d",
+                container,
+                "sh",
+                "-c",
+                "node /tmp/npmguard-stub-proxy.js 2>/tmp/npmguard-stub-proxy.log",
+            ],
+            10_000,
         )
         if result.exit_code:
-            raise RuntimeError(f"stubUrl proxy failed: {result.stderr[:300]}")
-        readiness = "require('net').connect(18080,'127.0.0.1',()=>process.exit(0)).on('error',()=>process.exit(1))"
-        for _ in range(30):
-            result = await docker_exec(["exec", container, "node", "-e", readiness], 2_000)
-            if result.exit_code == 0:
+            raise RuntimeError(f"stubUrl proxy failed to launch: {result.stderr[:300]}")
+        # Deterministic bounded wait on the proxy's OWN signals: a positive .ready
+        # marker (listen callback) succeeds; a .err marker (bad env / bind failure /
+        # any uncaught throw) fails FAST with the captured reason; otherwise time out
+        # at 120s. Replaces the old 30×50ms loop of node-cold-start TCP probes, which
+        # could neither distinguish a crash from a slow bind nor survive a tail spike.
+        probe = (
+            "if [ -f /tmp/npmguard-stub-proxy.ready ]; then echo READY; "
+            "elif [ -f /tmp/npmguard-stub-proxy.err ]; then echo ERR; "
+            "cat /tmp/npmguard-stub-proxy.err; cat /tmp/npmguard-stub-proxy.log 2>/dev/null; fi"
+        )
+        deadline = asyncio.get_running_loop().time() + 120.0
+        while asyncio.get_running_loop().time() < deadline:
+            check = await docker_exec(["exec", container, "sh", "-c", probe], 5_000)
+            out = (check.stdout or "").strip()
+            if out.startswith("READY"):
                 return
-            await asyncio.sleep(0.05)
-        raise RuntimeError("stubUrl proxy did not become ready")
+            if out.startswith("ERR"):
+                raise RuntimeError(f"stubUrl proxy crashed on startup: {out[3:].strip()[:400]}")
+            await asyncio.sleep(0.1)
+        tail = await docker_exec(
+            ["exec", container, "sh", "-c", "cat /tmp/npmguard-stub-proxy.log 2>/dev/null"], 5_000
+        )
+        detail = (tail.stdout or "").strip()
+        raise RuntimeError(
+            "stubUrl proxy did not become ready within 120s"
+            + (f": {detail[:300]}" if detail else " (no stderr captured)")
+        )
 
     return Manipulation(envs=envs, post_start=apply, applied={"stubUrls": refs})
 
