@@ -34,7 +34,7 @@ from kit_llm.errors import BudgetExhausted
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard.config import Settings
-from npmguard.contract.models import EntryPoints, Hypothesis, RunError
+from npmguard.contract.models import EntryPoints, Hypothesis, RunError, ToolCall
 from npmguard.errors import AuditIncompleteError
 from npmguard.hypothesis_agent import (
     FallbackHypothesisGenerator,
@@ -208,10 +208,13 @@ class _Armed:
         self.tag = tag
 
     async def generate(self, flag, **kwargs) -> Hypothesis:
+        # An armed hypothesis carries a compiled experiment — OPEN + empty
+        # experiment is refused at graph admission (test_graph C6).
         return Hypothesis(
             hypId="h", description=self.tag, claim={"kind": "env_exfil", "gating": None},
-            focusFiles=[flag.file], focusLines=[], experiment=[], severity="low",
-            state="OPEN", createdBy="hypothesize", createdAt="t",
+            focusFiles=[flag.file], focusLines=[],
+            experiment=[ToolCall(tool="trigger", args={"kind": "entrypoint", "target": flag.file})],
+            severity="low", state="OPEN", createdBy="hypothesize", createdAt="t",
         )
 
 

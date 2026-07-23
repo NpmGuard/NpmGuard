@@ -10,6 +10,11 @@
 #   C5 one-shot payload that compiles but does not LOAD → AuditIncompleteError (fallover seam)
 #   C6 wire schema is strict (additionalProperties:false, required==properties, portable)
 #   C7 custom JS triggerTarget → driver planted at /pkg/npmguard-driver.js and triggered
+#   C8 extract_intent: BudgetExhausted is terminal — propagates, never fabricates intent
+#   C9 extract_intent: retryable provider exhaustion (EndOfRope) → fallback intent
+#      EXPLICITLY marked degraded=True; the LLM path stays degraded=False
+#  C10 run_hypothesize postcondition: len(hypotheses) == len(flags), order kept —
+#      every suspicion armed or the phase raised (no silent drops → no false SAFE)
 # Adversarial pass: 2026-07-23/W6 — call-count assertions moved from the private
 # provider._calls counter to the public llm_attempts capture ledger (DB rows).
 import json
@@ -17,12 +22,12 @@ import json
 import pytest
 import sqlalchemy as sa
 
-from kit_llm import ScriptedLlm
+from kit_llm import BudgetExhausted, ScriptedLlm
 from kit_llm.capture import llm_attempts
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard.config import Settings
-from npmguard.contract.models import EntryPoints, RunError
+from npmguard.contract.models import EntryPoints, Hypothesis, RunError, ToolCall
 from npmguard.errors import AuditIncompleteError
 from npmguard.inventory import analyze_inventory
 from npmguard.llm_runtime import build_npmguard_llm
@@ -31,8 +36,10 @@ from npmguard.phases import (
     FlagDraft,
     KitHypothesisGenerator,
     PackageIntent,
+    extract_intent,
     hypothesis_submission,
     run_flag,
+    run_hypothesize,
 )
 
 
@@ -265,6 +272,127 @@ async def test_one_shot_load_failure_reports_incomplete_for_fallover(tmp_path, m
         )
     await llm.aclose()
     await engine.dispose()
+
+
+async def _fixture_inventory(tmp_path, description: str = "left-pads strings"):
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "package.json").write_text(
+        json.dumps({"name": "fixture", "description": description, "main": "index.js"}),
+        encoding="utf-8",
+    )
+    (package / "index.js").write_text("module.exports = (s) => s;\n", encoding="utf-8")
+    return package, await analyze_inventory(package)
+
+
+async def test_intent_budget_exhaustion_propagates_never_fabricates(tmp_path) -> None:
+    """C8: BudgetExhausted is terminal in the intent phase too — it propagates
+    instead of being silently converted into a fabricated PackageIntent (which
+    would let the flag phase fire N doomed calls one phase later)."""
+
+    class _BudgetSpentLlm:
+        async def run(self, *args, **kwargs):
+            raise BudgetExhausted("spent")
+
+    package, inventory = await _fixture_inventory(tmp_path)
+    with pytest.raises(BudgetExhausted):
+        await extract_intent(package, inventory, _BudgetSpentLlm(), "audit-1")
+
+
+async def test_intent_provider_exhaustion_falls_back_explicitly_degraded(tmp_path) -> None:
+    """C9: the whole provider chain failing at transport (kit EndOfRope, the
+    retryable class) falls back — and the fallback intent is explicitly marked
+    degraded=True so the trace/report records it was not LLM-validated."""
+
+    class _DeadProvider:
+        async def complete(self, request):
+            raise RuntimeError("transport down")
+
+        async def stream(self, request, on_token):
+            raise RuntimeError("transport down")
+
+        async def lookup_cost(self, provider_call_id):
+            return 0.0
+
+        async def aclose(self) -> None:
+            return None
+
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'intent.sqlite3'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(metadata.create_all)
+    llm = build_npmguard_llm(
+        make_session_factory(engine), Settings(_env_file=None), provider=_DeadProvider()
+    )
+    package, inventory = await _fixture_inventory(tmp_path)
+
+    intent = await extract_intent(package, inventory, llm, "audit-1")
+
+    assert intent.degraded is True
+    assert intent.statedPurpose == "left-pads strings"  # manifest-only, not fabricated by an LLM
+    assert intent.expectedCapabilities == []
+    await llm.aclose()
+    await engine.dispose()
+
+
+async def test_llm_validated_intent_is_not_degraded(tmp_path) -> None:
+    """C9 (complement): the LLM-validated path yields degraded=False."""
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'intent-ok.sqlite3'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(metadata.create_all)
+    provider = ScriptedLlm(
+        {
+            "intent": [
+                PackageIntent(
+                    statedPurpose="pads strings", expectedCapabilities=[], rationale="README"
+                )
+            ]
+        }
+    )
+    llm = build_npmguard_llm(make_session_factory(engine), Settings(_env_file=None), provider=provider)
+    package, inventory = await _fixture_inventory(tmp_path)
+
+    intent = await extract_intent(package, inventory, llm, "audit-1")
+
+    assert intent.degraded is False
+    assert intent.statedPurpose == "pads strings"
+    await llm.aclose()
+    await engine.dispose()
+
+
+async def test_run_hypothesize_arms_every_flag_in_order(tmp_path) -> None:
+    """C10: after run_hypothesize returns, len(hypotheses) == len(flags) with
+    order preserved and every node armed — a dropped slot would be a hidden
+    coverage gap (a suspicion that never runs → potential false SAFE)."""
+
+    class _ArmsEveryFlag:
+        async def generate(self, flag, *, hypothesis_id, created_at, **kwargs) -> Hypothesis:
+            return Hypothesis(
+                hypId=hypothesis_id,
+                description=f"armed {flag.file}",
+                claim={"kind": "env_exfil", "gating": None},
+                focusFiles=[flag.file],
+                focusLines=[],
+                experiment=[
+                    ToolCall(tool="trigger", args={"kind": "entrypoint", "target": flag.file})
+                ],
+                severity="low",
+                state="OPEN",
+                createdBy="hypothesize",
+                createdAt=created_at,
+            )
+
+    flags = [Flag(file=f"f{index}.js", lines=["1-1"], why="suspicious") for index in range(3)]
+    hypotheses = await run_hypothesize(
+        flags,
+        _ArmsEveryFlag(),
+        package_path=tmp_path,
+        intent=PackageIntent(statedPurpose="fixture", expectedCapabilities=[], rationale="m"),
+        entry_points=EntryPoints(install=[], runtime=[], bin=[]),
+        audit_id="audit-1",
+    )
+    assert [hyp.hypId for hyp in hypotheses] == ["hyp-0001", "hyp-0002", "hyp-0003"]
+    assert [hyp.focusFiles for hyp in hypotheses] == [["f0.js"], ["f1.js"], ["f2.js"]]
+    assert all(hyp.experiment for hyp in hypotheses)
 
 
 def test_hypothesis_wire_schema_is_strict_and_provider_portable() -> None:

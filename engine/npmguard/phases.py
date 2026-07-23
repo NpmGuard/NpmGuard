@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Literal, Protocol, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
-from kit_llm import BudgetExhausted, CandidateRejected, LlmClient
+from kit_llm import BudgetExhausted, CandidateRejected, EndOfRope, LlmClient, OutputInvalid
 
 from .config import SOURCE_FILE_TYPES, Settings
 from .contract.models import (
@@ -75,6 +76,10 @@ class PackageIntent(BaseModel):
     statedPurpose: str
     expectedCapabilities: list[str] = Field(max_length=12)
     rationale: str
+    # Off-wire marker (SkipJsonSchema keeps it out of the LLM contract): True
+    # only for fallback_intent, so the trace/report records that this intent
+    # was NOT LLM-validated. See the INVARIANT in extract_intent.
+    degraded: SkipJsonSchema[bool] = False
 
 
 class FlagDraft(BaseModel):
@@ -345,6 +350,7 @@ def fallback_intent(inventory: InventoryReport) -> PackageIntent:
         statedPurpose=description or "(no stated purpose — package omitted description and README)",
         expectedCapabilities=[],
         rationale="No LLM-derived intent available; downstream analysis must treat any capability as potentially surprising.",
+        degraded=True,
     )
 
 
@@ -367,7 +373,12 @@ async def extract_intent(
             context=("audit", audit_id),
         )
         return PackageIntent.model_validate(result.output)
-    except Exception:
+    except (EndOfRope, OutputInvalid):
+        # INVARIANT: intent is either LLM-validated or explicitly degraded=True.
+        # Only kit's retryable provider classes (chain exhausted / no surviving
+        # candidate) fall back; BudgetExhausted, cancellation, and code bugs
+        # propagate — the same budget-terminal discipline as the hypothesize
+        # phases (see KitHypothesisGenerator.generate).
         return fallback_intent(inventory)
 
 
@@ -746,4 +757,12 @@ async def run_hypothesize(
                 )
 
     await _gather_fail_fast(arm(index) for index in range(len(flags)))
-    return [hypothesis for hypothesis in output if hypothesis is not None]
+    hypotheses: list[Hypothesis] = []
+    for item in output:
+        # INVARIANT: _gather_fail_fast returned without raising, so every flag
+        # is armed — len(hypotheses) == len(flags) (mirrors run_flag). A None
+        # here would be a silently dropped suspicion: a hidden coverage gap
+        # that could launder into a false SAFE.
+        assert item is not None
+        hypotheses.append(item)
+    return hypotheses
