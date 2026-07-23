@@ -35,7 +35,7 @@ from kit_stream import StreamService
 from .bench import list_benchmark_runs
 from .config import REPO_ROOT, Settings, get_settings
 from .demo import DemoService
-from .errors import NpmGuardError
+from .errors import NpmGuardError, QueueFullError
 from .events import sse_events
 from .llm_runtime import build_npmguard_llm
 from .payments import (
@@ -126,21 +126,28 @@ def _audit_file_path(package_path: str, file_path: str) -> tuple[Path, Path]:
     return root, (root / file_path).resolve()
 
 
-async def _claim_stripe(runtime: Runtime, session_id: str) -> tuple[AuditSession, bool, str, str]:
+async def _claim_stripe(runtime: Runtime, session_id: str) -> tuple[AuditSession, str]:
+    # Idempotent pre-read: an already-claimed session (e.g. bound by a webhook that
+    # never went through the engine's own checkout API) is returned as-is WITHOUT
+    # re-verifying — a claimed Stripe session must never be re-hit against Stripe.
+    # submit() downstream is a no-op on the resulting terminal/owned row.
     existing = await runtime.sessions.payment("stripe", session_id)
     if existing:
         session = await runtime.sessions.get(existing["audit_id"])
         assert session is not None
-        return session, False, existing["package_name"], existing["version"]
+        return session, existing["package_name"]
     verification = await verify_checkout_session(runtime.settings, session_id)
     if not verification["paid"]:
         raise PermissionError("Payment not completed")
     package_name = verification["packageName"]
     version = verification["version"]
-    session, created = await runtime.sessions.claim_payment(
+    # Capacity check BEFORE the claim: a QueueFull refusal never consumes the
+    # payment proof (client retries the same session id).
+    await runtime.audits.reserve()
+    session, _created = await runtime.sessions.claim_payment(
         "stripe", session_id, package_name, version
     )
-    return session, created, package_name, version
+    return session, package_name
 
 
 router = APIRouter()
@@ -170,20 +177,20 @@ async def audit(request: Request) -> JSONResponse:
             status_code=402,
         )
     try:
-        session, future, position = await runtime.audits.enqueue(parsed.packageName, parsed.version)
+        result = await runtime.audits.admit(parsed.packageName, parsed.version)
         if is_cre:
-            future.add_done_callback(_consume_future)
+            result.future.add_done_callback(_consume_future)
             return JSONResponse(
                 {
                     "status": "accepted",
-                    "auditId": session.audit_id,
+                    "auditId": result.audit_id,
                     "packageName": parsed.packageName,
                     "version": parsed.version,
-                    "queuePosition": position,
+                    "queuePosition": result.queue_position,
                 },
                 status_code=202,
             )
-        return JSONResponse(await future)
+        return JSONResponse(await result.future)
     except Exception as exc:
         return _audit_error(exc)
 
@@ -195,10 +202,6 @@ async def start_stream(request: Request) -> JSONResponse:
         return error
     assert parsed is not None
     runtime = _runtime(request)
-    session: AuditSession
-    created = True
-    package_name: str
-    version: str | None
 
     if parsed.txHash:
         chain = parsed.chain or "base-sepolia"
@@ -211,11 +214,6 @@ async def start_stream(request: Request) -> JSONResponse:
                 {"error": "packageName and version are required with txHash"}, status_code=400
             )
         provider = f"chain:{chain}"
-        existing = await runtime.sessions.payment(provider, parsed.txHash)
-        if existing:
-            return JSONResponse(
-                {"auditId": existing["audit_id"], "packageName": existing["package_name"]}
-            )
         try:
             verified = await verify_audit_payment(
                 runtime.settings, chain, parsed.txHash, parsed.packageName, parsed.version
@@ -225,38 +223,57 @@ async def start_stream(request: Request) -> JSONResponse:
         except Exception:
             log.exception("chain verification failed", chain=chain)
             return JSONResponse({"error": "Chain verification failed"}, status_code=500)
-        package_name, version = verified.package_name, verified.version
-        session, created = await runtime.sessions.claim_payment(
-            provider,
-            parsed.txHash,
-            package_name,
-            version,
-            requester=verified.requester,
+        # verify -> reserve -> claim -> submit. reserve() BEFORE claim_payment so a
+        # QueueFull refusal (503 retryable) never consumes the tx proof; claim_payment
+        # is idempotent (replayed tx -> existing session) and submit() dedupes by
+        # audit_id, so a replay never launches twice.
+        try:
+            await runtime.audits.reserve()
+            session, _created = await runtime.sessions.claim_payment(
+                provider,
+                parsed.txHash,
+                verified.package_name,
+                verified.version,
+                requester=verified.requester,
+            )
+            result = await runtime.audits.submit(session)
+            # Fire-and-forget: the client follows via SSE, so retrieve the future's
+            # eventual exception here or asyncio warns "never retrieved" on a failed audit.
+            result.future.add_done_callback(_consume_future)
+        except Exception as exc:
+            return _audit_error(exc)
+        return JSONResponse(
+            {"auditId": session.audit_id, "packageName": verified.package_name}
         )
-    elif parsed.stripeSessionId:
+
+    if parsed.stripeSessionId:
         if not runtime.settings.stripe_secret_key:
             return JSONResponse({"error": "Stripe payments not configured"}, status_code=501)
         try:
-            session, created, package_name, version = await _claim_stripe(
-                runtime, parsed.stripeSessionId
-            )
+            session, package_name = await _claim_stripe(runtime, parsed.stripeSessionId)
+        except QueueFullError as exc:
+            return _audit_error(exc)  # capacity refusal — before any claim, retryable 503
         except Exception:
             log.exception("stripe verification failed")
             return JSONResponse({"error": "Payment verification failed"}, status_code=402)
-    elif not runtime.settings.payment_required:
+        result = await runtime.audits.submit(session)
+        result.future.add_done_callback(_consume_future)  # fire-and-forget; retrieve exc
+        return JSONResponse({"auditId": session.audit_id, "packageName": package_name})
+
+    if not runtime.settings.payment_required:
         if not parsed.packageName:
             return JSONResponse({"error": "packageName is required"}, status_code=400)
-        package_name, version = parsed.packageName, parsed.version
-        session = await runtime.sessions.create(package_name, version)
-    else:
-        return JSONResponse(
-            {"error": "Payment required. Use /checkout or provide txHash + chain."},
-            status_code=402,
-        )
+        try:
+            result = await runtime.audits.admit(parsed.packageName, parsed.version)
+        except Exception as exc:
+            return _audit_error(exc)
+        result.future.add_done_callback(_consume_future)  # fire-and-forget; retrieve exc
+        return JSONResponse({"auditId": result.audit_id, "packageName": parsed.packageName})
 
-    if created:
-        runtime.audits.launch(session)
-    return JSONResponse({"auditId": session.audit_id, "packageName": package_name})
+    return JSONResponse(
+        {"error": "Payment required. Use /checkout or provide txHash + chain."},
+        status_code=402,
+    )
 
 
 @router.get("/audit/{audit_id}/events")
@@ -275,7 +292,7 @@ async def events(audit_id: str, request: Request) -> Response:
             audit_id,
             runtime.stream,
             after=cursor,
-            follow=session.status == "running",
+            follow=session.status in ("queued", "running"),
         ),
         media_type="text/event-stream",
     )
@@ -313,8 +330,8 @@ async def audit_report(audit_id: str, request: Request) -> JSONResponse:
     session = await _runtime(request).sessions.get(audit_id)
     if session is None:
         return JSONResponse({"error": "Audit session not found"}, status_code=404)
-    if session.status == "running":
-        return JSONResponse({"status": "running"}, status_code=202)
+    if session.status in ("queued", "running"):
+        return JSONResponse({"status": session.status}, status_code=202)
     if session.report is not None:
         return JSONResponse(session.report)
     return JSONResponse(
@@ -406,11 +423,16 @@ async def stripe_webhook(request: Request) -> JSONResponse:
         session_id = _field(stripe_session, "id")
         if package_name and session_id:
             try:
-                session, created = await runtime.sessions.claim_payment(
+                # HMAC-verified metadata is the proof; reserve -> claim -> submit.
+                # A QueueFull here returns non-200 so Stripe redelivers (never a
+                # dropped claim); claim_payment + submit are idempotent on replay.
+                await runtime.audits.reserve()
+                session, _created = await runtime.sessions.claim_payment(
                     "stripe", session_id, package_name, version
                 )
-                if created:
-                    runtime.audits.launch(session)
+                result = await runtime.audits.submit(session)
+                result.future.add_done_callback(_consume_future)  # fire-and-forget
+
             except Exception:
                 log.exception("webhook failed to start audit", package_name=package_name)
                 return JSONResponse({"error": "Failed to start audit"}, status_code=500)
@@ -528,10 +550,16 @@ async def lifespan(app: FastAPI):
     notifier = make_notifier(settings.database_url)
     await notifier.start()
     stream = StreamService(sessions_factory, notifier)
-    sessions = AuditSessionStore(sessions_factory, max_running=settings.max_running_sessions)
+    sessions = AuditSessionStore(sessions_factory)
     llm = build_npmguard_llm(sessions_factory, settings)
     pipeline = AuditPipeline(settings, llm, sessions)
-    audits = AuditService(pipeline, sessions, stream, queue_size=settings.queue_size)
+    audits = AuditService(
+        pipeline,
+        sessions,
+        stream,
+        queue_size=settings.queue_size,
+        max_concurrent=settings.max_running_sessions,
+    )
     await audits.start()
     app.state.runtime = Runtime(
         settings, engine, sessions, stream, llm, audits, DemoService(sessions, stream)
@@ -539,7 +567,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await audits.close()
+        await audits.close(settings.shutdown_deadline_seconds)
         await llm.aclose()
         await notifier.close()
         await engine.dispose()

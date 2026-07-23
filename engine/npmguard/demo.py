@@ -72,8 +72,12 @@ class DemoService:
         recording = self.recordings.get(package_name)
         if recording is None:
             raise KeyError(f'No demo recording for "{package_name}"')
-        session = await self.sessions.create(package_name)
-        await self.sessions.set_file_contents(session.audit_id, recording.files)
+        # Create the demo-tagged row atomically: file_contents IS NOT NULL is the
+        # de-facto demo tag, so running()/queued()/queued_count() exclude it and
+        # restart recovery never 0031s or re-runs the real pipeline on a replay.
+        session = await self.sessions.create(
+            package_name, file_contents=recording.files, package_path="__demo__"
+        )
         task = asyncio.create_task(
             self._replay(session.audit_id, recording), name=f"npmguard-demo-{session.audit_id}"
         )

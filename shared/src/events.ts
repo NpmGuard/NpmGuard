@@ -15,6 +15,12 @@ export const AuditStartedEventSchema = BaseAuditEventSchema.extend({
 });
 export type AuditStartedEvent = z.infer<typeof AuditStartedEventSchema>;
 
+export const AuditEnqueuedEventSchema = BaseAuditEventSchema.extend({
+  type: z.literal("audit_enqueued"),
+  queuePosition: z.number().int().nonnegative(),
+});
+export type AuditEnqueuedEvent = z.infer<typeof AuditEnqueuedEventSchema>;
+
 export const PhaseStartedEventSchema = BaseAuditEventSchema.extend({
   type: z.literal("phase_started"),
   phase: z.string(),
@@ -176,6 +182,7 @@ export type AuditErrorEvent = z.infer<typeof AuditErrorEventSchema>;
 
 export const AuditEventSchema = z.discriminatedUnion("type", [
   AuditStartedEventSchema,
+  AuditEnqueuedEventSchema,
   PhaseStartedEventSchema,
   PhaseCompletedEventSchema,
   FileListEventSchema,
@@ -200,6 +207,7 @@ export type AuditEventUnion = z.infer<typeof AuditEventSchema>;
 
 export const EVENT_TYPES = [
   "audit_started",
+  "audit_enqueued",
   "phase_started",
   "phase_completed",
   "file_list",
