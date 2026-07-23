@@ -26,11 +26,21 @@
 #           C15 close() with the worker mid-queued-item — PINNED: the cancel rips
 #               through _execute; the item's future never resolves and its session
 #               stays running until the next start() recovery (0031).
+# Lifecycle: C16 terminal coherence (success) — INVARIANT: at the FIRST observation of
+#               verdict_reached the report file is on disk and the row is 'done'
+#               (report → row+event, one transaction; no post-terminal poll needed)
+#            C17 terminal coherence (failure) — INVARIANT: a save_report failure lands
+#               as running->error + audit_error (never the old done->error flip) and
+#               the workspace cleanup still runs (finally; the old path leaked it)
 # Adversarial pass: W5 2026-07-23 — "can a queue bug wedge the worker permanently?" →
 #   C5 proves the worker outlives a poisoned item; C13 documents the one known wedge.
 # Adversarial pass: 2026-07-23/A1 — the Queue axis was entirely sequential; C14/C15
 #   add the concurrency/shutdown boundary pins.
+# Invariant pass: 2026-07-23/lifecycle-coherence — the terminal frame used to be
+#   emitted inside pipeline.run BEFORE finalize+save (the S29 flake, contained by
+#   tests/support/waits.py polling); C16/C17 assert the enforced ordering.
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -51,17 +61,29 @@ WAIT_SECONDS = 15  # generous bound for any awaited queue outcome
 CLOSE_STALL_OBSERVATION_SECONDS = 0.5  # long enough to prove close() has not returned
 
 
+class _Counts(BaseModel):
+    total: int = 0
+    open: int = 0
+    inProgress: int = 0
+    confirmed: int = 0
+    refuted: int = 0
+    deferred: int = 0
+
+
 class _Report(BaseModel):
     verdict: str = "SAFE"
+    rationale: str = "stub rationale"
+    counts: _Counts = _Counts()
     trace: list = []
 
 
 class _Result:
     def __init__(self) -> None:
         self.report = _Report()
+        self.cleaned = False
 
     def cleanup(self) -> None:
-        return None
+        self.cleaned = True
 
 
 class StubPipeline:
@@ -74,6 +96,7 @@ class StubPipeline:
         self.active = 0
         self.max_active = 0
         self.started: list[str] = []
+        self.results: dict[str, _Result] = {}
         self.first_started = asyncio.Event()
 
     async def run(self, package_name: str, *, audit_id: str, version: str | None, emitter: Any):
@@ -89,7 +112,9 @@ class StubPipeline:
                 await asyncio.sleep(0.01)  # force an overlap window for C3
             if package_name in self.failures:
                 raise RuntimeError(f"pipeline exploded for {package_name}")
-            return _Result()
+            result = _Result()
+            self.results[package_name] = result
+            return result
         finally:
             self.active -= 1
 
@@ -389,3 +414,62 @@ async def test_close_stalls_on_inflight_launch_pinned(rig) -> None:
     pipeline.blockers["pkg-stalled"].set()
     async with asyncio.timeout(WAIT_SECONDS):
         await closer
+
+
+async def _first_terminal_observation(stream, audit_id: str) -> list[dict[str, Any]]:
+    """Bounded wait for the FIRST terminal frame on the channel; returns the
+    full event log at that instant. Everything asserted afterwards must already
+    hold — no further waiting is allowed (that is the invariant under test)."""
+    async with asyncio.timeout(WAIT_SECONDS):
+        while True:
+            events = await stream.read_after(audit_channel(audit_id), -1)
+            if any(event["type"] in {"verdict_reached", "audit_error"} for event in events):
+                return events
+            await asyncio.sleep(0.01)
+
+
+async def test_terminal_frame_implies_durable_report_and_row(rig, tmp_path) -> None:
+    """C16 — INVARIANT: the instant verdict_reached is first observable, the
+    report file is already on disk and the row is already 'done'. The report is
+    saved BEFORE the row turns terminal, and the terminal event commits in the
+    SAME transaction as running->done — so these probes run with NO poll (the
+    e2e waits in tests/support/waits.py are now redundant)."""
+    service, sessions, stream = rig.service, rig.sessions, rig.stream
+    session = await sessions.create("pkg-coherent", "1.0.0")
+    service.launch(session)
+    events = await _first_terminal_observation(stream, session.audit_id)
+    assert [event["type"] for event in events] == ["verdict_reached"]
+    assert events[0]["data"]["verdict"] == "SAFE"
+    # instant probes — the invariant forbids any wait after the frame:
+    restored = await sessions.get(session.audit_id)
+    assert restored.status == "done"
+    assert restored.report is not None
+    persisted = tmp_path / "reports" / "pkg-coherent" / "1.0.0.json"
+    assert persisted.is_file()  # S29's flaking probe, now unpolled
+    assert json.loads(persisted.read_text(encoding="utf-8"))["verdict"] == "SAFE"
+
+
+async def test_save_failure_lands_as_error_and_still_cleans_up(rig, monkeypatch) -> None:
+    """C17 — INVARIANT: a save_report failure surfaces as running->error with a
+    single audit_error and NO verdict_reached — the old code finalized 'done'
+    before saving, then flipped the row done->error and skipped cleanup() (not
+    in a finally). The workspace cleanup must run regardless."""
+    service, pipeline, sessions, stream = rig.service, rig.pipeline, rig.sessions, rig.stream
+
+    def _boom(*_args: Any, **_kwargs: Any) -> str:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr("npmguard.service.save_report", _boom)
+    await service.start()
+    session, future, _ = await service.enqueue("pkg-savefail", "1.0.0")
+    async with asyncio.timeout(WAIT_SECONDS):
+        with pytest.raises(RuntimeError, match="disk full"):
+            await future
+    restored = await sessions.get(session.audit_id)
+    assert restored.status == "error"  # never 'done' without a durable report
+    assert restored.error == "disk full"
+    events = await stream.read_after(audit_channel(session.audit_id), -1)
+    kinds = [event["type"] for event in events]
+    assert "verdict_reached" not in kinds  # save failed BEFORE the terminal txn
+    assert kinds.count("audit_error") == 1
+    assert pipeline.results["pkg-savefail"].cleaned  # finally: no workspace leak

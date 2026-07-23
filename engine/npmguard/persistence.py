@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kit_spine import now_iso
 from kit_spine.db import metadata
@@ -122,14 +124,46 @@ class AuditSessionStore:
     ) -> None:
         await self._update(audit_id, file_contents=files, package_path=path)
 
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[AsyncSession]:
+        """One open transaction for composing a session-row write with another
+        store's write (e.g. kit_stream append(session=...)) so both commit —
+        or roll back — together."""
+        async with self._sessions() as session, session.begin():
+            yield session
+
     async def finalize(
-        self, audit_id: str, report: dict[str, Any] | None, error: str | None = None
+        self,
+        audit_id: str,
+        report: dict[str, Any] | None,
+        error: str | None = None,
+        *,
+        session: AsyncSession | None = None,
     ) -> None:
-        await self._update(
-            audit_id,
-            report=report,
-            error=error,
-            status="error" if error else "done",
+        statement = (
+            audit_sessions.update()
+            .where(
+                audit_sessions.c.audit_id == audit_id,
+                audit_sessions.c.status == "running",
+            )
+            .values(
+                report=report,
+                error=error,
+                status="error" if error else "done",
+                updated_at=now_iso(),
+            )
+        )
+        if session is not None:
+            rowcount = (await session.execute(statement)).rowcount
+        else:
+            async with self._sessions() as own, own.begin():
+                rowcount = (await own.execute(statement)).rowcount
+        # INVARIANT: finalize transitions exactly one row running -> done|error.
+        # A missing or already-terminal row is a lifecycle bug — raise loudly,
+        # never a silent no-op or a done->error overwrite.
+        assert rowcount == 1, (
+            f"finalize({audit_id}): matched {rowcount} running rows "
+            "(row missing or already terminal)"
         )
 
     async def _update(self, audit_id: str, **values: Any) -> None:
