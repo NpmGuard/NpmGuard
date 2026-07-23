@@ -1,4 +1,4 @@
-import { assertPublicRepoAuditCap } from "../caps.js";
+import { assertRepositoryCap } from "../caps.js";
 import { anchorPendingCertificatesAfterScan } from "../certificate-anchor.js";
 import { ensureAuditCertificate } from "../audit-persistence.js";
 import { getDb, nowIso } from "../db.js";
@@ -113,7 +113,7 @@ export function createPublicRepoScan(input: CreatePublicRepoScanInput): number {
     // A repository consumes one Free slot only once. The stable GitHub id
     // survives renames, and the transaction prevents concurrent new repos
     // from both claiming the final slot.
-    assertPublicRepoAuditCap(input.installationId, input.githubRepoId);
+    assertRepositoryCap(input.installationId, input.githubRepoId);
 
     scanId = Number(
       db

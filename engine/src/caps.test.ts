@@ -1,11 +1,9 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { openDb as OpenDb, setDbForTesting as SetDb, DB } from "./db.js";
 
-process.env.NPMGUARD_FREE_MAX_PROTECTED_REPOS = "2";
-process.env.NPMGUARD_FREE_MAX_PUBLIC_REPO_AUDITS = "1";
+process.env.NPMGUARD_FREE_MAX_REPOSITORIES = "2";
 process.env.NPMGUARD_FREE_MAX_AUDITS_MONTH = "10";
-process.env.NPMGUARD_PRO_MAX_PROTECTED_REPOS = "5";
-process.env.NPMGUARD_PRO_MAX_PUBLIC_REPO_AUDITS = "0";
+process.env.NPMGUARD_PRO_MAX_REPOSITORIES = "5";
 process.env.NPMGUARD_PRO_MAX_AUDITS_MONTH = "100";
 
 let db: DB;
@@ -70,11 +68,11 @@ function auditPublicRepo(installationId: number, githubRepoId: number): void {
 }
 
 describe("Free entitlements", () => {
-  it("allows protecting below the Free cap and rejects at it", () => {
+  it("allows a new repository below the Free cap and rejects at it", () => {
     protectRepos(1, 1);
-    expect(() => caps.assertProtectCap(1)).not.toThrow();
+    expect(() => caps.assertRepositoryCap(1, 1001)).not.toThrow();
     protectRepos(1, 1);
-    expect(() => caps.assertProtectCap(1)).toThrow(caps.CapExceededError);
+    expect(() => caps.assertRepositoryCap(1, 1002)).toThrow(caps.CapExceededError);
   });
 
   it("returns structured usage for the paywall", () => {
@@ -86,26 +84,35 @@ describe("Free entitlements", () => {
       accountLogin: "acme",
       plan: "free",
       subscriptionStatus: "inactive",
-      protectedRepos: { used: 2, limit: 2, remaining: 0 },
-      publicRepoAudits: { used: 1, limit: 1, remaining: 0 },
+      repositories: { used: 3, limit: 2, remaining: 0 },
       monthlyAudits: { used: 7, limit: 10, remaining: 3 },
     });
   });
 });
 
-describe("public repository audit allowance", () => {
-  it("counts distinct GitHub repositories and keeps re-audits free", () => {
+describe("shared repository allowance", () => {
+  it("deduplicates protected and public use by stable GitHub repository id", () => {
     auditPublicRepo(1, 101);
-    expect(caps.publicRepoAuditCount(1)).toBe(1);
-    expect(() => caps.assertPublicRepoAuditCap(1, 101)).not.toThrow();
-    expect(() => caps.assertPublicRepoAuditCap(1, 102)).toThrow(caps.CapExceededError);
+    expect(caps.repositoryCount(1)).toBe(1);
+    expect(() => caps.assertRepositoryCap(1, 101)).not.toThrow();
+
+    db.prepare(
+      `INSERT INTO repos
+       (id, installation_id, owner, name, full_name, protected_at)
+       VALUES (101, 1, 'public-org', 'repo-101', 'public-org/repo-101', '2026-01-01')`,
+    ).run();
+    expect(caps.repositoryCount(1)).toBe(1);
+
+    auditPublicRepo(1, 102);
+    expect(caps.repositoryCount(1)).toBe(2);
+    expect(() => caps.assertRepositoryCap(1, 103)).toThrow(caps.CapExceededError);
     try {
-      caps.assertPublicRepoAuditCap(1, 102);
+      caps.assertRepositoryCap(1, 103);
     } catch (err) {
       expect(err).toMatchObject({
         cap: true,
         installationId: 1,
-        resource: "public_repo_audits",
+        resource: "repositories",
       });
     }
   });
@@ -113,9 +120,9 @@ describe("public repository audit allowance", () => {
   it("tracks distinct repositories per installation", () => {
     auditPublicRepo(1, 101);
     auditPublicRepo(1, 102);
-    expect(() => caps.assertPublicRepoAuditCap(2, 201)).not.toThrow();
-    expect(caps.publicRepoAuditCount(1)).toBe(2);
-    expect(caps.publicRepoAuditCount(2)).toBe(0);
+    expect(() => caps.assertRepositoryCap(2, 201)).not.toThrow();
+    expect(caps.repositoryCount(1)).toBe(2);
+    expect(caps.repositoryCount(2)).toBe(0);
   });
 });
 
@@ -148,8 +155,8 @@ describe("Pro entitlements", () => {
     protectRepos(1, 2);
     auditPublicRepo(1, 101);
     auditPublicRepo(1, 102);
-    expect(() => caps.assertProtectCap(1)).toThrow(caps.CapExceededError);
-    expect(() => caps.assertPublicRepoAuditCap(1, 103)).toThrow(caps.CapExceededError);
+    expect(() => caps.assertRepositoryCap(1, 1002)).toThrow(caps.CapExceededError);
+    expect(() => caps.assertRepositoryCap(1, 103)).toThrow(caps.CapExceededError);
 
     db.prepare(
       `INSERT INTO billing_accounts
@@ -158,8 +165,8 @@ describe("Pro entitlements", () => {
     ).run();
 
     expect(caps.getAccountEntitlements(1).plan).toBe("pro");
-    expect(() => caps.assertProtectCap(1)).not.toThrow();
-    expect(() => caps.assertPublicRepoAuditCap(1, 103)).not.toThrow();
+    expect(() => caps.assertRepositoryCap(1, 1002)).not.toThrow();
+    expect(() => caps.assertRepositoryCap(1, 103)).not.toThrow();
     caps.consumeAuditBudget(1, 50);
     expect(() => caps.assertAuditBudget(1, 50)).not.toThrow();
   });

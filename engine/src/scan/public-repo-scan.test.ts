@@ -102,7 +102,7 @@ describe("public repository scan lifecycle", () => {
       failed: 0,
     });
     expect(computePublicScanRollup(id)).toMatchObject({ verdict: "SAFE", safe: 1 });
-    expect(getAccountEntitlements(42).publicRepoAudits).toMatchObject({
+    expect(getAccountEntitlements(42).repositories).toMatchObject({
       used: 1,
       limit: 1,
       remaining: 0,
@@ -152,7 +152,7 @@ describe("public repository scan lifecycle", () => {
     createPublicRepoScan(scanInput(deps));
     createPublicRepoScan(scanInput(deps, { lockfileSha: "new-sha" }));
 
-    expect(getAccountEntitlements(42).publicRepoAudits).toMatchObject({
+    expect(getAccountEntitlements(42).repositories).toMatchObject({
       used: 1,
       limit: 1,
       remaining: 0,
@@ -166,7 +166,7 @@ describe("public repository scan lifecycle", () => {
           htmlUrl: "https://github.com/public-org/second",
         }),
       ),
-    ).toThrow(/Re-auditing an existing repository remains free/);
+    ).toThrow(/Re-auditing or protecting the same repository remains free/);
     expect(db.prepare("SELECT COUNT(*) AS c FROM public_repo_scans").get()).toMatchObject({
       c: 2,
     });

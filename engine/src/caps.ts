@@ -6,7 +6,7 @@ import { getDb } from "./db.js";
 // every member who can access it.
 
 export type AccountPlan = "free" | "pro";
-export type CapResource = "protected_repos" | "public_repo_audits" | "monthly_audits";
+export type CapResource = "repositories" | "monthly_audits";
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 
@@ -15,14 +15,12 @@ export interface AccountEntitlements {
   accountLogin: string;
   plan: AccountPlan;
   subscriptionStatus: string;
-  protectedRepos: { used: number; limit: number; remaining: number | null };
-  publicRepoAudits: { used: number; limit: number; remaining: number | null };
+  repositories: { used: number; limit: number; remaining: number | null };
   monthlyAudits: { used: number; limit: number; remaining: number | null };
 }
 
 export interface PlanLimits {
-  protectedRepos: number;
-  publicRepoAudits: number;
+  repositories: number;
   monthlyAudits: number;
 }
 
@@ -69,13 +67,11 @@ export function accountPlan(installationId: number): {
 function planLimits(plan: AccountPlan): PlanLimits {
   return plan === "pro"
     ? {
-        protectedRepos: config.proMaxProtectedRepos,
-        publicRepoAudits: config.proMaxPublicRepoAudits,
+        repositories: config.proMaxRepositories,
         monthlyAudits: config.proMaxAuditsMonth,
       }
     : {
-        protectedRepos: config.freeMaxProtectedRepos,
-        publicRepoAudits: config.freeMaxPublicRepoAudits,
+        repositories: config.freeMaxRepositories,
         monthlyAudits: config.freeMaxAuditsMonth,
       };
 }
@@ -88,20 +84,41 @@ function remaining(limit: number, used: number): number | null {
   return limit === 0 ? null : Math.max(0, limit - used);
 }
 
-export function protectedRepoCount(installationId: number): number {
+export function repositoryCount(installationId: number): number {
   const row = getDb()
-    .prepare("SELECT COUNT(*) AS c FROM repos WHERE installation_id = ? AND protected_at IS NOT NULL")
-    .get(installationId) as { c: number };
+    .prepare(
+      `SELECT COUNT(*) AS c
+       FROM (
+         SELECT id AS github_repo_id
+         FROM repos
+         WHERE installation_id = ? AND protected_at IS NOT NULL
+         UNION
+         SELECT github_repo_id
+         FROM public_repo_scans
+         WHERE installation_id = ?
+       )`,
+    )
+    .get(installationId, installationId) as { c: number };
   return row.c;
 }
 
-export function publicRepoAuditCount(installationId: number): number {
-  const row = getDb()
+function repositoryUsesAllowance(installationId: number, githubRepoId: number): boolean {
+  return !!getDb()
     .prepare(
-      "SELECT COUNT(DISTINCT github_repo_id) AS c FROM public_repo_scans WHERE installation_id = ?",
+      `SELECT 1
+       FROM (
+         SELECT id AS github_repo_id
+         FROM repos
+         WHERE installation_id = ? AND protected_at IS NOT NULL
+         UNION
+         SELECT github_repo_id
+         FROM public_repo_scans
+         WHERE installation_id = ?
+       )
+       WHERE github_repo_id = ?
+       LIMIT 1`,
     )
-    .get(installationId) as { c: number };
-  return row.c;
+    .get(installationId, installationId, githubRepoId);
 }
 
 export function auditsUsedThisMonth(installationId: number): number {
@@ -115,23 +132,17 @@ export function getAccountEntitlements(installationId: number): AccountEntitleme
   const accountLogin = installationAccount(installationId);
   const { plan, subscriptionStatus } = accountPlan(installationId);
   const limits = planLimits(plan);
-  const protectedRepos = protectedRepoCount(installationId);
-  const publicRepoAudits = publicRepoAuditCount(installationId);
+  const repositories = repositoryCount(installationId);
   const monthlyAudits = auditsUsedThisMonth(installationId);
   return {
     installationId,
     accountLogin,
     plan,
     subscriptionStatus,
-    protectedRepos: {
-      used: protectedRepos,
-      limit: limits.protectedRepos,
-      remaining: remaining(limits.protectedRepos, protectedRepos),
-    },
-    publicRepoAudits: {
-      used: publicRepoAudits,
-      limit: limits.publicRepoAudits,
-      remaining: remaining(limits.publicRepoAudits, publicRepoAudits),
+    repositories: {
+      used: repositories,
+      limit: limits.repositories,
+      remaining: remaining(limits.repositories, repositories),
     },
     monthlyAudits: {
       used: monthlyAudits,
@@ -141,39 +152,16 @@ export function getAccountEntitlements(installationId: number): AccountEntitleme
   };
 }
 
-export function assertProtectCap(installationId: number): void {
-  const entitlements = getAccountEntitlements(installationId);
-  const { used, limit } = entitlements.protectedRepos;
-  if (limit > 0 && used >= limit) {
-    throw new CapExceededError(
-      `${entitlements.accountLogin} has used all ${limit} ${entitlements.plan.toUpperCase()} protected repositories`,
-      installationId,
-      "protected_repos",
-      entitlements,
-    );
-  }
-}
-
-export function assertPublicRepoAuditCap(
-  installationId: number,
-  githubRepoId: number,
-): void {
-  const alreadyAudited = !!getDb()
-    .prepare(
-      `SELECT 1 FROM public_repo_scans
-       WHERE installation_id = ? AND github_repo_id = ?
-       LIMIT 1`,
-    )
-    .get(installationId, githubRepoId);
-  if (alreadyAudited) return;
+export function assertRepositoryCap(installationId: number, githubRepoId: number): void {
+  if (repositoryUsesAllowance(installationId, githubRepoId)) return;
 
   const entitlements = getAccountEntitlements(installationId);
-  const { used, limit } = entitlements.publicRepoAudits;
+  const { used, limit } = entitlements.repositories;
   if (limit > 0 && used >= limit) {
     throw new CapExceededError(
-      `${entitlements.accountLogin} has used all ${limit} ${entitlements.plan.toUpperCase()} public repository audits. Re-auditing an existing repository remains free.`,
+      `${entitlements.accountLogin} has used all ${limit} ${entitlements.plan.toUpperCase()} repositories. Re-auditing or protecting the same repository remains free.`,
       installationId,
-      "public_repo_audits",
+      "repositories",
       entitlements,
     );
   }
