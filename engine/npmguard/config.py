@@ -38,7 +38,13 @@ class Settings(KitSettings):
     audit_price_cents: int = Field(default=500, ge=50)
 
     queue_size: int = Field(default=50, ge=1)
-    max_running_sessions: int = Field(default=100, ge=1)
+    # Sizes the audit worker pool = the HARD cap on concurrent audits, i.e.
+    # concurrent Docker sandboxes (each ~sandbox_memory_mb + node/strace/tcpdump
+    # overhead). Over-cap audits queue (bounded by queue_size), never drop, so a
+    # low value throttles rather than refuses. Kept conservative by default — a
+    # host with more RAM should raise it; a small host must not exceed what it can
+    # hold or a burst of audits OOMs the box.
+    max_running_sessions: int = Field(default=4, ge=1)
     shutdown_deadline_seconds: float = Field(default=10, gt=0)
 
     triage_model: str = "claude-haiku-4-5-20251001"
