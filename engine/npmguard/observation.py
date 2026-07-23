@@ -171,6 +171,15 @@ async def run_under_observation(
             start = await docker_exec(spec_to_docker_args(spec, container), 30_000)
         except FileNotFoundError as exc:
             raise DockerUnavailableError() from exc
+        except asyncio.CancelledError:
+            # `docker run -d` can have created the container daemon-side before the
+            # cancel landed, and the main try/finally below is not active yet — so a
+            # worker cancelled here (graceful shutdown / per-hypothesis timeout) would
+            # otherwise leak it. Remove it before re-raising; rm -f on a name that was
+            # never created is a harmless no-op.
+            with contextlib.suppress(Exception):
+                await docker_exec(["rm", "-f", container], 10_000)
+            raise
         if start.exit_code == 0:
             break
         await docker_exec(["rm", "-f", container], 10_000)
