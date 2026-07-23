@@ -1,0 +1,84 @@
+# Timeline — run_2167acaa5d9940b280339c07ff · trigger=entrypoint:lib/loader.js
+# setup: (none)
+
+── [L4] node calls — logical order, no clock ──
+e1    require  fs
+e2    require  http
+e3    require  https
+e4    require  child_process
+e5    require  crypto
+e6    require  inspector
+e7    require  module
+e8    script   require("/pkg/lib/loader.js")  [dynamically compiled · 29c]
+e9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]
+e10   script   require("/pkg/lib/loader.js")  [dynamically compiled · 29c]
+e11   require  /pkg/lib/loader.js
+e12   fs       /pkg/lib/loader.js (readFileSync)
+e13   require  crypto
+e14   require  fs
+e15   require  path
+e16   fs       /pkg/lib/stage2.enc (readFileSync)
+e17   crypto   createHash sha256
+e18   crypto   createDecipheriv aes-256-gcm
+e19   require  module
+e20   script   const fs = require('fs'); const path = require('path'); // Signal that we achieved code execution co…  [dynamically compiled · 256c]
+e21   require  fs
+e22   require  path
+e23   fs       /tmp/executed.flag (writeFileSync)
+
+── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──
+e24   t+0.18s       [L1]  exec     /usr/local/bin/node ["node", "--require", "/tmp/_instrument.js", "-e", "require(\\\"/pkg/lib/loader.js\\\")", "--", "/pkg/lib/loader.js"]
+e25   t+0.18s       [L1]  open     /etc/ld.so.cache
+e26   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2
+e27   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2
+e28   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6
+e29   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6
+e30   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6
+e31   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6
+e32   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e33   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e34   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0
+e35   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0
+e36   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6
+e37   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6
+e38   t+0.19s       [L1]  open     /etc/ssl/openssl.cnf
+e39   t+0.19-0.19s  [L1]  read     /etc/ssl/openssl.cnf  [x5]
+e40   t+0.19s       [L1]  open     /proc/version_signature
+e41   t+0.19s       [L1]  read     /proc/version_signature
+e42   t+0.19s       [L1]  write    fd:5
+e43   t+0.19-0.19s  [L1]  clone      [x10]
+e44   t+0.20s       [L1]  open     /proc/self/cgroup
+e45   t+0.20s       [L1]  read     /proc/self/cgroup
+e46   t+0.20s       [L1]  open     /sys/fs/cgroup//memory.max
+e47   t+0.20s       [L1]  read     /sys/fs/cgroup//memory.max
+e48   t+0.20s       [L1]  open     /sys/fs/cgroup//memory.high
+e49   t+0.20s       [L1]  read     /sys/fs/cgroup//memory.high
+e50   t+0.20s       [L1]  open     /proc/meminfo
+e51   t+0.20s       [L1]  read     /proc/meminfo
+e52   t+0.20s       [L1]  open     /proc/self/maps
+e53   t+0.20-0.20s  [L1]  read     /proc/self/maps  [x6]
+e54   t+0.20s       [L1]  open     /proc/self/maps
+e55   t+0.20s       [L1]  read     /proc/self/maps
+e56   t+0.22-0.22s  [L1]  clone      [x2]
+e57   t+0.23s       [L1]  open     /pkg/package.json
+e58   t+0.23s       [L1]  open     /tmp/npmguard-preload.js
+e59   t+0.23-0.23s  [L1]  read     /tmp/npmguard-preload.js  [x2]
+e60   t+0.24s       [L3]  modify   /pkg/lib/stage2.enc
+e61   t+0.24s       [L1]  open     /pkg/lib/stage2.enc
+e62   t+0.24s       [L1]  write    /pkg/lib/stage2.enc
+e63   t+0.24s       [L1]  open     /dev/null
+e64   t+0.24s       [L1]  write    stdout
+e65   t+0.24s       [L1]  open     /tmp/_instrument.js
+e66   t+0.24-0.24s  [L1]  read     /tmp/_instrument.js  [x2]
+e67   t+0.25-0.25s  [L1]  clone      [x2]
+e68   t+0.25-0.25s  [L1]  write    fd:16  [x2]
+e69   t+0.30s       [L1]  open     /pkg/lib/loader.js
+e70   t+0.30-0.30s  [L1]  read     /pkg/lib/loader.js  [x2]
+e71   t+0.30s       [L1]  open     /pkg/lib/stage2.enc
+e72   t+0.30-0.30s  [L1]  read     /pkg/lib/stage2.enc  [x2]
+e73   t+0.30s       [L1]  open     /tmp/executed.flag
+e74   t+0.30s       [L1]  write    /tmp/executed.flag
+e75   t+0.30-0.30s  [L1]  write    stdout  [x2]
+e76   t+0.30s       [L1]  read     fd:16
+e77   t+0.31s       [L1]  write    fd:12
+e78   t+0.31s       [L1]  read     fd:12

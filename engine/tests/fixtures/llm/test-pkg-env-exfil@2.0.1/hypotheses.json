@@ -1,0 +1,1015 @@
+[
+  {
+    "hypId": "hyp-0001",
+    "description": "The setup.js install hook unconditionally harvests environment variables, reads credential files, probes the IMDS endpoint, and exfiltrates all data to a hardcoded URL. This experiment plants a canary token and a fake .npmrc file, then triggers setup.js to confirm exfiltration occurs.",
+    "claim": {
+      "kind": "env_exfil",
+      "gating": "geo_gate"
+    },
+    "focusFiles": [
+      "setup.js"
+    ],
+    "focusLines": [
+      {
+        "file": "setup.js",
+        "range": "8-8"
+      },
+      {
+        "file": "setup.js",
+        "range": "9-9"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMGUARD_CANARY_TOKEN_f8e2d91a": "should_exfil",
+            "AWS_ACCESS_KEY_ID": "AKIATESTCANARY",
+            "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "HOME": "/home/node"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "//npmrc\n//registry.npmjs.org/:_authToken=test_canary_token_abc123\n"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "stubUrl",
+        "args": {
+          "stubs": [
+            {
+              "pattern": "http://localhost:9999/exfil*",
+              "responseStatus": 200,
+              "responseBody": "ok",
+              "responseHeaders": {}
+            },
+            {
+              "pattern": "http://169.254.169.254/latest/meta-data/*",
+              "responseStatus": 200,
+              "responseBody": "{\"instance-id\": \"i-1234567890abcdef0\"}",
+              "responseHeaders": {}
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "critical",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0002",
+    "description": "Trigger postinstall setup.js to exfiltrate planted secrets, demonstrating credential harvesting and IMDS probing.",
+    "claim": {
+      "kind": "cred_theft",
+      "gating": "docker_gate"
+    },
+    "focusFiles": [
+      "setup.js"
+    ],
+    "focusLines": [
+      {
+        "file": "setup.js",
+        "range": "11-11"
+      },
+      {
+        "file": "setup.js",
+        "range": "30-30"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMGUARD_CANARY_TOKEN_f8e2d91a": "secret-canary-value",
+            "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+            "CI": "true"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "//registry.npmjs.org/:_authToken=canary-npm-token\n"
+            },
+            {
+              "path": "/home/node/.ssh/id_rsa",
+              "content": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn\nNhAAAAAwEAAQAAAQEAoZ4L3wJt6u0LX+Xqz+n7p3Txv7p+qQIDAQABA\n-----END OPENSSH PRIVATE KEY-----\n"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "stubUrl",
+        "args": {
+          "stubs": [
+            {
+              "pattern": "http://localhost:9999/exfil",
+              "responseStatus": 200,
+              "responseBody": "ok",
+              "responseHeaders": {}
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "critical",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0003",
+    "description": "The flagged harvestEnv() in setup.js scans and collects all environment variables matching token/secret patterns, then exfiltrates them along with credential files and IMDS metadata. This test plants a canary token via env, triggers setup.js to execute the install script, and observes whether the token is harvested and exfiltrated to the configured exfil URL.",
+    "claim": {
+      "kind": "cred_theft",
+      "gating": "ci_gate"
+    },
+    "focusFiles": [
+      "setup.js"
+    ],
+    "focusLines": [
+      {
+        "file": "setup.js",
+        "range": "32-32"
+      },
+      {
+        "file": "setup.js",
+        "range": "46-46"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMGUARD_CANARY_TOKEN_f8e2d91a": "secret-canary-token-abc123"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "//registry.npmjs.org/:_authToken=npm_fake_auth_token_guardian"
+            },
+            {
+              "path": "/home/node/.ssh/id_rsa",
+              "content": "-----BEGIN OPENSSH PRIVATE KEY-----\nfake-ssh-key-content-for-testing\n-----END OPENSSH PRIVATE KEY-----"
+            },
+            {
+              "path": "/home/node/.aws/credentials",
+              "content": "[default]\naws_access_key_id = AKIAFAKEKEYID\naws_secret_access_key = wJalrXUtNFakeSecretKey\n"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "stubUrl",
+        "args": {
+          "stubs": [
+            {
+              "pattern": "http://localhost:9999/exfil",
+              "responseStatus": 200,
+              "responseBody": "",
+              "responseHeaders": {
+                "Content-Type": "text/plain"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "critical",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0004",
+    "description": "Probe whether setup.js exfiltrates planted credential files during install under the guise of environment detection. Place bait credential files and a unique canary token, then observe if they are read and exfiltrated to the stubbed endpoint.",
+    "claim": {
+      "kind": "cred_theft",
+      "gating": "ci_gate"
+    },
+    "focusFiles": [
+      "setup.js"
+    ],
+    "focusLines": [
+      {
+        "file": "setup.js",
+        "range": "48-48"
+      },
+      {
+        "file": "setup.js",
+        "range": "72-72"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMGUARD_CANARY_TOKEN_f8e2d91a": "canary-f8e2d91a-token"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "//registry.npmjs.org/:_authToken=npm_fake_token_abc123\nNPMGUARD_CANARY_TOKEN_f8e2d91a=planted"
+            },
+            {
+              "path": "/home/node/.ssh/id_rsa",
+              "content": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzczc1\n-----END OPENSSH PRIVATE KEY-----"
+            },
+            {
+              "path": "/home/node/.aws/credentials",
+              "content": "[default]\naws_access_key_id = AKIAFAKE123456789\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+            },
+            {
+              "path": "/home/node/.docker/config.json",
+              "content": "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"ZmFrZTpwYXNzd29yZA==\"}},\"credsStore\":\"desktop\"}"
+            },
+            {
+              "path": "/home/node/.gitconfig",
+              "content": "[user]\n\tname = Test User\n\temail = test@example.com"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "setDate",
+        "args": {
+          "iso": "2024-03-15T10:00:00.000Z"
+        }
+      },
+      {
+        "tool": "stubUrl",
+        "args": {
+          "stubs": [
+            {
+              "pattern": "http://169.254.169.254/latest/meta-data/*",
+              "responseStatus": 200,
+              "responseBody": "{\"instance-id\":\"i-1234567890abcdef0\",\"region\":\"us-east-1\",\"iam\":{\"security-credentials\":{\"role-name\":{\"code\":\"Success\"}}}}",
+              "responseHeaders": {
+                "Content-Type": "text/plain"
+              }
+            },
+            {
+              "pattern": "http://localhost:9999/exfil",
+              "responseStatus": 200,
+              "responseBody": "ok",
+              "responseHeaders": {
+                "Content-Type": "application/json"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "high",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0005",
+    "description": "Probe the IMDS (http://169.254.169.254/latest/meta-data/) triggered during setup.js execution, and exfiltrate harvested environment variables and credential file contents. Plant bait tokens in environment and files to confirm exfiltration.",
+    "claim": {
+      "kind": "env_exfil",
+      "gating": null
+    },
+    "focusFiles": [
+      "setup.js"
+    ],
+    "focusLines": [
+      {
+        "file": "setup.js",
+        "range": "74-74"
+      },
+      {
+        "file": "setup.js",
+        "range": "82-82"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMGUARD_CANARY_TOKEN_f8e2d91a": "sacrificial-canary-secret-12345",
+            "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+            "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "//registry.npmjs.org/:_authToken=npm_guard_canary_token_abc123\n"
+            },
+            {
+              "path": "/home/node/.ssh/id_rsa",
+              "content": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn\nNhAAAAAwEAAQAAAQEA1Bk7V7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7\n-----END OPENSSH PRIVATE KEY-----\n"
+            },
+            {
+              "path": "/home/node/.aws/credentials",
+              "content": "[default]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "stubUrl",
+        "args": {
+          "stubs": [
+            {
+              "pattern": "http://localhost:9999/exfil",
+              "responseStatus": 200,
+              "responseBody": "OK",
+              "responseHeaders": {}
+            },
+            {
+              "pattern": "http://169.254.169.254/latest/meta-data/*",
+              "responseStatus": 200,
+              "responseBody": "ami-id: ami-0abcdef1234567890\ninstance-id: i-1234567890abcdef0\npublic-ipv4: 203.0.113.42",
+              "responseHeaders": {}
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "high",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0006",
+    "description": "Exfiltrate harvested environment credentials via HTTP POST when setup.js is executed directly",
+    "claim": {
+      "kind": "env_exfil",
+      "gating": null
+    },
+    "focusFiles": [
+      "setup.js"
+    ],
+    "focusLines": [
+      {
+        "file": "setup.js",
+        "range": "84-84"
+      },
+      {
+        "file": "setup.js",
+        "range": "106-106"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPM_TOKEN": "npm_abc123secret",
+            "AWS_ACCESS_KEY_ID": "AKIA123456789",
+            "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "GITHUB_TOKEN": "ghp_githubtest123",
+            "MY_SECRET_KEY": "supersecretvalue"
+          }
+        }
+      },
+      {
+        "tool": "stubUrl",
+        "args": {
+          "stubs": [
+            {
+              "pattern": "http://localhost:9999/exfil",
+              "responseStatus": 200,
+              "responseBody": "captured",
+              "responseHeaders": {
+                "Content-Type": "text/plain"
+              }
+            },
+            {
+              "pattern": "http://169.254.169.254/latest/meta-data/*",
+              "responseStatus": 200,
+              "responseBody": "{\"instance-id\": \"i-1234567890abcdef0\"}",
+              "responseHeaders": {
+                "Content-Type": "text/plain"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "critical",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0007",
+    "description": "The package immediately collects hostname, username, environment variables, credential files, and IMDS metadata on module load, then exfiltrates them to localhost:9999/exfil via POST.",
+    "claim": {
+      "kind": "cred_theft",
+      "gating": "geo_gate"
+    },
+    "focusFiles": [
+      "setup.js"
+    ],
+    "focusLines": [
+      {
+        "file": "setup.js",
+        "range": "108-108"
+      },
+      {
+        "file": "setup.js",
+        "range": "118-118"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMGUARD_CANARY_TOKEN_f8e2d91a": "bait-canary",
+            "NPM_TOKEN": "npm_bait_token",
+            "AWS_ACCESS_KEY_ID": "AKIA123456",
+            "AWS_SECRET_ACCESS_KEY": "secret"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "//registry.npmjs.org/:_authToken=bait-token"
+            },
+            {
+              "path": "/home/node/.aws/credentials",
+              "content": "[default]\naws_access_key_id=AKIA123456\naws_secret_access_key=secret"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "stubUrl",
+        "args": {
+          "stubs": [
+            {
+              "pattern": "http://localhost:9999/exfil",
+              "responseStatus": 200,
+              "responseBody": "ok",
+              "responseHeaders": {}
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "critical",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0008",
+    "description": "Probe IMDS and exfiltrate all stolen data",
+    "claim": {
+      "kind": "cred_theft",
+      "gating": "docker_gate"
+    },
+    "focusFiles": [
+      "setup.js"
+    ],
+    "focusLines": [
+      {
+        "file": "setup.js",
+        "range": "120-120"
+      },
+      {
+        "file": "setup.js",
+        "range": "123-123"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPM_TOKEN": "npm_12345secrettoken",
+            "AWS_ACCESS_KEY_ID": "AKIA123456789",
+            "HOME": "/home/node"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "//registry.npmjs.org/:_authToken=npm_12345secrettoken"
+            },
+            {
+              "path": "/home/node/.ssh/id_rsa",
+              "content": "-----BEGIN RSA PRIVATE KEY-----\nFAKEKEYDATA\n-----END RSA PRIVATE KEY-----"
+            },
+            {
+              "path": "/home/node/.aws/credentials",
+              "content": "[default]\naws_access_key_id=AKIA123456789\naws_secret_access_key=secretkey123"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "stubUrl",
+        "args": {
+          "stubs": [
+            {
+              "pattern": "http://169.254.169.254/latest/meta-data/*",
+              "responseStatus": 200,
+              "responseBody": "ami-id: ami-123456\ninstance-id: i-1234567890\npublic-ip: 1.2.3.4",
+              "responseHeaders": {
+                "Content-Type": "text/plain"
+              }
+            },
+            {
+              "pattern": "http://localhost:9999/exfil",
+              "responseStatus": 200,
+              "responseBody": "ok",
+              "responseHeaders": {
+                "Content-Type": "text/plain"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "critical",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0009",
+    "description": "Trigger a benign code path that is guarded by SAFE_TEST_MODE. If the constant were false or removable, the observer would see a different behavior; here we verify it is true and used.",
+    "claim": {
+      "kind": "telemetry",
+      "gating": "time_gate"
+    },
+    "focusFiles": [
+      "index.js"
+    ],
+    "focusLines": [
+      {
+        "file": "index.js",
+        "range": "1-1"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMGUARD_CANARY_TOKEN_f8e2d91a": "canary_value"
+          }
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "setup.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "low",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0010",
+    "description": "If options.path is attacker-controlled, the expression `options.path || path.resolve(process.cwd(), '.env')` allows an attacker to supply an absolute path (e.g., /home/node/.npmrc) that bypasses the intended fallback and reads an arbitrary file. The flagged line does not sanitize the input, so passing a path like '/home/node/.npmrc' will read that file instead of .env. The experiment demonstrates this by planting a canary token into /home/node/.npmrc, then calling loadConfig with path='/home/node/.npmrc' and verifying the token appears in the returned config.",
+    "claim": {
+      "kind": "binary_drop",
+      "gating": "geo_gate"
+    },
+    "focusFiles": [
+      "index.js"
+    ],
+    "focusLines": [
+      {
+        "file": "index.js",
+        "range": "16-16"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "NPMGUARD_CANARY_TOKEN_f8e2d91a=secret_canary_value\n"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "index.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "high",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0011",
+    "description": "Attempt arbitrary file read via user-supplied `path` option in `loadConfig` function",
+    "claim": {
+      "kind": "persistence",
+      "gating": "inspector_gate"
+    },
+    "focusFiles": [
+      "index.js"
+    ],
+    "focusLines": [
+      {
+        "file": "index.js",
+        "range": "18-18"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMGUARD_CANARY_TOKEN_f8e2d91a": "TOKEN_IS_READ",
+            "MY_PREFIX": "somevalue"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.npmrc",
+              "content": "NPMGUARD_CANARY_TOKEN_f8e2d91a=TOKEN_IS_READ"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "index.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "high",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0012",
+    "description": "When process.env contains a key-value pair that matches a sensitive file path (e.g., /home/node/.npmrc), the config may be exposed via returned object, exfiltrating the content to the caller.",
+    "claim": {
+      "kind": "cred_theft",
+      "gating": "geo_gate"
+    },
+    "focusFiles": [
+      "index.js"
+    ],
+    "focusLines": [
+      {
+        "file": "index.js",
+        "range": "10-14"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "NPMRC": "//registry.npmjs.org/:_authToken=npm_f4k3_t0k3n_12345"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/pkg/npmguard-driver.js",
+              "content": "const { loadConfig } = require('./index.js');\nconst config = loadConfig();\n// Check if our planted env var made it into the config\nif (config.npmrc && config.npmrc.includes('npm_f4k3_t0k3n_12345')) {\n  console.log('BAIT_FOUND:', config.npmrc);\n} else {\n  console.log('No bait found in config');\n}\nconsole.log('Config keys:', Object.keys(config));"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "/pkg/npmguard-driver.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "high",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0013",
+    "description": "Use minimal .env parsing with no validation or escaping to inject unexpected config values via a planted .env file.",
+    "claim": {
+      "kind": "env_exfil",
+      "gating": null
+    },
+    "focusFiles": [
+      "index.js"
+    ],
+    "focusLines": [
+      {
+        "file": "index.js",
+        "range": "22-23"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "MYAPP_DATA": "db://localhost/admin",
+            "MYAPP_PORT": "6379"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/pkg/.env",
+              "content": "admin_user=root\nadmin_pass=secret\ndb_url=${MYAPP_DATA}\nport=${MYAPP_PORT}\nNPMGUARD_CANARY_TOKEN_f8e2d91a=exfiltrated\n"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "index.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "high",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  },
+  {
+    "hypId": "hyp-0014",
+    "description": "Test if the empty catch block misleads users into believing their `.env` file was parsed successfully when it was actually missing or unreadable, allowing attackers to silently drop poison configs onto disk and have them silently ignored, creating false security assumptions.",
+    "claim": {
+      "kind": "destructive",
+      "gating": "inspector_gate"
+    },
+    "focusFiles": [
+      "index.js"
+    ],
+    "focusLines": [
+      {
+        "file": "index.js",
+        "range": "25-27"
+      }
+    ],
+    "experiment": [
+      {
+        "tool": "setEnv",
+        "args": {
+          "env": {
+            "MYAPP_DB_HOST": "localhost",
+            "MYAPP_DB_PORT": "5432"
+          }
+        }
+      },
+      {
+        "tool": "plantFiles",
+        "args": {
+          "files": [
+            {
+              "path": "/home/node/.env",
+              "content": "db_host=should_override\nsecret_key=supersecret"
+            }
+          ]
+        }
+      },
+      {
+        "tool": "preload",
+        "args": {
+          "code": "const fs = require('fs');\nconst path = require('path');\n\n// Monkey-patch readFileSync to throw on .env files to simulate a permission error\nconst originalReadFileSync = fs.readFileSync;\nfs.readFileSync = function(...args) {\n  const filePath = typeof args[0] === 'string' ? args[0] : args[0].toString();\n  if (filePath.endsWith('.env')) {\n    console.log('[PRELOAD] .env file read attempted, throwing EACCES to simulate permission error');\n    const err = new Error('EACCES: permission denied');\n    err.code = 'EACCES';\n    err.errno = -13;\n    err.syscall = 'open';\n    err.path = filePath;\n    throw err;\n  }\n  return originalReadFileSync.apply(this, args);\n};\n\n// After loadConfig runs, check if the .env values were loaded\nconst origModuleLoad = require('module')._load;\nrequire('module')._load = function(request, parent, isMain) {\n  const exports = origModuleLoad.apply(this, arguments);\n  if (request === './index.js' || request === '/pkg/index.js') {\n    console.log('[PRELOAD] Detected loadConfig module load');\n    const config = exports.loadConfig({ prefix: 'MYAPP_' });\n    console.log('[PRELOAD] Config result:', JSON.stringify(config, null, 2));\n    // Check if .env values made it in\n    if (config.db_host === 'should_override') {\n      console.log('[PRELOAD] OUTCOME: .env silently parsed successfully (expected)');\n    } else {\n      console.log('[PRELOAD] OUTCOME: .env values MISSING - empty catch swallowed the error!');\n      console.log('[PRELOAD] DESTRUCTIVE: User expected .env to override but got no error or warning');\n    }\n  }\n  return exports;\n};"
+        }
+      },
+      {
+        "tool": "trigger",
+        "args": {
+          "kind": "entrypoint",
+          "target": "index.js",
+          "argv": [],
+          "stdin": null
+        }
+      }
+    ],
+    "severity": "low",
+    "parentHypId": null,
+    "childHypIds": [],
+    "state": "OPEN",
+    "createdBy": "hypothesize",
+    "evidenceRefs": [],
+    "createdAt": "2026-07-23T10:07:05.130438Z",
+    "resolvedAt": null,
+    "resolution": null
+  }
+]

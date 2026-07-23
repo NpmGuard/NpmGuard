@@ -1,0 +1,54 @@
+{
+  "id": "089_judge_7a8af3d6",
+  "role": "judge",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Judge one hypothesis against one observed execution timeline. The package's\nstated purpose is the benign baseline. Decide only from events in the timeline.\nA malicious decision must cite at least one exact event id present there. If the\nsuspected behavior did not happen, return malicious=false and no citations."
+        },
+        {
+          "role": "user",
+          "content": "## Stated purpose (benign baseline)\nDNS resolution with caching\n\n## Hypothesis hyp-0012\n- claim: persistence (gated: geo_gate)\n- severity: critical\n- description: When SAFE_TEST_MODE is set to true, the package executes a hidden AES-256-GCM decryption of a stage2 payload from stage2.enc and compiles it into the running Node process.\n- suspected code: lib/loader.js:1-10\n\n## Experiment setup\n[{\"tool\":\"preload\",\"args\":{\"code\":\"const crypto = require('crypto');\\nconst fs = require('fs');\\nconst path = require('path');\\n\\nconst _k1 = \\\"s4ndw0rm\\\";\\nconst _k2 = \\\"_k3y_\\\";\\nconst _k3 = \\\"2024\\\";\\nconst _k4 = \\\"_v3ry_s3cr3t\\\";\\nconst KEY_MATERIAL = _k1 + _k2 + _k3 + _k4;\\nconst key = crypto.createHash('sha256').update(KEY_MATERIAL).digest();\\n\\nconst payload = `\\nconst fs = require('fs');\\nconst path = require('path');\\nfs.writeFileSync('/tmp/stage2_loaded', 'PAYLOAD_ACTIVATED');\\nconsole.log('STAGE2 EXECUTED');\\n`;\\n\\nconst iv = crypto.randomBytes(16);\\nconst cipher = crypto.createCipheriv('aes-256-gcm', key, iv);\\nlet encrypted = cipher.update(payload, 'utf8', 'hex');\\nencrypted += cipher.final('hex');\\nconst authTag = cipher.getAuthTag();\\n\\nconst content = iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;\\nconst dir = '/pkg/lib';\\nif (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });\\nfs.writeFileSync(path.join(dir, 'stage2.enc'), content);\\nconsole.log('PRELOAD: stage2.enc created');\"}},{\"tool\":\"trigger\",\"args\":{\"kind\":\"entrypoint\",\"target\":\"lib/loader.js\",\"argv\":[],\"stdin\":null}}]\nSetup is test context, not proof. Use it to associate planted canary values with observed events; decide only from the timeline.\n\n## Execution timeline\n# Timeline — run_847d4d9cee6d4a2f8a154611eb · trigger=entrypoint:lib/loader.js\n# setup: (none)\n\n── [L4] node calls — logical order, no clock ──\ne1    require  fs\ne2    require  http\ne3    require  https\ne4    require  child_process\ne5    require  crypto\ne6    require  inspector\ne7    require  module\ne8    script   require(\"/pkg/lib/loader.js\")  [dynamically compiled · 29c]\ne9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]\ne10   script   require(\"/pkg/lib/loader.js\")  [dynamically compiled · 29c]\ne11   require  /pkg/lib/loader.js\ne12   fs       /pkg/lib/loader.js (readFileSync)\ne13   require  crypto\ne14   require  fs\ne15   require  path\ne16   fs       /pkg/lib/stage2.enc (readFileSync)\ne17   crypto   createHash sha256\ne18   crypto   createDecipheriv aes-256-gcm\ne19   require  module\ne20   script   const fs = require('fs'); const path = require('path'); fs.writeFileSync('/tmp/stage2_loaded', 'PAYL…  [dynamically compiled · 150c]\ne21   require  fs\ne22   require  path\ne23   fs       /tmp/stage2_loaded (writeFileSync)\n\n── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──\ne24   t+0.14s       [L1]  exec     /usr/local/bin/node [\"node\", \"--require\", \"/tmp/_instrument.js\", \"-e\", \"require(\\\\\\\"/pkg/lib/loader.js\\\\\\\")\", \"--\", \"/pkg/lib/loader.js\"]\ne25   t+0.14s       [L1]  open     /etc/ld.so.cache\ne26   t+0.14s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2\ne27   t+0.14s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2\ne28   t+0.14s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6\ne29   t+0.14s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6\ne30   t+0.14s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6\ne31   t+0.14s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6\ne32   t+0.14s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne33   t+0.14s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne34   t+0.14s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0\ne35   t+0.14s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0\ne36   t+0.14s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6\ne37   t+0.14s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6\ne38   t+0.15s       [L1]  open     /etc/ssl/openssl.cnf\ne39   t+0.15-0.15s  [L1]  read     /etc/ssl/openssl.cnf  [x5]\ne40   t+0.15s       [L1]  open     /proc/version_signature\ne41   t+0.15s       [L1]  read     /proc/version_signature\ne42   t+0.15s       [L1]  write    fd:5\ne43   t+0.16-0.16s  [L1]  clone      [x10]\ne44   t+0.16s       [L1]  open     /proc/self/cgroup\ne45   t+0.16s       [L1]  read     /proc/self/cgroup\ne46   t+0.16s       [L1]  open     /sys/fs/cgroup//memory.max\ne47   t+0.16s       [L1]  read     /sys/fs/cgroup//memory.max\ne48   t+0.16s       [L1]  open     /sys/fs/cgroup//memory.high\ne49   t+0.16s       [L1]  read     /sys/fs/cgroup//memory.high\ne50   t+0.16s       [L1]  open     /proc/meminfo\ne51   t+0.16s       [L1]  read     /proc/meminfo\ne52   t+0.16s       [L1]  open     /proc/self/maps\ne53   t+0.16-0.16s  [L1]  read     /proc/self/maps  [x6]\ne54   t+0.16s       [L1]  open     /proc/self/maps\ne55   t+0.16s       [L1]  read     /proc/self/maps\ne56   t+0.18-0.18s  [L1]  clone      [x2]\ne57   t+0.19s       [L1]  open     /pkg/package.json\ne58   t+0.19s       [L1]  open     /tmp/npmguard-preload.js\ne59   t+0.19-0.19s  [L1]  read     /tmp/npmguard-preload.js  [x2]\ne60   t+0.19s       [L3]  modify   /pkg/lib/stage2.enc\ne61   t+0.19s       [L1]  open     /pkg/lib/stage2.enc\ne62   t+0.20s       [L1]  write    /pkg/lib/stage2.enc\ne63   t+0.20s       [L1]  open     /dev/null\ne64   t+0.20s       [L1]  write    stdout\ne65   t+0.20s       [L1]  open     /tmp/_instrument.js\ne66   t+0.20-0.20s  [L1]  read     /tmp/_instrument.js  [x2]\ne67   t+0.20-0.20s  [L1]  clone      [x2]\ne68   t+0.20-0.21s  [L1]  write    fd:16  [x2]\ne69   t+0.26s       [L1]  open     /pkg/lib/loader.js\ne70   t+0.26-0.26s  [L1]  read     /pkg/lib/loader.js  [x2]\ne71   t+0.26s       [L1]  open     /pkg/lib/stage2.enc\ne72   t+0.26-0.26s  [L1]  read     /pkg/lib/stage2.enc  [x2]\ne73   t+0.26s       [L1]  open     /tmp/stage2_loaded\ne74   t+0.26s       [L1]  write    /tmp/stage2_loaded\ne75   t+0.26-0.26s  [L1]  write    stdout  [x2]\ne76   t+0.26s       [L1]  read     fd:16\ne77   t+0.27s       [L1]  write    fd:12\ne78   t+0.27s       [L1]  read     fd:12\n\n## Task\nDid the suspected behavior happen? Cite exact timeline ids for malicious=true."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-7a8af3d6",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Ambient",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"malicious\": true,\n  \"citations\": [\"e16\", \"e18\", \"e23\"]\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 2581,
+        "completion_tokens": 27,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "97539fc621ac",
+    "transport": "json_object",
+    "recordedStatus": "invalid_output",
+    "recordedTs": "2026-07-23T10:53:50.925Z",
+    "recordedLatencyMs": 10755
+  }
+}

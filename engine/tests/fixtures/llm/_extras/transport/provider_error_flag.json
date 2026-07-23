@@ -1,0 +1,44 @@
+{
+  "id": "extra_provider_error_flag",
+  "role": "flag",
+  "kind": "completion",
+  "synthesized": true,
+  "key": {
+    "model": "deepseek/deepseek-v4-flash",
+    "messagesSha256": "f08cf8a537705114f6a1ed02eceb20622322d235c5b3829cbbbafaa3070d7d77"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "__SYNTHETIC_FLAG_SYSTEM__"
+        },
+        {
+          "role": "user",
+          "content": "__SYNTHETIC_TRANSPORT_PROBE__"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-synth-noc",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "synthetic",
+      "choices": [],
+      "usage": {
+        "prompt_tokens": 10,
+        "completion_tokens": 0,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "note": "200 with no choices \u2192 ProviderResponseError \u2192 chain advances (provider_error capture row)."
+}

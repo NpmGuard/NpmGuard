@@ -1,0 +1,54 @@
+{
+  "id": "010_hypothesis_b219178b",
+  "role": "hypothesis",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis and a runnable\nexperiment. Plant bait, defeat visible gates, and trigger a real package entry\npoint. You are not the final judge; the observed run decides. Never dismiss a\nflag because the code appears benign."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: Smart configuration loader with environment detection\n- expectedCapabilities: load configuration files, detect environment variables, parse .env files\n\n## Flag\n- file: index.js\n- lines: 18-18\n- why: Reads file synchronously using user-supplied path — possible arbitrary file read\n\n## Entry points\n- install: setup.js\n- runtime: index.js\n- bin: (none)\n\n## Flagged code\n### index.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const path = require(\"path\");\n4: const fs = require(\"fs\");\n5: \n6: function loadConfig(options = {}) {\n7:   const config = {};\n8:   const prefix = options.prefix || \"\";\n9: \n10:   for (const [key, value] of Object.entries(process.env)) {\n11:     if (prefix && !key.startsWith(prefix)) continue;\n12:     const configKey = prefix ? key.slice(prefix.length) : key;\n13:     config[configKey.toLowerCase()] = value;\n14:   }\n15: \n16:   const envPath = options.path || path.resolve(process.cwd(), \".env\");\n17:   try {\n18:     const content = fs.readFileSync(envPath, \"utf-8\");\n19:     for (const line of content.split(\"\\n\")) {\n20:       const trimmed = line.trim();\n21:       if (!trimmed || trimmed.startsWith(\"#\")) continue;\n22:       const [key, ...rest] = trimmed.split(\"=\");\n23:       config[key.trim().toLowerCase()] = rest.join(\"=\").trim();\n24:     }\n25:   } catch (e) {\n26: \n27:   }\n28: \n29:   return config;\n30: }\n31: \n32: module.exports = { loadConfig };\n```\n\n## Available setup mechanisms\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nReturn one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. Set triggerTarget to exactly one of: index.js, setup.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg.\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-b219178b",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Parasail",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"description\": \"Attempt arbitrary file read via user-supplied `path` option in `loadConfig` function\",\n  \"claim\":  {\n    \"kind\": \"persistence\",\n    \"gating\":  \"inspector_gate\"\n  },\n  \"severity\": \"high\",\n  \"setup\": {\n    \"environment\": [\n      {\n        \"name\": \"NPMGUARD_CANARY_TOKEN_f8e2d91a\",\n        \"value\": \"TOKEN_IS_READ\"\n      },\n      {\n        \"name\": \"MY_PREFIX\",\n        \"value\": \"somevalue\"\n      }\n    ],\n    \"files\": [\n      {\n        \"path\": \"/home/node/.npmrc\",\n        \"content\": \"NPMGUARD_CANARY_TOKEN_f8e2d91a=TOKEN_IS_READ\"\n      }\n    ],\n    \"dateIso\": null,\n    \"urlStubs\": [],\n    \"filePatches\": [],\n    \"preloadCode\": null\n  },\n  \"triggerTarget\": \"index.js\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 843,
+        "completion_tokens": 233,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "71b8d4f63898",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:07:26.948Z",
+    "recordedLatencyMs": 4537
+  }
+}
