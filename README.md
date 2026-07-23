@@ -149,11 +149,11 @@ tests, and deploy instructions (Foundry).
 |---|---|
 | `cli/` | `npmguard-cli` — the user-facing CLI (`install`, `audit`, `check`) |
 | `engine/` | FastAPI audit engine, durable state, LLM orchestration, and sandbox control |
-| `frontend/` | React + Vite dashboard — live audit streaming via SSE |
+| `frontend/` | React + Vite dashboard — live audit streaming via SSE. Slated for a from-scratch rebuild; treat the current code as reference only. |
 | `contracts/` | `NpmGuardAuditRequest.sol` + Foundry tests + deploy scripts |
 | `sandbox/` | Dynamic exploitation harness (Vitest) |
-| `deploy/` | Systemd units, nginx config, webhook listener, deploy script |
-| `docs/` | Architecture docs, research notes, production guides |
+| `deploy/` | Reusable deploy modules (systemd, nginx, Ubuntu provisioner) + playbook |
+| `docs/` | System docs (specs, architecture, audits) + `reference/` (research, craft guides) |
 
 ## Run locally
 
@@ -178,20 +178,9 @@ node dist/index.js --api http://localhost:8000 install is-number
 
 ## Deploy
 
-Production runs on a single DigitalOcean droplet (209.38.42.28):
-
-- `npmguard.service` — the FastAPI engine on `:8000`
-- `npmguard-webhook.service` — GitHub push webhook listener on `127.0.0.1:9000`
-- nginx reverse proxy with Let's Encrypt (`npmguard.com`)
-- Cloudflare in front of `npmguard.com`; `/deploy-webhook` accessed via
-  raw IP to bypass Cloudflare (GitHub webhook only)
-
-The webhook receives pushes to `main`, validates the HMAC-SHA256
-signature, and spawns `deploy/pull-and-restart.sh` which pulls, runs
-syncs the uv environment, runs Alembic migrations, builds the frontend, and
-restarts systemd services.
-
-Full playbook: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md)
+`deploy/` holds reusable modules (systemd unit, nginx config, Ubuntu
+provisioner) and a minimal playbook for running them on a generic Ubuntu
+host. Deploys are manual. See [deploy/README.md](deploy/README.md).
 
 ## Tech Stack
 
@@ -206,7 +195,7 @@ Full playbook: [docs/ops/DEPLOYMENT_PLAYBOOK.md](docs/ops/DEPLOYMENT_PLAYBOOK.md
 | Chain RPC | [Alchemy](https://alchemy.com/) Base Sepolia (+ public fallback) |
 | Storage | Filesystem reports plus SQLite/Postgres durable sessions/events/payment claims — no IPFS, no RPC writes |
 | CLI | TypeScript, zero blockchain deps in the binary — wallet signs, engine verifies |
-| Hosting | [DigitalOcean](https://www.digitalocean.com/) + nginx + Let's Encrypt |
+| Hosting | Any Ubuntu host — nginx + systemd, see `deploy/` |
 
 ## Team
 

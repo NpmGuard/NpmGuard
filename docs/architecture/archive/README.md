@@ -11,7 +11,3 @@ Kept for history and context only. Do not treat as current design.
 
 - `ARCHITECT_REVIEW_ENGINE.md` — original v2 hypothesis-graph design (2026-04-18 / 05-05)
 - `ARCHITECT_REVIEW_ENGINE_V2_CUTOVER.md` — the v2-native cutover plan (2026-07-07)
-
-Note: the currently *deployed* engine code still matches the cutover doc (committed
-`4a56ac8`, running on the dev box :8100). Archiving the specs does not change that code —
-it marks the design direction as replaced.
