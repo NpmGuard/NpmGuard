@@ -40,12 +40,49 @@ def _reasoning_for(slug: str) -> ReasoningControl | None:
     return _REASONING.get(slug)
 
 
+# Cross-provider free fallbacks appended after the primary model's transport
+# chain on EVERY role. When the primary (deepseek) route fails — timeout, provider
+# abort, or exhausted repair — the client advances the chain (client.py:515/528/620)
+# to these instead of hard-ERRORing the audit; without a DIFFERENT model here a
+# provider outage kills every entry (the whole chain is one model), which is what
+# turned a deepseek latency window into a 14/15-ERROR benchmark run. Two distinct
+# providers so an NVIDIA free-tier outage still falls through to Cohere. Both probed
+# for valid json_object output + correct malicious-code detection AND for tool-calling
+# (Cohere 3/3, Nemotron 2/3 — one free-tier rate-limit, successes clean). StrictSchema
+# is NOT verified, so structured roles pin them to JsonObject; the tool-calling agent
+# role gets them transport-free (offered tools suppress the response format anyway —
+# client.py:467). ``:free`` = no budget cost; prices are pinned to zero so spend
+# accounting does not apply the expensive-fallback rate.
+_FALLBACK_SLUGS: tuple[str, ...] = (
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "cohere/north-mini-code:free",
+)
+
+
+def _fallback_specs(
+    timeout_ms: int, max_output_tokens: int, *, transport: JsonObject | None
+) -> tuple[ModelSpec, ...]:
+    return tuple(
+        ModelSpec(
+            slug,
+            timeout_ms=timeout_ms,
+            max_output_tokens=max_output_tokens,
+            transport=transport,
+            reasoning=_reasoning_for(slug),
+            prices=(0.0, 0.0),
+        )
+        for slug in _FALLBACK_SLUGS
+    )
+
+
 def _union_chain(slug: str, timeout_ms: int, max_output_tokens: int) -> tuple[ModelSpec, ...]:
-    """strict→json transport-fallback for one route. The two measured
-    transport finalists fail on DISJOINT cases (hyp-confirm-v1: 52/64 semantic
-    each, union 62/64), so listing the same model under StrictSchema then
-    JsonObject recovers misses either transport alone would keep. There is no
-    provider-independent best transport — the chain IS the choice."""
+    """strict→json transport-fallback for one route, then the cross-provider
+    free model_fallback tail. The two measured transport finalists fail on
+    DISJOINT cases (hyp-confirm-v1: 52/64 semantic each, union 62/64), so listing
+    the same model under StrictSchema then JsonObject recovers misses either
+    transport alone would keep. There is no provider-independent best transport —
+    the chain IS the choice. The trailing _fallback_specs make the chain survive a
+    total outage of the primary model, not just a transport miss."""
     reasoning = _reasoning_for(slug)
     return (
         ModelSpec(
@@ -62,7 +99,7 @@ def _union_chain(slug: str, timeout_ms: int, max_output_tokens: int) -> tuple[Mo
             transport=JsonObject(),
             reasoning=reasoning,
         ),
-    )
+    ) + _fallback_specs(timeout_ms, max_output_tokens, transport=JsonObject())
 
 
 def _model(settings: Settings, model: str) -> str:
@@ -146,7 +183,12 @@ def build_npmguard_llm(
                     max_output_tokens=3_000,
                     reasoning=_reasoning_for(investigation),
                 ),
-            ),
+            )
+            # transport-free fallbacks: offered tools suppress response_format
+            # (client.py:467), so these matter only if they tool-call — verified
+            # for both slugs (see _FALLBACK_SLUGS), so a deepseek outage here now
+            # advances to a working tool-caller instead of failing to arm.
+            + _fallback_specs(timeout, 3_000, transport=None),
             output=None,
         ),
         Role(
