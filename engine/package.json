@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "ensv2:subname": "tsx scripts/ensv2-subname.ts",
     "smoke:llm": "tsx scripts/smoke-llm.ts",
+    "certificates:anchor": "tsx scripts/anchor-certificates.ts",
     "storage:publish": "tsx scripts/publish-storage.ts",
     "test": "vitest run",
     "test:watch": "vitest"

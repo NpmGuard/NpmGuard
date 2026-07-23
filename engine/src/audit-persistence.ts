@@ -1,5 +1,8 @@
 import type { AuditReport } from "./models.js";
-import { saveReport } from "./report-store.js";
+import { anchorCertificateAfterAudit } from "./certificate-anchor.js";
+import { buildAuditCertificate, type AuditCertificate } from "./certificates.js";
+import { loadCertificate, saveCertificate } from "./certificate-store.js";
+import { loadReport, saveReport } from "./report-store.js";
 import { saveStoragePublication } from "./storage-store.js";
 import { publishAuditStorage } from "./storage/publisher.js";
 
@@ -13,8 +16,33 @@ export function persistAuditReport(
   packageName: string,
   requestedVersion: string,
   report: AuditReport,
+  options: { anchor?: boolean } = {},
 ): string {
-  return saveReport(packageName, requestedVersion, report);
+  const realVersion = saveReport(packageName, requestedVersion, report);
+  const certificate = ensureAuditCertificate(packageName, realVersion);
+  if (certificate && options.anchor !== false) {
+    anchorCertificateAfterAudit(certificate);
+  }
+  return realVersion;
+}
+
+export function ensureAuditCertificate(
+  packageName: string,
+  version: string,
+): AuditCertificate | null {
+  const persisted = loadReport(packageName, version);
+  if (!persisted) return null;
+
+  const candidate = buildAuditCertificate({
+    packageName,
+    version: persisted.version,
+    report: persisted.report,
+  });
+  const existing = loadCertificate(packageName, persisted.version);
+  if (existing?.report.hash === candidate.report.hash) return existing;
+
+  saveCertificate(candidate);
+  return candidate;
 }
 
 export function publishStorageArtifactsAfterAudit(options: {

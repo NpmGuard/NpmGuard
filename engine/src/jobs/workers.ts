@@ -1,7 +1,7 @@
 import { handleDangerousVerdict } from "../alerts/notify.js";
+import { persistAuditReport } from "../audit-persistence.js";
 import { config } from "../config.js";
 import { runAudit } from "../pipeline.js";
-import { saveReport } from "../report-store.js";
 import { refreshPublicScansTouching } from "../scan/public-repo-scan.js";
 import { refreshScansTouching } from "../scan/repo-scan.js";
 import { upsertVerdict } from "../verdict-index.js";
@@ -68,7 +68,9 @@ async function runJob(job: JobRow): Promise<void> {
       undefined,
       job.version,
     );
-    saveReport(job.package_name, job.version, report); // saved-hook indexes the real version
+    // Repository/watch jobs create certificates, but wait for scan completion
+    // before publishing one Merkle batch instead of one transaction per package.
+    persistAuditReport(job.package_name, job.version, report, { anchor: false });
     try {
       cleanup();
     } catch {
