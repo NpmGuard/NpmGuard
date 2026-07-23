@@ -54,6 +54,9 @@ async def provision_dependencies(package_path: Path, settings: Settings) -> Depe
     an install failure can never be laundered into a false SAFE verdict.
     """
     if (package_path / "node_modules").exists():
+        # package_path is this run's private copy (ResolvedPackage invariant), so
+        # node_modules here means the package SHIPS it (e.g. bundledDependencies)
+        # — it can never be residue observed from a previous audit run.
         return DependencyProvision(False, 0, skipped_reason="node_modules already present")
     deps = _runtime_dependencies(package_path)
     if not deps:
