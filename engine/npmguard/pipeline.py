@@ -172,7 +172,7 @@ class AuditPipeline:
         resolved, phase = await _timed_phase(
             "resolve",
             lambda: resolve_package(package_name, version),
-            120_000,
+            240_000,
             {"packageName": package_name, "version": version},
             lambda value: {"path": str(value.path), "needsCleanup": value.needs_cleanup},
             emitter,
@@ -212,7 +212,7 @@ class AuditPipeline:
             inventory, phase = await _timed_phase(
                 "inventory",
                 lambda: analyze_inventory(resolved.path),
-                30_000,
+                60_000,
                 {"packagePath": str(resolved.path)},
                 lambda value: {
                     "fileCount": len(value.files),
@@ -274,7 +274,7 @@ class AuditPipeline:
             intent, phase = await _timed_phase(
                 "intent-extraction",
                 lambda: extract_intent(resolved.path, inventory, self.llm, audit_id),
-                60_000,
+                120_000,
                 {
                     "packageName": inventory.metadata.name,
                     "description": inventory.metadata.description,
@@ -296,7 +296,7 @@ class AuditPipeline:
             flagged, phase = await _timed_phase(
                 "flag",
                 lambda: run_flag(resolved.path, inventory, intent, self.llm, audit_id, emitter),
-                300_000 * timeout_scale,
+                600_000 * timeout_scale,
                 {
                     "sourceFiles": [
                         {"path": file.path, "sizeBytes": file.sizeBytes} for file in sources
@@ -328,7 +328,7 @@ class AuditPipeline:
                     audit_id=audit_id,
                     emitter=emitter,
                 ),
-                300_000 * timeout_scale,
+                1_200_000 * timeout_scale,
                 {"flagCount": len(flagged.flags)},
                 lambda values: {
                     "hypothesisCount": len(values),
@@ -380,7 +380,7 @@ class AuditPipeline:
                 log=log,
                 emitter=emitter,
                 stated_purpose=intent.statedPurpose,
-                global_budget_ms=600_000 * timeout_scale,
+                global_budget_ms=2_400_000 * timeout_scale,
                 settings=self.settings,
                 llm=self.llm,
             )
