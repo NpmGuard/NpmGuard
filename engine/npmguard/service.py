@@ -10,7 +10,7 @@ import structlog
 from kit_stream import StreamService
 
 from .errors import NpmGuardError, QueueFullError
-from .events import AuditEmitter
+from .events import AuditEmitter, audit_channel
 from .persistence import AuditSession, AuditSessionStore
 from .pipeline import AuditPipeline
 from .report_store import save_report
@@ -99,13 +99,32 @@ class AuditService:
         retryable in the durable event log and session state.
         """
         for session in await self.sessions.running():
-            emitter = AuditEmitter(session.audit_id, self.stream)
             message = "Audit interrupted by engine restart"
-            await emitter.emit(
-                "audit_error",
-                {"error": message, "code": "NPMGUARD-0031", "retryable": True},
+            await self._finish(
+                session.audit_id,
+                error=message,
+                event_type="audit_error",
+                payload={"error": message, "code": "NPMGUARD-0031", "retryable": True},
             )
-            await self.sessions.finalize(session.audit_id, None, message)
+
+    async def _finish(
+        self,
+        audit_id: str,
+        *,
+        event_type: str,
+        payload: dict[str, Any],
+        report: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> None:
+        # INVARIANT: the running->terminal row transition and the terminal event
+        # (verdict_reached | audit_error) commit in ONE transaction. No consumer
+        # can observe a terminal frame for a non-terminal row; a failed append
+        # rolls the row back to 'running', where restart recovery
+        # (_fail_interrupted) repairs it — never a terminal row with no
+        # terminal event, and never a suppressed emit stranding a follower.
+        async with self.sessions.transaction() as db:
+            await self.sessions.finalize(audit_id, report, error, session=db)
+            await self.stream.append(audit_channel(audit_id), event_type, payload, session=db)
 
     async def _execute(self, session: AuditSession) -> dict[str, Any]:
         emitter = AuditEmitter(session.audit_id, self.stream)
@@ -116,21 +135,41 @@ class AuditService:
                 version=session.requested_version,
                 emitter=emitter,
             )
-            report = result.report.model_dump(mode="json", exclude_none=False)
-            await self.sessions.finalize(session.audit_id, report)
-            save_report(session.package_name, session.requested_version or "latest", result.report)
-            result.cleanup()
+            try:
+                report = result.report.model_dump(mode="json", exclude_none=False)
+                # INVARIANT: terminal order is report-file, THEN row+event. The
+                # report is durable on disk before the row leaves 'running',
+                # and verdict_reached commits atomically with running->done —
+                # a client acting on the terminal frame always finds the
+                # persisted report.
+                save_report(
+                    session.package_name, session.requested_version or "latest", result.report
+                )
+                await self._finish(
+                    session.audit_id,
+                    report=report,
+                    event_type="verdict_reached",
+                    payload={
+                        "verdict": result.report.verdict,
+                        "rationale": result.report.rationale,
+                        "counts": result.report.counts.model_dump(mode="json"),
+                        "confirmedCount": result.report.counts.confirmed,
+                    },
+                )
+            finally:
+                # unconditional: a save/finalize failure must not leak the workspace
+                result.cleanup()
             return report
         except Exception as exc:
             message = str(exc) or type(exc).__name__
             code = exc.code if isinstance(exc, NpmGuardError) else "NPMGUARD-9999"
             retryable = exc.retryable if isinstance(exc, NpmGuardError) else False
-            with contextlib.suppress(Exception):
-                await emitter.emit(
-                    "audit_error",
-                    {"error": message, "code": code, "retryable": retryable},
-                )
-            await self.sessions.finalize(session.audit_id, None, message)
+            await self._finish(
+                session.audit_id,
+                error=message,
+                event_type="audit_error",
+                payload={"error": message, "code": code, "retryable": retryable},
+            )
             log.exception(
                 "audit failed",
                 audit_id=session.audit_id,

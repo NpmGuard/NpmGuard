@@ -1,6 +1,7 @@
 # CLASS MAP — AuditSessionStore sessions + exact-once payment claims
 # (seam: real DB per test; sqlite default, postgres race variant env-gated)
-# Axes: claim concurrency, claim conflict shape, durability across process restart
+# Axes: claim concurrency, claim conflict shape, durability across process
+#       restart, finalize lifecycle guard
 #   C1 12-way concurrent claim, same key → exactly one created, one audit id
 #      [sqlite — writers serialize, so this proves ordering, not MVCC]
 #   C2 same class on postgres (true concurrent writers) — the only honest proof
@@ -13,10 +14,19 @@
 #      create(), claim_payment inserts its running session with NO cap check,
 #      so PAID audits bypass the session cap entirely (api.py routes all paid
 #      launches through claim_payment). Intended-or-hole: a maintainer decision.
+#   C7 finalize guard — INVARIANT: finalize transitions exactly one row
+#      running->done|error; a re-finalize (the old silent done->error overwrite)
+#      and a finalize of a nonexistent audit_id both RAISE, and the terminal row
+#      is never overwritten.
+#   C8 transaction() seam — a raise inside the block rolls back a joined
+#      finalize (row stays running); this is what makes the row transition and
+#      the terminal-event append atomic in AuditService._finish.
 # Adversarial pass: 2026-07-23/W6 — C1 alone was vacuous for the concurrency
 # clause (sqlite serializes); C2/C3/C5 add the MVCC, atomicity, and restart axes.
 # Adversarial pass: 2026-07-23/A1 — the Claim axis and the Cap axis never
 # intersected in any file; C6 adds the missing claim×cap class as a pin.
+# Invariant pass: 2026-07-23/lifecycle-coherence — finalize was an unconditional
+# UPDATE (no rowcount, no WHERE status); C7/C8 assert the enforced guard.
 import asyncio
 import os
 
@@ -121,6 +131,39 @@ async def test_session_state_is_durable(db) -> None:
     assert restored is not None
     assert restored.status == "done"
     assert restored.report == {"verdict": "SAFE"}
+
+
+async def test_finalize_requires_exactly_one_running_row(db) -> None:
+    """C7 — INVARIANT: finalize transitions exactly one row running->done|error.
+    A second finalize (the old silent done->error flip after a post-finalize
+    failure) raises and leaves the terminal row untouched; a finalize of a
+    nonexistent audit_id raises instead of updating zero rows."""
+    store, _engine = db
+    session = await store.create("left-pad", "1.3.0")
+    await store.finalize(session.audit_id, {"verdict": "SAFE"})
+    with pytest.raises(AssertionError, match="matched 0 running rows"):
+        await store.finalize(session.audit_id, None, "late failure")
+    restored = await store.get(session.audit_id)
+    assert restored is not None
+    assert restored.status == "done"  # the terminal row was never overwritten
+    assert restored.error is None
+    with pytest.raises(AssertionError, match="matched 0 running rows"):
+        await store.finalize("no-such-audit", {"verdict": "SAFE"})
+
+
+async def test_transaction_rolls_back_composed_writes(db) -> None:
+    """C8: an exception inside transaction() rolls back the joined finalize —
+    the row is still 'running'. AuditService._finish relies on this to keep the
+    running->terminal transition and the terminal-event append atomic."""
+    store, _engine = db
+    session = await store.create("left-pad", "1.3.0")
+    with pytest.raises(RuntimeError, match="append failed"):
+        async with store.transaction() as joined:
+            await store.finalize(session.audit_id, {"verdict": "SAFE"}, session=joined)
+            raise RuntimeError("append failed")
+    restored = await store.get(session.audit_id)
+    assert restored is not None
+    assert restored.status == "running"  # nothing committed — recovery can repair
 
 
 async def test_claim_payment_bypasses_session_cap_pinned(tmp_path) -> None:

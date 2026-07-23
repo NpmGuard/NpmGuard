@@ -125,19 +125,6 @@ def _report(
     )
 
 
-async def _emit_verdict(emitter: AuditEmitter | None, report: AuditReport) -> None:
-    if emitter:
-        await emitter.emit(
-            "verdict_reached",
-            {
-                "verdict": report.verdict,
-                "rationale": report.rationale,
-                "counts": report.counts,
-                "confirmedCount": report.counts.confirmed,
-            },
-        )
-
-
 class AuditPipeline:
     def __init__(
         self,
@@ -164,6 +151,10 @@ class AuditPipeline:
         version: str | None = None,
         emitter: AuditEmitter | None = None,
     ) -> AuditResult:
+        # INVARIANT: run() RETURNS its report and never emits a terminal frame
+        # (verdict_reached | audit_error). The service owns the terminal
+        # transition — report durable on disk, then row running->terminal and
+        # the terminal event in one transaction (AuditService._finish).
         log = AuditLog(package_name)
         artifacts = ArtifactStore(log.run_dir)
         trace: list[PhaseLog] = []
@@ -174,7 +165,7 @@ class AuditPipeline:
             lambda: resolve_package(package_name, version),
             240_000,
             {"packageName": package_name, "version": version},
-            lambda value: {"path": str(value.path), "needsCleanup": value.needs_cleanup},
+            lambda value: {"path": str(value.path), "version": value.version},
             emitter,
         )
         trace.append(phase)
@@ -182,8 +173,8 @@ class AuditPipeline:
             "resolve.json",
             {
                 "path": str(resolved.path),
-                "needsCleanup": resolved.needs_cleanup,
-                "tmpdir": str(resolved.tmpdir) if resolved.tmpdir else None,
+                "workdir": str(resolved.workdir),
+                "version": resolved.version,
             },
         )
         await self.sessions.set_package_path(audit_id, str(resolved.path))
@@ -268,7 +259,6 @@ class AuditPipeline:
                     trace=trace,
                 )
                 log.write("report.json", report)
-                await _emit_verdict(emitter, report)
                 return AuditResult(report, resolved.path, resolved)
 
             intent, phase = await _timed_phase(
@@ -314,7 +304,6 @@ class AuditPipeline:
                 await _emit_file_verdicts(flagged.fileSummaries, [], emitter)
                 report = _report(graph, flagged.fileSummaries, trace)
                 log.write("report.json", report)
-                await _emit_verdict(emitter, report)
                 return AuditResult(report, resolved.path, resolved)
 
             hypotheses, phase = await _timed_phase(
@@ -419,7 +408,6 @@ class AuditPipeline:
                 },
             )
             log.write("report.json", report)
-            await _emit_verdict(emitter, report)
             return AuditResult(report, resolved.path, resolved)
         except Exception:
             cleanup_package(resolved)
