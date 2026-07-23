@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from kit_stream import StreamService
+from kit_stream.service import READ_BATCH
 
 TERMINAL_EVENTS = frozenset({"verdict_reached", "audit_error"})
 
@@ -72,7 +73,7 @@ async def sse_events(
             for envelope in rows:
                 cursor = envelope["seq"]
                 yield _format_event(audit_id, envelope)
-            if len(rows) < 500:
+            if len(rows) < READ_BATCH:
                 return
 
     async for frame in stream.sse(channel, after, heartbeat):

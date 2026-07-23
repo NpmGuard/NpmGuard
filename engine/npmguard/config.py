@@ -34,7 +34,11 @@ class Settings(KitSettings):
     cre_api_key: str | None = None
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
+    stripe_api_base: str | None = None
     audit_price_cents: int = Field(default=500, ge=50)
+
+    queue_size: int = Field(default=50, ge=1)
+    max_running_sessions: int = Field(default=100, ge=1)
 
     triage_model: str = "claude-haiku-4-5-20251001"
     triage_max_files: int = Field(default=80, ge=1, le=1000)

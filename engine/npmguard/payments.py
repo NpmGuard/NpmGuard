@@ -121,10 +121,19 @@ async def read_audit_fee(settings: Settings, chain: SupportedChain) -> int | Non
     return int(await asyncio.to_thread(contract.functions.auditFee().call))
 
 
+def _field(value: Any, name: str, default: Any = None) -> Any:
+    """Read a field from a dict or a stripe StripeObject (not dict-like since 15.x)."""
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
 def _stripe(settings: Settings):
     if not settings.stripe_secret_key:
         raise RuntimeError("Stripe is not configured (NPMGUARD_STRIPE_SECRET_KEY missing)")
     stripe.api_key = settings.stripe_secret_key
+    if settings.stripe_api_base:
+        stripe.api_base = settings.stripe_api_base
     return stripe
 
 
@@ -164,12 +173,14 @@ async def verify_checkout_session(settings: Settings, session_id: str) -> dict[s
     client = _stripe(settings)
     session = await asyncio.to_thread(client.checkout.Session.retrieve, session_id)
     metadata = session.metadata or {}
-    if not metadata.get("packageName") or not metadata.get("version"):
+    package_name = _field(metadata, "packageName")
+    version = _field(metadata, "version")
+    if not package_name or not version:
         raise RuntimeError("Checkout session missing package metadata")
     return {
         "paid": session.payment_status == "paid",
-        "packageName": metadata["packageName"],
-        "version": metadata["version"],
+        "packageName": package_name,
+        "version": version,
         "email": session.customer_email,
     }
 

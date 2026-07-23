@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,7 +24,8 @@ class AuditLog:
     def __init__(self, package_name: str) -> None:
         stamp = datetime.now(UTC).isoformat().replace(":", "-").replace(".", "-")
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", package_name)
-        self.run_dir = REPO_ROOT / "audit-logs" / f"{stamp}_{safe}"
+        root = Path(os.environ.get("NPMGUARD_AUDIT_LOG_DIR") or REPO_ROOT / "audit-logs")
+        self.run_dir = root / f"{stamp}_{safe}"
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self._counter = 0
 
