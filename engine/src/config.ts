@@ -71,7 +71,7 @@ const ConfigSchema = z.object({
   scanConcurrency: z.coerce.number().int().min(1).max(16).default(4),
   watchIntervalMin: z.coerce.number().int().min(1).default(15),
   freeMaxProtectedRepos: z.coerce.number().int().min(0).default(3),
-  freeMaxPublicRepoAudits: z.coerce.number().int().min(0).default(2),
+  freeMaxPublicRepoAudits: z.coerce.number().int().min(0).default(1),
   freeMaxAuditsMonth: z.coerce.number().int().min(0).default(250),
   proMaxProtectedRepos: z.coerce.number().int().min(0).default(25),
   proMaxPublicRepoAudits: z.coerce.number().int().min(0).default(0),

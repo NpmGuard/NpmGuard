@@ -803,7 +803,7 @@ function UpgradeDialog({
     reason.resource === "protected_repos"
       ? "Your protected repository allowance is full. Existing repositories stay protected."
       : reason.resource === "public_repo_audits"
-        ? "Free includes two distinct public repositories. Re-auditing one you already scanned remains free."
+        ? "Free includes one public repository. Re-auditing it remains free."
         : "This protected repository needs more new package audits than remain in this month's allowance.";
   const usageLabel =
     reason.resource === "protected_repos"
