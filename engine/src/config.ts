@@ -70,7 +70,7 @@ const ConfigSchema = z.object({
   panelBaseUrl: z.string().url().default("http://localhost:3000"),
   scanConcurrency: z.coerce.number().int().min(1).max(16).default(4),
   watchIntervalMin: z.coerce.number().int().min(1).default(15),
-  freeMaxProtectedRepos: z.coerce.number().int().min(0).default(3),
+  freeMaxProtectedRepos: z.coerce.number().int().min(0).default(1),
   freeMaxPublicRepoAudits: z.coerce.number().int().min(0).default(1),
   freeMaxAuditsMonth: z.coerce.number().int().min(0).default(250),
   proMaxProtectedRepos: z.coerce.number().int().min(0).default(25),
