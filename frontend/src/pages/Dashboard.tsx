@@ -479,7 +479,10 @@ function PublicAuditReportDialog({
       setDetail(payload);
       setFailed(!payload);
 
-      if (payload?.scan.status === "running") {
+      const certificateAnchorPending = payload?.dependencies.some(
+        (dependency) => dependency.certificate?.status === "pending",
+      );
+      if (payload?.scan.status === "running" || certificateAnchorPending) {
         refreshTimer = window.setTimeout(() => {
           void loadDetail();
         }, 2_500);
@@ -582,6 +585,7 @@ function PublicAuditReportDialog({
                     <th>Source</th>
                     <th>Verdict</th>
                     <th>Reason</th>
+                    <th>Proof</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -614,6 +618,30 @@ function PublicAuditReportDialog({
                           </span>
                         </td>
                         <td>{dependency.reason || (dependency.active ? "Audit in progress" : "No reproducible verdict")}</td>
+                        <td className="public-report-dialog__proof">
+                          {dependency.certificate?.anchor ? (
+                            <a
+                              href={`${
+                                dependency.certificate.anchor.chain === "base"
+                                  ? "https://basescan.org/tx/"
+                                  : "https://sepolia.basescan.org/tx/"
+                              }${dependency.certificate.anchor.transactionHash}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={dependency.certificate.certificateHash}
+                            >
+                              Batch #{dependency.certificate.anchor.batchId}
+                              <Icon name="arrow" size={12} />
+                            </a>
+                          ) : dependency.certificate ? (
+                            <span className="public-report-dialog__proof-pending">
+                              <span className="repo-running-dot" />
+                              Anchoring
+                            </span>
+                          ) : (
+                            <span aria-label="No certificate">—</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}

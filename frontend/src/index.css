@@ -1700,10 +1700,31 @@ html.urushi .dashboard-button--primary {
   margin-top: 2px;
 }
 
-.public-report-dialog__table td:last-child {
+.public-report-dialog__table td:nth-child(4) {
   max-width: 390px;
   color: var(--text-dim);
   line-height: 1.45;
+}
+
+.public-report-dialog__proof a,
+.public-report-dialog__proof-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.public-report-dialog__proof a:hover {
+  text-decoration: underline;
+}
+
+.public-report-dialog__proof-pending {
+  color: var(--text-muted);
 }
 
 .public-report-dialog__empty {

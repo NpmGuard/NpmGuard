@@ -137,6 +137,25 @@ export interface PublicRepoScanDependency {
   evidenceCount: number;
   auditedAt: string | null;
   active: boolean;
+  certificate: {
+    certificateHash: string;
+    status: "pending" | "anchored";
+    anchor: {
+      chain: "base-sepolia" | "base";
+      contractAddress: `0x${string}`;
+      batchId: string;
+      batchURI: string;
+      transactionHash: `0x${string}`;
+      blockNumber: string;
+      anchoredAt: string;
+      merkleRoot: `0x${string}`;
+      leafHash: `0x${string}`;
+      merkleProof: Array<{
+        position: "left" | "right";
+        hash: `0x${string}`;
+      }>;
+    } | null;
+  } | null;
 }
 
 export interface PublicRepoScanDetailPayload {
