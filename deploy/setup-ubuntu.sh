@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# NpmGuard — server provisioning
+# NpmGuard — generic Ubuntu server provisioning
 #
 # Idempotent. Safe to re-run on an already-provisioned server.
 #
-#   scp -r . root@<IP>:/root/NpmGuard
-#   ssh root@<IP> /root/NpmGuard/deploy/setup-droplet.sh
+#   scp -r . root@<host>:/root/NpmGuard
+#   ssh root@<host> /root/NpmGuard/deploy/setup-ubuntu.sh
 #
 # Options:
 #   NPMGUARD_DOMAIN   domain name         (default: npmguard.com)
@@ -161,7 +161,7 @@ fi
 
 # ── 6. Docker ────────────────────────────────────────────────────────
 
-step "[6/8] Docker"
+step "[6/7] Docker"
 systemctl enable docker > /dev/null 2>&1
 
 docker pull node:22-slim 2>&1 | tail -1
@@ -173,7 +173,7 @@ log_ok "Pulled node:22-slim"
 
 # ── 7. App build ─────────────────────────────────────────────────────
 
-step "[7/8] App build"
+step "[7/7] App build"
 cd "$REPO_DIR"
 
 (cd engine && uv sync --frozen)
@@ -195,29 +195,9 @@ else
 fi
 chmod 600 engine/.env
 
-cp "$REPO_DIR/deploy/npmguard.service" /etc/systemd/system/npmguard.service
+cp "$REPO_DIR/deploy/systemd/npmguard.service" /etc/systemd/system/npmguard.service
 systemctl daemon-reload
 systemctl enable npmguard > /dev/null 2>&1
-
-# ── 8. Webhook auto-deploy ──────────────────────────────────────────
-
-step "[8/8] Webhook auto-deploy"
-
-chmod +x "$REPO_DIR/deploy/pull-and-restart.sh"
-cp "$REPO_DIR/deploy/npmguard-webhook.service" /etc/systemd/system/npmguard-webhook.service
-systemctl daemon-reload
-systemctl enable npmguard-webhook > /dev/null 2>&1
-
-if grep -q "REPLACE_ME" /etc/systemd/system/npmguard-webhook.service; then
-  log_warn "Webhook service installed but GITHUB_WEBHOOK_SECRET not set"
-  log_warn "  1. Generate a secret:  openssl rand -hex 32"
-  log_warn "  2. Edit /etc/systemd/system/npmguard-webhook.service"
-  log_warn "  3. systemctl daemon-reload && systemctl restart npmguard-webhook"
-  log_warn "  4. Add webhook on GitHub: https://npmguard.com/deploy-webhook"
-else
-  systemctl restart npmguard-webhook
-  log_ok "Webhook listener running on :9000"
-fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

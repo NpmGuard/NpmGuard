@@ -1,5 +1,5 @@
 {
-  "name": "npmguard-test-suite",
+  "name": "npmguard",
   "private": true,
   "type": "commonjs",
   "workspaces": [

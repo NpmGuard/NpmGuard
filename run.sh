@@ -3,8 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# Build the @npmguard/shared workspace first — both engine and frontend
-# import from its compiled dist/.
+# Build the @npmguard/shared workspace first — frontend and bench import its
+# compiled dist/; the engine consumes it only via codegen (npm run contract).
 echo "Building @npmguard/shared..."
 (cd shared && npm run build)
 
