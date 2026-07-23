@@ -184,7 +184,7 @@ export interface PackageSummary {
   auditedAt: string;
 }
 
-function isPublicPackageReport(packageName: string): boolean {
+export function isPublicPackageReport(packageName: string): boolean {
   return !(
     packageName.startsWith("test-pkg-") ||
     packageName.startsWith("test-package") ||

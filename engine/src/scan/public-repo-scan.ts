@@ -1,4 +1,6 @@
 import { assertPublicRepoAuditCap } from "../caps.js";
+import { anchorPendingCertificatesAfterScan } from "../certificate-anchor.js";
+import { ensureAuditCertificate } from "../audit-persistence.js";
 import { getDb, nowIso } from "../db.js";
 import { enqueueAuditJobs } from "../jobs/queue.js";
 import type { LockfileDep } from "../lockfile/index.js";
@@ -170,6 +172,8 @@ export function createPublicRepoScan(input: CreatePublicRepoScanInput): number {
 }
 
 interface PublicScanItemState {
+  name: string;
+  version: string;
   cached: number;
   verdict: string | null;
   active: number;
@@ -178,7 +182,7 @@ interface PublicScanItemState {
 function publicScanItemStates(scanId: number): PublicScanItemState[] {
   return getDb()
     .prepare(
-      `SELECT psi.cached, pv.verdict,
+      `SELECT psi.name, psi.version, psi.cached, pv.verdict,
               EXISTS(
                 SELECT 1 FROM jobs j
                 WHERE j.package_name = psi.name AND j.version = psi.version
@@ -220,6 +224,18 @@ export function refreshPublicScanProgress(scanId: number): void {
   console.log(
     `[public-scan] #${scanId} done — ${items.length} items (${cached} cached, ${audited} audited, ${failed} unresolved)`,
   );
+
+  let certificatesReady = 0;
+  for (const item of items) {
+    if (item.verdict === null) continue;
+    if (ensureAuditCertificate(item.name, item.version)) {
+      certificatesReady += 1;
+    }
+  }
+  console.log(
+    `[public-scan] #${scanId} prepared ${certificatesReady} certificate(s) for Merkle anchoring`,
+  );
+  anchorPendingCertificatesAfterScan();
 }
 
 export function refreshPublicScansTouching(packageName: string, version: string): void {

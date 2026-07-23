@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { assertPublicRepoAuditCap, CapExceededError } from "../caps.js";
+import { loadCertificate } from "../certificate-store.js";
 import { getDb } from "../db.js";
 import { publicOctokit } from "../github/app.js";
 import { fetchPublicRepoInputs, PublicRepoFileTooLargeError } from "../github/content.js";
@@ -140,18 +141,28 @@ publicRepoRoutes.get("/panel/public-repos/:id", (c) => {
   return c.json({
     scan: serializeScan(row),
     dependenciesTruncated: row.total > dependencies.length,
-    dependencies: dependencies.map((dep) => ({
-      name: dep.name,
-      version: dep.version,
-      direct: dep.direct === 1,
-      range: dep.range,
-      cached: dep.cached === 1,
-      verdict: dep.verdict,
-      reason: dep.reason,
-      evidenceCount: dep.evidence_count ?? 0,
-      auditedAt: dep.audited_at,
-      active: dep.active === 1,
-    })),
+    dependencies: dependencies.map((dep) => {
+      const certificate = loadCertificate(dep.name, dep.version);
+      return {
+        name: dep.name,
+        version: dep.version,
+        direct: dep.direct === 1,
+        range: dep.range,
+        cached: dep.cached === 1,
+        verdict: dep.verdict,
+        reason: dep.reason,
+        evidenceCount: dep.evidence_count ?? 0,
+        auditedAt: dep.audited_at,
+        active: dep.active === 1,
+        certificate: certificate
+          ? {
+              certificateHash: certificate.certificateHash,
+              status: certificate.anchor ? "anchored" : "pending",
+              anchor: certificate.anchor ?? null,
+            }
+          : null,
+      };
+    }),
   });
 });
 
