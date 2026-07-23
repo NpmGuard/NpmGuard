@@ -382,3 +382,16 @@ TOOL_CATALOG = """- setEnv (setup): Inject environment variables to plant creden
 - patchFile (setup): Rewrite package files with exact string replacements before execution.
 - preload (setup): Inject a Node preload script before the package entrypoint loads.
 - trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath."""
+
+# Injected into every hypothesis prompt. The most common way a generated experiment
+# fails to run is a require() written like a filesystem path but resolved by Node as a
+# package: `require('src/x.js')` searches node_modules, not the package. Runtime deps
+# are installed before hypothesize, so this is the remaining self-inflicted load failure.
+EXPERIMENT_CODE_GUIDANCE = (
+    "When you author JavaScript (a preload script, a custom driver, or a patchFile "
+    "replacement), reference package files by a relative path with a leading './' "
+    "(require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). "
+    "A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and "
+    "fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or "
+    "/home/node/...). The sandbox working directory is /pkg."
+)

@@ -56,6 +56,50 @@ class RunUnderObservationError(RuntimeError):
         self.detail = detail
 
 
+# The observe/budget for a load check: only the node sensor, short wall budget —
+# we care whether the program-under-test can be constructed, not what it does.
+LOAD_CHECK_OBSERVE = {
+    "kernel": False,
+    "network": False,
+    "node": True,
+    "fsDiff": False,
+    "inspector": False,
+}
+LOAD_CHECK_BUDGET = {"wallMs": 10_000}
+
+
+def is_unresolved_module(error: RunError | None) -> bool:
+    """True when a run crashed because a module could not be resolved — the program
+    under test was never constructed. Shared by the orchestrator (defer, don't refute)
+    and the hypothesis dry-run gate (a fixable bad require in model-authored code)."""
+    return (
+        error is not None
+        and error.kind == "CrashError"
+        and ("Cannot find module" in error.detail or "MODULE_NOT_FOUND" in error.detail)
+    )
+
+
+async def dry_run_load(
+    package_path: Path, experiment: list[ToolCall], settings: Settings
+) -> RunError | None:
+    """Cheaply check that a generated experiment's payload actually loads: run the
+    trigger with only the node sensor. Returns the load failure if a module could not
+    be resolved (a bad require path in model-authored driver/preload code — deps are
+    already provisioned by now), else None. Best-effort: an unavailable sandbox skips
+    the gate and lets the full-oracle run surface real infrastructure faults."""
+    try:
+        artifact = await run_under_observation(
+            package_path,
+            experiment,
+            settings,
+            observe=LOAD_CHECK_OBSERVE,
+            budget=LOAD_CHECK_BUDGET,
+        )
+    except (DockerUnavailableError, RunUnderObservationError):
+        return None
+    return artifact.error if is_unresolved_module(artifact.error) else None
+
+
 def build_trigger_command(trigger: Trigger, l4: bool) -> list[str] | None:
     flags = ["--require", "/tmp/_instrument.js"] if l4 else []
     if trigger.kind == "entrypoint":

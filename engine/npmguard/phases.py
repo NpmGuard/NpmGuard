@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 from kit_llm import BudgetExhausted, CandidateRejected, LlmClient
 
-from .config import SOURCE_FILE_TYPES
+from .config import SOURCE_FILE_TYPES, Settings
 from .contract.models import (
     Claim,
     EntryPoints,
@@ -23,7 +23,8 @@ from .contract.models import (
 )
 from .errors import AuditIncompleteError
 from .events import AuditEmitter
-from .experiments import TOOL_CATALOG, compile_experiment
+from .experiments import EXPERIMENT_CODE_GUIDANCE, TOOL_CATALOG, compile_experiment
+from .observation import dry_run_load
 
 Capability = Literal[
     "NETWORK",
@@ -540,8 +541,9 @@ class HypothesisGenerator(Protocol):
 class KitHypothesisGenerator:
     """Replaceable adapter for the pending Kit hypothesis-generation update."""
 
-    def __init__(self, llm: LlmClient) -> None:
+    def __init__(self, llm: LlmClient, settings: Settings) -> None:
         self.llm = llm
+        self.settings = settings
 
     async def generate(
         self,
@@ -570,6 +572,7 @@ class KitHypothesisGenerator:
             f"Set triggerTarget to exactly one of: {', '.join(targets)}. If exercising a library API requires custom JavaScript, "
             "put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. "
             "The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\n"
+            f"{EXPERIMENT_CODE_GUIDANCE}\n\n"
             "Suggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
         )
 
@@ -674,6 +677,14 @@ class KitHypothesisGenerator:
             raise AuditIncompleteError(
                 "hypothesize", f"could not arm {flag.file} ({flag.why}) after bounded repair: {exc}"
             ) from exc
+        # The one-shot decode has no repair channel for a payload that compiles but
+        # cannot load. Fail over to the agentic generator, which dry-runs and repairs.
+        load_failure = await dry_run_load(package_path, calls, self.settings)
+        if load_failure is not None:
+            raise AuditIncompleteError(
+                "hypothesize",
+                f"one-shot experiment for {flag.file} did not load: {load_failure.detail}",
+            )
         return Hypothesis(
             hypId=hypothesis_id,
             description=submission.description,

@@ -14,7 +14,7 @@ from .contract.models import EvidenceRef, Hypothesis, RunArtifact
 from .events import AuditEmitter
 from .evidence import ArtifactStore, RenderedTimeline, render_timeline
 from .graph import HypothesisGraph, next_open
-from .observation import run_under_observation
+from .observation import is_unresolved_module, run_under_observation
 from .phases import JudgeVerdict
 
 FULL_ORACLE = {"kernel": True, "network": True, "node": True, "fsDiff": True, "inspector": True}
@@ -223,11 +223,7 @@ async def run_orchestrator(
                 # loaded (e.g. an uninstalled dependency), so the suspected path
                 # never ran. That is a coverage gap, not a refutation — deferring
                 # keeps a broken run from laundering an unproven suspicion into SAFE.
-                unresolved_module = (
-                    error_kind == "CrashError"
-                    and error is not None
-                    and ("Cannot find module" in error.detail or "MODULE_NOT_FOUND" in error.detail)
-                )
+                unresolved_module = is_unresolved_module(error)
                 if (
                     error_kind in {"SetupError", "SensorError", "TimeoutError"}
                     or result.judge_failed

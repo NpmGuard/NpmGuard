@@ -31,14 +31,17 @@ from kit_llm import LlmClient, Tool
 from kit_llm.errors import BudgetExhausted, EndOfRope, LoopBudgetExceeded, OutputInvalid
 from kit_llm.tools import ToolCallError
 
+from .config import Settings
 from .contract.models import Claim, EntryPoints, FocusRange, Hypothesis, ToolCall
 from .errors import AuditIncompleteError
 from .experiments import (
     BUILDERS,
+    EXPERIMENT_CODE_GUIDANCE,
     TOOL_CATALOG,
     ExperimentCompileError,
     compile_experiment,
 )
+from .observation import dry_run_load
 from .phases import (
     ClaimKind,
     Flag,
@@ -151,8 +154,9 @@ class TwoPhaseHypothesisGenerator:
     """Propose-then-build hypothesis generation behind the HypothesisGenerator
     port. Requires `propose` and `agent` roles on the LlmClient."""
 
-    def __init__(self, llm: LlmClient) -> None:
+    def __init__(self, llm: LlmClient, settings: Settings) -> None:
         self.llm = llm
+        self.settings = settings
 
     async def generate(
         self,
@@ -181,7 +185,7 @@ class TwoPhaseHypothesisGenerator:
 
         try:
             proposal = await self._propose(base, targets, audit_id)
-            calls = await self._build(base, proposal, targets, focus, audit_id)
+            calls = await self._build(base, proposal, targets, focus, audit_id, package_path)
         except BudgetExhausted:
             raise
         except AuditIncompleteError:
@@ -237,6 +241,7 @@ class TwoPhaseHypothesisGenerator:
         targets: list[str],
         focus: str,
         audit_id: str,
+        package_path: Path,
     ) -> list[ToolCall]:
         accumulated: list[ToolCall] = []
         done: dict[str, list[ToolCall]] = {}
@@ -326,8 +331,18 @@ class TwoPhaseHypothesisGenerator:
                 compile_experiment(calls)
             except ExperimentCompileError as exc:
                 raise ToolCallError(f"cannot finalize: {exc}") from exc
+            # Compiling proves the tool shape; a dry-run proves the payload LOADS.
+            # A bad require in the driver/preload only shows up here — feed it back so
+            # the model fixes the path rather than deferring an inert run downstream.
+            load_failure = await dry_run_load(package_path, calls, self.settings)
+            if load_failure is not None:
+                raise ToolCallError(
+                    f"the experiment does not load: {load_failure.detail} — fix the offending "
+                    "require in your driver or preload (use './file.js' or '/pkg/file.js', never a "
+                    "bare 'file.js'), then finalize again."
+                )
             done["calls"] = calls
-            return "ARMED: experiment compiled successfully — you are done."
+            return "ARMED: experiment compiled and loaded — you are done."
 
         tools = (
             Tool("setEnv", SetEnvArgs, h_env, "Inject env vars (plant creds / defeat env gates)."),
@@ -353,7 +368,7 @@ class TwoPhaseHypothesisGenerator:
             "error if wrong; fix and retry), then you MUST call `finalize` exactly once with the "
             "trigger. You may call several setup tools in one turn. The run is complete only once "
             "`finalize` returns ARMED — do not stop before that. Escape newlines in every JSON "
-            "string. Keep the experiment minimal."
+            f"string. Keep the experiment minimal.\n\n{EXPERIMENT_CODE_GUIDANCE}"
         )
         async def drive(message: str, steps: int) -> None:
             try:

