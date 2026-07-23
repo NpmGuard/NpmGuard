@@ -153,7 +153,7 @@ class AuditPipeline:
         # One-shot primary, agentic two-phase fallback: the union arms the flags
         # one-shot alone can't (measured no single approach wins every route).
         self.hypothesis_generator = hypothesis_generator or FallbackHypothesisGenerator(
-            KitHypothesisGenerator(llm), TwoPhaseHypothesisGenerator(llm)
+            KitHypothesisGenerator(llm, settings), TwoPhaseHypothesisGenerator(llm, settings)
         )
 
     async def run(

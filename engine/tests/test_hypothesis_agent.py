@@ -5,7 +5,7 @@ from kit_llm.errors import BudgetExhausted
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard.config import Settings
-from npmguard.contract.models import EntryPoints, Hypothesis
+from npmguard.contract.models import EntryPoints, Hypothesis, RunError
 from npmguard.errors import AuditIncompleteError
 from npmguard.hypothesis_agent import (
     FallbackHypothesisGenerator,
@@ -64,7 +64,7 @@ async def test_two_phase_arms_via_validated_tool_loop(tmp_path) -> None:
         }
     )
     llm, engine = await _llm(tmp_path, provider)
-    result = await TwoPhaseHypothesisGenerator(llm).generate(
+    result = await TwoPhaseHypothesisGenerator(llm, Settings(_env_file=None)).generate(
         _FLAG,
         package_path=_package(tmp_path),
         intent=_INTENT,
@@ -104,7 +104,7 @@ async def test_two_phase_oracle_rejects_bad_target_then_recovers(tmp_path) -> No
         }
     )
     llm, engine = await _llm(tmp_path, provider)
-    result = await TwoPhaseHypothesisGenerator(llm).generate(
+    result = await TwoPhaseHypothesisGenerator(llm, Settings(_env_file=None)).generate(
         _FLAG,
         package_path=_package(tmp_path),
         intent=_INTENT,
@@ -118,6 +118,41 @@ async def test_two_phase_oracle_rejects_bad_target_then_recovers(tmp_path) -> No
     await engine.dispose()
 
 
+async def test_two_phase_dry_run_load_failure_is_repaired_in_loop(tmp_path, monkeypatch) -> None:
+    """A first finalize whose payload does not load is rejected with the load error;
+    the model's corrected retry passes the dry-run and arms."""
+    calls = {"n": 0}
+
+    async def _load_check(*_args, **_kwargs):
+        calls["n"] += 1
+        return RunError(kind="CrashError", detail="Cannot find module 'src/x.js'") if calls["n"] == 1 else None
+
+    monkeypatch.setattr("npmguard.hypothesis_agent.dry_run_load", _load_check)
+    proposal = HypothesisProposal(
+        description="invoke via a driver", kind="env_exfil", gating=None, severity="high",
+        triggerTargetIntent="custom driver", plannedTools=[], rationale="drive it",
+    )
+    provider = ScriptedLlm(
+        {
+            "propose": [proposal],
+            "agent": [
+                ToolCallStep([("finalize", {"target": "index.js", "driverCode": "require('src/x.js')"})]),
+                ToolCallStep([("finalize", {"target": "index.js", "driverCode": "require('./index.js')"})]),
+                "done",
+            ],
+        }
+    )
+    llm, engine = await _llm(tmp_path, provider)
+    result = await TwoPhaseHypothesisGenerator(llm, Settings(_env_file=None)).generate(
+        _FLAG, package_path=_package(tmp_path), intent=_INTENT, entry_points=_ENTRY,
+        hypothesis_id="hyp-0001", created_at="t", audit_id="a",
+    )
+    assert calls["n"] == 2  # the gate ran twice: rejected, then accepted
+    assert result.experiment[-1].tool == "trigger"
+    await llm.aclose()
+    await engine.dispose()
+
+
 async def test_two_phase_without_finalize_fails_as_incomplete(tmp_path) -> None:
     """If the loop never finalizes, the hypothesis is honestly incomplete."""
     proposal = HypothesisProposal(
@@ -127,7 +162,7 @@ async def test_two_phase_without_finalize_fails_as_incomplete(tmp_path) -> None:
     provider = ScriptedLlm({"propose": [proposal], "agent": ["I give up"]})
     llm, engine = await _llm(tmp_path, provider)
     try:
-        await TwoPhaseHypothesisGenerator(llm).generate(
+        await TwoPhaseHypothesisGenerator(llm, Settings(_env_file=None)).generate(
             _FLAG, package_path=_package(tmp_path), intent=_INTENT, entry_points=_ENTRY,
             hypothesis_id="h1", created_at="t", audit_id="a",
         )
