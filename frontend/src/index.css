@@ -499,8 +499,8 @@ button:focus:not(:focus-visible) {
   color: var(--danger);
 }
 
-.certificate-verify-status strong,
-.certificate-verify-status span {
+.certificate-verify-status div > strong,
+.certificate-verify-status div > span {
   display: block;
 }
 
@@ -577,8 +577,8 @@ button:focus:not(:focus-visible) {
   color: var(--danger);
 }
 
-.certificate-verify-trace strong,
-.certificate-verify-trace span {
+.certificate-verify-trace li > div > strong,
+.certificate-verify-trace li > div > span {
   display: block;
 }
 
