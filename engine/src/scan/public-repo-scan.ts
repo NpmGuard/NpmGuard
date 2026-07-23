@@ -1,4 +1,4 @@
-import { assertAuditBudget, consumeAuditBudget } from "../caps.js";
+import { assertPublicRepoAuditCap } from "../caps.js";
 import { getDb, nowIso } from "../db.js";
 import { enqueueAuditJobs } from "../jobs/queue.js";
 import type { LockfileDep } from "../lockfile/index.js";
@@ -82,16 +82,6 @@ function uniqueDeps(deps: readonly LockfileDep[]): LockfileDep[] {
   return [...new Map(deps.map((dep) => [`${dep.name}\0${dep.version}`, dep])).values()];
 }
 
-function activeJobExists(name: string, version: string): boolean {
-  return !!getDb()
-    .prepare(
-      `SELECT 1 FROM jobs
-       WHERE package_name = ? AND version = ? AND state IN ('queued', 'running')
-       LIMIT 1`,
-    )
-    .get(name, version);
-}
-
 export function findRunningPublicScan(
   installationId: number,
   fullName: string,
@@ -115,13 +105,14 @@ export function createPublicRepoScan(input: CreatePublicRepoScanInput): number {
     deps.filter((dep) => getVerdict(dep.name, dep.version)).map((dep) => `${dep.name}\0${dep.version}`),
   );
   const misses = deps.filter((dep) => !cachedKeys.has(`${dep.name}\0${dep.version}`));
-  const chargeable = misses.filter((dep) => !activeJobExists(dep.name, dep.version));
-
-  // Check before writing the snapshot, so a rejected audit leaves no zombie.
-  assertAuditBudget(input.installationId, chargeable.length);
 
   let scanId = 0;
   db.transaction(() => {
+    // A repository consumes one Free slot only once. The stable GitHub id
+    // survives renames, and the transaction prevents concurrent new repos
+    // from both claiming the final slot.
+    assertPublicRepoAuditCap(input.installationId, input.githubRepoId);
+
     scanId = Number(
       db
         .prepare(
@@ -166,7 +157,7 @@ export function createPublicRepoScan(input: CreatePublicRepoScanInput): number {
 
   // Public snapshots do not own jobs: scan_id stays null so no installed repo,
   // check-run, or webhook relationship can be inferred for the target.
-  const inserted = enqueueAuditJobs(
+  enqueueAuditJobs(
     misses.map((dep) => ({
       packageName: dep.name,
       version: dep.version,
@@ -174,7 +165,6 @@ export function createPublicRepoScan(input: CreatePublicRepoScanInput): number {
       scanId: null,
     })),
   );
-  consumeAuditBudget(input.installationId, inserted);
   refreshPublicScanProgress(scanId);
   return scanId;
 }
