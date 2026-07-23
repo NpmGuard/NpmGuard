@@ -51,12 +51,18 @@ def _reasoning_for(slug: str) -> ReasoningControl | None:
 # zero price so spend stays off the expensive-fallback rate):
 #   nemotron-3-super  — conforms to StrictSchema 3/3 (FileFlagResponse) AND
 #                       tool-calls 2/3 → usable in every role.
+#   minimax-m3        — conforms to StrictSchema 2/3, fast (1-6.5s), cheap-paid
+#                       ($0.30/$1.20 per Mtok, backfilled — not in _FREE_PRICES);
+#                       different provider than nemotron → structured 3rd tier.
 #   cohere/north-mini — tool-calls 3/3 but fails StrictSchema 0/3 (truncates /
 #                       wrong top-level type) → agent role ONLY, where offered
 #                       tools suppress the response format anyway (client.py:467).
 #   xiaomi/mimo-v2.5  — rejected: ~110s/call (over the 60s per-call timeout) and
 #                       truncates; disabling reasoning did not rescue it.
-_STRICT_FALLBACKS: tuple[str, ...] = ("nvidia/nemotron-3-super-120b-a12b:free",)
+_STRICT_FALLBACKS: tuple[str, ...] = (
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "minimax/minimax-m3",
+)
 _AGENT_FALLBACKS: tuple[str, ...] = (
     "nvidia/nemotron-3-super-120b-a12b:free",
     "cohere/north-mini-code:free",
