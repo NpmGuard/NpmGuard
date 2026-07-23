@@ -19,7 +19,7 @@ from .phases import JudgeVerdict
 
 FULL_ORACLE = {"kernel": True, "network": True, "node": True, "fsDiff": True, "inspector": True}
 EXPERIMENT_BUDGET = {"wallMs": 20_000}
-PER_HYPOTHESIS_SECONDS = 90
+PER_HYPOTHESIS_SECONDS = 360
 
 
 @dataclass(frozen=True)
