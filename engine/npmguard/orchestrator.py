@@ -6,16 +6,21 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import structlog
+
 from kit_llm import CandidateRejected, LlmClient
 
 from .audit_log import AuditLog
 from .config import Settings
 from .contract.models import EvidenceRef, Hypothesis, RunArtifact
+from .errors import DockerUnavailableError
 from .events import AuditEmitter
 from .evidence import ArtifactStore, RenderedTimeline, render_timeline
 from .graph import HypothesisGraph, next_open
-from .observation import is_unresolved_module, run_under_observation
+from .observation import RunUnderObservationError, is_unresolved_module, run_under_observation
 from .phases import JudgeVerdict
+
+logger = structlog.get_logger("npmguard.orchestrator")
 
 FULL_ORACLE = {"kernel": True, "network": True, "node": True, "fsDiff": True, "inspector": True}
 EXPERIMENT_BUDGET = {"wallMs": 20_000}
@@ -249,17 +254,51 @@ async def run_orchestrator(
                         evidence_refs=[result.evidence_ref],
                     )
                     summary.refuted += 1
-        except Exception as exc:
+        except TimeoutError:
+            # The per-hypothesis asyncio.timeout fired: the experiment ran past its
+            # cap, so the suspected path was not fully observed. A coverage gap —
+            # defer (an incomplete run must never be laundered into REFUTED/SAFE).
             if graph.get(hypothesis.hypId).state == "IN_PROGRESS":
-                # Surface .detail (e.g. RunUnderObservationError carries the docker
-                # stderr) so a deferred worker error names its actual cause instead
-                # of an opaque one-liner.
+                graph.transition(
+                    hypothesis.hypId,
+                    "DEFERRED",
+                    by="worker:experimenter",
+                    reason=(
+                        f"Observation incomplete (per-hypothesis timeout "
+                        f"{PER_HYPOTHESIS_SECONDS}s)"
+                    ),
+                )
+                summary.deferred += 1
+        except (RunUnderObservationError, DockerUnavailableError) as exc:
+            # Known sandbox/infra failure: the experiment could not be run. Defer
+            # with the captured cause (RunUnderObservationError carries docker stderr).
+            if graph.get(hypothesis.hypId).state == "IN_PROGRESS":
                 detail = getattr(exc, "detail", None)
                 graph.transition(
                     hypothesis.hypId,
                     "DEFERRED",
                     by="worker:experimenter",
-                    reason=f"Worker error: {exc}" + (f" — {detail}" if detail else ""),
+                    reason=f"Sandbox unavailable: {exc}" + (f" — {detail}" if detail else ""),
+                )
+                summary.deferred += 1
+        except Exception as exc:
+            # UNEXPECTED — a bug or invariant violation, not a known failure mode.
+            # Never hide it: log the full traceback so it is actionable. Still defer
+            # this ONE hypothesis (a bug must not clear a suspicion into SAFE, and one
+            # bug must not abort the sibling hypotheses), so the audit still ERRORs if
+            # nothing confirms — now with a loud, located cause instead of silence.
+            logger.exception(
+                "orchestrator worker error",
+                hyp_id=hypothesis.hypId,
+                audit_id=graph.audit_id,
+                error_type=type(exc).__name__,
+            )
+            if graph.get(hypothesis.hypId).state == "IN_PROGRESS":
+                graph.transition(
+                    hypothesis.hypId,
+                    "DEFERRED",
+                    by="worker:experimenter",
+                    reason=f"Internal error ({type(exc).__name__}): {exc}",
                 )
                 summary.deferred += 1
         await _emit_resolved(emitter, graph.get(hypothesis.hypId))
