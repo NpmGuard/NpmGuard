@@ -1,0 +1,37 @@
+{
+  "id": "extra_http_500",
+  "role": "flag",
+  "kind": "http_error",
+  "synthesized": true,
+  "key": {
+    "model": "deepseek/deepseek-v4-flash",
+    "messagesSha256": "f08cf8a537705114f6a1ed02eceb20622322d235c5b3829cbbbafaa3070d7d77"
+  },
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "__SYNTHETIC_FLAG_SYSTEM__"
+        },
+        {
+          "role": "user",
+          "content": "__SYNTHETIC_TRANSPORT_PROBE__"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 500,
+    "body": {
+      "error": {
+        "message": "synthetic upstream 500",
+        "code": "server_error"
+      }
+    }
+  },
+  "note": "Synthesized from the single http_error corpus row."
+}

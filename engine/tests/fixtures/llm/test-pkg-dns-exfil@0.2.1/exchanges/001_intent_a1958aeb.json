@@ -1,0 +1,54 @@
+{
+  "id": "001_intent_a1958aeb",
+  "role": "intent",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You infer an npm package's stated intent from its manifest and README.\n\nBe conservative about expected capabilities. Pick only capabilities a direct,\nlegitimate implementation needs. Never infer intent from source code. Ignore\nmarketing language and describe the package's functional claim."
+        },
+        {
+          "role": "user",
+          "content": "## Package manifest\n- name: test-pkg-dns-exfil\n- version: 0.2.1\n- description: Lightweight DNS resolver with caching\n- license: MIT\n- homepage: (none)\n- keywords: dns, resolver, cache, lookup\n\n## Runtime dependencies\n(none)\n\n## Declared bin entries\n(none)\n\n## README\n(no README found)\n\n## Task\nInfer statedPurpose, a conservative expectedCapabilities list, and rationale."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-a1958aeb",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "DigitalOcean",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"expectedCapabilities\": [\n    \"perform DNS resolution\",\n    \"cache DNS query results\"\n  ],\n  \"rationale\": \"From the package description and keywords, the package claims to be a lightweight DNS resolver with caching. No additional functionality is declared — no binary hooks, no runtime dependencies, and no README elaborating further. The inferred purpose is limited to what the manifest directly states: DNS resolution with caching. There is no indication of exfiltration or any other behavior beyond basic resolving and caching.\",\n  \"statedPurpose\": \"DNS resolution with caching\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 159,
+        "completion_tokens": 118,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "121bd4c6a0db",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:44:13.538Z",
+    "recordedLatencyMs": 58968
+  }
+}

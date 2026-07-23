@@ -1,0 +1,54 @@
+{
+  "id": "053_judge_a3778f62",
+  "role": "judge",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Judge one hypothesis against one observed execution timeline. The package's\nstated purpose is the benign baseline. Decide only from events in the timeline.\nA malicious decision must cite at least one exact event id present there. If the\nsuspected behavior did not happen, return malicious=false and no citations."
+        },
+        {
+          "role": "user",
+          "content": "## Stated purpose (benign baseline)\nSmart configuration loader with environment detection\n\n## Hypothesis hyp-0010\n- claim: binary_drop (gated: geo_gate)\n- severity: high\n- description: If options.path is attacker-controlled, the expression `options.path || path.resolve(process.cwd(), '.env')` allows an attacker to supply an absolute path (e.g., /home/node/.npmrc) that bypasses the intended fallback and reads an arbitrary file. The flagged line does not sanitize the input, so passing a path like '/home/node/.npmrc' will read that file instead of .env. The experiment demonstrates this by planting a canary token into /home/node/.npmrc, then calling loadConfig with path='/home/node/.npmrc' and verifying the token appears in the returned config.\n- suspected code: index.js:16-16\n\n## Experiment setup\n[{\"tool\":\"plantFiles\",\"args\":{\"files\":[{\"path\":\"/home/node/.npmrc\",\"content\":\"NPMGUARD_CANARY_TOKEN_f8e2d91a=secret_canary_value\\n\"}]}},{\"tool\":\"trigger\",\"args\":{\"kind\":\"entrypoint\",\"target\":\"index.js\",\"argv\":[],\"stdin\":null}}]\nSetup is test context, not proof. Use it to associate planted canary values with observed events; decide only from the timeline.\n\n## Execution timeline\n# Timeline — run_0bf594b9649a42ad809c0da3ee · trigger=entrypoint:index.js\n# setup: planted ~/.npmrc\n\n── [L4] node calls — logical order, no clock ──\ne1    require  fs\ne2    require  http\ne3    require  https\ne4    require  child_process\ne5    require  crypto\ne6    require  inspector\ne7    require  module\ne8    script   require(\"/pkg/index.js\")  [dynamically compiled · 24c]\ne9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]\ne10   script   require(\"/pkg/index.js\")  [dynamically compiled · 24c]\ne11   require  /pkg/index.js\ne12   fs       /pkg/index.js (readFileSync)\ne13   require  path\ne14   require  fs\n\n── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──\ne15   t+0.16s       [L1]  exec     /usr/local/bin/node [\"node\", \"--require\", \"/tmp/_instrument.js\", \"-e\", \"require(\\\\\\\"/pkg/index.js\\\\\\\")\", \"--\", \"/pkg/index.js\"]\ne16   t+0.16s       [L1]  open     /etc/ld.so.cache\ne17   t+0.16s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2\ne18   t+0.16s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2\ne19   t+0.16s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6\ne20   t+0.16s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6\ne21   t+0.16s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6\ne22   t+0.16s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6\ne23   t+0.16s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne24   t+0.16s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne25   t+0.16s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0\ne26   t+0.16s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0\ne27   t+0.17s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6\ne28   t+0.17s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6\ne29   t+0.18s       [L1]  open     /etc/ssl/openssl.cnf\ne30   t+0.18-0.19s  [L1]  read     /etc/ssl/openssl.cnf  [x5]\ne31   t+0.19s       [L1]  open     /proc/version_signature\ne32   t+0.19s       [L1]  read     /proc/version_signature\ne33   t+0.19s       [L1]  write    fd:5\ne34   t+0.19-0.19s  [L1]  clone      [x10]\ne35   t+0.20s       [L1]  open     /proc/self/cgroup\ne36   t+0.20s       [L1]  read     /proc/self/cgroup\ne37   t+0.20s       [L1]  open     /sys/fs/cgroup//memory.max\ne38   t+0.20s       [L1]  read     /sys/fs/cgroup//memory.max\ne39   t+0.20s       [L1]  open     /sys/fs/cgroup//memory.high\ne40   t+0.20s       [L1]  read     /sys/fs/cgroup//memory.high\ne41   t+0.20s       [L1]  open     /proc/meminfo\ne42   t+0.20s       [L1]  read     /proc/meminfo\ne43   t+0.20s       [L1]  open     /proc/self/maps\ne44   t+0.20-0.20s  [L1]  read     /proc/self/maps  [x6]\ne45   t+0.20s       [L1]  open     /proc/self/maps\ne46   t+0.20s       [L1]  read     /proc/self/maps\ne47   t+0.22-0.22s  [L1]  clone      [x2]\ne48   t+0.23s       [L1]  open     /pkg/package.json\ne49   t+0.23s       [L1]  open     /tmp/_instrument.js\ne50   t+0.23-0.23s  [L1]  read     /tmp/_instrument.js  [x2]\ne51   t+0.23-0.23s  [L1]  clone      [x2]\ne52   t+0.24-0.24s  [L1]  write    fd:16  [x2]\ne53   t+0.27s       [L1]  open     /pkg/index.js\ne54   t+0.27-0.27s  [L1]  read     /pkg/index.js  [x2]\ne55   t+0.28s       [L1]  open     /dev/null\ne56   t+0.28s       [L1]  write    stdout\ne57   t+0.28s       [L1]  read     fd:16\ne58   t+0.28s       [L1]  write    fd:12\ne59   t+0.28s       [L1]  read     fd:12\n\n## Task\nDid the suspected behavior happen? Cite exact timeline ids for malicious=true."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-a3778f62",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "AtlasCloud",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\"citedEvents\":[],\"malicious\":false,\"reason\":\"The timeline does not show any read of `/home/node/.npmrc` or access to the planted canary token. The only file reads are system libraries, `/pkg/package.json`, `/tmp/_instrument.js`, `/pkg/index.js`, and standard proc/cgroup files. The suspected code path (index.js:16-16) would require reading the attacker-supplied path, but no such event appears.\"}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1910,
+        "completion_tokens": 100,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "97539fc621ac",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:13:11.442Z",
+    "recordedLatencyMs": 3456
+  }
+}

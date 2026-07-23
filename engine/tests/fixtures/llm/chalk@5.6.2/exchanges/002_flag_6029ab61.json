@@ -1,0 +1,54 @@
+{
+  "id": "002_flag_6029ab61",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: Terminal string styling done right\n- expectedCapabilities: apply ANSI color escape codes to a string for terminal output, apply ANSI background color escape codes to a string, apply ANSI text modifier escape codes to a string (e.g., bold, italic, underline, strikethrough), chain multiple styles together so that all are applied to the same string, detect whether the current terminal supports color output, including basic, 256-color, and truecolor levels, override color support detection (by setting a global level or by creating a custom Chalk instance), define custom named styles by composing existing styles, apply color using hexadecimal color values, apply color using RGB values, apply color using 8-bit (256-color) ANSI codes, reset all styling via an ANSI reset code\n- rationale: The package's description, README, and keyword tags consistently claim that chalk is a library for styling terminal strings using ANSI escape codes. The README explicitly lists 'Highlights' that include an 'Expressive API', 'No dependencies', 'Ability to nest styles', '256/Truecolor color support', 'Auto-detects color support', and 'Doesn't extend String.prototype'. The 'Usage' and 'API' sections demonstrate exactly these capabilities: applying named colors, background colors, modifiers (bold, italic, underline, strikethrough, etc.), chaining methods, using hex/rgb/ansi256 for colors, detecting/setting color support level, and defining theme helpers. No additional capabilities (e.g., reading files, network access, templating beyond what's shown) are claimed or implied. The package is purely a string-styling utility with no runtime dependencies, no executable binaries, and a single stated purpose.\n\n## File: source/utilities.js\n```\n1: // TODO: When targeting Node.js 16, use `String.prototype.replaceAll`.\n2: export function stringReplaceAll(string, substring, replacer) {\n3: \tlet index = string.indexOf(substring);\n4: \tif (index === -1) {\n5: \t\treturn string;\n6: \t}\n7: \n8: \tconst substringLength = substring.length;\n9: \tlet endIndex = 0;\n10: \tlet returnValue = '';\n11: \tdo {\n12: \t\treturnValue += string.slice(endIndex, index) + substring + replacer;\n13: \t\tendIndex = index + substringLength;\n14: \t\tindex = string.indexOf(substring, endIndex);\n15: \t} while (index !== -1);\n16: \n17: \treturnValue += string.slice(endIndex);\n18: \treturn returnValue;\n19: }\n20: \n21: export function stringEncaseCRLFWithFirstIndex(string, prefix, postfix, index) {\n22: \tlet endIndex = 0;\n23: \tlet returnValue = '';\n24: \tdo {\n25: \t\tconst gotCR = string[index - 1] === '\\r';\n26: \t\treturnValue += string.slice(endIndex, (gotCR ? index - 1 : index)) + prefix + (gotCR ? '\\r\\n' : '\\n') + postfix;\n27: \t\tendIndex = index + 1;\n28: \t\tindex = string.indexOf('\\n', endIndex);\n29: \t} while (index !== -1);\n30: \n31: \treturnValue += string.slice(endIndex);\n32: \treturn returnValue;\n33: }\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-6029ab61",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Parasail",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{ \"summary\": \"No flags\", \"capabilities\": [], \"flags\": [] }"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 882,
+        "completion_tokens": 19,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T09:39:53.520Z",
+    "recordedLatencyMs": 2266
+  }
+}

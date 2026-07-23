@@ -1,0 +1,54 @@
+{
+  "id": "002_flag_e1579798",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n- rationale: From the package description and keywords, the package claims to be a lightweight DNS resolver with caching. No additional functionality is declared — no binary hooks, no runtime dependencies, and no README elaborating further. The inferred purpose is limited to what the manifest directly states: DNS resolution with caching. There is no indication of exfiltration or any other behavior beyond basic resolving and caching.\n\n## File: index.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const dns = require(\"dns\");\n4: \n5: class DNSCache {\n6:   constructor(options = {}) {\n7:     this.ttl = options.ttl || 300000;\n8:     this.cache = new Map();\n9:   }\n10: \n11:   resolve(hostname) {\n12:     return new Promise((resolve, reject) => {\n13:       const cached = this.cache.get(hostname);\n14:       if (cached && Date.now() - cached.timestamp < this.ttl) {\n15:         return resolve(cached.addresses);\n16:       }\n17: \n18:       dns.resolve4(hostname, (err, addresses) => {\n19:         if (err) return reject(err);\n20:         this.cache.set(hostname, {\n21:           addresses,\n22:           timestamp: Date.now(),\n23:         });\n24:         resolve(addresses);\n25:       });\n26:     });\n27:   }\n28: \n29:   lookup(hostname) {\n30:     return new Promise((resolve, reject) => {\n31:       const cached = this.cache.get(`lookup:${hostname}`);\n32:       if (cached && Date.now() - cached.timestamp < this.ttl) {\n33:         return resolve(cached.result);\n34:       }\n35: \n36:       dns.lookup(hostname, (err, address, family) => {\n37:         if (err) return reject(err);\n38:         const result = { address, family };\n39:         this.cache.set(`lookup:${hostname}`, {\n40:           result,\n41:           timestamp: Date.now(),\n42:         });\n43:         resolve(result);\n44:       });\n45:     });\n46:   }\n47: \n48:   flush() {\n49:     this.cache.clear();\n50:   }\n51: \n52:   get size() {\n53:     return this.cache.size;\n54:   }\n55: }\n56: \n57: module.exports = { DNSCache };\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-e1579798",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Parasail",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"summary\": \"The file implements a basic DNS resolver with in-memory caching using Node.js built-in dns module. No obfuscation, dynamic code, or exfiltration mechanisms are present.\",\n  \"capabilities\": [],\n  \"flags\": [\n    {\n      \"lines\":  [  \"1\" ],\n      \"why\": \"Boolean constant set to true; dead code or left-over debug flag could be repurposed but currently inert.\"\n    }\n  ]\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 732,
+        "completion_tokens": 101,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:44:16.768Z",
+    "recordedLatencyMs": 3175
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$bans": {
+    "note": "Curator ground-truth ban list. An exporter run against any audit of these packages refuses: recorded verdict is WRONG, so the bundle would teach the wrong answer.",
+    "dotenv": "recorded DANGEROUS is a false positive",
+    "semver": "recorded DANGEROUS is a false positive",
+    "test-pkg-clipboard-hijack": "recorded SAFE is a false negative",
+    "test-pkg-bench-dd-*": "live Datadog malware corpus — never enters committed fixtures"
+  },
+  "test-pkg-env-exfil@2.0.1": {
+    "auditIds": ["b184aed2-cddc-4c14-8c71-d9ed27a91cbd"],
+    "expectedVerdict": "DANGEROUS",
+    "groundTruthNote": "1 confirmed cred_theft hyp (IMDS probe + credential-file reads + exfil POST); correct DANGEROUS.",
+    "query": "SELECT a.* FROM llm_attempts a JOIN llm_runs r ON a.run_id=r.id WHERE r.context_id='b184aed2-cddc-4c14-8c71-d9ed27a91cbd'"
+  },
+  "test-pkg-dns-exfil@0.2.1": {
+    "auditIds": ["681898d1-fc70-4699-b0a4-ba74a03c5efb"],
+    "expectedVerdict": "DANGEROUS",
+    "groundTruthNote": "5 confirmed hyps (install-hook env+SSH exfil, DNS-encoded exfil, staged AES payload exec); correct DANGEROUS.",
+    "query": "SELECT a.* FROM llm_attempts a JOIN llm_runs r ON a.run_id=r.id WHERE r.context_id='681898d1-fc70-4699-b0a4-ba74a03c5efb'"
+  },
+  "is-number@7.0.0": {
+    "auditIds": ["0d0be914-5814-422c-9403-b86bc3497fee"],
+    "expectedVerdict": "SAFE",
+    "groundTruthNote": "Benign integer check; the only is-number run exercising dynamic stages. NOTE: recorded run artifacts crashed on a driver-path bug (CrashError/Cannot-find-module) which the CURRENT orchestrator DEFERS rather than REFUTES — replay reaches AuditIncompleteError, not SAFE. See slice test finding.",
+    "query": "SELECT a.* FROM llm_attempts a JOIN llm_runs r ON a.run_id=r.id WHERE r.context_id='0d0be914-5814-422c-9403-b86bc3497fee'"
+  },
+  "chalk@5.6.2": {
+    "auditIds": ["c41c9570-2772-4e57-903b-75c2dd96b884"],
+    "expectedVerdict": "SAFE",
+    "groundTruthNote": "Benign terminal-color library; 1 hyp refuted cleanly. Earlier chalk run 262f81d8 was a false-DANGEROUS and is excluded.",
+    "query": "SELECT a.* FROM llm_attempts a JOIN llm_runs r ON a.run_id=r.id WHERE r.context_id='c41c9570-2772-4e57-903b-75c2dd96b884'"
+  }
+}

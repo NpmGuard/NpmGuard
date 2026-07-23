@@ -1,0 +1,54 @@
+{
+  "id": "004_flag_e8ab93ec",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: Terminal string styling done right\n- expectedCapabilities: apply ANSI color escape codes to a string for terminal output, apply ANSI background color escape codes to a string, apply ANSI text modifier escape codes to a string (e.g., bold, italic, underline, strikethrough), chain multiple styles together so that all are applied to the same string, detect whether the current terminal supports color output, including basic, 256-color, and truecolor levels, override color support detection (by setting a global level or by creating a custom Chalk instance), define custom named styles by composing existing styles, apply color using hexadecimal color values, apply color using RGB values, apply color using 8-bit (256-color) ANSI codes, reset all styling via an ANSI reset code\n- rationale: The package's description, README, and keyword tags consistently claim that chalk is a library for styling terminal strings using ANSI escape codes. The README explicitly lists 'Highlights' that include an 'Expressive API', 'No dependencies', 'Ability to nest styles', '256/Truecolor color support', 'Auto-detects color support', and 'Doesn't extend String.prototype'. The 'Usage' and 'API' sections demonstrate exactly these capabilities: applying named colors, background colors, modifiers (bold, italic, underline, strikethrough, etc.), chaining methods, using hex/rgb/ansi256 for colors, detecting/setting color support level, and defining theme helpers. No additional capabilities (e.g., reading files, network access, templating beyond what's shown) are claimed or implied. The package is purely a string-styling utility with no runtime dependencies, no executable binaries, and a single stated purpose.\n\n## File: source/vendor/supports-color/index.js\n```\n1: import process from 'node:process';\n2: import os from 'node:os';\n3: import tty from 'node:tty';\n4: \n5: // From: https://github.com/sindresorhus/has-flag/blob/main/index.js\n6: /// function hasFlag(flag, argv = globalThis.Deno?.args ?? process.argv) {\n7: function hasFlag(flag, argv = globalThis.Deno ? globalThis.Deno.args : process.argv) {\n8: \tconst prefix = flag.startsWith('-') ? '' : (flag.length === 1 ? '-' : '--');\n9: \tconst position = argv.indexOf(prefix + flag);\n10: \tconst terminatorPosition = argv.indexOf('--');\n11: \treturn position !== -1 && (terminatorPosition === -1 || position < terminatorPosition);\n12: }\n13: \n14: const {env} = process;\n15: \n16: let flagForceColor;\n17: if (\n18: \thasFlag('no-color')\n19: \t|| hasFlag('no-colors')\n20: \t|| hasFlag('color=false')\n21: \t|| hasFlag('color=never')\n22: ) {\n23: \tflagForceColor = 0;\n24: } else if (\n25: \thasFlag('color')\n26: \t|| hasFlag('colors')\n27: \t|| hasFlag('color=true')\n28: \t|| hasFlag('color=always')\n29: ) {\n30: \tflagForceColor = 1;\n31: }\n32: \n33: function envForceColor() {\n34: \tif ('FORCE_COLOR' in env) {\n35: \t\tif (env.FORCE_COLOR === 'true') {\n36: \t\t\treturn 1;\n37: \t\t}\n38: \n39: \t\tif (env.FORCE_COLOR === 'false') {\n40: \t\t\treturn 0;\n41: \t\t}\n42: \n43: \t\treturn env.FORCE_COLOR.length === 0 ? 1 : Math.min(Number.parseInt(env.FORCE_COLOR, 10), 3);\n44: \t}\n45: }\n46: \n47: function translateLevel(level) {\n48: \tif (level === 0) {\n49: \t\treturn false;\n50: \t}\n51: \n52: \treturn {\n53: \t\tlevel,\n54: \t\thasBasic: true,\n55: \t\thas256: level >= 2,\n56: \t\thas16m: level >= 3,\n57: \t};\n58: }\n59: \n60: function _supportsColor(haveStream, {streamIsTTY, sniffFlags = true} = {}) {\n61: \tconst noFlagForceColor = envForceColor();\n62: \tif (noFlagForceColor !== undefined) {\n63: \t\tflagForceColor = noFlagForceColor;\n64: \t}\n65: \n66: \tconst forceColor = sniffFlags ? flagForceColor : noFlagForceColor;\n67: \n68: \tif (forceColor === 0) {\n69: \t\treturn 0;\n70: \t}\n71: \n72: \tif (sniffFlags) {\n73: \t\tif (hasFlag('color=16m')\n74: \t\t\t|| hasFlag('color=full')\n75: \t\t\t|| hasFlag('color=truecolor')) {\n76: \t\t\treturn 3;\n77: \t\t}\n78: \n79: \t\tif (hasFlag('color=256')) {\n80: \t\t\treturn 2;\n81: \t\t}\n82: \t}\n83: \n84: \t// Check for Azure DevOps pipelines.\n85: \t// Has to be above the `!streamIsTTY` check.\n86: \tif ('TF_BUILD' in env && 'AGENT_NAME' in env) {\n87: \t\treturn 1;\n88: \t}\n89: \n90: \tif (haveStream && !streamIsTTY && forceColor === undefined) {\n91: \t\treturn 0;\n92: \t}\n93: \n94: \tconst min = forceColor || 0;\n95: \n96: \tif (env.TERM === 'dumb') {\n97: \t\treturn min;\n98: \t}\n99: \n100: \tif (process.platform === 'win32') {\n101: \t\t// Windows 10 build 10586 is the first Windows release that supports 256 colors.\n102: \t\t// Windows 10 build 14931 is the first release that supports 16m/TrueColor.\n103: \t\tconst osRelease = os.release().split('.');\n104: \t\tif (\n105: \t\t\tNumber(osRelease[0]) >= 10\n106: \t\t\t&& Number(osRelease[2]) >= 10_586\n107: \t\t) {\n108: \t\t\treturn Number(osRelease[2]) >= 14_931 ? 3 : 2;\n109: \t\t}\n110: \n111: \t\treturn 1;\n112: \t}\n113: \n114: \tif ('CI' in env) {\n115: \t\tif (['GITHUB_ACTIONS', 'GITEA_ACTIONS', 'CIRCLECI'].some(key => key in env)) {\n116: \t\t\treturn 3;\n117: \t\t}\n118: \n119: \t\tif (['TRAVIS', 'APPVEYOR', 'GITLAB_CI', 'BUILDKITE', 'DRONE'].some(sign => sign in env) || env.CI_NAME === 'codeship') {\n120: \t\t\treturn 1;\n121: \t\t}\n122: \n123: \t\treturn min;\n124: \t}\n125: \n126: \tif ('TEAMCITY_VERSION' in env) {\n127: \t\treturn /^(9\\.(0*[1-9]\\d*)\\.|\\d{2,}\\.)/.test(env.TEAMCITY_VERSION) ? 1 : 0;\n128: \t}\n129: \n130: \tif (env.COLORTERM === 'truecolor') {\n131: \t\treturn 3;\n132: \t}\n133: \n134: \tif (env.TERM === 'xterm-kitty') {\n135: \t\treturn 3;\n136: \t}\n137: \n138: \tif (env.TERM === 'xterm-ghostty') {\n139: \t\treturn 3;\n140: \t}\n141: \n142: \tif (env.TERM === 'wezterm') {\n143: \t\treturn 3;\n144: \t}\n145: \n146: \tif ('TERM_PROGRAM' in env) {\n147: \t\tconst version = Number.parseInt((env.TERM_PROGRAM_VERSION || '').split('.')[0], 10);\n148: \n149: \t\tswitch (env.TERM_PROGRAM) {\n150: \t\t\tcase 'iTerm.app': {\n151: \t\t\t\treturn version >= 3 ? 3 : 2;\n152: \t\t\t}\n153: \n154: \t\t\tcase 'Apple_Terminal': {\n155: \t\t\t\treturn 2;\n156: \t\t\t}\n157: \t\t\t// No default\n158: \t\t}\n159: \t}\n160: \n161: \tif (/-256(color)?$/i.test(env.TERM)) {\n162: \t\treturn 2;\n163: \t}\n164: \n165: \tif (/^screen|^xterm|^vt100|^vt220|^rxvt|color|ansi|cygwin|linux/i.test(env.TERM)) {\n166: \t\treturn 1;\n167: \t}\n168: \n169: \tif ('COLORTERM' in env) {\n170: \t\treturn 1;\n171: \t}\n172: \n173: \treturn min;\n174: }\n175: \n176: export function createSupportsColor(stream, options = {}) {\n177: \tconst level = _supportsColor(stream, {\n178: \t\tstreamIsTTY: stream && stream.isTTY,\n179: \t\t...options,\n180: \t});\n181: \n182: \treturn translateLevel(level);\n183: }\n184: \n185: const supportsColor = {\n186: \tstdout: createSupportsColor({isTTY: tty.isatty(1)}),\n187: \tstderr: createSupportsColor({isTTY: tty.isatty(2)}),\n188: };\n189: \n190: export default supportsColor;\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-e8ab93ec",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "DeepInfra",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"summary\": \"Color support detection module for terminal styling. Evaluates environment variables, command-line flags, platform version, CI provider env vars, and terminal program metadata to determine ANSI color capability level. No secrets, dynamic code execution, or evasion patterns.\",\n  \"capabilities\": [\n    \"CLIPBOARD_HIJACK\",\n    \"NETWORK\",\n    \"PROCESS_SPAWN\"\n  ],\n  \"flags\": []\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 2370,
+        "completion_tokens": 95,
+        "prompt_tokens_details": {
+          "cached_tokens": 64
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T09:39:57.403Z",
+    "recordedLatencyMs": 6101
+  }
+}

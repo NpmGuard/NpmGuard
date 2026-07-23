@@ -1,0 +1,54 @@
+{
+  "id": "009_hypothesis_e6fc59ab",
+  "role": "hypothesis",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis and a runnable\nexperiment. Plant bait, defeat visible gates, and trigger a real package entry\npoint. You are not the final judge; the observed run decides. Never dismiss a\nflag because the code appears benign."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n\n## Flag\n- file: index.js\n- lines: 1-1\n- why: Boolean constant set to true; dead code or left-over debug flag could be repurposed but currently inert.\n\n## Entry points\n- install: install-hook.js\n- runtime: index.js\n- bin: (none)\n\n## Flagged code\n### index.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const dns = require(\"dns\");\n4: \n5: class DNSCache {\n6:   constructor(options = {}) {\n7:     this.ttl = options.ttl || 300000;\n8:     this.cache = new Map();\n9:   }\n10: \n11:   resolve(hostname) {\n12:     return new Promise((resolve, reject) => {\n13:       const cached = this.cache.get(hostname);\n14:       if (cached && Date.now() - cached.timestamp < this.ttl) {\n15:         return resolve(cached.addresses);\n16:       }\n17: \n18:       dns.resolve4(hostname, (err, addresses) => {\n19:         if (err) return reject(err);\n20:         this.cache.set(hostname, {\n21:           addresses,\n22:           timestamp: Date.now(),\n23:         });\n24:         resolve(addresses);\n25:       });\n26:     });\n27:   }\n28: \n29:   lookup(hostname) {\n30:     return new Promise((resolve, reject) => {\n31:       const cached = this.cache.get(`lookup:${hostname}`);\n32:       if (cached && Date.now() - cached.timestamp < this.ttl) {\n33:         return resolve(cached.result);\n34:       }\n35: \n36:       dns.lookup(hostname, (err, address, family) => {\n37:         if (err) return reject(err);\n38:         const result = { address, family };\n39:         this.cache.set(`lookup:${hostname}`, {\n40:           result,\n41:           timestamp: Date.now(),\n42:         });\n43:         resolve(result);\n44:       });\n45:     });\n46:   }\n47: \n48:   flush() {\n49:     this.cache.clear();\n50:   }\n51: \n52:   get size() {\n53:     return this.cache.size;\n54:   }\n55: }\n56: \n57: module.exports = { DNSCache };\n```\n\n## Available setup mechanisms\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nReturn one JSON plan matching the supplied schema. Use empty arrays or null for setup mechanisms that are not needed. Set triggerTarget to exactly one of: index.js, install-hook.js. If exercising a library API requires custom JavaScript, put that program in triggerTarget; it will be planted as /pkg/npmguard-driver.js and executed inside the sandbox. The sandbox starts without CI; do not inject CI='false' to defeat a truthiness gate because non-empty strings are truthy in JavaScript.\n\nWhen you author JavaScript (a preload script, a custom driver, or a patchFile replacement), reference package files by a relative path with a leading './' (require('./src/x.js')) or by an absolute path under /pkg (require('/pkg/src/x.js')). A bare specifier like require('src/x.js') is resolved as a node_modules PACKAGE and fails with \"Cannot find module\". Planted file paths must be absolute (/pkg/... or /home/node/...). The sandbox working directory is /pkg.\n\nSuggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-e6fc59ab",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "DeepInfra",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"description\": \"Test if SAFE_TEST_MODE constant being true enables any debug or test behavior that could be exploited. Plant a canary token in environment, then invoke the index.js entry point with a custom driver that checks if the constant controls any hidden code path.\",\n  \"claim\": {\n    \"kind\": \"telemetry\",\n    \"gating\": \"inspector_gate\"\n  },\n  \"severity\": \"low\",\n  \"setup\": {\n    \"environment\": [\n      {\n        \"name\": \"NPMGUARD_CANARY_TOKEN_f8e2d91a\",\n        \"value\": \"triggered\"\n      }\n    ],\n    \"files\": [],\n    \"dateIso\": null,\n    \"urlStubs\": [],\n    \"filePatches\": [],\n    \"preloadCode\": \"\"\n  },\n  \"triggerTarget\": \"index.js\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1007,
+        "completion_tokens": 195,
+        "prompt_tokens_details": {
+          "cached_tokens": 64
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "71b8d4f63898",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:44:48.211Z",
+    "recordedLatencyMs": 6300
+  }
+}

@@ -1,0 +1,156 @@
+# Timeline — run_33cf367e5ef348189b3acd0c9e · trigger=entrypoint:setup.js
+# setup: env NPMGUARD_CANARY_TOKEN_f8e2d91a, AWS_ACCESS_KEY_ID, CI · planted ~/.npmrc, ~/.ssh/id_rsa
+
+── [L4] node calls — logical order, no clock ──
+e1    require  fs
+e2    require  http
+e3    require  https
+e4    require  child_process
+e5    require  crypto
+e6    require  inspector
+e7    require  module
+e8    script   require("/pkg/setup.js")  [dynamically compiled · 24c]
+e9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]
+e10   script   require("/pkg/setup.js")  [dynamically compiled · 24c]
+e11   require  /pkg/setup.js
+e12   fs       /pkg/setup.js (readFileSync)
+e13   require  http
+e14   require  https
+e15   require  os
+e16   require  fs
+e17   require  path
+e18   env      NPM_TOKEN
+e19   env      npm_config_registry
+e20   env      npm_config__auth
+e21   env      AWS_ACCESS_KEY_ID  [x2]
+e22   env      AWS_SECRET_ACCESS_KEY
+e23   env      AWS_SESSION_TOKEN
+e24   env      GITHUB_TOKEN
+e25   env      GH_TOKEN
+e26   env      GITLAB_TOKEN
+e27   env      AZURE_CLIENT_SECRET
+e28   env      DOCKER_AUTH_CONFIG
+e29   env      CI  [x2]
+e30   env      JENKINS_URL
+e31   env      TRAVIS
+e32   env      CIRCLE_TOKEN
+e33   env      HOSTNAME  [x2]
+e34   env      USER
+e35   env      HOME  [x2]
+e36   env      PATH
+e37   env      HOSTNAME
+e38   env      NPMGUARD_STUB_PORT
+e39   env      NPMGUARD_CANARY_TOKEN_f8e2d91a
+e40   env      NO_PROXY
+e41   env      AWS_ACCESS_KEY_ID
+e42   env      CI
+e43   env      HTTP_PROXY
+e44   env      HTTPS_PROXY
+e45   env      http_proxy
+e46   env      https_proxy
+e47   env      NPMGUARD_STUBS
+e48   env      NODE_VERSION
+e49   env      YARN_VERSION
+e50   env      HOME
+e51   env      NODE_ENV
+e52   fs       ~/.npmrc (readFileSync)
+e53   fs       ~/.yarnrc (readFileSync)
+e54   fs       ~/.ssh/id_rsa (readFileSync)
+e55   fs       ~/.ssh/id_ed25519 (readFileSync)
+e56   fs       ~/.aws/credentials (readFileSync)
+e57   fs       ~/.aws/config (readFileSync)
+e58   fs       ~/.gitconfig (readFileSync)
+e59   fs       ~/.docker/config.json (readFileSync)
+e60   fs       ~/.kube/config (readFileSync)
+e61   net      POST http://localhost/exfil
+
+── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──
+e62   t+0.18s       [L1]  exec     /usr/local/bin/node ["node", "--require", "/tmp/_instrument.js", "-e", "require(\\\"/pkg/setup.js\\\")", "--", "/pkg/setup.js"]
+e63   t+0.18s       [L1]  open     /etc/ld.so.cache
+e64   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2
+e65   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2
+e66   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6
+e67   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6
+e68   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6
+e69   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6
+e70   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e71   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e72   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0
+e73   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0
+e74   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6
+e75   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6
+e76   t+0.21s       [L1]  open     /etc/ssl/openssl.cnf
+e77   t+0.21-0.21s  [L1]  read     /etc/ssl/openssl.cnf  [x5]
+e78   t+0.22s       [L1]  open     /proc/version_signature
+e79   t+0.22s       [L1]  read     /proc/version_signature
+e80   t+0.22s       [L1]  write    fd:5
+e81   t+0.22-0.22s  [L1]  clone      [x10]
+e82   t+0.23s       [L1]  open     /proc/self/cgroup
+e83   t+0.23s       [L1]  read     /proc/self/cgroup
+e84   t+0.23s       [L1]  open     /sys/fs/cgroup//memory.max
+e85   t+0.23s       [L1]  read     /sys/fs/cgroup//memory.max
+e86   t+0.23s       [L1]  open     /sys/fs/cgroup//memory.high
+e87   t+0.23s       [L1]  read     /sys/fs/cgroup//memory.high
+e88   t+0.23s       [L1]  open     /proc/meminfo
+e89   t+0.23s       [L1]  read     /proc/meminfo
+e90   t+0.23s       [L1]  open     /proc/self/maps
+e91   t+0.23-0.23s  [L1]  read     /proc/self/maps  [x6]
+e92   t+0.23s       [L1]  open     /proc/self/maps
+e93   t+0.23s       [L1]  read     /proc/self/maps
+e94   t+0.26-0.26s  [L1]  clone      [x2]
+e95   t+0.27s       [L1]  open     /pkg/package.json
+e96   t+0.27s       [L1]  open     /tmp/_instrument.js
+e97   t+0.27-0.27s  [L1]  read     /tmp/_instrument.js  [x2]
+e98   t+0.28-0.28s  [L1]  clone      [x2]
+e99   t+0.28-0.29s  [L1]  write    fd:16  [x2]
+e100  t+0.33s       [L1]  open     /pkg/setup.js
+e101  t+0.33-0.33s  [L1]  read     /pkg/setup.js  [x2]
+e102  t+0.33s       [L1]  open     /etc/localtime
+e103  t+0.33-0.33s  [L1]  read     /etc/localtime  [x2]
+e104  t+0.33-0.33s  [L1]  connect  /etc/localtime  [x2]
+e105  t+0.33s       [L1]  open     /etc/nsswitch.conf
+e106  t+0.33-0.33s  [L1]  read     /etc/nsswitch.conf  [x2]
+e107  t+0.33s       [L1]  open     /etc/passwd
+e108  t+0.33s       [L1]  read     /etc/passwd
+e109  t+0.33s       [L1]  open     ~/.npmrc
+e110  t+0.33-0.33s  [L1]  read     ~/.npmrc  [x2]
+e111  t+0.33s       [L1]  open     ~/.yarnrc
+e112  t+0.33s       [L1]  open     ~/.ssh/id_rsa
+e113  t+0.33-0.33s  [L1]  read     ~/.ssh/id_rsa  [x2]
+e114  t+0.33s       [L1]  open     ~/.ssh/id_ed25519
+e115  t+0.33s       [L1]  open     ~/.aws/credentials
+e116  t+0.33s       [L1]  open     ~/.aws/config
+e117  t+0.33s       [L1]  open     ~/.gitconfig
+e118  t+0.33s       [L1]  open     ~/.docker/config.json
+e119  t+0.33s       [L1]  open     ~/.kube/config
+e120  t+0.34s       [L1]  open     /dev/null
+e121  t+0.34s       [L1]  connect  socket
+e122  t+0.34s       [L1]  read     fd:16
+e123  t+0.34s       [L1]  write    socket
+e124  t+0.34s       [L1]  read     socket
+e125  t+0.35s       [L1]  open     /etc/resolv.conf
+e126  t+0.35s       [L1]  read     /etc/resolv.conf
+e127  t+0.35s       [L1]  open     /etc/nsswitch.conf
+e128  t+0.35s       [L1]  read     /etc/nsswitch.conf
+e129  t+0.35s       [L1]  open     /etc/netsvc.conf
+e130  t+0.35s       [L1]  open     /etc/svc.conf
+e131  t+0.35-0.36s  [L1]  clone      [x8]
+e132  t+0.36s       [L1]  send     /etc/nsswitch.conf
+e133  t+0.36s       [L1]  open     /etc/host.conf
+e134  t+0.36-0.36s  [L1]  read     /etc/host.conf  [x2]
+e135  t+0.36s       [L1]  open     /etc/resolv.conf
+e136  t+0.36-0.36s  [L1]  read     /etc/resolv.conf  [x2]
+e137  t+0.36-0.36s  [L1]  connect  /etc/resolv.conf  [x2]
+e138  t+0.36s       [L1]  open     /etc/hosts
+e139  t+0.36-0.36s  [L1]  read     /etc/hosts  [x2]
+e140  t+0.36s       [L1]  open     /etc/gai.conf
+e141  t+0.36-0.36s  [L1]  read     /etc/gai.conf  [x2]
+e142  t+0.36s       [L1]  connect  /etc/gai.conf
+e143  t+0.36s       [L1]  write    fd:16
+e144  t+0.36s       [L1]  read     fd:16
+e145  t+0.36s       [L1]  connect  /etc/gai.conf
+e146  t+0.36s       [L1]  write    fd:16
+e147  t+0.37s       [L1]  write    stdout
+e148  t+0.37s       [L1]  read     fd:16
+e149  t+0.38s       [L1]  write    fd:12
+e150  t+0.38s       [L1]  read     fd:12

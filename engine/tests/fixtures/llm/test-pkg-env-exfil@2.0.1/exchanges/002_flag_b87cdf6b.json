@@ -1,0 +1,54 @@
+{
+  "id": "002_flag_b87cdf6b",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: Smart configuration loader with environment detection\n- expectedCapabilities: load configuration files, detect environment variables, parse .env files\n- rationale: The package name, description, and keywords indicate it is a configuration loader that works with environment detection and .env files. The description explicitly states 'Smart configuration loader with environment detection' and keywords include 'config', 'env', 'loader', 'dotenv'. As no runtime dependencies or bin entries are declared, the expected capabilities are limited to basic configuration loading and environment variable detection, without any network access or file system operations beyond reading configuration files.\n\n## File: index.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const path = require(\"path\");\n4: const fs = require(\"fs\");\n5: \n6: function loadConfig(options = {}) {\n7:   const config = {};\n8:   const prefix = options.prefix || \"\";\n9: \n10:   for (const [key, value] of Object.entries(process.env)) {\n11:     if (prefix && !key.startsWith(prefix)) continue;\n12:     const configKey = prefix ? key.slice(prefix.length) : key;\n13:     config[configKey.toLowerCase()] = value;\n14:   }\n15: \n16:   const envPath = options.path || path.resolve(process.cwd(), \".env\");\n17:   try {\n18:     const content = fs.readFileSync(envPath, \"utf-8\");\n19:     for (const line of content.split(\"\\n\")) {\n20:       const trimmed = line.trim();\n21:       if (!trimmed || trimmed.startsWith(\"#\")) continue;\n22:       const [key, ...rest] = trimmed.split(\"=\");\n23:       config[key.trim().toLowerCase()] = rest.join(\"=\").trim();\n24:     }\n25:   } catch (e) {\n26: \n27:   }\n28: \n29:   return config;\n30: }\n31: \n32: module.exports = { loadConfig };\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-b87cdf6b",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "AtlasCloud",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"capabilities\": [\n    \"CREDENTIAL_THEFT\",\n    \"ENV_VARS\"\n  ],\n  \"flags\": [\n    {\n      \"lines\":  [ \"1\" ],\n      \"why\": \"SAFE_TEST_MODE boolean constant with no usage — could indicate toggled behavior or anti-debug\"\n    },\n    {\n      \"lines\":  [ \"16\" ],\n      \"why\": \"Resolves .env file path from process.cwd() — potential for path traversal if options.path is attacker-controlled\"\n    },\n    {\n      \"lines\":  [ \"18\" ],\n      \"why\": \"Reads file synchronously using user-supplied path — possible arbitrary file read\"\n    },\n    {\n      \"lines\":  [ \"10-14\" ],\n      \"why\": \"Copies all process.env entries into config object — credential theft surface if config is exposed\"\n    },\n    {\n      \"lines\":  [ \"22-23\" ],\n      \"why\": \"Minimal .env parsing — no validation or escaping, could inject unexpected config values\"\n    },\n    {\n      \"lines\":  [ \"25-27\" ],\n      \"why\": \"Empty catch block silently swallows all read errors — hides failures and complicates debugging\"\n    }\n  ]\n  ,\n  \"summary\": \"File is a basic config loader reading env vars and a .env file. The empty catch block, silent env var aggregation, and lack of path validation are the main security concerns. The unused SAFE_TEST_MODE constant is anomalous but low-risk.\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 594,
+        "completion_tokens": 326,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:07:00.710Z",
+    "recordedLatencyMs": 6649
+  }
+}

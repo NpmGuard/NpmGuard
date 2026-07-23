@@ -1,0 +1,54 @@
+{
+  "id": "002_flag_27bf5d0c",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "google/gemini-2.5-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: A utility to determine if a given value is a finite number, including string representations of numbers.\n- expectedCapabilities: check if a value is a finite number, check if a string containing a number is a finite number\n- rationale: The package description clearly states its purpose: 'Returns true if a number or string value is a finite number.' The usage examples also demonstrate its primary function of checking various number and string values for numeric validity. The README elaborates on 'Why is this needed?' by highlighting JavaScript's quirks with type coercion to numbers and the intent to handle these edge cases to provide a reliable numeric check.\n\n## File: index.js\n```\n1: /*!\n2:  * is-number <https://github.com/jonschlinkert/is-number>\n3:  *\n4:  * Copyright (c) 2014-present, Jon Schlinkert.\n5:  * Released under the MIT License.\n6:  */\n7: \n8: 'use strict';\n9: \n10: module.exports = function(num) {\n11:   if (typeof num === 'number') {\n12:     return num - num === 0;\n13:   }\n14:   if (typeof num === 'string' && num.trim() !== '') {\n15:     return Number.isFinite ? Number.isFinite(+num) : isFinite(+num);\n16:   }\n17:   return false;\n18: };\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-27bf5d0c",
+      "model": "google/gemini-2.5-flash",
+      "provider": "Google",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"summary\": \"The package primarily checks if a value is a finite number, including string representations. It performs type checking and string trimming. The use of `Number.isFinite` and `isFinite` could be considered an intrinsic dynamic capability, but it is directly related to the stated purpose and not inherently malicious outside of that context.\",\n  \"capabilities\": [],\n  \"flags\": [\n    {\n      \"lines\": [\n        \"10-16\"\n      ],\n      \"why\": \"This function takes input `num` and performs type checks and conversions. The `+num` implicitly converts string to number, which could lead to unexpected behavior if not handled carefully, but is within the stated purpose.\"\n    },\n    {\n      \"lines\": [\n        \"15\"\n      ],\n      \"why\": \"Conditional execution based on `Number.isFinite` feature detection. While not malicious, it demonstrates dynamic capability assessment during runtime.\"\n    }\n  ]\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 498,
+        "completion_tokens": 213,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-22T20:12:59.671Z",
+    "recordedLatencyMs": 1656
+  }
+}

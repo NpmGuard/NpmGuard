@@ -1,0 +1,78 @@
+# Timeline — run_8dfd26c9d31647cbbac8af8afd · trigger=entrypoint:index.js
+# setup: env MYAPP_DB_HOST, MYAPP_DB_PORT · planted ~/.env
+
+── [L4] node calls — logical order, no clock ──
+e1    require  fs
+e2    require  http
+e3    require  https
+e4    require  child_process
+e5    require  crypto
+e6    require  inspector
+e7    require  module
+e8    script   require("/pkg/index.js")  [dynamically compiled · 24c]
+e9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]
+e10   script   require("/pkg/index.js")  [dynamically compiled · 24c]
+e11   require  /pkg/index.js
+e12   fs       /pkg/index.js (readFileSync)
+e13   require  path
+e14   require  fs
+e15   env      PATH
+e16   env      HOSTNAME
+e17   env      MYAPP_DB_HOST
+e18   env      MYAPP_DB_PORT
+e19   env      NODE_OPTIONS
+e20   env      NODE_VERSION
+e21   env      YARN_VERSION
+e22   env      HOME
+e23   env      NODE_ENV
+e24   fs       /pkg/.env (readFileSync)
+e25   env      FORCE_COLOR  [x2]
+
+── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──
+e26   t+0.18s       [L1]  exec     /usr/local/bin/node ["node", "--require", "/tmp/_instrument.js", "-e", "require(\\\"/pkg/index.js\\\")", "--", "/pkg/index.js"]
+e27   t+0.18s       [L1]  open     /etc/ld.so.cache
+e28   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2
+e29   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2
+e30   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6
+e31   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6
+e32   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6
+e33   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6
+e34   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e35   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1
+e36   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0
+e37   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0
+e38   t+0.18s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6
+e39   t+0.18s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6
+e40   t+0.20s       [L1]  open     /etc/ssl/openssl.cnf
+e41   t+0.20-0.20s  [L1]  read     /etc/ssl/openssl.cnf  [x5]
+e42   t+0.21s       [L1]  open     /proc/version_signature
+e43   t+0.21s       [L1]  read     /proc/version_signature
+e44   t+0.21s       [L1]  write    fd:5
+e45   t+0.21-0.22s  [L1]  clone      [x10]
+e46   t+0.22s       [L1]  open     /proc/self/cgroup
+e47   t+0.22s       [L1]  read     /proc/self/cgroup
+e48   t+0.22s       [L1]  open     /sys/fs/cgroup//memory.max
+e49   t+0.22s       [L1]  read     /sys/fs/cgroup//memory.max
+e50   t+0.22s       [L1]  open     /sys/fs/cgroup//memory.high
+e51   t+0.22s       [L1]  read     /sys/fs/cgroup//memory.high
+e52   t+0.22s       [L1]  open     /proc/meminfo
+e53   t+0.22s       [L1]  read     /proc/meminfo
+e54   t+0.22s       [L1]  open     /proc/self/maps
+e55   t+0.22-0.22s  [L1]  read     /proc/self/maps  [x6]
+e56   t+0.23s       [L1]  open     /proc/self/maps
+e57   t+0.23s       [L1]  read     /proc/self/maps
+e58   t+0.27-0.27s  [L1]  clone      [x2]
+e59   t+0.27s       [L1]  open     /pkg/package.json
+e60   t+0.28s       [L1]  open     /tmp/npmguard-preload.js
+e61   t+0.28-0.28s  [L1]  read     /tmp/npmguard-preload.js  [x2]
+e62   t+0.28s       [L1]  open     /tmp/_instrument.js
+e63   t+0.28-0.28s  [L1]  read     /tmp/_instrument.js  [x2]
+e64   t+0.29-0.29s  [L1]  clone      [x2]
+e65   t+0.30-0.30s  [L1]  write    fd:16  [x2]
+e66   t+0.36s       [L1]  open     /pkg/index.js
+e67   t+0.36-0.36s  [L1]  read     /pkg/index.js  [x2]
+e68   t+0.36s       [L1]  open     /dev/null
+e69   t+0.36-0.37s  [L1]  write    stdout  [x6]
+e70   t+0.37s       [L1]  read     fd:16
+e71   t+0.38s       [L1]  write    fd:12
+e72   t+0.38s       [L1]  read     fd:12

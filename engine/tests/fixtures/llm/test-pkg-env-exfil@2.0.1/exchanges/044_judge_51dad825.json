@@ -1,0 +1,54 @@
+{
+  "id": "044_judge_51dad825",
+  "role": "judge",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Judge one hypothesis against one observed execution timeline. The package's\nstated purpose is the benign baseline. Decide only from events in the timeline.\nA malicious decision must cite at least one exact event id present there. If the\nsuspected behavior did not happen, return malicious=false and no citations."
+        },
+        {
+          "role": "user",
+          "content": "## Stated purpose (benign baseline)\nSmart configuration loader with environment detection\n\n## Hypothesis hyp-0001\n- claim: env_exfil (gated: geo_gate)\n- severity: critical\n- description: The setup.js install hook unconditionally harvests environment variables, reads credential files, probes the IMDS endpoint, and exfiltrates all data to a hardcoded URL. This experiment plants a canary token and a fake .npmrc file, then triggers setup.js to confirm exfiltration occurs.\n- suspected code: setup.js:8-8, setup.js:9-9\n\n## Experiment setup\n[{\"tool\":\"setEnv\",\"args\":{\"env\":{\"NPMGUARD_CANARY_TOKEN_f8e2d91a\":\"should_exfil\",\"AWS_ACCESS_KEY_ID\":\"AKIATESTCANARY\",\"AWS_SECRET_ACCESS_KEY\":\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\",\"HOME\":\"/home/node\"}}},{\"tool\":\"plantFiles\",\"args\":{\"files\":[{\"path\":\"/home/node/.npmrc\",\"content\":\"//npmrc\\n//registry.npmjs.org/:_authToken=test_canary_token_abc123\\n\"}]}},{\"tool\":\"stubUrl\",\"args\":{\"stubs\":[{\"pattern\":\"http://localhost:9999/exfil*\",\"responseStatus\":200,\"responseBody\":\"ok\",\"responseHeaders\":{}},{\"pattern\":\"http://169.254.169.254/latest/meta-data/*\",\"responseStatus\":200,\"responseBody\":\"{\\\"instance-id\\\": \\\"i-1234567890abcdef0\\\"}\",\"responseHeaders\":{}}]}},{\"tool\":\"trigger\",\"args\":{\"kind\":\"entrypoint\",\"target\":\"setup.js\",\"argv\":[],\"stdin\":null}}]\nSetup is test context, not proof. Use it to associate planted canary values with observed events; decide only from the timeline.\n\n## Execution timeline\n# Timeline — run_1e6bae3ccbe24f948f5392654e · trigger=entrypoint:setup.js\n# setup: env NPMGUARD_CANARY_TOKEN_f8e2d91a, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, HOME · planted ~/.npmrc\n\n── [L4] node calls — logical order, no clock ──\ne1    require  fs\ne2    require  http\ne3    require  https\ne4    require  child_process\ne5    require  crypto\ne6    require  inspector\ne7    require  module\ne8    script   require(\"/pkg/setup.js\")  [dynamically compiled · 24c]\ne9    script   globalThis.module = module; globalThis.exports = exports; globalThis.__dirname = __dirname; globalTh…  [dynamically compiled · 182c]\ne10   script   require(\"/pkg/setup.js\")  [dynamically compiled · 24c]\ne11   require  /pkg/setup.js\ne12   fs       /pkg/setup.js (readFileSync)\ne13   require  http\ne14   require  https\ne15   require  os\ne16   require  fs\ne17   require  path\ne18   env      NPM_TOKEN\ne19   env      npm_config_registry\ne20   env      npm_config__auth\ne21   env      AWS_ACCESS_KEY_ID  [x2]\ne22   env      AWS_SECRET_ACCESS_KEY  [x2]\ne23   env      AWS_SESSION_TOKEN\ne24   env      GITHUB_TOKEN\ne25   env      GH_TOKEN\ne26   env      GITLAB_TOKEN\ne27   env      AZURE_CLIENT_SECRET\ne28   env      DOCKER_AUTH_CONFIG\ne29   env      CI\ne30   env      JENKINS_URL\ne31   env      TRAVIS\ne32   env      CIRCLE_TOKEN\ne33   env      HOSTNAME  [x2]\ne34   env      USER\ne35   env      HOME  [x2]\ne36   env      PATH\ne37   env      HOSTNAME\ne38   env      HOME\ne39   env      HTTP_PROXY\ne40   env      HTTPS_PROXY\ne41   env      http_proxy\ne42   env      NO_PROXY\ne43   env      https_proxy\ne44   env      NPMGUARD_STUBS\ne45   env      NPMGUARD_STUB_PORT\ne46   env      NPMGUARD_CANARY_TOKEN_f8e2d91a\ne47   env      AWS_ACCESS_KEY_ID\ne48   env      AWS_SECRET_ACCESS_KEY\ne49   env      NODE_VERSION\ne50   env      YARN_VERSION\ne51   env      NODE_ENV\ne52   fs       ~/.npmrc (readFileSync)\ne53   fs       ~/.yarnrc (readFileSync)\ne54   fs       ~/.ssh/id_rsa (readFileSync)\ne55   fs       ~/.ssh/id_ed25519 (readFileSync)\ne56   fs       ~/.aws/credentials (readFileSync)\ne57   fs       ~/.aws/config (readFileSync)\ne58   fs       ~/.gitconfig (readFileSync)\ne59   fs       ~/.docker/config.json (readFileSync)\ne60   fs       ~/.kube/config (readFileSync)\ne61   net      POST http://localhost/exfil\n\n── wall-clock t+ — [L1] syscall · [L2] network · [L3] fs-diff (mtime-coarse) ──\ne62   t+0.19s       [L1]  exec     /usr/local/bin/node [\"node\", \"--require\", \"/tmp/_instrument.js\", \"-e\", \"require(\\\\\\\"/pkg/setup.js\\\\\\\")\", \"--\", \"/pkg/setup.js\"]\ne63   t+0.19s       [L1]  open     /etc/ld.so.cache\ne64   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libdl.so.2\ne65   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libdl.so.2\ne66   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libstdc++.so.6\ne67   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libstdc++.so.6\ne68   t+0.19s       [L1]  open     /lib/x86_64-linux-gnu/libm.so.6\ne69   t+0.19s       [L1]  read     /lib/x86_64-linux-gnu/libm.so.6\ne70   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne71   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libgcc_s.so.1\ne72   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libpthread.so.0\ne73   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libpthread.so.0\ne74   t+0.20s       [L1]  open     /lib/x86_64-linux-gnu/libc.so.6\ne75   t+0.20s       [L1]  read     /lib/x86_64-linux-gnu/libc.so.6\ne76   t+0.22s       [L1]  open     /etc/ssl/openssl.cnf\ne77   t+0.22-0.22s  [L1]  read     /etc/ssl/openssl.cnf  [x5]\ne78   t+0.23s       [L1]  open     /proc/version_signature\ne79   t+0.23s       [L1]  read     /proc/version_signature\ne80   t+0.23s       [L1]  write    fd:5\ne81   t+0.23-0.24s  [L1]  clone      [x10]\ne82   t+0.24s       [L1]  open     /proc/self/cgroup\ne83   t+0.24s       [L1]  read     /proc/self/cgroup\ne84   t+0.24s       [L1]  open     /sys/fs/cgroup//memory.max\ne85   t+0.24s       [L1]  read     /sys/fs/cgroup//memory.max\ne86   t+0.24s       [L1]  open     /sys/fs/cgroup//memory.high\ne87   t+0.24s       [L1]  read     /sys/fs/cgroup//memory.high\ne88   t+0.24s       [L1]  open     /proc/meminfo\ne89   t+0.24s       [L1]  read     /proc/meminfo\ne90   t+0.24s       [L1]  open     /proc/self/maps\ne91   t+0.24-0.24s  [L1]  read     /proc/self/maps  [x6]\ne92   t+0.24s       [L1]  open     /proc/self/maps\ne93   t+0.24s       [L1]  read     /proc/self/maps\ne94   t+0.29-0.29s  [L1]  clone      [x2]\ne95   t+0.29s       [L1]  open     /pkg/package.json\ne96   t+0.30s       [L1]  open     /tmp/_instrument.js\ne97   t+0.30-0.30s  [L1]  read     /tmp/_instrument.js  [x2]\ne98   t+0.30-0.30s  [L1]  clone      [x2]\ne99   t+0.31-0.31s  [L1]  write    fd:16  [x2]\ne100  t+0.40s       [L1]  open     /pkg/setup.js\ne101  t+0.40-0.40s  [L1]  read     /pkg/setup.js  [x2]\ne102  t+0.40s       [L1]  open     /etc/localtime\ne103  t+0.40-0.40s  [L1]  read     /etc/localtime  [x2]\ne104  t+0.40-0.41s  [L1]  connect  /etc/localtime  [x2]\ne105  t+0.41s       [L1]  open     /etc/nsswitch.conf\ne106  t+0.41-0.41s  [L1]  read     /etc/nsswitch.conf  [x2]\ne107  t+0.41s       [L1]  open     /etc/passwd\ne108  t+0.41s       [L1]  read     /etc/passwd\ne109  t+0.41s       [L1]  open     ~/.npmrc\ne110  t+0.41-0.41s  [L1]  read     ~/.npmrc  [x2]\ne111  t+0.41s       [L1]  open     ~/.yarnrc\ne112  t+0.41s       [L1]  open     ~/.ssh/id_rsa\ne113  t+0.41s       [L1]  open     ~/.ssh/id_ed25519\ne114  t+0.41s       [L1]  open     ~/.aws/credentials\ne115  t+0.41s       [L1]  open     ~/.aws/config\ne116  t+0.41s       [L1]  open     ~/.gitconfig\ne117  t+0.41s       [L1]  open     ~/.docker/config.json\ne118  t+0.41s       [L1]  open     ~/.kube/config\ne119  t+0.42s       [L1]  open     /dev/null\ne120  t+0.42s       [L1]  connect  socket\ne121  t+0.43s       [L1]  read     fd:16\ne122  t+0.43s       [L1]  write    socket\ne123  t+0.43s       [L1]  read     socket\ne124  t+0.45s       [L1]  open     /etc/resolv.conf\ne125  t+0.45s       [L1]  read     /etc/resolv.conf\ne126  t+0.45s       [L1]  open     /etc/nsswitch.conf\ne127  t+0.45s       [L1]  read     /etc/nsswitch.conf\ne128  t+0.45s       [L1]  open     /etc/netsvc.conf\ne129  t+0.45s       [L1]  open     /etc/svc.conf\ne130  t+0.45-0.46s  [L1]  clone      [x8]\ne131  t+0.46s       [L1]  read     fd:16\ne132  t+0.46s       [L1]  open     /etc/host.conf\ne133  t+0.46-0.46s  [L1]  read     /etc/host.conf  [x2]\ne134  t+0.46s       [L1]  open     /etc/resolv.conf\ne135  t+0.47-0.47s  [L1]  read     /etc/resolv.conf  [x2]\ne136  t+0.47-0.47s  [L1]  connect  /etc/resolv.conf  [x2]\ne137  t+0.47s       [L1]  open     /etc/hosts\ne138  t+0.47-0.47s  [L1]  read     /etc/hosts  [x2]\ne139  t+0.47s       [L1]  open     /etc/gai.conf\ne140  t+0.47-0.47s  [L1]  read     /etc/gai.conf  [x2]\ne141  t+0.47s       [L1]  connect  /etc/gai.conf\ne142  t+0.47s       [L1]  write    fd:16\ne143  t+0.47s       [L1]  read     fd:16\ne144  t+0.47s       [L1]  connect  /etc/gai.conf\ne145  t+0.47s       [L1]  write    stdout\ne146  t+0.48s       [L1]  write    fd:12\ne147  t+0.48s       [L1]  read     fd:12\n\n## Task\nDid the suspected behavior happen? Cite exact timeline ids for malicious=true."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-51dad825",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Alibaba",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"malicious\": false,\n  \"citations\": []\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 3603,
+        "completion_tokens": 15,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "97539fc621ac",
+    "transport": "json_object",
+    "recordedStatus": "invalid_output",
+    "recordedTs": "2026-07-23T10:10:39.275Z",
+    "recordedLatencyMs": 5822
+  }
+}

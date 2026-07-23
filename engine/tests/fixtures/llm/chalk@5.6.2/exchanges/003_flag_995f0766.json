@@ -1,0 +1,54 @@
+{
+  "id": "003_flag_995f0766",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: Terminal string styling done right\n- expectedCapabilities: apply ANSI color escape codes to a string for terminal output, apply ANSI background color escape codes to a string, apply ANSI text modifier escape codes to a string (e.g., bold, italic, underline, strikethrough), chain multiple styles together so that all are applied to the same string, detect whether the current terminal supports color output, including basic, 256-color, and truecolor levels, override color support detection (by setting a global level or by creating a custom Chalk instance), define custom named styles by composing existing styles, apply color using hexadecimal color values, apply color using RGB values, apply color using 8-bit (256-color) ANSI codes, reset all styling via an ANSI reset code\n- rationale: The package's description, README, and keyword tags consistently claim that chalk is a library for styling terminal strings using ANSI escape codes. The README explicitly lists 'Highlights' that include an 'Expressive API', 'No dependencies', 'Ability to nest styles', '256/Truecolor color support', 'Auto-detects color support', and 'Doesn't extend String.prototype'. The 'Usage' and 'API' sections demonstrate exactly these capabilities: applying named colors, background colors, modifiers (bold, italic, underline, strikethrough, etc.), chaining methods, using hex/rgb/ansi256 for colors, detecting/setting color support level, and defining theme helpers. No additional capabilities (e.g., reading files, network access, templating beyond what's shown) are claimed or implied. The package is purely a string-styling utility with no runtime dependencies, no executable binaries, and a single stated purpose.\n\n## File: source/vendor/supports-color/browser.js\n```\n1: /* eslint-env browser */\n2: \n3: const level = (() => {\n4: \tif (!('navigator' in globalThis)) {\n5: \t\treturn 0;\n6: \t}\n7: \n8: \tif (globalThis.navigator.userAgentData) {\n9: \t\tconst brand = navigator.userAgentData.brands.find(({brand}) => brand === 'Chromium');\n10: \t\tif (brand && brand.version > 93) {\n11: \t\t\treturn 3;\n12: \t\t}\n13: \t}\n14: \n15: \tif (/\\b(Chrome|Chromium)\\//.test(globalThis.navigator.userAgent)) {\n16: \t\treturn 1;\n17: \t}\n18: \n19: \treturn 0;\n20: })();\n21: \n22: const colorSupport = level !== 0 && {\n23: \tlevel,\n24: \thasBasic: true,\n25: \thas256: level >= 2,\n26: \thas16m: level >= 3,\n27: };\n28: \n29: const supportsColor = {\n30: \tstdout: colorSupport,\n31: \tstderr: colorSupport,\n32: };\n33: \n34: export default supportsColor;\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-995f0766",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Alibaba",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"capabilities\": [\n    \"ANTI_AI_PROMPT\",\n    \"ENV_VARS\",\n    \"ANTI_AI_PROMPT\",\n    \"ENV_VARS\",\n    \"ANTI_AI_PROMPT\",\n    \"ENV_VARS\"\n  ],\n  \"flags\": [\n    {\n      \"lines\":  [  \"3-5\", \"6-13\", \"15-17\" ],\n      \"why\": \"Dynamic execution with user-agent detection and version checks for terminal color support in browser context\"\n    }\n  ]\n  ,\n  \"summary\": \"No high-signal security flags detected. The file uses browser environment detection to determine color support level, which is consistent with the package's stated purpose of terminal string styling. The code is straightforward and does not contain encoded strings, dynamic code execution, hidden URLs, shell commands, anti-debugging, or time/geography/CI/inspector/Docker gates.\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 813,
+        "completion_tokens": 205,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T09:39:54.662Z",
+    "recordedLatencyMs": 3423
+  }
+}

