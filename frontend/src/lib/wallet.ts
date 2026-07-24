@@ -3,12 +3,12 @@ import {
   createWalletClient,
   custom,
   encodeFunctionData,
+  type Address,
   type Hex,
 } from "viem";
 import { baseSepolia } from "viem/chains";
 import {
   AUDIT_REQUEST_ABI,
-  AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
   BASE_SEPOLIA_CHAIN_ID,
 } from "./contract";
 
@@ -64,6 +64,7 @@ export async function payWithInjected(
   packageName: string,
   version: string,
   feeWei: bigint,
+  contractAddress: Address,
 ): Promise<PayResult> {
   const ethereum = (window as unknown as {
     ethereum?: {
@@ -87,7 +88,7 @@ export async function payWithInjected(
   });
 
   const txHash = await walletClient.writeContract({
-    address: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
+    address: contractAddress,
     abi: AUDIT_REQUEST_ABI,
     functionName: "requestAudit",
     args: [packageName, version],
@@ -111,6 +112,7 @@ export async function startWalletConnectPayment(
   packageName: string,
   version: string,
   feeWei: bigint,
+  contractAddress: Address,
 ): Promise<WalletConnectHandle> {
   const calldata = encodeFunctionData({
     abi: AUDIT_REQUEST_ABI,
@@ -166,7 +168,7 @@ export async function startWalletConnectPayment(
         params: [
           {
             from: sender,
-            to: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
+            to: contractAddress,
             data: calldata,
             value: "0x" + feeWei.toString(16),
           },

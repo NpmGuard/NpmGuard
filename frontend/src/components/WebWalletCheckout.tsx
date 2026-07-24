@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { formatEther } from "viem";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { formatEther, isAddress, type Address } from "viem";
 import { useAuditStore } from "../stores/auditStore";
 import { hasInjectedWallet, payWithInjected } from "../lib/wallet";
 
@@ -29,18 +29,16 @@ export function WebWalletCheckout() {
   const startAuditFromTx = useAuditStore((s) => s.startAuditFromTx);
   const auditError = useAuditStore((s) => s.error);
 
-  const initial = useMemo(readPaymentParams, []);
+  const initial = useMemo(() => readPaymentParams(), []);
   const [packageName] = useState(initial.packageName);
   const [version, setVersion] = useState(initial.version);
   const [feeWei, setFeeWei] = useState<bigint | null>(null);
-  const [hasWallet, setHasWallet] = useState(false);
+  const [contractAddress, setContractAddress] = useState<Address | null>(null);
+  const [hasWallet] = useState(() => hasInjectedWallet());
   const [state, setState] = useState<PayState>("loading");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setHasWallet(hasInjectedWallet());
-  }, []);
+  const paymentInFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,11 +98,17 @@ export function WebWalletCheckout() {
         if (!res.ok) throw new Error("Payment config unavailable");
         const data = await res.json();
         const auditFeeWei = data.crypto?.auditFeeWei;
-        if (typeof auditFeeWei !== "string") {
+        const auditContract = data.crypto?.contract;
+        if (
+          typeof auditFeeWei !== "string" ||
+          typeof auditContract !== "string" ||
+          !isAddress(auditContract)
+        ) {
           throw new Error("Crypto payments are not configured");
         }
         if (!cancelled) {
           setFeeWei(BigInt(auditFeeWei));
+          setContractAddress(auditContract);
           setMessage(null);
           setState("ready");
         }
@@ -123,12 +127,18 @@ export function WebWalletCheckout() {
   }, [packageName, version]);
 
   const handlePay = async () => {
-    if (!feeWei || !packageName || !version) return;
+    if (!feeWei || !contractAddress || !packageName || !version || paymentInFlight.current) return;
+    paymentInFlight.current = true;
     setState("signing");
     setError(null);
     setMessage("Waiting for wallet signature...");
     try {
-      const { txHash } = await payWithInjected(packageName, version, feeWei);
+      const { txHash } = await payWithInjected(
+        packageName,
+        version,
+        feeWei,
+        contractAddress,
+      );
       setState("submitted");
       setMessage("Transaction sent. Starting audit...");
       await startAuditFromTx(txHash, packageName, version);
@@ -139,10 +149,12 @@ export function WebWalletCheckout() {
       setError(msg.toLowerCase().includes("reject") || msg.toLowerCase().includes("denied")
         ? "Transaction rejected"
         : msg);
+    } finally {
+      paymentInFlight.current = false;
     }
   };
 
-  const disabled = state !== "ready" || !hasWallet || !feeWei;
+  const disabled = state !== "ready" || !hasWallet || !feeWei || !contractAddress;
 
   return (
     <div className="flex-1 flex items-center justify-center px-4 py-10">

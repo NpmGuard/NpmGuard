@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { formatEther } from "viem";
+import { useRef, useState } from "react";
+import { formatEther, type Address } from "viem";
 import { useAuditStore } from "../stores/auditStore";
 import { hasInjectedWallet, payWithInjected } from "../lib/wallet";
 
@@ -9,6 +9,7 @@ interface Props {
   priceCents: number | null;
   stripeEnabled: boolean;
   cryptoFeeWei: bigint | null;
+  cryptoContract: Address | null;
   onClose: () => void;
 }
 
@@ -20,6 +21,7 @@ export function PaymentModal({
   priceCents,
   stripeEnabled,
   cryptoFeeWei,
+  cryptoContract,
   onClose,
 }: Props) {
   const startCheckout = useAuditStore((s) => s.startCheckout);
@@ -28,6 +30,7 @@ export function PaymentModal({
   const [mode, setMode] = useState<Mode>("choose");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const paymentInFlight = useRef(false);
 
   const injected = hasInjectedWallet();
 
@@ -36,12 +39,18 @@ export function PaymentModal({
   };
 
   const handleMetaMask = async () => {
-    if (!cryptoFeeWei) return;
+    if (!cryptoFeeWei || !cryptoContract || paymentInFlight.current) return;
+    paymentInFlight.current = true;
     setError(null);
     setMode("working");
     setStatus("Waiting for wallet signature…");
     try {
-      const { txHash } = await payWithInjected(packageName, version, cryptoFeeWei);
+      const { txHash } = await payWithInjected(
+        packageName,
+        version,
+        cryptoFeeWei,
+        cryptoContract,
+      );
       setStatus("Transaction sent. Starting audit…");
       await startAuditFromTx(txHash, packageName, version);
       onClose();
@@ -54,6 +63,8 @@ export function PaymentModal({
       }
       setMode("choose");
       setStatus(null);
+    } finally {
+      paymentInFlight.current = false;
     }
   };
 
@@ -93,7 +104,7 @@ export function PaymentModal({
               <button
                 className="payment-option"
                 onClick={handleMetaMask}
-                disabled={!injected || !cryptoFeeWei}
+                disabled={!injected || !cryptoFeeWei || !cryptoContract}
               >
                 Pay with Crypto
                 <span style={subLabel}>

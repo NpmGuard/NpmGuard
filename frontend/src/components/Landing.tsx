@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { isAddress, type Address } from "viem";
 import { useAuditStore } from "../stores/auditStore";
 import { PaymentModal } from "./PaymentModal";
 
@@ -35,6 +36,7 @@ export function Landing() {
   const [paymentEnabled, setPaymentEnabled] = useState(false);
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [cryptoFeeWei, setCryptoFeeWei] = useState<bigint | null>(null);
+  const [cryptoContract, setCryptoContract] = useState<Address | null>(null);
   const [pendingPayment, setPendingPayment] = useState<{ pkg: string; ver: string } | null>(null);
   const startAudit = useAuditStore((s) => s.startAudit);
   const startDemo = useAuditStore((s) => s.startDemo);
@@ -49,9 +51,14 @@ export function Landing() {
           setPaymentEnabled(data.paymentEnabled);
           setStripeEnabled(!!data.stripeEnabled);
           setPriceCents(data.priceCents);
-          if (data.crypto?.auditFeeWei) {
+          if (
+            data.crypto?.auditFeeWei &&
+            typeof data.crypto.contract === "string" &&
+            isAddress(data.crypto.contract)
+          ) {
             try {
               setCryptoFeeWei(BigInt(data.crypto.auditFeeWei));
+              setCryptoContract(data.crypto.contract);
             } catch {
               /* ignore */
             }
@@ -206,6 +213,7 @@ export function Landing() {
           priceCents={priceCents}
           stripeEnabled={stripeEnabled}
           cryptoFeeWei={cryptoFeeWei}
+          cryptoContract={cryptoContract}
           onClose={() => setPendingPayment(null)}
         />
       )}
