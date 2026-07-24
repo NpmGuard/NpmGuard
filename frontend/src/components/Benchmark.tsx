@@ -104,12 +104,6 @@ function rowKey(row: BenchRow): string {
   return `${row.packageName}@${row.version ?? "unknown"}:${row.runIndex ?? 0}`;
 }
 
-function reportHref(row: BenchRow): string | null {
-  if (!row.version || !row.verdict) return null;
-  const reportPackageName = row.fixtureName ?? row.packageName;
-  return `/package/${encodeURIComponent(reportPackageName)}?version=${encodeURIComponent(row.version)}`;
-}
-
 function rowOutcome(row: BenchRow, source: BenchSource): Outcome {
   if (row.status === "timeout") return "timeout";
   if (row.status === "failed") return "failed";
@@ -186,6 +180,7 @@ export function Benchmark() {
   const [error, setError] = useState<string | null>(null);
   const [activeRunFile, setActiveRunFile] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [selectedRow, setSelectedRow] = useState<BenchRow | null>(null);
 
   useEffect(() => {
     fetch("/api/bench/results")
@@ -207,6 +202,15 @@ export function Benchmark() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
+
+  useEffect(() => {
+    if (!selectedRow) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedRow(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedRow]);
 
   const selectableRuns = useMemo(() => data?.runs.filter((run) => run.totalRows > 0) ?? [], [data]);
 
@@ -301,6 +305,7 @@ export function Benchmark() {
                 onSelect={(file) => {
                   setActiveRunFile(file);
                   setFilter("all");
+                  setSelectedRow(null);
                 }}
               />
             </div>
@@ -397,7 +402,7 @@ export function Benchmark() {
                   <Th>Evidence</Th>
                   <Th style={{ textAlign: "right" }}>Duration</Th>
                   <Th>Notes</Th>
-                  <Th>Report</Th>
+                  <Th>Run snapshot</Th>
                 </tr>
               </thead>
               <tbody>
@@ -436,7 +441,7 @@ export function Benchmark() {
                           {notesText(row, source)}
                         </Td>
                         <Td>
-                          <ReportLink row={row} />
+                          <SnapshotButton row={row} onOpen={() => setSelectedRow(row)} />
                         </Td>
                       </tr>
                     ))}
@@ -447,6 +452,14 @@ export function Benchmark() {
           </div>
         </section>
       </div>
+      {selectedRow && (
+        <BenchmarkSnapshotDialog
+          row={selectedRow}
+          run={activeRun}
+          source={source}
+          onClose={() => setSelectedRow(null)}
+        />
+      )}
     </div>
   );
 }
@@ -468,32 +481,294 @@ function notesText(row: BenchRow, source: BenchSource): string {
   return caps.slice(0, 4).join(", ");
 }
 
-function ReportLink({ row }: { row: BenchRow }) {
-  const href = reportHref(row);
-  if (!href) {
-    return <span style={{ color: "var(--text-muted)" }}>—</span>;
-  }
-
+function SnapshotButton({ row, onOpen }: { row: BenchRow; onOpen: () => void }) {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      aria-label={`Open audit report for ${row.packageName}${row.version ? `@${row.version}` : ""}`}
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`View benchmark snapshot for ${row.packageName}${row.version ? `@${row.version}` : ""}`}
       style={{
         display: "inline-flex",
         alignItems: "center",
         gap: 5,
         color: "var(--accent-light)",
+        background: "transparent",
+        border: 0,
+        padding: 0,
+        cursor: "pointer",
         fontFamily: "var(--font-mono)",
         fontSize: "0.68rem",
         fontWeight: 800,
-        textDecoration: "none",
         whiteSpace: "nowrap",
       }}
     >
-      Open <span aria-hidden="true">↗</span>
-    </a>
+      View <span aria-hidden="true">→</span>
+    </button>
+  );
+}
+
+function BenchmarkSnapshotDialog({
+  row,
+  run,
+  source,
+  onClose,
+}: {
+  row: BenchRow;
+  run: BenchRun;
+  source: BenchSource;
+  onClose: () => void;
+}) {
+  const expected = expectedGroup(row);
+  const observed = row.verdict ?? "UNKNOWN";
+  const outcome = rowOutcome(row, source);
+  const colors = badgeColors(outcome);
+  const proofs = row.proofKinds ?? [];
+  const capabilities = row.capabilities ?? [];
+  const fixture = row.fixtureName && row.fixtureName !== row.packageName
+    ? row.fixtureName
+    : null;
+
+  return (
+    <div
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        display: "grid",
+        placeItems: "center",
+        padding: 20,
+        background: "rgba(31, 29, 25, 0.42)",
+        backdropFilter: "blur(5px)",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="benchmark-snapshot-title"
+        style={{
+          width: "min(720px, calc(100vw - 32px))",
+          maxHeight: "min(760px, calc(100vh - 32px))",
+          overflowY: "auto",
+          background: "var(--bg)",
+          border: "1px solid var(--border-strong)",
+          borderRadius: 8,
+          boxShadow: "0 24px 70px rgba(31, 29, 25, 0.24)",
+        }}
+      >
+        <header
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 20,
+            padding: "22px 24px 20px",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                marginBottom: 8,
+                color: "var(--accent-light)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.68rem",
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              Historical benchmark snapshot
+            </div>
+            <h2
+              id="benchmark-snapshot-title"
+              style={{
+                margin: 0,
+                fontFamily: "var(--font-heading)",
+                fontSize: "1.3rem",
+                fontWeight: 760,
+                overflowWrap: "anywhere",
+              }}
+            >
+              {row.packageName}
+              {row.version ? <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>@{row.version}</span> : null}
+            </h2>
+            <div
+              style={{
+                marginTop: 7,
+                color: "var(--text-muted)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.68rem",
+              }}
+            >
+              {benchmarkName(run.file)} · recorded {formatDate(run.updatedAt)}
+            </div>
+          </div>
+          <button
+            type="button"
+            autoFocus
+            onClick={onClose}
+            aria-label="Close benchmark snapshot"
+            style={{
+              width: 36,
+              height: 36,
+              flex: "0 0 auto",
+              border: "1px solid var(--border-strong)",
+              borderRadius: 6,
+              background: "var(--bg-secondary)",
+              color: "var(--text-dim)",
+              cursor: "pointer",
+              fontSize: "1.15rem",
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </header>
+
+        <div style={{ padding: 24 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              overflow: "hidden",
+              background: "var(--bg-secondary)",
+            }}
+          >
+            <SnapshotDatum label="Expected" value={expected} tone={expected === "DANGEROUS" ? "var(--danger)" : "var(--safe)"} />
+            <SnapshotDatum label="Observed" value={observed} tone={observed === "DANGEROUS" ? "var(--danger)" : observed === "SAFE" ? "var(--safe)" : "var(--text-muted)"} />
+            <SnapshotDatum label="Benchmark result" value={FILTER_LABELS[outcome]} tone={colors.color} />
+          </div>
+
+          <div
+            style={{
+              marginTop: 18,
+              padding: "13px 15px",
+              borderLeft: `3px solid ${colors.color}`,
+              background: colors.bg,
+              color: "var(--text-dim)",
+              fontSize: "0.78rem",
+              lineHeight: 1.55,
+            }}
+          >
+            This is the evidence retained by that benchmark run. It is not the mutable package report,
+            which may have been replaced by a later audit of the same fixture.
+          </div>
+
+          <SnapshotSection title="Recorded evidence">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+              {proofs.length > 0 ? proofs.map((proof, index) => (
+                <SnapshotChip
+                  key={`${proof}-${index}`}
+                  label={proof.replaceAll("_", " ")}
+                  tone={proof === "TEST_CONFIRMED" ? "var(--safe)" : "var(--text-dim)"}
+                />
+              )) : (
+                <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.74rem" }}>
+                  No proof attempt was retained for this run.
+                </span>
+              )}
+            </div>
+            {(row.confirmedProofs ?? 0) > 0 && (
+              <div style={{ marginTop: 10, color: "var(--safe)", fontFamily: "var(--font-mono)", fontSize: "0.72rem", fontWeight: 800 }}>
+                {row.confirmedProofs} sandbox test{row.confirmedProofs === 1 ? "" : "s"} confirmed
+              </div>
+            )}
+          </SnapshotSection>
+
+          <SnapshotSection title="Capabilities">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+              {capabilities.length > 0 ? capabilities.map((capability) => (
+                <SnapshotChip key={capability} label={capability.replaceAll("_", " ")} />
+              )) : (
+                <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.74rem" }}>
+                  No capability recorded.
+                </span>
+              )}
+            </div>
+          </SnapshotSection>
+
+          <SnapshotSection title="Run metadata">
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(110px, auto) minmax(0, 1fr)",
+                gap: "8px 16px",
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.72rem",
+                lineHeight: 1.45,
+              }}
+            >
+              <span style={{ color: "var(--text-muted)" }}>Class</span>
+              <span>{categoryLabel(row.category)}</span>
+              <span style={{ color: "var(--text-muted)" }}>Duration</span>
+              <span>{formatDuration(row.durationMs)}</span>
+              {fixture && (
+                <>
+                  <span style={{ color: "var(--text-muted)" }}>Fixture</span>
+                  <span style={{ overflowWrap: "anywhere" }}>{fixture}</span>
+                </>
+              )}
+              {row.error && (
+                <>
+                  <span style={{ color: "var(--text-muted)" }}>Error</span>
+                  <span style={{ color: "var(--danger)", overflowWrap: "anywhere" }}>{row.error}</span>
+                </>
+              )}
+            </div>
+          </SnapshotSection>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SnapshotDatum({ label, value, tone }: { label: string; value: string; tone: string }) {
+  return (
+    <div style={{ padding: "14px 15px", borderRight: "1px solid var(--border)" }}>
+      <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.64rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 7, color: tone, fontFamily: "var(--font-mono)", fontSize: "0.82rem", fontWeight: 850, textTransform: "uppercase" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SnapshotSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section style={{ marginTop: 20, paddingTop: 17, borderTop: "1px solid var(--border)" }}>
+      <h3 style={{ margin: "0 0 11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "0.66rem", letterSpacing: "0.07em", textTransform: "uppercase" }}>
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function SnapshotChip({ label, tone = "var(--text-dim)" }: { label: string; tone?: string }) {
+  return (
+    <span
+      style={{
+        padding: "4px 7px",
+        border: `1px solid ${tone}45`,
+        borderRadius: 4,
+        background: "var(--bg-tertiary)",
+        color: tone,
+        fontFamily: "var(--font-mono)",
+        fontSize: "0.66rem",
+        fontWeight: 750,
+        textTransform: "uppercase",
+      }}
+    >
+      {label}
+    </span>
   );
 }
 
