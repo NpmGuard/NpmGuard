@@ -14,11 +14,11 @@
 import type { ReactElement } from "react";
 import { render, type RenderResult } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { usePanelStore } from "../stores/panelStore.ts";
-import type { PanelData } from "./panel-server.ts";
+import { usePanelStore, type RepoActionError } from "../stores/panelStore.ts";
 import type {
   Alert,
   BillingResponse,
+  CapExceededBody,
   Installation,
   PanelRepo,
   PublicScan,
@@ -64,8 +64,8 @@ interface PanelDataState {
   publicScanError: string | null;
   loading: boolean;
   error: string | null;
-  repoActionErrors: Record<number, unknown>;
-  paywall: unknown;
+  repoActionErrors: Record<number, RepoActionError>;
+  paywall: CapExceededBody | null;
 }
 
 const INITIAL: PanelDataState = {

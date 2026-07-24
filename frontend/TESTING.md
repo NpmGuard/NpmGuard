@@ -46,6 +46,42 @@ only** — `seq`/`timestamp` are nondeterministic; never byte-golden a frame). A
 skeleton type the fold doesn't handle is contract drift — fix `engine-types.ts`
 + the fold, then pin.
 
+## Pillar A2 — the GitHub panel, proven on the mocked boundary
+
+The panel/dashboard cluster (`pages/Dashboard`, `pages/RepoDetail`, the
+`components/panel/*` cluster, `panelStore`) has **no demo-replay** — its data
+comes from live GitHub via OAuth, so a hermetic real-engine e2e is impossible.
+Its "prove the artifact" pillar is therefore **component-integration** tests:
+the REAL page + REAL store + REAL react-router, rendered in jsdom, talking to
+**MSW handlers over the exact `/api/panel/*` HTTP boundary the app crosses in
+prod** (`api-base.ts` → `ApiError{status,body}` branches, `capBody`/`isReauth`
+dispatch, the SSE dep-patch). Only the network peer is a mock; every seam
+between the component and that peer is real. This is the honest analogue of
+Pillar B where the counterpart backend can't be booted deterministically.
+
+**Harness** (`src/test/`): `panel-server.ts` (MSW `server` + `panelHandlers`
+happy-path factory, origin-relative + jsdom-origin-pinned), `panel-fixtures.ts`
+(benign-by-default builders for every panel wire shape — overrides state only
+the class under test), `render.tsx` (`renderRoute` = MemoryRouter with sink
+routes for navigation assertions, `resetPanelStore`/`authedSeed` for singleton
+isolation, `installMockEventSource` since jsdom has no `EventSource`). Same
+class-map discipline as Pillar A: each file opens with its `C<n>` enumeration;
+each test names its class. Assert rendered output + observable effects (nav,
+store state, a POST-then-reload, an SSE patch) — never internals or CSS beyond
+stable `aria-label`/role hooks. The honest-verdict invariants are pinned here
+too: a DANGEROUS dep/scan is never coerced to SAFE (even when a scan summary
+reports SAFE); a 402 cap opens the paywall, never a silent failure; pending
+(verdict `null`) is distinct from a real verdict; an error/empty is an honest
+empty-state, never a fabricated posture.
+
+The panel units + their representative classes:
+
+| unit | classes (representative) |
+|---|---|
+| `pages/Dashboard` | login gate (no session → sign-in, never blank); auth boot streams repos; grid filters (all/protected/unscanned/attention) + counts + search; empty classes (no-install / no-repo / no-match); public-audit CTA gated on billing; `?billing=success/cancelled` banners; error+retry; paywall dialog |
+| `pages/RepoDetail` | load phases (loading/ready/404-missing/500-error); the 7 posture-label branches; counts-rail + tiles; review queue (alerts vs flagged-dep fallback + nav); inventory search/filter/severity-sort/pagination; actions (audit/protect-optimistic/resync) with busy/action-error/cap-paywall; running-scan SSE dep-patch |
+| `panel/*` components | RepoCard scan-summary states + action wiring; PlanLedger free/pro buckets + checkout/portal; PortfolioPosture aggregation buckets; AlertsNotice unseen→mark-seen; PublicAudit dialog/history/report (cap, 409-already-running-as-success, truncation); UpgradeDialog per-resource copy + close; tone verdict→tone map; AllowanceMeter quota states |
+
 ## Pillar B — e2e: the artifact, proven
 
 E2e means the **exact artifact prod ships** — the built React app in a real
@@ -90,6 +126,12 @@ replay, live, reconnect-resume-without-duplicates, idle survival):
   advertised methods render); the error taxonomy branches on `ApiError.status`.
 - **S7 expired session** — `/audit/<bogus-uuid>` → the probe 404s → an honest
   "session expired" state, never a blank view.
+- **S9 dashboard gate** — `/dashboard` against the real engine with **no GitHub
+  App configured** (the default e2e harness): `/me` 503s, the store resolves
+  `user=null`, and the page must render the honest sign-in gate (the "Sign in
+  with GitHub" link points at the real `/api/auth/github/login`), never a blank
+  view and never a fabricated workspace. The authenticated dashboard stories
+  live in Pillar A2 (the panel backend can't be booted deterministically here).
 - **Edge classes** — heartbeat `: keep-alive` frames ignored; a scoped package
   name (`@scope/pkg`) routes with its slash intact; `prefers-reduced-motion`
   disables entrances (no motion assertions depend on animation).
