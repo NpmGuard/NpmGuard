@@ -1,0 +1,155 @@
+/* ============================================================
+   pay page — compose base.css primitives; prefix classes `.pg-pay-`.
+   Keyline-calm: a single centered card, hairline tabs, one violet accent.
+   ============================================================ */
+
+.pg-pay {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 40px 18px 64px;
+  display: grid;
+  gap: 14px;
+}
+
+.pg-pay .section-title {
+  margin: 0;
+}
+
+.pg-pay__id {
+  margin: 0;
+  word-break: break-all;
+}
+
+/* ---- the card ---- */
+
+.pg-pay__card {
+  overflow: hidden;
+}
+
+.pg-pay__body {
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.pg-pay-pane {
+  display: grid;
+  gap: 12px;
+}
+
+/* ---- method tabs (no base primitive — keep it hairline) ---- */
+
+.pg-pay-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pg-pay-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 12px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 600;
+  transition: color var(--t-fast) ease, border-color var(--t-fast) ease;
+}
+
+.pg-pay-tab:hover {
+  color: var(--ink);
+}
+
+.pg-pay-tab.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--violet);
+}
+
+/* ---- metadata rows (price / network / fee / contract) ---- */
+
+.pg-pay-meta {
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--line-faint);
+  border-radius: var(--r-md);
+  background: var(--surface-inset);
+}
+
+.pg-pay-meta__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+}
+
+.pg-pay-meta dt {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pg-pay-meta dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  text-align: right;
+}
+
+/* ---- CTA (fills the card width) ---- */
+
+.pg-pay__cta {
+  width: 100%;
+}
+
+/* ---- rejected-wallet notice: calm, not an error ---- */
+
+.pg-pay-notice {
+  color: var(--ink-soft);
+}
+
+/* ---- no-wallet CLI hint ---- */
+
+.pg-pay-hint {
+  display: grid;
+  gap: 10px;
+}
+
+.pg-pay-cli {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-inset);
+  font-size: 12px;
+  color: var(--ink);
+  overflow-x: auto;
+}
+
+.pg-pay-cli .mono {
+  white-space: nowrap;
+}
+
+/* ---- trust footnote ---- */
+
+.pg-pay__trust {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.pg-pay__trust svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ink-faint);
+}

@@ -1,0 +1,147 @@
+/* ============================================================
+   landing page — compose base.css primitives; prefix classes `.pg-landing-`.
+   ============================================================ */
+
+.pg-landing {
+  display: grid;
+  gap: 44px;
+}
+
+/* ---------- 1 · hero ---------- */
+
+.pg-landing-hero {
+  border: 1px solid var(--line);
+  border-radius: var(--r-2xl);
+  padding: clamp(28px, 6vw, 64px) clamp(20px, 5vw, 56px);
+  box-shadow: var(--shadow-card);
+}
+
+.pg-landing-hero__copy {
+  display: grid;
+  gap: 14px;
+  max-width: 680px;
+}
+
+.pg-landing-hero__title {
+  max-width: 15ch;
+}
+
+.pg-landing-hero__lede {
+  max-width: 56ch;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.pg-landing-hero__lede strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pg-landing-launch {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  max-width: 520px;
+}
+.pg-landing-launch__input {
+  flex: 1;
+  min-width: 0;
+}
+.pg-landing-launch__btn {
+  padding-inline: 20px;
+}
+
+.pg-landing-launch__hint {
+  margin-top: 2px;
+}
+.pg-landing-launch__hint .mono {
+  color: var(--ink-soft);
+}
+
+.pg-landing-error {
+  margin-top: 6px;
+  max-width: 520px;
+}
+
+/* ---------- 2 · live demo strip ---------- */
+
+.pg-landing-demo__loading {
+  border-bottom: 0;
+  gap: 8px;
+}
+
+.pg-landing-demo__lede,
+.pg-landing-demo__empty {
+  margin-top: -6px;
+  margin-bottom: 12px;
+  max-width: 56ch;
+}
+
+.pg-landing-demo__pkgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* the active demo button reads as a violet-soft selection, not a filled CTA */
+.pg-landing-demo__pkg--on {
+  border-color: var(--tone-violet-border);
+  background: var(--violet-soft);
+  color: var(--violet-dark);
+}
+.pg-landing-demo__pkg--on:hover:not(:disabled) {
+  border-color: var(--tone-violet-border);
+  background: var(--violet-soft);
+  color: var(--violet-dark);
+}
+
+.pg-landing-demo__feed {
+  margin-top: 16px;
+}
+
+/* ---------- 3 · verdict legend ---------- */
+
+.pg-landing-legend__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.pg-landing-legend__chip {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  align-content: start;
+}
+.pg-landing-legend__chip .pill {
+  justify-self: start;
+}
+
+/* ---------- 4 · how it works ---------- */
+
+.pg-landing-how__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.pg-landing-how__step {
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  align-content: start;
+}
+.pg-landing-how__step .headline {
+  margin-top: 2px;
+}
+
+/* ---------- narrow ---------- */
+
+@media (max-width: 560px) {
+  .pg-landing {
+    gap: 32px;
+  }
+  .pg-landing-launch {
+    flex-direction: column;
+  }
+  .pg-landing-launch__btn {
+    width: 100%;
+  }
+}

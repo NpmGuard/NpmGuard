@@ -1,181 +1,117 @@
-import { SignClient } from "@walletconnect/sign-client";
-import {
-  createWalletClient,
-  custom,
-  encodeFunctionData,
-  type Hex,
-} from "viem";
+/**
+ * Browser-wallet payment (MetaMask/Rabby via window.ethereum) for the web app.
+ * The wallet signs; the ENGINE verifies the receipt — no client-side trust,
+ * and no private-key path may ever exist here.
+ *
+ * The contract address + fee come from GET /config/public (never hardcoded —
+ * the engine is the source of truth). There is deliberately no WalletConnect
+ * relay path: the CLI owns that flow, and the production CSP blocks relay
+ * websockets.
+ */
+
+import { createWalletClient, custom, type Address, type EIP1193Provider } from "viem";
 import { baseSepolia } from "viem/chains";
-import {
-  AUDIT_REQUEST_ABI,
-  AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
-  BASE_SEPOLIA_CHAIN_ID,
-} from "./contract";
 
-const WALLETCONNECT_PROJECT_ID =
-  (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ??
-  "d5eb170c427570e15ac00ae53acc93ba";
+export const AUDIT_REQUEST_ABI = [
+  {
+    type: "function",
+    name: "requestAudit",
+    stateMutability: "payable",
+    inputs: [
+      { name: "packageName", type: "string" },
+      { name: "version", type: "string" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "auditFee",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
 
-const BASE_SEPOLIA_HEX = "0x14a34"; // 84532
+const CHAIN_ID_HEX = "0x14a34"; // 84532, Base Sepolia
 
-export interface PayResult {
-  txHash: Hex;
-  sender: string;
-}
-
-export function hasInjectedWallet(): boolean {
-  return typeof window !== "undefined" && !!(window as unknown as { ethereum?: unknown }).ethereum;
-}
-
-// ---------------------------------------------------------------------------
-// MetaMask / injected path
-// ---------------------------------------------------------------------------
-
-async function ensureBaseSepolia(ethereum: {
-  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-}): Promise<void> {
-  try {
-    await ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: BASE_SEPOLIA_HEX }],
-    });
-  } catch (err: unknown) {
-    const code = (err as { code?: number }).code;
-    if (code === 4902) {
-      await ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: BASE_SEPOLIA_HEX,
-            chainName: "Base Sepolia",
-            nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-            rpcUrls: ["https://sepolia.base.org"],
-            blockExplorerUrls: ["https://sepolia.basescan.org"],
-          },
-        ],
-      });
-    } else {
-      throw err;
-    }
+declare global {
+  interface Window {
+    ethereum?: EIP1193Provider;
   }
 }
 
+export function hasInjectedWallet(
+  provider: unknown = typeof window !== "undefined" ? window.ethereum : undefined,
+): boolean {
+  return provider != null;
+}
+
+export class WalletRejectedError extends Error {
+  constructor() {
+    super("Transaction rejected in the wallet");
+    this.name = "WalletRejectedError";
+  }
+}
+
+function isRejection(err: unknown): boolean {
+  const message = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+  return message.includes("reject") || message.includes("denied");
+}
+
+async function ensureBaseSepolia(provider: EIP1193Provider): Promise<void> {
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: CHAIN_ID_HEX }],
+    });
+  } catch (err) {
+    const code = (err as { code?: number }).code;
+    if (code !== 4902) throw err;
+    await provider.request({
+      method: "wallet_addEthereumChain",
+      params: [
+        {
+          chainId: CHAIN_ID_HEX,
+          chainName: "Base Sepolia",
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: ["https://sepolia.base.org"],
+          blockExplorerUrls: ["https://sepolia.basescan.org"],
+        },
+      ],
+    });
+  }
+}
+
+/**
+ * Connect the injected wallet, switch to Base Sepolia, and sign
+ * requestAudit(packageName, version) with the audit fee attached to
+ * `contract`. Returns the tx hash — server-side verification happens when the
+ * hash is submitted to POST /audit/stream.
+ */
 export async function payWithInjected(
+  contract: Address,
   packageName: string,
   version: string,
   feeWei: bigint,
-): Promise<PayResult> {
-  const ethereum = (window as unknown as {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-    };
-  }).ethereum;
-  if (!ethereum) throw new Error("No injected wallet found");
-
-  const accounts = (await ethereum.request({
-    method: "eth_requestAccounts",
-  })) as string[];
-  const sender = accounts[0];
-  if (!sender) throw new Error("No account approved");
-
-  await ensureBaseSepolia(ethereum);
-
-  const walletClient = createWalletClient({
-    chain: baseSepolia,
-    transport: custom(ethereum),
-    account: sender as `0x${string}`,
-  });
-
-  const txHash = await walletClient.writeContract({
-    address: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
-    abi: AUDIT_REQUEST_ABI,
-    functionName: "requestAudit",
-    args: [packageName, version],
-    value: feeWei,
-  });
-
-  return { txHash, sender };
-}
-
-// ---------------------------------------------------------------------------
-// WalletConnect path
-// ---------------------------------------------------------------------------
-
-export interface WalletConnectHandle {
-  uri: string;
-  result: Promise<PayResult>;
-  cancel: () => void;
-}
-
-export async function startWalletConnectPayment(
-  packageName: string,
-  version: string,
-  feeWei: bigint,
-): Promise<WalletConnectHandle> {
-  const calldata = encodeFunctionData({
-    abi: AUDIT_REQUEST_ABI,
-    functionName: "requestAudit",
-    args: [packageName, version],
-  });
-
-  const signClient = await SignClient.init({
-    projectId: WALLETCONNECT_PROJECT_ID,
-    metadata: {
-      name: "NpmGuard",
-      description: "NPM package security audit",
-      url: window.location.origin,
-      icons: [],
-    },
-  });
-
-  const { uri, approval } = await signClient.connect({
-    requiredNamespaces: {
-      eip155: {
-        methods: ["eth_sendTransaction"],
-        chains: [`eip155:${BASE_SEPOLIA_CHAIN_ID}`],
-        events: ["chainChanged", "accountsChanged"],
-      },
-    },
-  });
-
-  if (!uri) throw new Error("Failed to generate WalletConnect URI");
-
-  let cancelled = false;
-  const cancel = () => {
-    cancelled = true;
-  };
-
-  const result: Promise<PayResult> = (async () => {
-    const session = await approval();
-    if (cancelled) throw new Error("Cancelled");
-
-    const accounts = session.namespaces.eip155?.accounts ?? [];
-    const baseAccount = accounts.find((a: string) =>
-      a.startsWith(`eip155:${BASE_SEPOLIA_CHAIN_ID}:`),
-    );
-    const sender = baseAccount
-      ? baseAccount.split(":")[2]
-      : accounts[0]?.split(":")[2];
-    if (!sender) throw new Error("Wallet did not approve any accounts");
-
-    const txHash = (await signClient.request({
-      topic: session.topic,
-      chainId: `eip155:${BASE_SEPOLIA_CHAIN_ID}`,
-      request: {
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from: sender,
-            to: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
-            data: calldata,
-            value: "0x" + feeWei.toString(16),
-          },
-        ],
-      },
-    })) as Hex;
-
-    return { txHash, sender };
-  })();
-
-  return { uri, result, cancel };
+  provider: EIP1193Provider | undefined = typeof window !== "undefined" ? window.ethereum : undefined,
+): Promise<`0x${string}`> {
+  if (!provider) throw new Error("No browser wallet detected");
+  try {
+    const accounts = (await provider.request({ method: "eth_requestAccounts" })) as Address[];
+    const account = accounts[0];
+    if (!account) throw new Error("No wallet account available");
+    await ensureBaseSepolia(provider);
+    const client = createWalletClient({ chain: baseSepolia, transport: custom(provider) });
+    return await client.writeContract({
+      account,
+      address: contract,
+      abi: AUDIT_REQUEST_ABI,
+      functionName: "requestAudit",
+      args: [packageName, version],
+      value: feeWei,
+    });
+  } catch (err) {
+    if (isRejection(err)) throw new WalletRejectedError();
+    throw err;
+  }
 }

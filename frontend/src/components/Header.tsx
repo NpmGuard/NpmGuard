@@ -1,157 +1,128 @@
-import { useState, useEffect } from "react";
-import { useAuditStore } from "../stores/auditStore";
-import { verdictDisplay } from "../lib/types";
-import { PhaseProgress } from "./PhaseProgress";
+import { ShieldCheck } from "lucide-react";
+import { useEffect, type MouseEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { githubLoginUrl } from "../lib/panel-api.ts";
+import { useAuditStore } from "../stores/auditStore.ts";
+import { usePanelStore } from "../stores/panelStore.ts";
 
-const NAV_LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/packages", label: "Packages" },
-  { href: "/benchmark", label: "Benchmark" },
+const NAV = [
+  { to: "/", label: "Home" },
+  { to: "/dashboard", label: "Dashboard" },
+  { to: "/packages", label: "Packages" },
+  { to: "/cli", label: "CLI" },
 ];
 
-function navigate(href: string) {
-  history.pushState(null, "", href);
-  window.dispatchEvent(new PopStateEvent("popstate"));
+function isActive(pathname: string, to: string): boolean {
+  if (to === "/") return pathname === "/" || pathname.startsWith("/audit");
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+/** Live status of the in-flight audit — mirrors the fold, so it survives
+ * navigation (the shell never remounts). */
+function AuditStatusPill() {
+  const running = useAuditStore((s) => s.running);
+  const verdict = useAuditStore((s) => s.verdict);
+  const packageName = useAuditStore((s) => s.packageName);
+  const phase = useAuditStore((s) => s.phase);
+
+  if (!running && !verdict) return null;
+
+  const tone = verdict === "SAFE" ? "safe" : verdict === "DANGEROUS" ? "danger" : "running";
+  const label = verdict ?? (phase ? phase.replace(/-/g, " ") : "starting");
+
+  return (
+    <div className="status-pill" role="status">
+      <span className={`dot dot--${tone}`} />
+      <strong className="mono">{packageName || "audit"}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/** GitHub session chip. Resolves the session once on mount; renders nothing
+ * until `userLoaded`, then either the signed-in identity (avatar → login →
+ * sign out) or a "Sign in" link that starts the OAuth web flow. */
+function AuthChip() {
+  const user = usePanelStore((s) => s.user);
+  const userLoaded = usePanelStore((s) => s.userLoaded);
+  const fetchMe = usePanelStore((s) => s.fetchMe);
+  const logout = usePanelStore((s) => s.logout);
+
+  useEffect(() => {
+    void fetchMe();
+  }, [fetchMe]);
+
+  if (!userLoaded) return null;
+
+  if (!user) {
+    return (
+      <a className="btn btn--sm" href={githubLoginUrl()}>
+        Sign in
+      </a>
+    );
+  }
+
+  return (
+    <div className="auth-chip">
+      {user.avatarUrl ? (
+        <img
+          className="auth-chip__avatar"
+          src={user.avatarUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          onError={(event) => event.currentTarget.remove()}
+        />
+      ) : (
+        <span className="auth-chip__avatar auth-chip__avatar--letter">
+          {user.login.charAt(0).toUpperCase()}
+        </span>
+      )}
+      <span className="auth-chip__login">{user.login}</span>
+      <button type="button" className="auth-chip__signout" onClick={() => void logout()}>
+        sign out
+      </button>
+    </div>
+  );
 }
 
 export function Header() {
-  const isRunning = useAuditStore((s) => s.isRunning);
-  const packageName = useAuditStore((s) => s.packageName);
-  const verdict = useAuditStore((s) => s.verdict);
+  const location = useLocation();
+  const navigate = useNavigate();
   const reset = useAuditStore((s) => s.reset);
 
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
-
-  useEffect(() => {
-    const onPopState = () => setCurrentPath(window.location.pathname);
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
-
-  // 4-state: SAFE→safe, DANGEROUS→danger, SUSPECT/UNKNOWN→warning; investigating while running
-  const statusColor = verdict ? verdictDisplay(verdict).color : "var(--investigating)";
-
-  const goHome = () => {
+  const goHome = (event: MouseEvent) => {
+    event.preventDefault();
     reset();
     navigate("/");
   };
 
   return (
-    <header
-      className="flex items-center gap-5 shrink-0"
-      style={{
-        padding: "0 var(--header-px)",
-        height: "var(--header-height)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
-      <button
-        onClick={goHome}
-        aria-label="Go to home page"
-        style={{
-          fontFamily: "var(--font-heading)",
-          fontWeight: 700,
-          fontSize: "1rem",
-          letterSpacing: "-0.02em",
-          cursor: "pointer",
-          background: "none",
-          border: "none",
-          padding: 0,
-          color: "inherit",
-        }}
-      >
-        npm<span style={{ color: "var(--accent)" }}>guard</span>
-      </button>
-
-      <nav className="flex items-center gap-1" style={{ marginLeft: 8 }}>
-        {NAV_LINKS.map((link) => {
-          const isActive =
-            link.href === "/"
-              ? currentPath === "/"
-              : currentPath.startsWith(link.href);
-          return (
-            <a
-              key={link.href}
-              href={link.href}
-              onClick={(e) => {
-                e.preventDefault();
-                if (link.href === "/") reset();
-                navigate(link.href);
-              }}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "0.72rem",
-                padding: "4px 10px",
-                borderRadius: 4,
-                color: isActive ? "var(--accent-light)" : "var(--text-muted)",
-                background: isActive ? "var(--bg-secondary)" : "transparent",
-                textDecoration: "none",
-                cursor: "pointer",
-                transition: "color 0.15s, background 0.15s",
-              }}
-            >
-              {link.label}
-            </a>
-          );
-        })}
-      </nav>
-
-      {(isRunning || verdict) && (
-        <div
-          className="flex items-center gap-2"
-          style={{
-            background: "var(--bg-secondary)",
-            border: "1px solid var(--border)",
-            borderRadius: 20,
-            padding: "4px 14px",
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.8rem",
-            maxWidth: "30vw",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: statusColor,
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {packageName}
+    <header className="topbar">
+      <div className="topbar__left">
+        <a className="brand" href="/" onClick={goHome} aria-label="NpmGuard home">
+          <span className="brand__mark">
+            <ShieldCheck size={17} strokeWidth={1.8} />
           </span>
-        </div>
-      )}
-
-      <div className="ml-auto flex items-center gap-3">
-        {(isRunning || verdict) && <PhaseProgress />}
-        <button
-          onClick={() =>
-            document.documentElement.classList.toggle("urushi")
-          }
-          className="flex items-center gap-1"
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.7rem",
-            color: "var(--text-muted)",
-            padding: 0,
-          }}
-          aria-label="Toggle theme"
-        >
-          <div
-            style={{
-              width: 5,
-              height: 5,
-              borderRadius: "50%",
-              background: "var(--accent)",
-            }}
-          />
-        </button>
+          <span className="brand__name">
+            npm<em>guard</em>
+          </span>
+        </a>
+      </div>
+      <nav className="topbar__center" aria-label="Primary">
+        {NAV.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            className={`nav-item${isActive(location.pathname, item.to) ? " active" : ""}`}
+            onClick={item.to === "/" ? goHome : undefined}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
+      <div className="topbar__right">
+        <AuditStatusPill />
+        <AuthChip />
       </div>
     </header>
   );

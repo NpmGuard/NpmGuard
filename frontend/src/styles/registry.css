@@ -1,0 +1,140 @@
+/* ============================================================
+   registry page — compose base.css primitives; prefix classes `.pg-registry-`.
+   Owns ONLY layout/glue: the toolbar row, the stretched-link row, the skeleton
+   shimmer, the lookup card. Pills/tables/inputs/buttons come from base.css.
+   ============================================================ */
+
+.pg-registry {
+  display: grid;
+  gap: 16px;
+}
+
+.pg-registry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pg-registry-head .section-title {
+  margin: 0;
+}
+.pg-registry-count {
+  color: var(--ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------- toolbar ---------- */
+
+.pg-registry-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pg-registry-search {
+  flex: 1 1 240px;
+  min-width: 180px;
+}
+
+/* ---------- table + rows ---------- */
+
+.pg-registry-table-wrap {
+  overflow-x: auto;
+}
+.pg-registry-table {
+  min-width: 520px;
+}
+
+/* the whole row is a link: the anchor's stretched pseudo-element covers the
+   positioned <tr>, so a click anywhere on the row navigates (keyboard focus and
+   cmd-click stay on the real <a>). */
+.pg-registry-row {
+  position: relative;
+}
+.pg-registry-link {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.pg-registry-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.pg-registry-row.clickable:hover .pg-registry-link {
+  color: var(--violet-dark);
+}
+.pg-registry-link:focus-visible {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+/* keep interactive cell content above the stretched overlay where needed */
+.pg-registry-row .pill {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- skeleton (reuses the real row <td> layout) ---------- */
+
+.pg-registry-row--skeleton td {
+  cursor: default;
+}
+.pg-registry-skel {
+  display: inline-block;
+  height: 12px;
+  border-radius: var(--r-xs);
+  background: var(--line-faint);
+  animation: pg-registry-pulse 1.4s var(--ease) infinite;
+}
+.pg-registry-skel--pill {
+  width: 60px;
+  height: 20px;
+  border-radius: 999px;
+}
+@keyframes pg-registry-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------- empty state inside the table body ---------- */
+
+.pg-registry-empty-cell {
+  padding: 0 !important;
+  border-bottom: none;
+}
+.pg-registry-empty-cell .empty-state {
+  padding: 40px 18px;
+}
+
+/* ---------- lookup result card ---------- */
+
+.pg-registry-lookup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.pg-registry-lookup--resolved {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.pg-registry-lookup-id {
+  display: grid;
+  gap: 3px;
+}
+.pg-registry-lookup-pkg {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}

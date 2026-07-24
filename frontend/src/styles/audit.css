@@ -1,0 +1,329 @@
+/* ============================================================
+   audit cluster — the live streaming audit view.
+   Compose base.css primitives; prefix every class `.audit-`.
+   ============================================================ */
+
+.audit-view {
+  display: grid;
+  gap: 20px;
+}
+
+/* ---------- header ---------- */
+
+.audit-header {
+  display: grid;
+  gap: 14px;
+}
+.audit-header__title {
+  display: grid;
+  gap: 4px;
+}
+.audit-header__pkg {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 22px;
+}
+.audit-header__ver {
+  color: var(--ink-faint);
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.audit-runstatus {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 24px;
+}
+.audit-runstatus__reconnect {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------- PhaseRail ---------- */
+
+.audit-phaserail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-card);
+}
+.audit-phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.audit-phase__label {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.audit-phase--active .audit-phase__label {
+  color: var(--ink);
+  font-weight: 600;
+}
+.audit-phase--pending .audit-phase__label {
+  color: var(--ink-faint);
+}
+.audit-phase__dur {
+  margin-left: 2px;
+}
+
+.audit-phaserail--compact {
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+}
+.audit-phaserail--compact .audit-phase {
+  gap: 0;
+}
+
+/* ---------- layout ---------- */
+
+.audit-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .audit-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.audit-panel__head {
+  padding: 12px 16px 8px;
+}
+.audit-layout__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.audit-side {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.audit-side__section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.audit-side__empty {
+  padding: 4px 16px 16px;
+  color: var(--ink-faint);
+}
+
+/* ---------- AuditFeed ---------- */
+
+.audit-feed {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.audit-feed__scroll {
+  max-height: 560px;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+.audit-feed--compact .audit-feed__scroll {
+  max-height: 240px;
+}
+.audit-feed__list {
+  display: grid;
+  gap: 2px;
+}
+.audit-feed__row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+}
+.audit-feed__row--phase {
+  margin-top: 6px;
+}
+.audit-feed__row--phase:first-child {
+  margin-top: 0;
+}
+.audit-feed__row--group,
+.audit-feed__row--hyp,
+.audit-feed__row--scripts {
+  align-items: flex-start;
+}
+.audit-feed__indicator {
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-faint);
+}
+
+/* coalesced file-scan/file-flag disclosure */
+.audit-group {
+  width: 100%;
+}
+.audit-group__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 0;
+}
+.audit-group__summary::-webkit-details-marker {
+  display: none;
+}
+.audit-group__flags {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 15px;
+  border-left: 1px solid var(--line-faint);
+}
+.audit-flag {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+.audit-flag__file {
+  font-size: 11px;
+  color: var(--ink);
+}
+.audit-flag__meter {
+  max-width: 120px;
+}
+.audit-flag__text {
+  line-height: 1.45;
+}
+
+.audit-feed__jump {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-card);
+}
+
+/* ---------- FileTree ---------- */
+
+.audit-filetree {
+  display: grid;
+  gap: 12px;
+  padding: 0 8px 12px;
+  min-width: 0;
+}
+.audit-filetree__list {
+  display: grid;
+  gap: 1px;
+}
+.audit-file {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background var(--t-fast) ease;
+}
+.audit-file:hover {
+  background: var(--surface-hover);
+}
+.audit-file--active {
+  background: var(--violet-soft);
+}
+.audit-file__name {
+  font-size: 11px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audit-file--active .audit-file__name {
+  color: var(--violet-dark);
+  font-weight: 500;
+}
+.audit-filetree__source {
+  min-width: 0;
+}
+
+/* ---------- HypothesisList ---------- */
+
+.audit-hyps {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+.audit-hyp {
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+}
+.audit-hyp__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.audit-hyp__claim {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-right: auto;
+}
+.audit-hyp__file {
+  justify-self: start;
+}
+.audit-hyp__reason {
+  line-height: 1.5;
+}
+
+/* ---------- VerdictReveal ---------- */
+
+.audit-verdict {
+  display: grid;
+  gap: 14px;
+}
+.audit-verdict__error {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.audit-verdict__error-body {
+  display: grid;
+  gap: 4px;
+}
+.audit-verdict__code {
+  color: var(--danger-ink);
+  opacity: 0.75;
+}
+.audit-verdict__retry {
+  flex: none;
+}
+
+/* ---------- MiniAuditFeed (Landing embed) ---------- */
+
+.audit-mini {
+  display: grid;
+  gap: 12px;
+}
+.audit-mini__body {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.audit-mini__verdict {
+  display: grid;
+  gap: 12px;
+}
