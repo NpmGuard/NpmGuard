@@ -21,6 +21,11 @@ export default defineConfig({
     },
   },
   test: {
+    // globals:true so the jsdom matchers (jest-dom) extend the shared `expect`
+    // and Testing Library's auto-cleanup can register its afterEach — both hook
+    // the global test API, which is otherwise absent when tests import from
+    // "vitest" explicitly.
+    globals: true,
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["src/test-setup.ts"],
