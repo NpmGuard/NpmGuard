@@ -104,6 +104,12 @@ function rowKey(row: BenchRow): string {
   return `${row.packageName}@${row.version ?? "unknown"}:${row.runIndex ?? 0}`;
 }
 
+function reportHref(row: BenchRow): string | null {
+  if (!row.version || !row.verdict) return null;
+  const reportPackageName = row.fixtureName ?? row.packageName;
+  return `/package/${encodeURIComponent(reportPackageName)}?version=${encodeURIComponent(row.version)}`;
+}
+
 function rowOutcome(row: BenchRow, source: BenchSource): Outcome {
   if (row.status === "timeout") return "timeout";
   if (row.status === "failed") return "failed";
@@ -391,6 +397,7 @@ export function Benchmark() {
                   <Th>Evidence</Th>
                   <Th style={{ textAlign: "right" }}>Duration</Th>
                   <Th>Notes</Th>
+                  <Th>Report</Th>
                 </tr>
               </thead>
               <tbody>
@@ -398,7 +405,7 @@ export function Benchmark() {
                   <Fragment key={group}>
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         style={{
                           position: "sticky",
                           top: 34,
@@ -428,6 +435,9 @@ export function Benchmark() {
                         <Td muted style={{ maxWidth: 340, overflowWrap: "anywhere" }}>
                           {notesText(row, source)}
                         </Td>
+                        <Td>
+                          <ReportLink row={row} />
+                        </Td>
                       </tr>
                     ))}
                   </Fragment>
@@ -456,6 +466,35 @@ function notesText(row: BenchRow, source: BenchSource): string {
   const caps = row.capabilities ?? [];
   if (caps.length === 0) return "-";
   return caps.slice(0, 4).join(", ");
+}
+
+function ReportLink({ row }: { row: BenchRow }) {
+  const href = reportHref(row);
+  if (!href) {
+    return <span style={{ color: "var(--text-muted)" }}>—</span>;
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open audit report for ${row.packageName}${row.version ? `@${row.version}` : ""}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        color: "var(--accent-light)",
+        fontFamily: "var(--font-mono)",
+        fontSize: "0.68rem",
+        fontWeight: 800,
+        textDecoration: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      Open <span aria-hidden="true">↗</span>
+    </a>
+  );
 }
 
 function RunPicker({
