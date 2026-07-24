@@ -298,6 +298,21 @@ describe("synthesizeSummaryFallback", () => {
     ).toEqual([]);
   });
 
+  it("does not turn an explicit absence of exfiltration into a critical hypothesis", () => {
+    const fallback = synthesizeSummaryFallback({
+      summary:
+        "Loads configuration from process.env and an optional .env file. " +
+        "No network calls, data exfiltration, or suspicious behaviors are present. " +
+        "The package name mentions env-exfil, but that behavior is not reflected in this file.",
+      contents: [
+        "for (const [key, value] of Object.entries(process.env)) config[key] = value;",
+        'fs.readFileSync(path.resolve(process.cwd(), ".env"), "utf8");',
+      ].join("\n"),
+    });
+
+    expect(fallback).toEqual({ capabilities: [], hypotheses: [] });
+  });
+
   it("recovers a propagation hypothesis when the model summary describes an npm publish loop", () => {
     const fallback = synthesizeSummaryFallback({
       summary:
