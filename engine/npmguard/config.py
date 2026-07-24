@@ -68,6 +68,49 @@ class Settings(KitSettings):
     base_rpc_url: str | None = None
     base_contract: str | None = None
 
+    # GitHub App + repo panel. The whole panel is gated behind the computed
+    # `github_app_enabled` property below: when any required credential is
+    # missing the engine runs exactly as it does today and every panel route
+    # returns 503. Secret values are never logged — only presence is checked.
+    github_app_id: str | None = None
+    github_app_private_key_path: str | None = None  # path to the App's .pem
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    github_webhook_secret: str | None = None
+    # 32-byte key, hex-encoded (64 hex chars), for AES-256-GCM token encryption.
+    encryption_key: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{64}$")
+    smtp_url: str | None = None
+    alert_from: str = "NpmGuard <alerts@npmguard.com>"
+    panel_base_url: str = "http://localhost:3000"
+    scan_concurrency: int = Field(default=4, ge=1, le=16)
+    watch_interval_min: int = Field(default=15, ge=1)
+    free_max_protected_repos: int = Field(default=3, ge=0)
+    free_max_public_repo_audits: int = Field(default=2, ge=0)
+    free_max_audits_month: int = Field(default=250, ge=0)
+    pro_max_protected_repos: int = Field(default=25, ge=0)
+    pro_max_public_repo_audits: int = Field(default=0, ge=0)  # 0 = unlimited
+    pro_max_audits_month: int = Field(default=5000, ge=0)
+    stripe_pro_price_id: str | None = None
+    # TEST-ONLY: point githubkit at a mock host (default = api.github.com).
+    github_api_base: str | None = None
+    # TEST-ONLY: the raw-host origin public-repo file downloads are allowed to
+    # hit (default = https://raw.githubusercontent.com). The SSRF allow-list in
+    # panel/github/content.py checks scheme+host+port against this; a test points
+    # it at the GitHub stub so no real raw host is ever reached.
+    github_raw_base: str | None = None
+
+    @property
+    def github_app_enabled(self) -> bool:
+        return all(
+            [
+                self.github_app_id,
+                self.github_app_private_key_path,
+                self.github_client_id,
+                self.github_client_secret,
+                self.encryption_key,
+            ]
+        )
+
     @model_validator(mode="after")
     def validate_llm_endpoint(self) -> "Settings":
         if self.llm_backend == "openai_compatible" and not self.llm_base_url:

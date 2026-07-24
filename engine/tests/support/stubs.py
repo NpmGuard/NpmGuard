@@ -8,6 +8,9 @@ plain per-instance data — ``clear()`` between tests, never share across files.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import re
 import threading
 import time
@@ -18,7 +21,7 @@ from urllib.parse import parse_qsl
 import uvicorn
 from eth_abi import encode as abi_encode
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from web3 import Web3
 
 from npmguard.payments import AUDIT_EVENT_TOPIC
@@ -451,3 +454,507 @@ class StripeStub(_SelfServing):
                 status_code=404,
             )
         return JSONResponse(session)
+
+
+# --- GitHub App REST + OAuth stub -------------------------------------------
+
+# expires_at MUST use githubkit's exact strptime format ("%Y-%m-%dT%H:%M:%SZ")
+# for AppInstallationAuthStrategy to parse the minted installation token.
+_GH_FAR_FUTURE = "2099-01-01T00:00:00Z"
+_RAW_REF = "HEAD"
+
+
+def _bearer_token(request: Request) -> str | None:
+    """Extract the trailing token from a ``token <t>`` / ``Bearer <t>`` header."""
+    header = request.headers.get("authorization")
+    if not header:
+        return None
+    parts = header.split()
+    return parts[-1] if parts else None
+
+
+def _wrap_base64(content: str) -> str:
+    """base64-encode UTF-8 text, wrapped at 60 cols like GitHub's contents API."""
+    raw = base64.b64encode(content.encode("utf-8")).decode("ascii")
+    return "\n".join(raw[i : i + 60] for i in range(0, len(raw), 60)) + "\n"
+
+
+def _git_blob_sha(content: str) -> str:
+    """Deterministic git blob sha (``sha1("blob <len>\\0" + bytes)``)."""
+    data = content.encode("utf-8")
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()  # noqa: S324
+
+
+class GitHubStub(_SelfServing):
+    """Deterministic GitHub REST + OAuth subset behind a REAL socket.
+
+    Point the engine at it with ``NPMGUARD_GITHUB_API_BASE=<base_url>`` — exactly
+    as ``NPMGUARD_STRIPE_API_BASE`` redirects Stripe. ``githubkit`` gets that as
+    its ``base_url``, and (because the base is not an ``api.github.com`` host)
+    the client resolves the OAuth host to the SAME origin, so App-JWT / token /
+    OAuth / contents all land here and NO real GitHub is ever hit. The App JWT
+    presented as a Bearer is trusted blindly (the harness owns the throwaway
+    key).
+
+    Endpoints served:
+
+    - App auth: ``GET /app`` (slug + id); ``POST /app/installations/{id}/
+      access_tokens`` (a fake installation token).
+    - OAuth: ``GET|POST /login/oauth/access_token`` (code → token payload, or
+      ``grant_type=refresh_token`` → rotated payload); ``GET /login/oauth/
+      authorize`` (302 back to the callback, accepted if the frontend hits it).
+    - User: ``GET /user``, ``GET /user/emails``, ``GET /user/installations``,
+      ``GET /user/installations/{id}/repositories``.
+    - Repos: ``GET /repos/{owner}/{repo}``, ``GET /repos/{owner}/{repo}/
+      contents/{path}`` (base64 file or a directory listing; a non-inline item
+      forces the git-blob fallback), ``GET /repos/{owner}/{repo}/git/blobs/
+      {sha}``, and ``GET /raw/{owner}/{repo}/{ref}/{path}`` (the public raw
+      host).
+    - Checks: ``POST|PATCH /repos/{owner}/{repo}/check-runs`` (echo an id;
+      bodies recorded on ``.check_runs``).
+
+    Preload the scenario with ``set_app`` / ``set_oauth_code`` / ``set_user`` /
+    ``add_installation`` / ``add_repo`` / ``set_lockfile`` etc., then inspect
+    ``.requests`` / ``.check_runs``. ``clear()`` resets all state between tests.
+
+    NOTE (public-repo path): ``content.validate_raw_url`` hard-codes
+    ``raw.githubusercontent.com`` as the only allowed raw host, so a public-repo
+    audit driven through this stub needs that SSRF allow-list made
+    configurable (or the raw fetch pointed here) — a coordination point for the
+    routes/content stage. The raw route + ``download_url`` are already served so
+    that lands cleanly once the allow-list accepts the stub host.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._reset_state()
+        self.app = FastAPI()
+        self.app.get("/app")(self._get_app)
+        self.app.post("/app/installations/{installation_id}/access_tokens")(
+            self._create_installation_token
+        )
+        self.app.get("/login/oauth/access_token")(self._oauth_access_token)
+        self.app.post("/login/oauth/access_token")(self._oauth_access_token)
+        self.app.get("/login/oauth/authorize")(self._oauth_authorize)
+        self.app.get("/user")(self._get_user)
+        self.app.get("/user/emails")(self._get_user_emails)
+        self.app.get("/user/installations")(self._get_user_installations)
+        self.app.get("/user/installations/{installation_id}/repositories")(
+            self._get_installation_repositories
+        )
+        self.app.get("/repos/{owner}/{repo}/git/blobs/{sha}")(self._get_blob)
+        self.app.post("/repos/{owner}/{repo}/check-runs")(self._create_check_run)
+        self.app.patch("/repos/{owner}/{repo}/check-runs/{check_run_id}")(
+            self._update_check_run
+        )
+        self.app.get("/repos/{owner}/{repo}/contents/{path:path}")(self._get_contents)
+        self.app.get("/repos/{owner}/{repo}")(self._get_repo)
+        self.app.get("/raw/{owner}/{repo}/{ref}/{path:path}")(self._get_raw)
+
+    # --- state ---------------------------------------------------------------
+
+    def _reset_state(self) -> None:
+        self.app_meta: dict[str, Any] = {"slug": "npmguard", "id": 1}
+        self.installation_token: dict[str, str] = {
+            "token": "ghs_stubinstalltoken",
+            "expires_at": _GH_FAR_FUTURE,
+        }
+        # authorization code -> token payload returned by the exchange
+        self.oauth_codes: dict[str, dict[str, Any]] = {}
+        # refresh token -> rotated token payload returned by a refresh
+        self.refresh_results: dict[str, dict[str, Any]] = {}
+        # access token -> {"user": {...}, "emails": [...]}
+        self.users: dict[str, dict[str, Any]] = {}
+        self.installations: list[dict[str, Any]] = []
+        self.installation_repos: dict[int, list[dict[str, Any]]] = {}
+        self.repos: dict[tuple[str, str], dict[str, Any]] = {}
+        # (owner, repo, path) -> file record
+        self.files: dict[tuple[str, str, str], dict[str, Any]] = {}
+        # (owner, repo, sha) -> base64-wrapped blob content
+        self.blobs: dict[tuple[str, str, str], str] = {}
+        self.authorize_code = "stub_code"
+        self.check_runs: list[dict[str, Any]] = []
+        self.requests: list[dict[str, Any]] = []
+        self._check_run_seq = 1000
+
+    def clear(self) -> None:
+        self._reset_state()
+
+    # --- preload API ---------------------------------------------------------
+
+    def set_app(self, *, slug: str = "npmguard", app_id: int = 1) -> None:
+        self.app_meta = {"slug": slug, "id": app_id}
+
+    def set_installation_token(
+        self, token: str, *, expires_at: str = _GH_FAR_FUTURE
+    ) -> None:
+        self.installation_token = {"token": token, "expires_at": expires_at}
+
+    def set_oauth_code(
+        self,
+        code: str,
+        access_token: str,
+        *,
+        token_type: str = "bearer",
+        scope: str = "read:user user:email",
+        refresh_token: str | None = None,
+        expires_in: int | None = None,
+        refresh_token_expires_in: int | None = None,
+    ) -> None:
+        """Script a ``code`` → token exchange (and optionally the refresh pair)."""
+        payload: dict[str, Any] = {
+            "access_token": access_token,
+            "token_type": token_type,
+            "scope": scope,
+        }
+        if refresh_token is not None:
+            payload["refresh_token"] = refresh_token
+        if expires_in is not None:
+            payload["expires_in"] = expires_in
+        if refresh_token_expires_in is not None:
+            payload["refresh_token_expires_in"] = refresh_token_expires_in
+        self.oauth_codes[code] = payload
+
+    def set_refresh_result(
+        self,
+        refresh_token: str,
+        access_token: str,
+        *,
+        token_type: str = "bearer",
+        scope: str = "read:user user:email",
+        new_refresh_token: str | None = None,
+        expires_in: int | None = None,
+    ) -> None:
+        """Script the payload a ``grant_type=refresh_token`` exchange returns."""
+        payload: dict[str, Any] = {
+            "access_token": access_token,
+            "token_type": token_type,
+            "scope": scope,
+        }
+        if new_refresh_token is not None:
+            payload["refresh_token"] = new_refresh_token
+        if expires_in is not None:
+            payload["expires_in"] = expires_in
+        self.refresh_results[refresh_token] = payload
+
+    def set_user(
+        self,
+        access_token: str,
+        *,
+        id: int,
+        login: str,
+        name: str | None = None,
+        email: str | None = None,
+        avatar_url: str | None = None,
+        emails: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Bind an OAuth access token to the authed-user identity it returns."""
+        user = {
+            "id": id,
+            "login": login,
+            "name": name,
+            "email": email,
+            "avatar_url": avatar_url or f"https://avatars.example/{login}.png",
+        }
+        if emails is None:
+            emails = (
+                [{"email": email, "primary": True, "verified": True}] if email else []
+            )
+        self.users[access_token] = {"user": user, "emails": emails}
+
+    def add_installation(
+        self,
+        installation_id: int,
+        *,
+        account_login: str,
+        account_type: str = "Organization",
+        suspended: bool = False,
+    ) -> None:
+        self.installations.append(
+            {
+                "id": installation_id,
+                "account": {"login": account_login, "type": account_type},
+                "suspended_at": _GH_FAR_FUTURE if suspended else None,
+            }
+        )
+        self.installation_repos.setdefault(installation_id, [])
+
+    def add_repo(
+        self,
+        owner: str,
+        name: str,
+        *,
+        id: int,
+        installation_id: int | None = None,
+        private: bool = False,
+        default_branch: str = "main",
+        html_url: str | None = None,
+    ) -> dict[str, Any]:
+        repo = {
+            "id": id,
+            "name": name,
+            "full_name": f"{owner}/{name}",
+            "owner": {"login": owner, "type": "Organization"},
+            "private": private,
+            "default_branch": default_branch,
+            "html_url": html_url or f"https://github.com/{owner}/{name}",
+        }
+        self.repos[(owner, name)] = repo
+        if installation_id is not None:
+            self.installation_repos.setdefault(installation_id, []).append(repo)
+        return repo
+
+    def set_repo_file(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        content: str,
+        *,
+        sha: str | None = None,
+        inline: bool = True,
+    ) -> str:
+        """Register a repo file. ``inline=False`` forces the >1 MB git-blob path.
+
+        Returns the file sha. The content is also reachable via the git-blob
+        endpoint and the raw host so every read path resolves.
+        """
+        file_sha = sha or _git_blob_sha(content)
+        self.files[(owner, repo, path)] = {
+            "name": path.rsplit("/", 1)[-1],
+            "path": path,
+            "sha": file_sha,
+            "content": content,
+            "inline": inline,
+        }
+        self.blobs[(owner, repo, file_sha)] = _wrap_base64(content)
+        return file_sha
+
+    def set_lockfile(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        content: str,
+        *,
+        sha: str | None = None,
+        inline: bool = True,
+    ) -> str:
+        """Convenience alias for a lockfile at ``path`` (e.g. package-lock.json)."""
+        return self.set_repo_file(owner, repo, path, content, sha=sha, inline=inline)
+
+    def set_manifest(self, owner: str, repo: str, content: str) -> str:
+        return self.set_repo_file(owner, repo, "package.json", content)
+
+    # --- app auth ------------------------------------------------------------
+
+    async def _get_app(self, request: Request) -> JSONResponse:
+        self.requests.append({"method": "GET", "path": "/app"})
+        return JSONResponse(self.app_meta)
+
+    async def _create_installation_token(
+        self, installation_id: str, request: Request
+    ) -> JSONResponse:
+        self.requests.append(
+            {"method": "POST", "path": f"/app/installations/{installation_id}/access_tokens"}
+        )
+        return JSONResponse(
+            {
+                "token": self.installation_token["token"],
+                "expires_at": self.installation_token["expires_at"],
+                "permissions": {"contents": "read", "checks": "write"},
+                "repository_selection": "all",
+            }
+        )
+
+    # --- oauth ---------------------------------------------------------------
+
+    async def _oauth_params(self, request: Request) -> dict[str, Any]:
+        if request.method == "POST":
+            body = await request.body()
+            if body:
+                ctype = request.headers.get("content-type", "")
+                if "application/json" in ctype:
+                    try:
+                        return dict(json.loads(body.decode("utf-8")))
+                    except (ValueError, TypeError):
+                        return {}
+                return dict(parse_qsl(body.decode("utf-8")))
+        return dict(request.query_params)
+
+    async def _oauth_access_token(self, request: Request) -> JSONResponse:
+        params = await self._oauth_params(request)
+        self.requests.append({"method": request.method, "path": "/login/oauth/access_token"})
+        if params.get("grant_type") == "refresh_token":
+            payload = self.refresh_results.get(str(params.get("refresh_token")))
+            if payload is None:
+                return JSONResponse(
+                    {
+                        "error": "bad_refresh_token",
+                        "error_description": "The refresh token is invalid.",
+                    }
+                )
+            return JSONResponse(payload)
+        payload = self.oauth_codes.get(str(params.get("code")))
+        if payload is None:
+            return JSONResponse(
+                {
+                    "error": "bad_verification_code",
+                    "error_description": "The code passed is incorrect or expired.",
+                }
+            )
+        return JSONResponse(payload)
+
+    async def _oauth_authorize(self, request: Request) -> RedirectResponse:
+        params = request.query_params
+        redirect_uri = params.get("redirect_uri", "")
+        state = params.get("state", "")
+        self.requests.append({"method": "GET", "path": "/login/oauth/authorize"})
+        sep = "&" if "?" in redirect_uri else "?"
+        return RedirectResponse(
+            f"{redirect_uri}{sep}code={self.authorize_code}&state={state}",
+            status_code=302,
+        )
+
+    # --- user ----------------------------------------------------------------
+
+    def _user_record(self, request: Request) -> dict[str, Any] | None:
+        token = _bearer_token(request)
+        record = self.users.get(token) if token else None
+        if record is None and len(self.users) == 1:
+            # Single-user scenarios need not thread the exact token through.
+            record = next(iter(self.users.values()))
+        return record
+
+    async def _get_user(self, request: Request) -> JSONResponse:
+        record = self._user_record(request)
+        if record is None:
+            return JSONResponse({"message": "Requires authentication"}, status_code=401)
+        return JSONResponse(record["user"])
+
+    async def _get_user_emails(self, request: Request) -> JSONResponse:
+        record = self._user_record(request)
+        if record is None:
+            return JSONResponse({"message": "Requires authentication"}, status_code=401)
+        return JSONResponse(record["emails"])
+
+    async def _get_user_installations(self, request: Request) -> JSONResponse:
+        return JSONResponse(
+            {"total_count": len(self.installations), "installations": self.installations}
+        )
+
+    async def _get_installation_repositories(
+        self, installation_id: str, request: Request
+    ) -> JSONResponse:
+        repos = self.installation_repos.get(int(installation_id), [])
+        return JSONResponse({"total_count": len(repos), "repositories": repos})
+
+    # --- repos + contents ----------------------------------------------------
+
+    async def _get_repo(self, owner: str, repo: str, request: Request) -> JSONResponse:
+        found = self.repos.get((owner, repo))
+        if found is None:
+            return JSONResponse({"message": "Not Found"}, status_code=404)
+        return JSONResponse(found)
+
+    def _content_entry(
+        self, owner: str, repo: str, rec: dict[str, Any], request: Request, *, listing: bool
+    ) -> dict[str, Any]:
+        base = str(request.base_url).rstrip("/")
+        content = rec["content"]
+        entry: dict[str, Any] = {
+            "type": "file",
+            "name": rec["name"],
+            "path": rec["path"],
+            "sha": rec["sha"],
+            "size": len(content.encode("utf-8")),
+            "download_url": f"{base}/raw/{owner}/{repo}/{_RAW_REF}/{rec['path']}",
+        }
+        if listing:
+            return entry
+        if rec["inline"]:
+            entry["encoding"] = "base64"
+            entry["content"] = _wrap_base64(content)
+        else:
+            # >1 MB: GitHub omits inline content (encoding "none") — blob fallback.
+            entry["encoding"] = "none"
+            entry["content"] = ""
+        return entry
+
+    async def _get_contents(
+        self, owner: str, repo: str, path: str, request: Request
+    ) -> JSONResponse:
+        self.requests.append(
+            {"method": "GET", "path": f"/repos/{owner}/{repo}/contents/{path}"}
+        )
+        key = (owner, repo)
+        files_here = {
+            p: rec for (o, r, p), rec in self.files.items() if (o, r) == key
+        }
+        normalized = path.strip("/")
+        if normalized == "":
+            if not files_here and key not in self.repos:
+                return JSONResponse({"message": "Not Found"}, status_code=404)
+            listing = [
+                self._content_entry(owner, repo, rec, request, listing=True)
+                for p, rec in files_here.items()
+                if "/" not in p
+            ]
+            return JSONResponse(listing)
+        rec = files_here.get(normalized)
+        if rec is None:
+            return JSONResponse({"message": "Not Found"}, status_code=404)
+        return JSONResponse(self._content_entry(owner, repo, rec, request, listing=False))
+
+    async def _get_blob(
+        self, owner: str, repo: str, sha: str, request: Request
+    ) -> JSONResponse:
+        content = self.blobs.get((owner, repo, sha))
+        if content is None:
+            return JSONResponse({"message": "Not Found"}, status_code=404)
+        return JSONResponse({"sha": sha, "encoding": "base64", "content": content})
+
+    async def _get_raw(
+        self, owner: str, repo: str, ref: str, path: str, request: Request
+    ) -> Response:
+        rec = self.files.get((owner, repo, path.strip("/")))
+        if rec is None:
+            return JSONResponse({"message": "Not Found"}, status_code=404)
+        return Response(rec["content"], media_type="text/plain")
+
+    # --- checks --------------------------------------------------------------
+
+    def _next_check_run_id(self) -> int:
+        self._check_run_seq += 1
+        return self._check_run_seq
+
+    async def _create_check_run(
+        self, owner: str, repo: str, request: Request
+    ) -> JSONResponse:
+        body = await self._json_body(request)
+        check_run_id = self._next_check_run_id()
+        self.check_runs.append(
+            {"method": "POST", "owner": owner, "repo": repo, "id": check_run_id, "body": body}
+        )
+        return JSONResponse({"id": check_run_id, **body})
+
+    async def _update_check_run(
+        self, owner: str, repo: str, check_run_id: str, request: Request
+    ) -> JSONResponse:
+        body = await self._json_body(request)
+        run_id = int(check_run_id)
+        self.check_runs.append(
+            {"method": "PATCH", "owner": owner, "repo": repo, "id": run_id, "body": body}
+        )
+        return JSONResponse({"id": run_id, **body})
+
+    @staticmethod
+    async def _json_body(request: Request) -> dict[str, Any]:
+        raw = await request.body()
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}

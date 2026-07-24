@@ -13,6 +13,7 @@ import kit_llm  # noqa: F401
 import kit_stream  # noqa: F401
 
 # kit:tables:end
+import npmguard.panel.tables  # noqa: F401,E402
 import npmguard.persistence  # noqa: F401,E402
 from alembic import context
 from kit_spine.db import metadata

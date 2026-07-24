@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,7 +18,7 @@ from fastapi.responses import (
 )
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from kit_llm import LlmClient
 from kit_spine import (
@@ -38,11 +38,31 @@ from .demo import DemoService
 from .errors import NpmGuardError, QueueFullError
 from .events import sse_events
 from .llm_runtime import build_npmguard_llm
+from .panel.alerts.notify import handle_dangerous_verdict
+from .panel.billing import BillingStore
+from .panel.caps import CapsStore
+from .panel.github.checks import check_conclusion, check_summary, conclude_check_run
+from .panel.github.client import GitHubAppClient
+from .panel.github.content import fetch_lockfile, fetch_manifest
+from .panel.jobs import PanelJobQueue, PanelWorkerPool
+from .panel.lockfile import manifest_ranges, parse_lockfile
+from .panel.routes.auth import router as panel_auth_router
+from .panel.routes.billing import router as panel_billing_router
+from .panel.routes.gh_webhooks import router as panel_webhooks_router
+from .panel.routes.panel import router as panel_router
+from .panel.routes.public_repos import router as panel_public_repos_router
+from .panel.scan.public_repo_scan import PublicRepoScanEngine
+from .panel.scan.repo_scan import LockfileNotFoundError, ParsedRepoDeps, RepoScanEngine
+from .panel.sessions import PanelSessionStore
+from .panel.stores import GhUserStore, InstallationStore, RepoStore
+from .panel.verdict_index import SavedReport, VerdictIndex
+from .panel.watch import Reconciler, RegistryWatcher, sync_watched_packages
 from .payments import (
     ChainVerificationError,
     chain_contract,
     construct_webhook_event,
     create_checkout_session,
+    handle_subscription_event,
     is_chain_configured,
     read_audit_fee,
     verify_audit_payment,
@@ -73,10 +93,76 @@ class Runtime:
     llm: LlmClient
     audits: AuditService
     demos: DemoService
+    # Panel state — populated only when settings.github_app_enabled; otherwise
+    # None and every panel route returns 503, so the engine behaves identically.
+    sessionmaker: async_sessionmaker | None = None
+    gh_client: GitHubAppClient | None = None
+    panel_sessions: PanelSessionStore | None = None
+    gh_users: GhUserStore | None = None
+    panel_installations: InstallationStore | None = None
+    panel_repos: RepoStore | None = None
+    panel_caps: CapsStore | None = None
+    panel_verdicts: VerdictIndex | None = None
+    panel_queue: PanelJobQueue | None = None
+    panel_scan: RepoScanEngine | None = None
+    panel_public_scan: PublicRepoScanEngine | None = None
+    panel_billing: BillingStore | None = None
+    panel_workers: PanelWorkerPool | None = None
+    # Registry-watch + reconcile background loops (asyncio tasks, not
+    # setInterval). Started in lifespan when the App is enabled, cancelled +
+    # awaited on shutdown BEFORE audits.close().
+    panel_watch_task: asyncio.Task[None] | None = None
+    panel_reconcile_task: asyncio.Task[None] | None = None
 
 
 def _runtime(request: Request) -> Runtime:
     return request.app.state.runtime
+
+
+def _saved_reports() -> list[SavedReport]:
+    """The on-disk reports as :class:`SavedReport` records for the verdict-index
+    boot rebuild. ``list_reports`` gives identity + verdict summaries; the full
+    report is loaded to extract rationale + confirmed-hypothesis evidence."""
+    records: list[SavedReport] = []
+    for summary in list_reports():
+        loaded = load_report(summary["packageName"], summary["version"])
+        if loaded is None:
+            continue
+        report, _ = loaded
+        records.append(
+            SavedReport(
+                name=summary["packageName"],
+                version=summary["version"],
+                report=report,
+                audited_at=summary["auditedAt"],
+            )
+        )
+    return records
+
+
+def _make_fetch_repo_deps(gh_client: GitHubAppClient):
+    """Build the RepoScanEngine's fetch+parse seam over the installation client.
+
+    Fetches the root lockfile (+ manifest for direct-dep ranges) via the App
+    installation octokit and parses it into normalized deps.
+    :class:`LockfileNotFoundError` when the repo has no supported root lockfile.
+    """
+
+    async def fetch_repo_deps(repo: Any, ref: str | None) -> ParsedRepoDeps:
+        octo = gh_client.installation_octokit(repo["installation_id"])
+        owner, name = repo["owner"], repo["name"]
+        lockfile = await fetch_lockfile(octo, owner, name, ref)
+        if lockfile is None:
+            raise LockfileNotFoundError()
+        manifest = await fetch_manifest(octo, owner, name, ref)
+        ranges = manifest_ranges(manifest)
+        filename = lockfile.path.rsplit("/", 1)[-1]
+        deps = parse_lockfile(filename, lockfile.content, ranges)
+        return ParsedRepoDeps(
+            deps=deps, lockfile_path=lockfile.path, lockfile_sha=lockfile.sha
+        )
+
+    return fetch_repo_deps
 
 
 async def _body[T: BaseModel](
@@ -436,6 +522,20 @@ async def stripe_webhook(request: Request) -> JSONResponse:
             except Exception:
                 log.exception("webhook failed to start audit", package_name=package_name)
                 return JSONResponse({"error": "Failed to start audit"}, status_code=500)
+    # Repo-panel subscription billing coexists with the one-off audit branch
+    # above: handle_subscription_event only acts on subscription-kind checkout
+    # sessions + customer.subscription.* events (returns None otherwise), so the
+    # one-off flow is untouched. Only runs when the panel is configured.
+    if runtime.panel_billing is not None:
+        try:
+            await handle_subscription_event(
+                runtime.settings, event, runtime.panel_billing
+            )
+        except Exception:
+            log.exception("subscription webhook handling failed")
+            return JSONResponse(
+                {"error": "Failed to process subscription event"}, status_code=500
+            )
     return JSONResponse({"received": True})
 
 
@@ -541,7 +641,15 @@ async def lifespan(app: FastAPI):
         )
     setup_logging(settings.log_level)
     if settings.database_url.startswith("sqlite"):
-        Path(settings.database_url.rsplit("///", 1)[-1]).parent.mkdir(parents=True, exist_ok=True)
+        # make_url counts slashes correctly: sqlite:///rel = relative,
+        # sqlite:////abs = absolute. The old rsplit("///") dropped an absolute
+        # path's leading slash, so an absolute data dir was never created (masked
+        # in dev only because data/ pre-exists).
+        from sqlalchemy.engine import make_url
+
+        db_path = make_url(settings.database_url).database
+        if db_path and db_path != ":memory:":
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     engine = make_engine(settings.database_url)
     sessions_factory = make_session_factory(engine)
     if settings.env != "prod":
@@ -561,12 +669,172 @@ async def lifespan(app: FastAPI):
         max_concurrent=settings.max_running_sessions,
     )
     await audits.start()
+    # Panel wiring: build the GitHub App client + panel stores only when the App
+    # is configured. Without it every panel route 503s and these stay None, so
+    # the engine boots and behaves exactly as it does without the panel.
+    gh_client: GitHubAppClient | None = None
+    panel_sessions: PanelSessionStore | None = None
+    gh_users: GhUserStore | None = None
+    panel_installations: InstallationStore | None = None
+    panel_repos: RepoStore | None = None
+    panel_caps: CapsStore | None = None
+    panel_verdicts: VerdictIndex | None = None
+    panel_queue: PanelJobQueue | None = None
+    panel_scan: RepoScanEngine | None = None
+    panel_public_scan: PublicRepoScanEngine | None = None
+    panel_billing: BillingStore | None = None
+    panel_workers: PanelWorkerPool | None = None
+    panel_watch_task: asyncio.Task[None] | None = None
+    panel_reconcile_task: asyncio.Task[None] | None = None
+    if settings.github_app_enabled:
+        gh_client = GitHubAppClient(settings)
+        panel_sessions = PanelSessionStore(sessions_factory)
+        gh_users = GhUserStore(sessions_factory)
+        panel_installations = InstallationStore(sessions_factory)
+        panel_repos = RepoStore(sessions_factory)
+        panel_caps = CapsStore(sessions_factory, settings)
+        panel_verdicts = VerdictIndex(sessions_factory)
+        panel_queue = PanelJobQueue(sessions_factory)
+
+        # Conclude a push-scan's GitHub check-run once the scan finalizes. The
+        # fail-only-on-DANGEROUS mapping is check_conclusion; an unresolved
+        # rollup (None/UNKNOWN) leaves the check open (never concluded early).
+        async def finalize_check(
+            repo: Any, check_run_id: int, verdict: str | None
+        ) -> None:
+            conclusion = check_conclusion(verdict)
+            if conclusion == "in_progress":
+                return  # not a pass/fail yet — leave the check running
+            octo = gh_client.installation_octokit(repo["installation_id"])
+            await conclude_check_run(
+                octo,
+                repo["owner"],
+                repo["name"],
+                check_run_id,
+                conclusion,
+                check_summary(verdict),
+            )
+
+        panel_scan = RepoScanEngine(
+            sessions=sessions_factory,
+            caps=panel_caps,
+            verdict_index=panel_verdicts,
+            queue=panel_queue,
+            fetch_repo_deps=_make_fetch_repo_deps(gh_client),
+            # Keep watched_packages reconciled after a protected repo's index
+            # changes (reconcile/push full scans) — the same seam the routes and
+            # webhook handlers call directly.
+            watch_sync=lambda: sync_watched_packages(sessions_factory),
+            finalize_check=finalize_check,
+        )
+        # The public-repo audit engine reuses the same collaborators (its routes
+        # build one per-request too, so no Runtime field is strictly required —
+        # but the worker needs THIS instance's refresh hook so public-scan
+        # progress advances as cache-miss verdicts land).
+        panel_public_scan = PublicRepoScanEngine(
+            sessions=sessions_factory,
+            caps=panel_caps,
+            verdict_index=panel_verdicts,
+            queue=panel_queue,
+        )
+        panel_billing = BillingStore(sessions_factory)
+
+        # A worker settle nudges BOTH the protected-repo scans AND the public-repo
+        # snapshots covering the pair — either kind may be waiting on this verdict.
+        async def on_scans_touched(name: str, version: str) -> None:
+            await panel_scan.refresh_scans_touching(name, version)
+            await panel_public_scan.refresh_public_scans_touching(name, version)
+
+        # The alert hook: fired by a worker only when IT lands a DANGEROUS
+        # verdict. It fans out over the exposed repos and emails each org — it
+        # never touches the core engine. ``source`` is 'watch' (registry-watch,
+        # no owning scan) or 'scan'.
+        async def on_dangerous(name: str, version: str, source: str) -> None:
+            await handle_dangerous_verdict(
+                sessions_factory, name, version, source=source, settings=settings
+            )
+
+        # The panel scan-engine funnels cache-misses into the SAME AuditService
+        # (the single owner of the Docker cap), never a second executor; the
+        # worker awaits admit's future then indexes the saved verdict.
+        panel_workers = PanelWorkerPool(
+            panel_queue,
+            audits,
+            panel_verdicts,
+            count=settings.scan_concurrency,
+            load_report=load_report,
+            on_scans_touched=on_scans_touched,
+            on_dangerous=on_dangerous,
+        )
+        rebuilt = await panel_verdicts.rebuild(_saved_reports)
+        requeued = await panel_queue.reset_stale()
+        panel_workers.start()
+
+        # Registry-watch + reconcile background loops. Both self-schedule with a
+        # short first-run delay so boot isn't blocked; interval from
+        # settings.watch_interval_min (reconcile stays on its daily default).
+        watch_interval_seconds = settings.watch_interval_min * 60
+        watcher = RegistryWatcher(sessions_factory, panel_queue, panel_verdicts)
+        panel_watch_task = asyncio.create_task(
+            watcher.run_forever(watch_interval_seconds),
+            name="npmguard-panel-registry-watch",
+        )
+        reconciler = Reconciler(
+            sessions=sessions_factory,
+            gh_client=gh_client,
+            panel_scan=panel_scan,
+            fetch_lockfile=fetch_lockfile,
+        )
+        panel_reconcile_task = asyncio.create_task(
+            reconciler.run_forever(),
+            name="npmguard-panel-reconcile",
+        )
+
+        log.info(
+            "panel enabled: GitHub App configured",
+            verdicts_rebuilt=rebuilt,
+            jobs_requeued=requeued,
+            scan_concurrency=settings.scan_concurrency,
+            watch_interval_min=settings.watch_interval_min,
+        )
     app.state.runtime = Runtime(
-        settings, engine, sessions, stream, llm, audits, DemoService(sessions, stream)
+        settings,
+        engine,
+        sessions,
+        stream,
+        llm,
+        audits,
+        DemoService(sessions, stream),
+        sessionmaker=sessions_factory,
+        gh_client=gh_client,
+        panel_sessions=panel_sessions,
+        gh_users=gh_users,
+        panel_installations=panel_installations,
+        panel_repos=panel_repos,
+        panel_caps=panel_caps,
+        panel_verdicts=panel_verdicts,
+        panel_queue=panel_queue,
+        panel_scan=panel_scan,
+        panel_public_scan=panel_public_scan,
+        panel_billing=panel_billing,
+        panel_workers=panel_workers,
+        panel_watch_task=panel_watch_task,
+        panel_reconcile_task=panel_reconcile_task,
     )
     try:
         yield
     finally:
+        # Stop the background loops + worker pool BEFORE the executor closes, so
+        # nothing tries to admit/enqueue against a shutting-down AuditService.
+        for task in (panel_watch_task, panel_reconcile_task):
+            if task is not None:
+                task.cancel()
+        for task in (panel_watch_task, panel_reconcile_task):
+            if task is not None:
+                with suppress(asyncio.CancelledError):
+                    await task
+        if panel_workers is not None:
+            await panel_workers.close()
         await audits.close(settings.shutdown_deadline_seconds)
         await llm.aclose()
         await notifier.close()
@@ -587,6 +855,19 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(router)
     app.include_router(router, prefix="/api")
+    # Panel routers, mirrored under /api like the existing router. Included
+    # unconditionally — each handler 503s when settings.github_app_enabled is
+    # False, so an unconfigured engine is unaffected (the paths just 503).
+    app.include_router(panel_auth_router)
+    app.include_router(panel_auth_router, prefix="/api")
+    app.include_router(panel_router)
+    app.include_router(panel_router, prefix="/api")
+    app.include_router(panel_webhooks_router)
+    app.include_router(panel_webhooks_router, prefix="/api")
+    app.include_router(panel_public_repos_router)
+    app.include_router(panel_public_repos_router, prefix="/api")
+    app.include_router(panel_billing_router)
+    app.include_router(panel_billing_router, prefix="/api")
 
     frontend = REPO_ROOT / "frontend" / "dist"
     assets = frontend / "assets"
@@ -601,7 +882,9 @@ def create_app() -> FastAPI:
         if candidate.is_relative_to(frontend.resolve()) and candidate.is_file():
             return FileResponse(candidate)
         index = frontend / "index.html"
-        if index.exists() and not path.startswith(("api/", "audit/", "checkout/", "webhooks/")):
+        if index.exists() and not path.startswith(
+            ("api/", "audit/", "checkout/", "webhooks/", "auth/", "me", "panel/")
+        ):
             return FileResponse(index)
         return JSONResponse({"error": "Not found"}, status_code=404)
 

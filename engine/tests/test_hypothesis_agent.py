@@ -323,6 +323,7 @@ def test_create_all_matches_alembic_migrations(tmp_path) -> None:
 
     import kit_llm  # noqa: F401
     import kit_stream  # noqa: F401
+    import npmguard.panel.tables  # noqa: F401
     import npmguard.persistence  # noqa: F401
 
     def diff_of(sqlite_path: Path) -> list:
