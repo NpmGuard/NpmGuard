@@ -1,115 +1,138 @@
-import { useState, useEffect, useCallback } from "react";
-import { useAuditStore } from "./stores/auditStore";
-import { AUDIT_PATH_RE } from "./lib/types";
-import { Header } from "./components/Header";
-import { Landing } from "./components/Landing";
-import { AuditView } from "./components/AuditView";
-import { PackageSearch } from "./components/PackageSearch";
-import { PackageLookup } from "./components/PackageLookup";
-import { Benchmark } from "./components/Benchmark";
+import { Suspense, lazy, useEffect } from "react";
+import { Route, Routes, useLocation, useNavigate, useParams } from "react-router";
+import { Header } from "./components/Header.tsx";
+import { useAuditStore } from "./stores/auditStore.ts";
 
-const PACKAGES_PATH_RE = /^\/packages\/?$/;
-const PACKAGE_PATH_RE_LOOKUP = /^\/package\/(.+)$/;
-const BENCHMARK_PATH_RE = /^\/benchmark\/?$/;
+// Route-level code splitting: CodeMirror (audit/report source view) and viem
+// (pay) are heavy and none belong in the boot chunk.
+const AuditView = lazy(() =>
+  import("./components/audit/AuditView.tsx").then((m) => ({ default: m.AuditView })),
+);
+const Landing = lazy(() => import("./pages/Landing.tsx").then((m) => ({ default: m.Landing })));
+const Registry = lazy(() => import("./pages/Registry.tsx").then((m) => ({ default: m.Registry })));
+const PackageLookup = lazy(() =>
+  import("./pages/PackageLookup.tsx").then((m) => ({ default: m.PackageLookup })),
+);
+const CliInstall = lazy(() =>
+  import("./pages/CliInstall.tsx").then((m) => ({ default: m.CliInstall })),
+);
+const PayPage = lazy(() => import("./pages/PayPage.tsx").then((m) => ({ default: m.PayPage })));
+const Dashboard = lazy(() =>
+  import("./pages/Dashboard.tsx").then((m) => ({ default: m.Dashboard })),
+);
+const RepoDetail = lazy(() =>
+  import("./pages/RepoDetail.tsx").then((m) => ({ default: m.RepoDetail })),
+);
 
-function App() {
-  const isRunning = useAuditStore((s) => s.isRunning);
-  const verdict = useAuditStore((s) => s.verdict);
-  const auditId = useAuditStore((s) => s.auditId);
-  const packageName = useAuditStore((s) => s.packageName);
-  const connectToSession = useAuditStore((s) => s.connectToSession);
-  const startAuditFromCheckout = useAuditStore((s) => s.startAuditFromCheckout);
-  const reset = useAuditStore((s) => s.reset);
+// Back/forward off these routes resets the audit store.
+const KEEP_STATE_RE = /^\/(audit|packages|package|cli|pay|dashboard|repo)(\/|$)/;
+
+function HomeOrAudit() {
   const hasStarted = useAuditStore((s) => s.hasStarted);
-  const hasAudit = hasStarted || isRunning || !!verdict;
+  const verdict = useAuditStore((s) => s.verdict);
+  const running = useAuditStore((s) => s.running);
+  const error = useAuditStore((s) => s.error);
+  const demoInline = useAuditStore((s) => s.demoInline);
+  // An inline Landing demo streams INSIDE Landing (the MiniAuditFeed) — keep
+  // Landing mounted so starting it doesn't swap the whole view to AuditView
+  // (which would unmount Landing and reset the very stream it started).
+  if (demoInline) return <Landing />;
+  // `error` too: a stale/expired /audit/:id link resolves to an error-only
+  // state which AuditView surfaces honestly — Landing would hide it.
+  return hasStarted || running || verdict || error ? <AuditView /> : <Landing />;
+}
 
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+function AuditRoute() {
+  const { auditId } = useParams();
+  const storeAuditId = useAuditStore((s) => s.auditId);
+  const connectToSession = useAuditStore((s) => s.connectToSession);
 
-  // On mount: if returning from Stripe checkout with ?session_id, start audit
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get("session_id");
-    if (sessionId && !auditId) {
-      history.replaceState(null, "", "/audit");
-      startAuditFromCheckout(sessionId);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (auditId && auditId !== storeAuditId) void connectToSession(auditId);
+  }, [auditId, storeAuditId, connectToSession]);
 
-  // On mount: if URL is /audit/<uuid>, reconnect to that session
-  useEffect(() => {
-    const match = window.location.pathname.match(AUDIT_PATH_RE);
-    if (match && !auditId) {
-      connectToSession(match[1]);
-    }
-  }, [auditId, connectToSession]);
+  return <HomeOrAudit />;
+}
 
-  // Update URL when an audit starts from the landing page
+export function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const auditId = useAuditStore((s) => s.auditId);
+  const verdict = useAuditStore((s) => s.verdict);
+  const packageName = useAuditStore((s) => s.packageName);
+
+  // Stripe checkout return: ?session_id on any path starts the paid audit.
   useEffect(() => {
-    if (auditId && !window.location.pathname.includes(auditId)) {
-      history.pushState(null, "", `/audit/${auditId}`);
-      setCurrentPath(`/audit/${auditId}`);
+    const sessionId = new URLSearchParams(window.location.search).get("session_id");
+    if (sessionId && !useAuditStore.getState().auditId) {
+      navigate("/audit", { replace: true });
+      void useAuditStore.getState().startAuditFromCheckout(sessionId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
+  }, []);
+
+  // A started audit gets a shareable URL. /pay stays put (the pay page swaps to
+  // the live view itself); an inline Landing demo streams in place, so it must
+  // NOT take over the route (navigating would unmount Landing and reset it).
+  useEffect(() => {
+    if (
+      auditId &&
+      !useAuditStore.getState().demoInline &&
+      !location.pathname.startsWith("/pay") &&
+      location.pathname !== `/audit/${auditId}`
+    ) {
+      navigate(`/audit/${auditId}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to auditId only
   }, [auditId]);
 
-  // When an audit reaches a verdict, canonicalize the URL from the ephemeral
-  // /audit/<id> to the durable /package/<name> route. The audit session is
-  // in-memory and expires (~30min TTL / 100-session cap / server restart),
-  // but the report is persisted on disk keyed by package name — so a later
-  // reload or bookmark must resolve via /package/<name> (PackageLookup) to
-  // avoid the "audit session expired" dead-end. replaceState leaves the live
-  // AuditView untouched (currentPath state is not changed here).
+  // On verdict, canonicalize to the durable report URL WITHOUT telling the
+  // router — raw replaceState keeps the live AuditView mounted (no remount).
   useEffect(() => {
-    if (verdict && packageName && window.location.pathname.startsWith("/audit/")) {
-      history.replaceState(null, "", `/package/${encodeURIComponent(packageName)}`);
+    if (!verdict || !packageName) return;
+    const path = window.location.pathname;
+    if (path.startsWith("/audit") || path.startsWith("/pay")) {
+      const version = useAuditStore.getState().inventoryMeta?.metadata.version;
+      const query = version ? `?version=${encodeURIComponent(version)}` : "";
+      window.history.replaceState(null, "", `/package/${packageName}${query}`);
     }
   }, [verdict, packageName]);
 
-  // Handle browser back/forward
-  const onPopState = useCallback(() => {
-    const path = window.location.pathname;
-    setCurrentPath(path);
-
-    const match = path.match(AUDIT_PATH_RE);
-    if (match) {
-      if (match[1] !== auditId) connectToSession(match[1]);
-    } else if (!PACKAGES_PATH_RE.test(path) && !PACKAGE_PATH_RE_LOOKUP.test(path) && !BENCHMARK_PATH_RE.test(path)) {
-      reset();
-    }
-  }, [auditId, connectToSession, reset]);
-
+  // Back/forward off the audit-ish routes resets the audit store.
   useEffect(() => {
+    const onPopState = () => {
+      const path = window.location.pathname;
+      if (path === "/" || !KEEP_STATE_RE.test(path)) {
+        useAuditStore.getState().reset();
+      }
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [onPopState]);
-
-  // Determine which view to render
-  let content: React.ReactNode;
-
-  const packageMatch = currentPath.match(PACKAGE_PATH_RE_LOOKUP);
-
-  if (PACKAGES_PATH_RE.test(currentPath)) {
-    content = <PackageSearch />;
-  } else if (packageMatch) {
-    content = <PackageLookup packageName={decodeURIComponent(packageMatch[1])} />;
-  } else if (BENCHMARK_PATH_RE.test(currentPath)) {
-    content = <Benchmark />;
-  } else if (hasAudit) {
-    content = <AuditView />;
-  } else {
-    content = <Landing />;
-  }
+  }, []);
 
   return (
-    <div
-      className="h-screen flex flex-col"
-      style={{ background: "var(--bg)", color: "var(--text)" }}
-    >
+    <>
       <Header />
-      <main className="flex-1 flex flex-col min-h-0">
-        {content}
+      <main className="page">
+        <Suspense
+          fallback={
+            <div className="empty-state" role="status">
+              <span className="spinner" aria-hidden="true" />
+            </div>
+          }
+        >
+          <Routes>
+            <Route path="/packages" element={<Registry />} />
+            <Route path="/package/*" element={<PackageLookup />} />
+            <Route path="/cli" element={<CliInstall />} />
+            <Route path="/pay" element={<PayPage />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/repo/:owner/:name" element={<RepoDetail />} />
+            <Route path="/audit/:auditId" element={<AuditRoute />} />
+            <Route path="*" element={<HomeOrAudit />} />
+          </Routes>
+        </Suspense>
       </main>
-    </div>
+    </>
   );
 }
-
-export default App;

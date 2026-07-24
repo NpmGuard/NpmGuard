@@ -1,744 +1,216 @@
+/**
+ * Audit domain store — a thin shell over the pure fold (lib/audit-fold.ts).
+ * Owns: SSE connection lifecycle, start-audit orchestration (free / demo /
+ * Stripe / crypto), selected-file fetching, and post-verdict report hydration.
+ * All event-driven state transitions happen in foldAuditEvent — never here.
+ */
+
 import { create } from "zustand";
-import type {
-  FileRecord,
-  FileVerdict,
-  FileStatus,
-  PhaseInfo,
-  AgentStep,
-  SSEEvent,
-  PipelineLogEntry,
-  InventoryMeta,
-  VerdictEnum,
-  Hypothesis,
-  HypothesisCounts,
-  LiveHypothesis,
-} from "../lib/types";
-import { PHASE_ORDER, PHASE_LABELS, LIFECYCLE_SCRIPTS, RISK_SUSPICIOUS_THRESHOLD, riskContributionToStatus, readFileArg } from "../lib/types";
+import { ApiError } from "../lib/api-base.ts";
+import {
+  fetchAuditFile,
+  fetchAuditReport,
+  startAuditStream,
+  startCheckout as apiStartCheckout,
+  startDemo as apiStartDemo,
+} from "../lib/api.ts";
+import { foldAuditEvent, initialFoldState, type AuditFoldState } from "../lib/audit-fold.ts";
+import { apiBase } from "../lib/config.ts";
+import type { AuditReport } from "../lib/engine-types.ts";
+import { connectAuditStream, type StreamHandle } from "../lib/sse.ts";
 
-const API_BASE = "/api";
-
-interface AuditState {
-  // Audit session
+interface AuditStoreState extends AuditFoldState {
   auditId: string | null;
-  packageName: string;
-  isRunning: boolean;
   hasStarted: boolean;
   reconnecting: boolean;
+  checkoutLoading: boolean;
+  /** demo started inline on Landing — the App suppresses the /audit/:id
+   * auto-navigate so it streams in place (MiniAuditFeed) without leaving. */
+  demoInline: boolean;
 
-  // Pipeline state
-  phase: string | null;
-  phases: PhaseInfo[];
+  /** hydrated from GET /audit/:id/report after verdict_reached (schemaVersion 2) */
+  report: AuditReport | null;
 
-  // File tree
-  files: FileRecord[];
-  fileStatuses: Record<string, FileStatus>;
-  fileVerdicts: Record<string, FileVerdict>;
-
-  // Pipeline activity (early phases)
-  pipelineLog: PipelineLogEntry[];
-
-  // Investigation (agent reasoning/tool trace)
-  agentSteps: AgentStep[];
-
-  // Hypothesis graph (engine v2) — the finding surface
-  liveHypotheses: LiveHypothesis[];
-  hypotheses: Hypothesis[];
-
-  // Verdict (4-state)
-  verdict: VerdictEnum | null;
-  rationale: string | null;
-  counts: HypothesisCounts | null;
-
-  // Inventory metadata
-  inventoryMeta: InventoryMeta | null;
-
-  // UI state
   selectedFile: string | null;
   selectedFileContent: string | null;
-  autoFollow: boolean;
-  error: string | null;
-  errorCode: string | null;
-  errorRetryable: boolean;
 
-  // Animation state
-  agentThinking: boolean;
-  triageProgress: { current: number; total: number } | null;
-
-  // Checkout state
-  checkoutLoading: boolean;
-
-  // Actions
   startAudit: (packageName: string, version?: string) => Promise<void>;
   startDemo: (packageName: string) => Promise<void>;
   startCheckout: (packageName: string, version?: string, email?: string) => Promise<void>;
-  startAuditFromCheckout: (sessionId: string) => Promise<void>;
+  startAuditFromCheckout: (stripeSessionId: string) => Promise<void>;
   startAuditFromTx: (txHash: string, packageName: string, version: string) => Promise<void>;
   connectToSession: (auditId: string) => Promise<void>;
-  handleEvent: (event: SSEEvent) => void;
-  selectFile: (path: string) => Promise<void>;
+  selectFile: (path: string) => void;
   reset: () => void;
 }
 
-const initialState = {
-  auditId: null,
-  packageName: "",
-  isRunning: false,
-  hasStarted: false,
-  reconnecting: false,
-  phase: null,
-  phases: PHASE_ORDER.map((name) => ({ name, status: "pending" as const })),
-  files: [],
-  fileStatuses: {},
-  fileVerdicts: {},
-  pipelineLog: [],
-  agentSteps: [],
-  liveHypotheses: [],
-  hypotheses: [],
-  verdict: null,
-  rationale: null,
-  counts: null,
-  inventoryMeta: null,
-  selectedFile: null,
-  selectedFileContent: null,
-  autoFollow: true,
-  error: null,
-  errorCode: null,
-  errorRetryable: false,
-  agentThinking: false,
-  triageProgress: null,
-  checkoutLoading: false,
-};
+let stream: StreamHandle | null = null;
+let fileAbort: AbortController | null = null;
 
-let activeEventSource: EventSource | null = null;
-let activeFileAbort: AbortController | null = null;
-// Per-connection seen-set; replaced on every connectSSE call so replays are always fresh
-let seenEventSeqs = new Set<number>();
-let reconnectAttempts = 0;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-const MAX_RECONNECT_ATTEMPTS = 5;
-const BASE_RECONNECT_DELAY_MS = 1000;
-
-function closeSSE() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  if (activeEventSource) {
-    activeEventSource.close();
-    activeEventSource = null;
-  }
+function baseState() {
+  return {
+    ...initialFoldState(),
+    auditId: null as string | null,
+    hasStarted: false,
+    reconnecting: false,
+    checkoutLoading: false,
+    demoInline: false,
+    report: null as AuditReport | null,
+    selectedFile: null as string | null,
+    selectedFileContent: null as string | null,
+  };
 }
 
-function connectSSE(
-  auditId: string,
-  set: (partial: Partial<AuditState>) => void,
-  get: () => AuditState,
-) {
-  // Close any existing connection first (guards against React Strict Mode double-fire)
-  closeSSE();
-  // Fresh dedup set per connection — replayed events from the server always start at seq 0
-  seenEventSeqs = new Set();
-  reconnectAttempts = 0;
+export const useAuditStore = create<AuditStoreState>((set, get) => {
+  function connect(auditId: string) {
+    stream?.close();
+    stream = connectAuditStream(
+      `${apiBase()}/audit/${auditId}/events`,
+      {
+        onEvent(event) {
+          const before = get();
+          const after = foldAuditEvent(before, event);
+          if (after === before) return;
+          set(after);
 
-  function openConnection() {
-    if (activeEventSource) {
-      activeEventSource.close();
-      activeEventSource = null;
-    }
+          // Auto-follow: the fold marks which file the pipeline is reading.
+          if (after.followFile && after.followFile !== before.followFile) {
+            get().selectFile(after.followFile);
+          }
 
-    const es = new EventSource(`${API_BASE}/audit/${auditId}/events`);
-    activeEventSource = es;
+          // Terminal: hydrate the durable schemaVersion-2 report for the reveal.
+          if (event.type === "verdict_reached") {
+            void fetchAuditReport(auditId)
+              .then((report) => set({ report }))
+              .catch(() => {
+                // Session may already be expiring; the persisted report stays
+                // reachable via /package/:name/report.
+              });
+          }
+        },
+        onConnected: () => {
+          if (get().reconnecting) set({ reconnecting: false });
+        },
+        onReconnecting: () => set({ reconnecting: true }),
+        onFailed: () =>
+          set({ running: false, reconnecting: false, error: "Lost connection to the audit engine" }),
+      },
+      { isDone: () => !get().running },
+    );
+  }
 
-    const handler = (e: MessageEvent) => {
+  function begin(auditId: string, packageName?: string) {
+    fileAbort?.abort();
+    set({
+      ...baseState(),
+      auditId,
+      hasStarted: true,
+      packageName: packageName ?? get().packageName,
+    });
+    connect(auditId);
+  }
+
+  return {
+    // Idle at boot: `running` is a stream-lifecycle flag, true only while an
+    // audit stream is live (begin() resets to the fold's initial running:true).
+    ...baseState(),
+    running: false,
+
+    async startAudit(packageName, version) {
+      set({ error: null });
+      const { auditId } = await startAuditStream({ packageName, version });
+      begin(auditId, packageName);
+    },
+
+    async startDemo(packageName) {
+      set({ error: null });
+      const { auditId } = await apiStartDemo(packageName);
+      begin(auditId, packageName);
+      // Inline on Landing: stream in place, don't take over the route.
+      set({ demoInline: true });
+    },
+
+    async startCheckout(packageName, version, email) {
+      set({ checkoutLoading: true, error: null });
       try {
-        const event = JSON.parse(e.data) as SSEEvent;
-        // Successful message — reset reconnect counter and clear reconnecting state
-        if (reconnectAttempts > 0) {
-          reconnectAttempts = 0;
-          set({ reconnecting: false });
-        }
-        get().handleEvent(event);
+        const { url } = await apiStartCheckout(packageName, version, email);
+        window.location.href = url;
       } catch (err) {
-        console.warn("Malformed SSE event, skipping:", err);
+        const message =
+          err instanceof ApiError && err.status === 501
+            ? "Card payments are not configured on this engine"
+            : err instanceof Error
+              ? err.message
+              : "Checkout failed";
+        set({ checkoutLoading: false, error: message });
       }
-    };
+    },
 
-    const eventTypes = [
-      "audit_started", "phase_started", "phase_completed",
-      "file_list", "file_analyzing", "file_verdict",
-      "triage_complete", "triage_progress", "inventory_meta",
-      "agent_thinking", "agent_tool_call", "agent_tool_result",
-      "agent_reasoning", "finding_discovered",
-      "hypothesis_emitted", "hypothesis_resolved",
-      "verify_started", "verify_test_result",
-      "verdict_reached", "audit_error",
-    ] as const;
-    for (const type of eventTypes) {
-      es.addEventListener(type, handler);
-    }
+    async startAuditFromCheckout(stripeSessionId) {
+      set({ error: null });
+      const { auditId, packageName } = await startAuditStream({ stripeSessionId });
+      begin(auditId, packageName);
+    },
 
-    es.onerror = () => {
-      es.close();
-      activeEventSource = null;
-
-      // Only reconnect if the audit is still supposed to be running
-      if (!get().isRunning) return;
-
-      reconnectAttempts++;
-      if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
-        const delay = Math.min(
-          BASE_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts - 1),
-          16_000,
-        );
-        set({ reconnecting: true });
-        reconnectTimer = setTimeout(openConnection, delay);
-      } else {
-        // All retries exhausted
-        set({ isRunning: false, reconnecting: false, error: "Lost connection to audit engine" });
-      }
-    };
-  }
-
-  openConnection();
-}
-
-export const useAuditStore = create<AuditState>((set, get) => ({
-  ...initialState,
-
-  reset: () => {
-    closeSSE();
-    set({ ...initialState, phases: PHASE_ORDER.map((name) => ({ name, status: "pending" as const })) });
-  },
-
-  startAudit: async (packageName: string, version?: string) => {
-    get().reset();
-    set({ packageName, isRunning: true, hasStarted: true });
-
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE}/audit/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packageName, ...(version && { version }) }),
+    async startAuditFromTx(txHash, packageName, version) {
+      set({ error: null });
+      const { auditId } = await startAuditStream({
+        packageName,
+        version,
+        txHash,
+        chain: "base-sepolia",
       });
-    } catch {
-      set({ isRunning: false, error: "Failed to connect to audit engine" });
-      return;
-    }
+      begin(auditId, packageName);
+    },
 
-    if (!res.ok) {
-      set({ isRunning: false, error: `Engine returned ${res.status}` });
-      return;
-    }
-
-    let auditId: string;
-    try {
-      const body = await res.json();
-      auditId = body.auditId;
-    } catch {
-      set({ isRunning: false, error: "Invalid response from engine" });
-      return;
-    }
-    set({ auditId });
-
-    connectSSE(auditId, set, get);
-  },
-
-  startDemo: async (packageName: string) => {
-    get().reset();
-    set({ packageName, isRunning: true, hasStarted: true });
-
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE}/demo/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packageName }),
-      });
-    } catch {
-      set({ isRunning: false, error: "Failed to connect to audit engine" });
-      return;
-    }
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      set({ isRunning: false, error: body.error || `Demo unavailable (${res.status})` });
-      return;
-    }
-
-    let auditId: string;
-    try {
-      const body = await res.json();
-      auditId = body.auditId;
-    } catch {
-      set({ isRunning: false, error: "Invalid response from engine" });
-      return;
-    }
-    set({ auditId });
-
-    connectSSE(auditId, set, get);
-  },
-
-  startCheckout: async (packageName: string, version?: string, email?: string) => {
-    set({ checkoutLoading: true, error: null });
-
-    try {
-      const res = await fetch(`${API_BASE}/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          packageName,
-          ...(version && { version }),
-          ...(email && { email }),
-        }),
-      });
-
-      if (res.status === 501) {
-        const body = await res.json().catch(() => ({}));
-        set({ checkoutLoading: false, error: body.error || "Stripe payments not configured" });
-        return;
-      }
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        set({ checkoutLoading: false, error: body.error || `Payment error (${res.status})` });
-        return;
-      }
-
-      const { url } = await res.json();
-      window.location.href = url;
-    } catch {
-      set({ checkoutLoading: false, error: "Failed to connect to payment system" });
-    }
-  },
-
-  startAuditFromCheckout: async (sessionId: string) => {
-    get().reset();
-    set({ isRunning: true, hasStarted: true });
-
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE}/audit/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stripeSessionId: sessionId }),
-      });
-    } catch {
-      set({ isRunning: false, error: "Failed to connect to audit engine" });
-      return;
-    }
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      set({ isRunning: false, error: body.error || `Engine returned ${res.status}` });
-      return;
-    }
-
-    let auditId: string;
-    let pkgName: string | undefined;
-    try {
-      const body = await res.json();
-      auditId = body.auditId;
-      pkgName = body.packageName;
-    } catch {
-      set({ isRunning: false, error: "Invalid response from engine" });
-      return;
-    }
-
-    set({ auditId, ...(pkgName && { packageName: pkgName }) });
-    connectSSE(auditId, set, get);
-  },
-
-  startAuditFromTx: async (txHash: string, packageName: string, version: string) => {
-    get().reset();
-    set({ isRunning: true, hasStarted: true, packageName });
-
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE}/audit/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packageName, version, txHash, chain: "base-sepolia" }),
-      });
-    } catch {
-      set({ isRunning: false, error: "Failed to connect to audit engine" });
-      return;
-    }
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      set({ isRunning: false, error: body.error || `Engine returned ${res.status}` });
-      return;
-    }
-
-    let auditId: string;
-    try {
-      const body = await res.json();
-      auditId = body.auditId;
-    } catch {
-      set({ isRunning: false, error: "Invalid response from engine" });
-      return;
-    }
-
-    set({ auditId });
-    connectSSE(auditId, set, get);
-  },
-
-  connectToSession: async (auditId: string) => {
-    get().reset();
-    set({ auditId, isRunning: true, hasStarted: true });
-
-    // Check if session exists before connecting SSE
-    try {
-      const res = await fetch(`${API_BASE}/audit/${auditId}/report`);
-      if (!res.ok) {
-        const msg = res.status === 404
-          ? "This audit session has expired or was not found."
-          : `Engine returned ${res.status}`;
-        // Session truly gone — nothing to show in AuditView
-        set({ isRunning: false, hasStarted: false, error: msg });
-        return;
-      }
-    } catch {
-      set({ isRunning: false, error: "Failed to connect to audit engine" });
-      return;
-    }
-
-    connectSSE(auditId, set, get);
-  },
-
-  handleEvent: (event: SSEEvent) => {
-    // Deduplicate: skip events we've already processed (guards against SSE replay + Strict Mode)
-    // Use server-assigned seq (buffer index) — unique even for same-millisecond events
-    const seq = event.seq;
-    if (seq !== undefined) {
-      if (seenEventSeqs.has(seq)) return;
-      seenEventSeqs.add(seq);
-    }
-
-    const state = get();
-
-    switch (event.type) {
-      case "audit_started": {
-        if (event.packageName) {
-          set({ packageName: event.packageName });
-        }
-        break;
-      }
-
-      case "phase_started": {
-        set({
-          phase: event.phase,
-          phases: state.phases.map((p) =>
-            p.name === event.phase ? { ...p, status: "active" } : p
-          ),
-          pipelineLog: [...state.pipelineLog, {
-            kind: "phase" as const,
-            text: PHASE_LABELS[event.phase] || event.phase,
-            timestamp: event.timestamp,
-          }],
-        });
-        break;
-      }
-
-      case "phase_completed": {
-        set({
-          phases: state.phases.map((p) =>
-            p.name === event.phase ? { ...p, status: "done", durationMs: event.durationMs } : p
-          ),
-        });
-        break;
-      }
-
-      case "file_list": {
-        const statuses: Record<string, FileStatus> = {};
-        for (const f of event.files) {
-          statuses[f.path] = "pending";
-        }
-        const dirs = new Set(
-          event.files.map((f) => f.path.split("/").slice(0, -1).join("/")).filter(Boolean)
-        );
-        set({
-          files: event.files,
-          fileStatuses: statuses,
-          pipelineLog: [...state.pipelineLog, {
-            kind: "info" as const,
-            text: `Found ${event.files.length} files${dirs.size > 0 ? ` across ${dirs.size} directories` : ""}`,
-            timestamp: event.timestamp,
-          }],
-        });
-        break;
-      }
-
-      case "file_analyzing": {
-        set({
-          fileStatuses: { ...state.fileStatuses, [event.file]: "analyzing" },
-          pipelineLog: [...state.pipelineLog, {
-            kind: "file-scan" as const,
-            text: event.file,
-            file: event.file,
-            timestamp: event.timestamp,
-          }],
-        });
-        // Auto-follow: open file in viewer during triage
-        if (state.autoFollow && state.phase === "triage") {
-          get().selectFile(event.file);
-        }
-        break;
-      }
-
-      case "file_verdict": {
-        const { verdict } = event;
-        const status = riskContributionToStatus(verdict.riskContribution);
-        const pipelineLog = verdict.riskContribution >= RISK_SUSPICIOUS_THRESHOLD
-          ? [...state.pipelineLog, {
-            kind: "file-flag" as const,
-            text: verdict.summary || `Risk ${verdict.riskContribution}/10`,
-            file: verdict.file,
-            risk: verdict.riskContribution,
-            timestamp: event.timestamp,
-          }]
-          : state.pipelineLog;
-        set({
-          fileStatuses: { ...state.fileStatuses, [verdict.file]: status },
-          fileVerdicts: { ...state.fileVerdicts, [verdict.file]: verdict },
-          pipelineLog,
-        });
-        break;
-      }
-
-      case "triage_progress": {
-        set({ triageProgress: { current: event.current, total: event.total } });
-        break;
-      }
-
-      case "inventory_meta": {
-        const meta: InventoryMeta = {
-          scripts: event.scripts,
-          dependencies: event.dependencies,
-          entryPoints: event.entryPoints,
-          metadata: event.metadata,
-        };
-        const lifecycle = Object.entries(event.scripts)
-          .filter(([k]) => LIFECYCLE_SCRIPTS.includes(k));
-        const newEntries: typeof state.pipelineLog = [];
-        if (lifecycle.length > 0) {
-          newEntries.push({
-            kind: "scripts" as const,
-            text: lifecycle.map(([k, v]) => `${k}: ${v}`).join("\n"),
-            scripts: event.scripts,
-            timestamp: event.timestamp,
+    async connectToSession(auditId) {
+      // Probe the session first: an expired/missing session must land on an
+      // error state, not an empty audit view.
+      try {
+        const res = await fetch(`${apiBase()}/audit/${auditId}/report`);
+        if (res.status === 404) throw new ApiError(404, null, "not found");
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          set({
+            ...baseState(),
+            running: false,
+            hasStarted: false,
+            error: "This audit session has expired or was not found.",
           });
+          return;
         }
-        const depCounts = Object.entries(event.dependencies)
-          .filter(([, deps]) => Object.keys(deps).length > 0)
-          .map(([kind, deps]) => `${Object.keys(deps).length} ${kind}`)
-          .join(" · ");
-        if (depCounts) {
-          newEntries.push({
-            kind: "info" as const,
-            text: depCounts + " dependencies",
-            timestamp: event.timestamp,
-          });
-        }
-        set({
-          inventoryMeta: meta,
-          pipelineLog: [...state.pipelineLog, ...newEntries],
+        // Network hiccup — fall through and let the SSE reconnect logic cope.
+      }
+      begin(auditId);
+    },
+
+    selectFile(path) {
+      const { auditId } = get();
+      if (!auditId) return;
+      fileAbort?.abort();
+      const controller = new AbortController();
+      fileAbort = controller;
+      set({ selectedFile: path, selectedFileContent: null });
+      void fetchAuditFile(auditId, path, controller.signal)
+        .then((content) => {
+          if (get().selectedFile === path) set({ selectedFileContent: content });
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return;
+          if (get().selectedFile === path) {
+            set({
+              selectedFileContent: `// ${err instanceof Error ? err.message : "Failed to load file"}`,
+            });
+          }
         });
-        break;
-      }
+    },
 
-      case "triage_complete": {
-        // Engine v2: triage now emits hypotheses (via hypothesis_emitted), not a
-        // riskScore/riskSummary/focusAreas triad — just clear the progress meter.
-        set({ triageProgress: null });
-        break;
-      }
-
-      case "agent_thinking": {
-        set({ agentThinking: true });
-        break;
-      }
-
-      case "agent_tool_call": {
-        set({ agentThinking: false });
-        const step: AgentStep = {
-          type: "tool_call",
-          tool: event.tool,
-          args: event.args,
-          step: event.step,
-          timestamp: event.timestamp,
-        };
-        set({ agentSteps: [...state.agentSteps, step] });
-
-        // Auto-follow: if agent reads a file, select it
-        if (state.autoFollow && event.tool === "readFile") {
-          const filePath = readFileArg(event.args);
-          if (filePath) get().selectFile(filePath);
-        }
-        break;
-      }
-
-      case "agent_tool_result": {
-        const step: AgentStep = {
-          type: "tool_result",
-          tool: event.tool,
-          resultPreview: event.resultPreview,
-          step: event.step,
-          timestamp: event.timestamp,
-          injectionDetected: event.injectionDetected,
-        };
-        set({ agentSteps: [...state.agentSteps, step] });
-        break;
-      }
-
-      case "agent_reasoning": {
-        set({ agentThinking: false });
-        const step: AgentStep = {
-          type: "reasoning",
-          text: event.text,
-          step: event.step,
-          timestamp: event.timestamp,
-        };
-        set({ agentSteps: [...state.agentSteps, step] });
-        break;
-      }
-
-      case "hypothesis_emitted": {
-        // Skip if we've already seen this hypId (resolved may arrive first on replay)
-        if (state.liveHypotheses.some((h) => h.hypId === event.hypId)) break;
-        set({
-          liveHypotheses: [...state.liveHypotheses, {
-            hypId: event.hypId,
-            claim: event.claim,
-            severity: event.severity,
-            file: event.file,
-            state: "OPEN",
-          }],
-        });
-        break;
-      }
-
-      case "hypothesis_resolved": {
-        const existing = state.liveHypotheses.find((h) => h.hypId === event.hypId);
-        const resolved: LiveHypothesis = {
-          hypId: event.hypId,
-          claim: event.claim,
-          severity: event.severity,
-          file: existing?.file,
-          state: event.state,
-          by: event.by,
-          reason: event.reason,
-        };
-        set({
-          liveHypotheses: existing
-            ? state.liveHypotheses.map((h) => (h.hypId === event.hypId ? resolved : h))
-            : [...state.liveHypotheses, resolved],
-        });
-        break;
-      }
-
-      case "verify_started": {
-        set({
-          pipelineLog: [...state.pipelineLog, {
-            kind: "info" as const,
-            text: `Running ${event.totalTests} exploit test${event.totalTests === 1 ? "" : "s"} in sandbox...`,
-            timestamp: event.timestamp,
-          }],
-        });
-        break;
-      }
-
-      case "verify_test_result": {
-        const labels = { confirmed: "PASSED", unconfirmed: "FAILED", infra_error: "INFRA ERROR" } as const;
-        set({
-          pipelineLog: [...state.pipelineLog, {
-            kind: "info" as const,
-            text: `Test ${event.testFile}: ${labels[event.status]}${event.error ? ` (${event.error})` : ""}`,
-            timestamp: event.timestamp,
-          }],
-        });
-        break;
-      }
-
-      case "verdict_reached": {
-        set({
-          verdict: event.verdict,
-          rationale: event.rationale,
-          counts: event.counts,
-          isRunning: false,
-          agentThinking: false,
-        });
-        // Fetch full report to hydrate the hypothesis list (non-blocking)
-        const { auditId } = get();
-        if (auditId) {
-          fetch(`${API_BASE}/audit/${auditId}/report`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((report) => {
-              if (!report) return;
-              const update: Partial<AuditState> = {};
-              if (Array.isArray(report.hypotheses)) update.hypotheses = report.hypotheses;
-              if (report.counts) update.counts = report.counts;
-              if (typeof report.rationale === "string") update.rationale = report.rationale;
-              if (report.verdict) update.verdict = report.verdict;
-              set(update);
-            })
-            .catch(() => { });
-        }
-        break;
-      }
-
-      case "audit_error": {
-        const errorMsg = event.error ?? "Audit failed";
-        set({
-          isRunning: false,
-          reconnecting: false,
-          error: errorMsg,
-          errorCode: event.code ?? null,
-          errorRetryable: event.retryable ?? false,
-          pipelineLog: [...state.pipelineLog, {
-            kind: "info" as const,
-            text: `Error: ${errorMsg}`,
-            timestamp: event.timestamp,
-          }],
-        });
-        break;
-      }
-    }
-  },
-
-  selectFile: async (filePath: string) => {
-    const { auditId } = get();
-    set({ selectedFile: filePath, selectedFileContent: null });
-
-    if (!auditId) return;
-
-    // Cancel any in-flight file fetch
-    activeFileAbort?.abort();
-    const controller = new AbortController();
-    activeFileAbort = controller;
-
-    try {
-      const res = await fetch(
-        `${API_BASE}/audit/${auditId}/file/${filePath}`,
-        { signal: controller.signal },
-      );
-      if (res.ok) {
-        const content = await res.text();
-        if (get().selectedFile === filePath) {
-          set({ selectedFileContent: content });
-        }
-      } else {
-        if (get().selectedFile === filePath) {
-          set({ selectedFileContent: `// Failed to load file (${res.status})` });
-        }
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      if (get().selectedFile === filePath) {
-        set({ selectedFileContent: "// Failed to load file" });
-      }
-    }
-  },
-}));
+    reset() {
+      stream?.close();
+      stream = null;
+      fileAbort?.abort();
+      fileAbort = null;
+      set({ ...baseState(), running: false });
+    },
+  };
+});

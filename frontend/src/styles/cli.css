@@ -1,0 +1,146 @@
+/* ============================================================
+   cli page — compose base.css primitives; prefix classes `.pg-cli-`.
+   Static how-it-works page: command cards, the three-step gate,
+   verdict outcomes, payment options. No new primitives — tokens only.
+   ============================================================ */
+
+.pg-cli {
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+}
+
+.pg-cli-lede {
+  max-width: 60ch;
+  margin: 0;
+}
+
+.pg-cli-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+/* ---- command cards ---- */
+
+.pg-cli-cmds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.pg-cli-cmdgroup {
+  display: grid;
+  gap: 6px;
+}
+
+.pg-cli-cmd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-inset);
+  box-shadow: var(--shadow-card);
+}
+
+.pg-cli-cmd__prompt {
+  color: var(--violet);
+  font-size: 13px;
+  user-select: none;
+}
+
+.pg-cli-cmd__text {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.pg-cli-cmd__copy {
+  flex: 0 0 auto;
+}
+
+/* ---- the gate: three steps ---- */
+
+.pg-cli-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.pg-cli-step {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.pg-cli-step__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.pg-cli-step p {
+  margin: 0;
+}
+
+/* ---- verdict outcomes ---- */
+
+.pg-cli-outcomes {
+  padding: 6px 16px;
+}
+
+.pg-cli-outcome {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.pg-cli-outcome:last-child {
+  border-bottom: 0;
+}
+
+.pg-cli-outcome__label {
+  flex: 0 0 auto;
+  width: 116px;
+}
+
+/* ---- payment options ---- */
+
+.pg-cli-pay-lede {
+  max-width: 60ch;
+  margin: 0;
+}
+
+.pg-cli-pay {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.pg-cli-pay__card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  align-content: start;
+}
+
+.pg-cli-pay__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.pg-cli-pay__icon {
+  color: var(--violet);
+}
+
+.pg-cli-pay__card p {
+  margin: 0;
+}

@@ -1,0 +1,260 @@
+/* ============================================================
+   report cluster — the durable schemaVersion-2 report view.
+   Compose base.css primitives; prefix every class `.report-`.
+   Rendered by three call sites (Report page, Live Audit verdict
+   reveal, compact registry/landing embed) — must be self-contained.
+   ============================================================ */
+
+/* ---------- ReportView shell ---------- */
+
+.report-view {
+  display: grid;
+  gap: 20px;
+}
+.report-view--compact {
+  gap: 14px;
+}
+
+.report-view__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.report-view__pkg {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.report-view__ver {
+  color: var(--ink-faint);
+}
+.report-view__headline {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.report-view__dealbreaker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.report-view__caps,
+.report-file__caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---------- sections ---------- */
+
+.report-section {
+  display: grid;
+  gap: 10px;
+}
+.report-section__cards {
+  display: grid;
+  gap: 10px;
+}
+.report-section__more {
+  margin-top: 2px;
+}
+.report-empty-line {
+  color: var(--ink-faint);
+}
+
+/* ---------- VerdictSummary ---------- */
+
+.report-verdict {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+}
+.report-verdict__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* the large verdict badge — a scaled-up pill (keeps the pill tone recipe) */
+.report-verdict__badge {
+  min-height: 30px;
+  padding: 2px 16px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  border-radius: var(--r-pill);
+}
+.report-verdict__rationale {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ---------- CountsRail ---------- */
+
+.report-counts {
+  display: grid;
+  gap: 10px;
+}
+.report-counts__empty {
+  color: var(--ink-faint);
+}
+.report-counts__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.report-counts__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.report-counts__num {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* ---------- HypothesisCard ---------- */
+
+.report-hyp {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.report-hyp__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.report-hyp__claim {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-right: auto;
+}
+.report-hyp__desc {
+  line-height: 1.5;
+}
+.report-hyp__reason {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1.5;
+}
+.report-hyp__reason-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+.report-hyp__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---------- FileSummaryRow ---------- */
+
+.report-files {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-strong);
+  overflow: hidden;
+}
+.report-file {
+  display: grid;
+  gap: 5px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line-faint);
+}
+.report-file:last-child {
+  border-bottom: 0;
+}
+.report-file__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.report-file__name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-right: auto;
+  text-align: left;
+}
+button.report-file__name {
+  border-radius: var(--r-xs);
+  transition: color var(--t-fast) ease;
+}
+button.report-file__name:hover {
+  color: var(--violet);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.report-file__summary {
+  line-height: 1.5;
+}
+
+/* ---------- timing trace ---------- */
+
+.report-trace {
+  display: grid;
+  gap: 2px;
+}
+.report-trace__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+.report-trace__row:last-child {
+  border-bottom: 0;
+}
+.report-trace__phase {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* ---------- SourceViewer ---------- */
+
+.report-source {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-strong);
+  overflow: hidden;
+}
+.report-source__head {
+  padding: 10px 14px 0;
+}
+.report-source__state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 16px;
+  color: var(--ink-faint);
+}
+.report-source__dash {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--ink-faint);
+}
+.report-source__cm {
+  max-height: 480px;
+  overflow: auto;
+  font-size: 12px;
+}
+.report-source__cm .cm-editor {
+  background: transparent;
+}
