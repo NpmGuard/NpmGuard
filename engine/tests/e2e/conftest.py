@@ -21,7 +21,13 @@ from tests.support.harness import (
     sandbox_image_available,
     sqlite_url,
 )
-from tests.support.stubs import FakeChainRpc, RegistryStub, StripeStub, StubServer
+from tests.support.stubs import (
+    FakeChainRpc,
+    GitHubStub,
+    RegistryStub,
+    StripeStub,
+    StubServer,
+)
 
 REGISTRY_FIXTURES_DIR = ENGINE_ROOT / "tests" / "fixtures" / "registry"
 
@@ -104,6 +110,24 @@ def _stripe_session() -> StripeStub:
 def stripe_stub(_stripe_session: StripeStub) -> StripeStub:
     _stripe_session.clear()
     return _stripe_session
+
+
+@pytest.fixture(scope="session")
+def _github_session() -> GitHubStub:
+    with GitHubStub() as stub:
+        yield stub
+
+
+@pytest.fixture
+def github_stub(_github_session: GitHubStub) -> GitHubStub:
+    """GitHub App REST + OAuth stub, state cleared per test.
+
+    Point the engine at it with ``NPMGUARD_GITHUB_API_BASE=<github_stub.base_url>``
+    so no real GitHub is ever hit; preload the scenario via ``add_installation``
+    / ``add_repo`` / ``set_oauth_code`` / ``set_user`` / ``set_lockfile`` etc.
+    """
+    _github_session.clear()
+    return _github_session
 
 
 # ---- engine ------------------------------------------------------------

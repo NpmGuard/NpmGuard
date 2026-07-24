@@ -191,3 +191,198 @@ def construct_webhook_event(settings: Settings, body: bytes, signature: str):
     return _stripe(settings).Webhook.construct_event(
         body, signature, settings.stripe_webhook_secret
     )
+
+
+# ---------------------------------------------------------------------------
+# Repo-panel subscription billing (mode='subscription').
+#
+# Coexists with the one-off audit checkout above: the same Stripe SDK + the same
+# ``settings.stripe_api_base`` test seam, but a recurring price and a
+# ``metadata.kind == 'repo_pro_subscription'`` marker so the webhook can tell the
+# two flows apart. The panel treats an installation as the billing account.
+# ---------------------------------------------------------------------------
+
+SUBSCRIPTION_KIND = "repo_pro_subscription"
+
+
+def _stripe_object_id(value: Any) -> str | None:
+    """A Stripe field that is either an id string or an expanded object → its id."""
+    if not value:
+        return None
+    if isinstance(value, str):
+        return value
+    return _field(value, "id")
+
+
+def _metadata_installation_id(metadata: Any) -> int | None:
+    raw = _field(metadata or {}, "installationId")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+async def create_repo_subscription_checkout(
+    settings: Settings,
+    *,
+    installation_id: int,
+    account_login: str,
+    origin: str,
+    email: str | None = None,
+    customer_id: str | None = None,
+) -> tuple[str, str]:
+    """Create a Stripe **subscription** checkout for the Pro plan.
+
+    ``metadata.kind == 'repo_pro_subscription'`` (on both the session and the
+    subscription) is what :func:`handle_subscription_event` keys on. An existing
+    Stripe customer is reused; otherwise the email pre-fills checkout and Stripe
+    mints the customer. Returns ``(url, session_id)``.
+    """
+    if not settings.stripe_pro_price_id:
+        raise RuntimeError(
+            "Stripe Pro price is not configured (NPMGUARD_STRIPE_PRO_PRICE_ID missing)"
+        )
+    client = _stripe(settings)
+    metadata = {
+        "kind": SUBSCRIPTION_KIND,
+        "installationId": str(installation_id),
+        "accountLogin": account_login,
+    }
+    parameters: dict[str, Any] = {
+        "mode": "subscription",
+        "line_items": [{"price": settings.stripe_pro_price_id, "quantity": 1}],
+        "client_reference_id": str(installation_id),
+        "metadata": metadata,
+        "subscription_data": {"metadata": metadata},
+        "allow_promotion_codes": True,
+        "success_url": f"{origin}/dashboard?billing=success",
+        "cancel_url": f"{origin}/dashboard?billing=cancelled",
+    }
+    if customer_id:
+        parameters["customer"] = customer_id
+    elif email:
+        parameters["customer_email"] = email
+    session = await asyncio.to_thread(client.checkout.Session.create, **parameters)
+    if not session.url:
+        raise RuntimeError("Stripe did not return a subscription checkout URL")
+    return session.url, session.id
+
+
+async def create_repo_billing_portal(
+    settings: Settings, *, customer_id: str, return_url: str
+) -> str:
+    """Open a Stripe billing-portal session for an existing customer → its URL."""
+    client = _stripe(settings)
+    session = await asyncio.to_thread(
+        client.billing_portal.Session.create, customer=customer_id, return_url=return_url
+    )
+    if not session.url:
+        raise RuntimeError("Stripe did not return a billing-portal URL")
+    return session.url
+
+
+async def repo_subscription_price(settings: Settings) -> dict[str, Any] | None:
+    """Retrieve the Pro price → ``{amount, currency, interval}`` (``None`` when
+    Stripe or the price id is not configured)."""
+    if not settings.stripe_pro_price_id or not settings.stripe_secret_key:
+        return None
+    client = _stripe(settings)
+    price = await asyncio.to_thread(client.Price.retrieve, settings.stripe_pro_price_id)
+    recurring = _field(price, "recurring")
+    return {
+        "amount": _field(price, "unit_amount"),
+        "currency": _field(price, "currency"),
+        "interval": _field(recurring, "interval") if recurring else None,
+    }
+
+
+async def _persist_stripe_subscription(subscription: Any, billing_store: Any) -> bool:
+    """Upsert a ``customer.subscription.*`` object against its installation.
+
+    The installation is found first from ``metadata.installationId`` (set when we
+    created the checkout), then by the stored ``stripe_subscription_id``. Returns
+    ``True`` iff a linked installation was updated.
+    """
+    installation_id = _metadata_installation_id(_field(subscription, "metadata", {}) or {})
+    subscription_id = _field(subscription, "id")
+    if installation_id is None:
+        installation_id = await billing_store.find_installation_for_subscription(subscription_id)
+    if installation_id is None or not await billing_store.installation_exists(installation_id):
+        return False
+    await billing_store.upsert_subscription(
+        installation_id=installation_id,
+        customer_id=_stripe_object_id(_field(subscription, "customer")),
+        subscription_id=subscription_id,
+        status=_field(subscription, "status"),
+    )
+    return True
+
+
+async def handle_subscription_event(
+    settings: Settings, event: Any, billing_store: Any
+) -> dict[str, Any] | None:
+    """Process the subscription-billing Stripe events, mutating ``billing_store``.
+
+    Handles ``checkout.session.completed`` (only when
+    ``metadata.kind == 'repo_pro_subscription'``) plus
+    ``customer.subscription.created/updated/deleted``. Returns a small dict
+    describing what changed so the ``/webhooks/stripe`` handler can react, or
+    ``None`` when the event is not ours (so the caller can fall through to the
+    one-off audit branch). Coexists with the existing one-off checkout webhook.
+    """
+    event_type = _field(event, "type")
+    obj = _field(_field(event, "data"), "object")
+
+    if event_type == "checkout.session.completed":
+        metadata = _field(obj, "metadata", {}) or {}
+        if _field(metadata, "kind") != SUBSCRIPTION_KIND:
+            return None  # a one-off audit checkout — not this handler's concern
+        installation_id = _metadata_installation_id(metadata)
+        subscription_id = _stripe_object_id(_field(obj, "subscription"))
+        if installation_id is None or subscription_id is None:
+            return None
+        if not await billing_store.installation_exists(installation_id):
+            return None
+        client = _stripe(settings)
+        subscription = await asyncio.to_thread(client.Subscription.retrieve, subscription_id)
+        status = _field(subscription, "status") or "active"
+        await billing_store.upsert_subscription(
+            installation_id=installation_id,
+            customer_id=_stripe_object_id(_field(obj, "customer")),
+            subscription_id=subscription_id,
+            status=status,
+        )
+        return {
+            "kind": "subscription_activated",
+            "installationId": installation_id,
+            "subscriptionId": subscription_id,
+            "status": status,
+        }
+
+    if event_type in ("customer.subscription.created", "customer.subscription.updated"):
+        if await _persist_stripe_subscription(obj, billing_store):
+            return {
+                "kind": "subscription_synced",
+                "subscriptionId": _field(obj, "id"),
+                "status": _field(obj, "status"),
+            }
+        return None
+
+    if event_type == "customer.subscription.deleted":
+        subscription_id = _field(obj, "id")
+        if await _persist_stripe_subscription(obj, billing_store):
+            return {
+                "kind": "subscription_deleted",
+                "subscriptionId": subscription_id,
+                "status": _field(obj, "status"),
+            }
+        if await billing_store.update_subscription_status(subscription_id, "canceled"):
+            return {
+                "kind": "subscription_deleted",
+                "subscriptionId": subscription_id,
+                "status": "canceled",
+            }
+        return None
+
+    return None

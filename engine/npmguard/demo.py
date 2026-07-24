@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -30,6 +31,8 @@ MIN_TYPE_DELAY = {
     "verdict_reached": 800,
     "verify_test_result": 700,
 }
+# Playwright/e2e divides the human throttle by this (0 ⇒ emit instantly); prod unset ⇒ 1.0.
+DEMO_SPEED = max(0.0, float(os.environ.get("NPMGUARD_DEMO_SPEED", "1")))
 
 
 @dataclass(frozen=True)
@@ -95,7 +98,9 @@ class DemoService:
                 delay = min(
                     MAX_DELAY_MS, max(MIN_TYPE_DELAY.get(event["type"], MIN_DELAY_MS), delta)
                 )
-                await asyncio.sleep(delay / 1_000)
+                if DEMO_SPEED > 0:
+                    await asyncio.sleep(delay / 1_000 / DEMO_SPEED)
+                # DEMO_SPEED == 0 → emit as fast as possible (skip the sleep entirely)
             payload = {
                 key: value
                 for key, value in event.items()
