@@ -16,6 +16,12 @@ import type { AuditEvent } from "../src/events.js";
 const packageName = process.argv[2];
 const version = process.argv[3];
 
+const EXPECTED_CONTROL_VERDICTS: Record<string, "SAFE" | "DANGEROUS"> = {
+  react: "SAFE",
+  "test-pkg-dom-inject": "DANGEROUS",
+  "test-pkg-env-exfil": "DANGEROUS",
+};
+
 if (!packageName) {
   console.error("Usage: npx tsx scripts/record-demo.ts <packageName> [version]");
   process.exit(1);
@@ -79,6 +85,20 @@ try {
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\n[record] Audit complete in ${elapsed}s: ${report.verdict}`);
   console.log(`[record] ${events.length} events, ${report.proofs?.length ?? 0} proofs`);
+
+  const expectedVerdict = EXPECTED_CONTROL_VERDICTS[packageName];
+  const hasConfirmedProof = report.proofs.some((proof) => proof.kind === "TEST_CONFIRMED");
+  if (
+    (expectedVerdict && report.verdict !== expectedVerdict) ||
+    (expectedVerdict === "DANGEROUS" && !hasConfirmedProof)
+  ) {
+    cleanup();
+    throw new Error(
+      `Refusing to overwrite the ${packageName} control demo: expected ${expectedVerdict}` +
+        `${expectedVerdict === "DANGEROUS" ? " with a TEST_CONFIRMED proof" : ""}, ` +
+        `received ${report.verdict} with ${report.proofs.length} proof(s).`,
+    );
+  }
 
   // Read file contents from the extracted package
   const fileListEvent = events.find((e) => e.type === "file_list") as AuditEvent & { files: Array<{ path: string; isBinary: boolean }> } | undefined;

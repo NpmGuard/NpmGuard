@@ -83,6 +83,13 @@ const SUMMARY_CREDENTIAL_PATTERNS = [
   /\b(?:ssh\s+keys?|aws\s+credentials?|npm\s+tokens?|github\s+tokens?|secrets?|tokens?)\b/i,
 ];
 
+const SUMMARY_RISK_REFUTATION_PATTERNS = [
+  /\bno (?:network calls?|data exfiltration|credential theft|malicious behavior|suspicious behavior)\b/i,
+  /\bno evidence of (?:malicious|suspicious|credential theft|data exfiltration)\b/i,
+  /\b(?:does not|doesn't|did not|is not|isn't|are not|aren't)\b.{0,80}\b(?:exfiltrat|steal|harvest|malicious|suspicious)\w*\b/i,
+  /\b(?:exfiltration|credential theft|malicious behavior|suspicious behavior)\b.{0,60}\b(?:absent|not present|not observed|not detected|not reflected)\b/i,
+];
+
 const SUSPICIOUS_LINE_PATTERNS = [
   /\b(?:process\.env|SENSITIVE_KEYS|NPM_TOKEN|AWS_|GITHUB_TOKEN|SECRET|TOKEN|credential)\b/i,
   /\.(?:npmrc|yarnrc|ssh|aws|docker|kube)|readFileSync|homedir/i,
@@ -109,7 +116,19 @@ function withAbortTimeout<T>(
 }
 
 function summaryImpliesCriticalRisk(summary: string): boolean {
-  return SUMMARY_CRITICAL_PATTERNS.some((pattern) => pattern.test(summary));
+  // Models often explain a benign result with sentences such as
+  // "No network calls, data exfiltration, or suspicious behavior are
+  // present." Searching the whole summary for threat words turns that
+  // explicit refutation into a false critical hypothesis. Evaluate each
+  // sentence independently and discard sentences that negate the risk.
+  return summary
+    .split(/[.!?\n]+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .some((sentence) =>
+      !SUMMARY_RISK_REFUTATION_PATTERNS.some((pattern) => pattern.test(sentence)) &&
+      SUMMARY_CRITICAL_PATTERNS.some((pattern) => pattern.test(sentence)),
+    );
 }
 
 function inferSummaryClaim(
