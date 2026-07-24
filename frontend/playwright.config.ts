@@ -46,6 +46,13 @@ export default defineConfig({
     headless: true,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
+    // Sandboxed CI images ship a pre-installed chromium whose build may not
+    // match the one @playwright/test would download. When PLAYWRIGHT_CHROMIUM_PATH
+    // points at that binary, use it verbatim (belt-and-braces: unset in normal
+    // runs, so `playwright install`'d browsers are used as usual).
+    ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
+      ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } }
+      : {}),
   },
   expect: { timeout: 20_000 },
   webServer: [
