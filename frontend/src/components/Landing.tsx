@@ -140,9 +140,6 @@ export function Landing() {
           </form>
 
           <div className="landing-hint">
-            {paymentEnabled && priceCents != null
-              ? `$${(priceCents / 100).toFixed(2)} per audit · `
-              : ""}
             package · package@version · package@latest
           </div>
 
