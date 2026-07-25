@@ -305,27 +305,26 @@ test encodes the wrong convention, change the convention's document first.
 
 Open (report-only; tracked here, not silently fixed):
 
-- **`test_evidence.py` hand-builds `EvidenceEvent.raw`** (evidence-work scope, not
-  the parser sweep): four literals are strace shapes that never came from strace.
-  Two are real forms with the errno tail stripped — a shape `parse_strace_log` no
-  longer emits, now that `raw` is the verbatim line minus its prefix; one
-  (`connect(7, {sin_port=htons(443)}) = 0`) has no `sa_family=` and strace cannot
-  print it; one (`openat(AT_FDCWD, "/etc/localtime", O_RDONLY) = 17`) is entirely
-  plausible and still unverified, which is the trap the rule above exists for. The
-  tests pass either way, so this is fixture fidelity, not a live defect. Pinned by
-  filename in `test_parser_fixture_lint.py::PINNED_UNFIXED` so that fixing it turns
-  the suite red and the exemption is deleted rather than left to rot.
-- **`_describe` does not render a syscall's result**, so `connect … = 0` and
-  `connect … = -1 ECONNREFUSED` produce the identical timeline row and `_collapse`
-  merges them into one `[x2]`. The sensor now records the errno (`normalized.error`)
-  and the parsed peer for `recvfrom`; rendering them is the other half, in
-  `evidence.py`. Until then a judge cannot tell an established exfil channel from a
-  refused connection.
+- **A sealed artifact still carries two fields the run cannot fill.**
+  `inspectorLogHash` is `null` in every artifact ever sealed and is structurally
+  unfillable (the inspector's output is merged into the stdout blob `stdoutHash`
+  already covers), and `Budget.maxSyscalls`/`maxBytesCapture` are read by nothing
+  while the caps that exist are unrelated (`docker_exec` 10 MiB, `deps._stream_tar`
+  256 MiB). Deleting them is written up at `shared/src/evidence.ts` and pinned by
+  `test_evidence.py` C18 (`xfail(strict=True)`). The blocker is not the code:
+  removing a sealed field changes the canonical form, hence the `contentHash`, of
+  every artifact ever sealed, and the orchestrator cross-checks that hash against an
+  independent recomputation — so all 31 committed runartifacts fail it and three
+  slice replays go red. The migration is free and mechanical rather than a paid
+  re-record (re-seal each `fixtures/llm/*/sandbox/*.runartifact.json`, update its
+  `sha256` in the bundle manifest), but editing recorded fixtures is an owner call.
 - **Committed `.timeline.txt` files are stale** relative to the current renderer:
-  all 31 differ by the `[no requiring module …]` annotation. Confirmed pre-existing
-  at HEAD and unrelated to the parsers (rendering is byte-identical with and
-  without the parser changes). `fixture_lint` checks judge citations against the
-  *rendered* timeline, not these files, so nothing gates on them.
+  all 31 differed by the `[no requiring module …]` annotation before the syscall
+  result was rendered, and now also by the result clauses. Confirmed pre-existing
+  at HEAD. `RecordedSandbox` feeds the judge the committed TEXT and takes only the
+  id SET from a live render, and `fixture_lint` checks judge citations against the
+  *rendered* timeline, so nothing gates on their bytes — but they are no longer a
+  faithful picture of what a judge would see today.
 - **`_deep_field` collapses a repeated dissected field to its first value**, so if
   tshark ever files a layer as a LIST (two pipelined HTTP requests in one segment
   is the candidate), the second request is dropped. Not reproduced: pipelining two
@@ -340,16 +339,14 @@ Open (report-only; tracked here, not silently fixed):
   `PackageNotFoundError("chalk")` — a true 404 reported as a false statement about
   the package. Loud but mislabelled, so it is a message defect rather than a silent
   one; changing the error type touches the e2e S18 contract.
-- **`docker_exec` truncates stdout at 10MiB silently** (`docker.py`, not the parser
-  sweep's scope). Two collectors read evidence through it. `cat /tmp/strace.log` on
-  a chatty run returns a prefix ending mid-line — now a loud `AssertionError` naming
-  the cap, rather than a syscall quietly dropped, so the truncation DEFERs the
-  hypothesis instead of shrinking the timeline. Worse is `base64 -w0` of the pcap:
-  base64 inflates 4/3, so a capture over ~7.5MB is truncated with `base64` still
-  exiting 0, and `b64decode` then yields either a raise or a **short pcap that is
-  hashed and stored as if complete**. The fix belongs at the seam — stream to a file,
-  or fail when output hits the cap — because a limit that silently changes the data
-  is indistinguishable from the data.
+- **The pcap transfer's base64 hop is still in `sensors.stop_pcap`** — the one
+  transfer that can still reach the cap, because `base64 -w0` inflates 4/3 while
+  every sensor file is bounded by the sandbox's 64 MiB `/tmp` tmpfs. It now fails
+  loud instead of prefixing (see the fixed entry below), so this is an
+  unreachable-state opportunity rather than a defect: `read_bytes_from_container`
+  (`docker.py`) is the byte-exact replacement, proven against real docker in
+  `tests/e2e/test_docker_transfer.py` S45, and switching that one call makes a
+  whole-file capture transfer incapable of hitting the cap at all.
 - **The panel's lockfile parsers are correct but untested against real input.**
   `test_panel_lockfile.py` has a thorough C1-C20 map and an adversarial pass, and
   every one of its inputs is hand-written — the exact provenance gap that hid the
@@ -388,6 +385,54 @@ full-oracle sandboxes the deployment's RAM allows.
 
 Fixed since first tracked (regression-enforced, no longer open):
 
+- **`docker_exec` truncated a stream at 10 MiB and callers hashed the prefix as the
+  whole capture.** Measured on a real run before the fix: the container held
+  13,002,771 pcap bytes, `base64 -w0` inflated them past the slice, `b64decode`
+  accepted the 10 MiB prefix without complaint (10 MiB is a multiple of 4), and the
+  sha256 of the resulting 7,864,320 bytes was sealed as `pcapHash` with
+  `error: null` — an artifact eligible to REFUTE, attesting a packet capture that
+  was 60% of one, with zero signal anywhere. The slice also protected nothing:
+  `communicate()` had already buffered the entire stream, so the "cap" only
+  shortened the copy. The seam now bounds the read as it happens, kills the
+  producer past the cap and RAISES (`DockerOutputTooLargeError`) — so
+  `ExecResult.stdout` is the process's complete output, or `timed_out` marks it —
+  and every retrieval gap becomes `RunError(kind="SensorError")` plus a
+  `truncated` timeline row, which bars REFUTED without barring CONFIRMED.
+  Enforced: `test_docker_exec.py` C1-C11, `test_observation_gaps.py` C1-C8,
+  `tests/e2e/test_docker_transfer.py` S45-S47 (a real container, a real >3 MiB
+  capture). Fixture cost zero, proven: the 31 committed runartifacts are replayed,
+  not re-transferred, and `tools.fixture_lint` plus `tests/slice` are green.
+
+- **The timeline manufactured canary citations, and hid the one that mattered.** Two
+  defects of opposite sign in the same renderer. (1) Bait was every planted env value
+  of 8+ characters, matched as a plaintext substring of `url + body` — so the recorded
+  corpus's own `HOME=/home/node` and `MYAPP_DB_HOST=localhost` made a benign crash
+  reporter "carry planted env HOME" and a **bodyless GET** "carry planted env
+  MYAPP_DB_HOST" (`localhost` occurs in its own URL). One CONFIRM is DANGEROUS and
+  DANGEROUS blocks an install, so that is the most expensive error the renderer can
+  make. Bait is now a token the engine MINTS (`evidence.mint_canary`, 128 bits behind
+  a recognisable prefix) and only that token is matched, so a coincidental citation is
+  structurally impossible rather than merely unlikely — the discriminator is
+  provenance, not length. (2) `_describe` rendered no syscall RESULT, so
+  `connect … = 0` and `connect … = -1 ECONNREFUSED` were the same row and `_collapse`
+  merged them, while `-1 EINPROGRESS` — a non-blocking connect that **succeeded** —
+  was indistinguishable from a refusal. The result now renders into the collapse key,
+  `recvfrom`'s peer and a named AF_UNIX peer render at all, and a connect no longer
+  inherits a FILE from a recycled fd (that fix was pinned as blocked on a re-record;
+  rendering the result splits more rows than it merges, so measured over all 31
+  committed artifacts no id set shrinks and it landed for free). Enforced:
+  `test_evidence.py` C13/C13b (both directions of the canary clause),
+  C14-C14e (peer, recycled fd, the three connect outcomes, recvfrom, the legacy
+  errno-less `-1`), `test_instrumentation_l4.py` C6 (real node + real instrument,
+  with a planted-but-unminted `CI` as the control). Fixture cost proven zero: the
+  31 artifacts re-render with a strictly larger id set (+11 minimum, 4140→4606
+  total), `tools.fixture_lint` green, `tests/slice` green.
+- **`test_evidence.py` hand-built four strace `raw` values** (two real forms with the
+  errno stripped, one with no `sa_family=` at all, one plausible and unverified).
+  They now come from committed captures — the new
+  `tests/fixtures/sensors/strace-connect-results.log` plus lines already in
+  `strace-node.log` — through the real `parse_strace_log`, so the sensor→renderer
+  seam is closed end to end and `PINNED_UNFIXED` is empty.
 - **Parsers tested against imagined formats.** One root cause, five silent evidence
   losses, none of which a green suite could see, all found by capturing the real
   producer first: strace `<unfinished ...>`/`<... resumed>` halves were both
