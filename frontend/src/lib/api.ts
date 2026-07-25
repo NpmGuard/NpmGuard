@@ -130,6 +130,9 @@ export interface AttestRequestConfig {
   credential: "proof_of_human" | "passport" | "mnc";
   /** Whether a legacy (v3) proof may answer. Engine's call, never the browser's. */
   allowLegacyProofs: boolean;
+  /** Fresh liveness per release. Off only where a presence check is impossible
+   * (the World simulator); the engine refuses to disable it in production. */
+  requireUserPresence: boolean;
   environment: string;
   /** False for staging/sandbox — the UI MUST say so. */
   isProduction: boolean;
@@ -154,6 +157,42 @@ export function fetchAttestRequest(sessionId: string): Promise<AttestRequestConf
   return getJson(
     `${apiBase()}/attest/session/${sessionId}/request`,
     "Could not load the proof request",
+  );
+}
+
+/** Identity Check enrolment. No session and no signal: this establishes a
+ * property of a person, not a claim about a release. */
+export interface EnrolRequestConfig {
+  appId: string;
+  rpId: string;
+  rpContext: RpContext;
+  action: string;
+  /** Fixed server-side so a client cannot ask World for more than we justify. */
+  attributes: { type: string; value: string | number }[];
+  environment: string;
+  isProduction: boolean;
+  minimumAge: number;
+  requireUserPresence: boolean;
+  allowLegacyProofs: boolean;
+}
+
+export interface EnrolmentResponse {
+  nullifier: string;
+  tier: number;
+  assertions: Record<string, boolean>;
+  environment: string;
+  enrolledAt: string;
+}
+
+export function fetchEnrolRequest(): Promise<EnrolRequestConfig> {
+  return getJson(`${apiBase()}/attest/enrol/request`, "Could not load the enrolment request");
+}
+
+export function submitEnrolProof(proof: unknown): Promise<EnrolmentResponse> {
+  return postJson(
+    `${apiBase()}/attest/enrol/proof`,
+    proof,
+    "Could not verify the identity proof",
   );
 }
 

@@ -120,7 +120,7 @@ def _sign_in(
     return runtime
 
 
-def _stub_world(app, *, verified=None, error=None):
+def _stub_world(app, *, verified=None, error=None, presence=True):
     runtime = app.state.runtime
 
     class _World:
@@ -135,7 +135,7 @@ def _stub_world(app, *, verified=None, error=None):
                 nullifier=NULLIFIER,
                 tier=1,
                 identity_attested=False,
-                user_presence=True,
+                user_presence=presence,
                 environment="staging",
                 action="attest-npm-release",
             )
@@ -392,6 +392,150 @@ async def test_attestations_for_a_package_come_back_oldest_first(tmp_path) -> No
 # --- R13: the dev ownership bypass -----------------------------------------
 
 
+# --- Identity Check enrolment ------------------------------------------------
+
+
+def _stub_enrolment(app, *, attested=True, nullifier=NULLIFIER, error=None):
+    runtime = app.state.runtime
+    world = runtime.world
+
+    async def verify_enrolment(proof):
+        from npmguard.attestations import AttestationError, VerifiedEnrolment
+
+        if error is not None:
+            raise AttestationError(error)
+        return VerifiedEnrolment(
+            nullifier=nullifier,
+            tier=2 if attested else 1,
+            identity_attested=attested,
+            document_backed=attested,
+            environment="staging",
+            action="attest-npm-release",
+        )
+
+    object.__setattr__(world, "verify_enrolment", verify_enrolment)
+    return runtime
+
+
+def test_enrolment_records_a_tier_against_the_pseudonym_only(make_app, npm, monkeypatch) -> None:
+    """Identity Check establishes something about a person, not a release.
+
+    The record it produces is keyed by nullifier and holds booleans — no
+    attribute values, no GitHub link, nothing that identifies the human.
+    """
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        _stub_world(app)
+        _stub_enrolment(app)
+        done = client.post("/attest/enrol/proof", json={"identity_attested": True})
+        assert done.status_code == 200
+        body = done.json()
+        assert body["nullifier"] == NULLIFIER
+        assert body["tier"] == 2
+        assert body["assertions"]["document_backed"] is True
+        assert all(isinstance(v, bool) for v in body["assertions"].values())
+        # nothing identifying, anywhere in the response
+        for forbidden in ("full_name", "document_number", "nationality", "issuing_country"):
+            assert forbidden not in repr(body)
+
+
+def test_an_enrolment_raises_the_tier_of_a_later_release(make_app, npm, monkeypatch) -> None:
+    """THE Identity Check join.
+
+    The document tier is a durable property of the human, so a release proof
+    that only establishes tier 1 on its own inherits tier 2 from the publisher's
+    earlier enrolment — matched by nullifier, which is the only thing linking
+    them. This is why enrolment must use the same action.
+    """
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        _stub_world(app)  # release proof: tier 1, no identity attested
+        _stub_enrolment(app)
+        assert client.post("/attest/enrol/proof", json={}).status_code == 200
+
+        session_id = _open(client)
+        _sign_in(monkeypatch, app)
+        client.post(f"/attest/session/{session_id}/own")
+        done = client.post(f"/attest/session/{session_id}/proof", json={})
+
+        assert done.status_code == 200
+        body = done.json()
+        assert body["attestation"]["tier"] == 2, "enrolment should raise the release tier"
+        assert body["attestation"]["assertions"]["document_backed"] is True
+        # the public record must agree with the stored one
+        assert body["envelope"]["tier"] == 2
+
+
+def test_a_release_by_an_unenrolled_publisher_stays_tier_1(make_app, npm, monkeypatch) -> None:
+    """Absence of an enrolment is never an error.
+
+    The document tier is assurance layered on top of the security claim, not a
+    precondition for it — an unenrolled publisher still gets a real, artifact-
+    bound attestation.
+    """
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        _stub_world(app)
+        session_id = _open(client)
+        _sign_in(monkeypatch, app)
+        client.post(f"/attest/session/{session_id}/own")
+        done = client.post(f"/attest/session/{session_id}/proof", json={})
+
+        assert done.status_code == 200
+        assert done.json()["attestation"]["tier"] == 1
+        assert done.json()["attestation"]["assertions"]["document_backed"] is False
+
+
+def test_another_publishers_enrolment_never_raises_your_tier(make_app, npm, monkeypatch) -> None:
+    """The join is by nullifier and must be exact.
+
+    If an enrolment leaked across pseudonyms, one enrolled publisher would
+    silently upgrade everyone — the tier would stop meaning anything.
+    """
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        _stub_world(app)  # release proof returns NULLIFIER
+        _stub_enrolment(app, nullifier="0xsomeone-else")
+        assert client.post("/attest/enrol/proof", json={}).status_code == 200
+
+        session_id = _open(client)
+        _sign_in(monkeypatch, app)
+        client.post(f"/attest/session/{session_id}/own")
+        done = client.post(f"/attest/session/{session_id}/proof", json={})
+
+        assert done.json()["attestation"]["tier"] == 1
+
+
+def test_an_unattested_enrolment_is_refused(make_app, npm, monkeypatch) -> None:
+    """A proof World did not attest establishes nothing, and must not be stored
+    as a tier — otherwise enrolment becomes self-service."""
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        _stub_world(app)
+        _stub_enrolment(app, error="World did not attest the requested identity attributes")
+        refused = client.post("/attest/enrol/proof", json={})
+        assert refused.status_code == 422
+        assert "did not attest" in refused.json()["error"]
+
+
+def test_the_enrol_request_asks_for_no_identifying_attribute(make_app, npm) -> None:
+    """Minimization enforced where the request is built, not by review.
+
+    The attribute list is fixed server-side so a client cannot ask World for more
+    than this product justifies.
+    """
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        config = client.get("/attest/enrol/request")
+        assert config.status_code == 200
+        body = config.json()
+        assert body["action"] == "attest-npm-release", "must match, or the nullifier will not join"
+        types = {a["type"] for a in body["attributes"]}
+        assert types == {"minimum_age"}
+        for forbidden in ("full_name", "document_number", "nationality", "issuing_country"):
+            assert forbidden not in repr(body["attributes"])
+
+
 def test_the_dev_bypass_cannot_be_enabled_against_production_world() -> None:
     """A development affordance must be impossible to leave on against real
     credentials. Refused at construction, so a misconfigured engine does not
@@ -410,6 +554,54 @@ def test_the_dev_bypass_cannot_be_enabled_against_production_world() -> None:
     assert Settings(
         _env_file=None, attest_dev_trust_ownership=True, world_environment="staging"
     ).attest_dev_trust_ownership
+
+
+def test_presence_cannot_be_waived_against_production_world() -> None:
+    """Fresh liveness is the claim, not a detail of it.
+
+    Without a presence check a proof no longer says a human was there *now*,
+    which is the one thing a stolen token cannot fake. The waiver exists only
+    because the World simulator cannot perform a presence check, and it must be
+    impossible to carry into production.
+    """
+    import pydantic
+
+    from npmguard.config import Settings
+
+    with pytest.raises(pydantic.ValidationError, match="cannot be disabled"):
+        Settings(
+            _env_file=None,
+            world_require_user_presence=False,
+            world_environment="production",
+        )
+    assert (
+        Settings(
+            _env_file=None, world_require_user_presence=False, world_environment="staging"
+        ).world_require_user_presence
+        is False
+    )
+
+
+def test_a_presence_less_proof_says_so_in_its_assertions(make_app, npm, monkeypatch) -> None:
+    """If presence was waived, the record must show it.
+
+    An attestation made without a live check has to be distinguishable from one
+    made with it — otherwise the waiver silently upgrades every staging proof to
+    a claim it cannot support.
+    """
+    app = make_app(**WORLD_ENV, **GITHUB_ENV, NPMGUARD_WORLD_REQUIRE_USER_PRESENCE="false")
+    with TestClient(app) as client:
+        session_id = _open(client)
+        _sign_in(monkeypatch, app)
+        client.post(f"/attest/session/{session_id}/own")
+        _stub_world(app, presence=False)
+
+        done = client.post(f"/attest/session/{session_id}/proof", json={})
+        assert done.status_code == 200
+        body = done.json()
+        assert body["status"] == "verified"
+        assert body["attestation"]["assertions"]["user_present"] is False
+        assert body["envelope"]["assertions"]["user_present"] is False
 
 
 def test_the_dev_bypass_records_that_ownership_was_not_proven(make_app, npm, monkeypatch) -> None:

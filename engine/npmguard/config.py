@@ -129,6 +129,15 @@ class Settings(KitSettings):
     # attestation must not quietly mean something weaker than it did yesterday.
     # When on, the protocol version is recorded so a consumer can tell.
     world_allow_legacy_proofs: bool = False
+    # Fresh liveness per release — the single primitive the anti-worm claim rests
+    # on. A stolen token can replay bytes; it cannot make a human be present now.
+    # Configurable ONLY because the World simulator cannot perform a presence
+    # check (it answers `user_presence_failed`), so leaving it hardcoded makes
+    # the flow untestable without real credentials. Refused outright in
+    # production by the validator below, and every attestation records
+    # `user_present` as it actually happened — an attestation made without a
+    # presence check must never read as though one occurred.
+    world_require_user_presence: bool = True
     world_environment: Literal["production", "staging", "sandbox"] = "staging"
     world_api_base: str | None = None  # TEST-ONLY: point the verifier at a stub
     # Minimum age asserted at enrolment. Requested as an Identity Check
@@ -237,6 +246,15 @@ class Settings(KitSettings):
         if self.attest_dev_trust_ownership and self.world_environment == "production":
             raise ValueError(
                 "NPMGUARD_ATTEST_DEV_TRUST_OWNERSHIP cannot be enabled when "
+                "NPMGUARD_WORLD_ENVIRONMENT=production"
+            )
+        # Same rule, same reason: a testing affordance that weakens what an
+        # attestation means must be impossible to leave on against real
+        # credentials. Without presence, a proof no longer says a human was
+        # there *now*, which is the whole claim.
+        if not self.world_require_user_presence and self.world_environment == "production":
+            raise ValueError(
+                "NPMGUARD_WORLD_REQUIRE_USER_PRESENCE cannot be disabled when "
                 "NPMGUARD_WORLD_ENVIRONMENT=production"
             )
         return self

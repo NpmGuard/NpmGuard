@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { CheckCircle2, GitBranch, ShieldCheck, TriangleAlert } from "lucide-react";
 import {
   fetchAttestRequest,
@@ -39,6 +39,16 @@ const TIER_BLURB: Record<number, string> = {
   2: "…and holds a document-backed World ID credential.",
   3: "…and declared an issuing jurisdiction.",
 };
+
+/** Tier 1's whole sentence is "a human was **present**". When the proof carries
+ * no presence check that sentence is simply false, so it is not shown — the
+ * artifact binding still holds and is worth stating on its own. */
+function tierBlurb(tier: number, assertions: Record<string, boolean>): string {
+  if (tier === 1 && assertions.user_present === false) {
+    return "A unique human consented to this exact tarball. No live presence check was performed, so this does not prove they were there at the time.";
+  }
+  return TIER_BLURB[tier] ?? "";
+}
 
 function StepMarker({ done, active, n }: { done: boolean; active: boolean; n: number }) {
   const state = done ? "done" : active ? "active" : "todo";
@@ -222,7 +232,7 @@ export function Attest() {
                     <ShieldCheck size={18} aria-hidden />
                     <strong>{TIER_LABEL[attestation.tier] ?? `Tier ${attestation.tier}`}</strong>
                   </p>
-                  <p className="muted">{TIER_BLURB[attestation.tier]}</p>
+                  <p className="muted">{tierBlurb(attestation.tier, attestation.assertions)}</p>
                   <dl className="pg-attest__facts">
                     <div>
                       <dt>Publisher</dt>
@@ -251,6 +261,13 @@ export function Attest() {
                     We stored a pseudonymous identifier and yes/no assertions — never your
                     name, document number or nationality.
                   </p>
+                  {attestation.tier < 2 && (
+                    <p className="muted">
+                      <Link to="/attest/enrol">Complete an identity check</Link> once, and
+                      every release you attest afterwards carries document-backed assurance
+                      — without scanning anything again.
+                    </p>
+                  )}
                 </div>
               ) : owned && config ? (
                 <WorldProof
@@ -344,7 +361,7 @@ function WorldProof({
         // engine is the authority on which environment this app is configured
         // for, so it always travels with the request.
         environment: config.environment as "production" | "staging" | "sandbox",
-        require_user_presence: true,
+        require_user_presence: config.requireUserPresence,
         // Legacy (v3) proofs predate the v4 credential model. Whether one may
         // answer is the engine's call, not this bundle's — it decides what an
         // attestation is allowed to mean, and it records the protocol version

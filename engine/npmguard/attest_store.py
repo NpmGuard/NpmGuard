@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from kit_spine import now_iso
 
-from .attest_tables import attest_sessions, attestations
+from .attest_tables import attest_sessions, attestations, enrolments
 
 
 class AttestationConflict(RuntimeError):
@@ -41,6 +41,23 @@ class AttestSession:
     github_login: str | None
     signal: str | None
     error: str | None
+
+
+@dataclass(frozen=True)
+class Enrolment:
+    """What Identity Check established about a human, keyed by pseudonym.
+
+    Deliberately holds no attribute VALUES and no link to a GitHub account: the
+    design target is *pseudonymous, unique and document-backed*, and knowing who
+    the person is would defeat it.
+    """
+
+    nullifier: str
+    tier: int
+    assertions: dict[str, bool]
+    environment: str
+    action: str
+    enrolled_at: str
 
 
 @dataclass(frozen=True)
@@ -217,6 +234,88 @@ class AttestStore:
             storage_root=storage_root,
             chain_tx=chain_tx,
             attested_at=attested_at,
+        )
+
+    # --- enrolments -------------------------------------------------------
+
+    async def record_enrolment(
+        self,
+        *,
+        nullifier: str,
+        tier: int,
+        assertions: dict[str, bool],
+        environment: str,
+        action: str,
+    ) -> Enrolment:
+        """Upsert what Identity Check established about this human.
+
+        Upsert, not insert-once: a credential can be re-verified, and a person
+        who enrols again with a stronger document should not be refused for
+        already existing. The nullifier is stable, so this converges rather than
+        accumulating rows.
+        """
+        now = now_iso()
+        async with self._sessions() as db, db.begin():
+            existing = (
+                await db.execute(
+                    sa.select(enrolments.c.nullifier).where(enrolments.c.nullifier == nullifier)
+                )
+            ).one_or_none()
+            if existing is None:
+                await db.execute(
+                    sa.insert(enrolments).values(
+                        nullifier=nullifier,
+                        tier=tier,
+                        assertions=assertions,
+                        environment=environment,
+                        action=action,
+                        enrolled_at=now,
+                        updated_at=now,
+                    )
+                )
+            else:
+                await db.execute(
+                    sa.update(enrolments)
+                    .where(enrolments.c.nullifier == nullifier)
+                    .values(
+                        tier=tier,
+                        assertions=assertions,
+                        environment=environment,
+                        action=action,
+                        updated_at=now,
+                    )
+                )
+        return Enrolment(
+            nullifier=nullifier,
+            tier=tier,
+            assertions=assertions,
+            environment=environment,
+            action=action,
+            enrolled_at=now,
+        )
+
+    async def enrolment_for(self, nullifier: str) -> Enrolment | None:
+        """The enrolment this pseudonym holds, if any.
+
+        Returns None freely: an unenrolled publisher is tier 1, never an error.
+        The document tier is assurance layered on top of the security claim, not
+        a precondition for it.
+        """
+        async with self._sessions() as db:
+            row = (
+                await db.execute(
+                    sa.select(enrolments).where(enrolments.c.nullifier == nullifier)
+                )
+            ).one_or_none()
+        if row is None:
+            return None
+        return Enrolment(
+            nullifier=row.nullifier,
+            tier=row.tier,
+            assertions=dict(row.assertions or {}),
+            environment=row.environment,
+            action=row.action,
+            enrolled_at=row.enrolled_at,
         )
 
     async def attach_publication(

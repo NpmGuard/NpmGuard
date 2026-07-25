@@ -190,6 +190,23 @@ class VerifiedAttestation:
     protocol_version: str = "4.0"
 
 
+@dataclass(frozen=True)
+class VerifiedEnrolment:
+    """What an Identity Check proof established about a human.
+
+    Carries no signal and authorizes no release — it says who someone is, not
+    what they consented to. Kept as a separate type from
+    :class:`VerifiedAttestation` so the two can never be confused at a call site.
+    """
+
+    nullifier: str
+    tier: Tier
+    identity_attested: bool
+    document_backed: bool
+    environment: str
+    action: str
+
+
 def _response_items(payload: Any) -> list[dict[str, Any]]:
     items = payload.get("results") or payload.get("responses") or []
     return [item for item in items if isinstance(item, dict)]
@@ -375,6 +392,63 @@ class WorldVerifier:
             action=settings.world_action,
         )
 
+    async def verify_enrolment(self, proof_payload: dict[str, Any]) -> VerifiedEnrolment:
+        """Verify an Identity Check proof and return what it attested.
+
+        Deliberately NOT :meth:`verify`. An enrolment proof establishes something
+        about a *person* — document-backed, over 18 — and cannot be bound to an
+        artifact, because ``IdentityCheck`` is the only preset that accepts no
+        ``signal`` (finding D-1). So this method must not pretend to check a
+        binding that does not exist, and its result must never be substituted for
+        a release proof: it authorizes no release.
+
+        The nullifier is the join. It is scoped to (identity, app, action), so
+        enrolling under the same action as release proofs is what lets a later
+        release inherit this tier.
+        """
+        if not self.enabled:
+            raise AttestationError("World ID is not configured")
+
+        settings = self._settings
+        body = {
+            **proof_payload,
+            "action": settings.world_action,
+            "environment": settings.world_environment,
+        }
+        try:
+            payload = await self._post(body)
+        except httpx.HTTPError as exc:
+            raise AttestationError(f"World verify request failed: {exc}") from exc
+
+        if not payload.get("success"):
+            raise AttestationError(_reject_reason(payload, sent=body))
+
+        nullifier = _nullifier_of(payload)
+        if not nullifier:
+            raise AttestationError("verified enrolment carried no nullifier")
+
+        # World attests the attribute SET as one boolean (finding D-2): there is
+        # no per-attribute result to read, so we record exactly what we were
+        # told and never infer more.
+        identity_attested = bool(
+            payload.get("identity_attested") or proof_payload.get("identity_attested")
+        )
+        if not identity_attested:
+            raise AttestationError(
+                "World did not attest the requested identity attributes"
+            )
+        document_backed = _document_backed(payload) or _document_backed(proof_payload)
+        return VerifiedEnrolment(
+            nullifier=nullifier,
+            tier=assign_tier(
+                identity_attested=identity_attested, document_backed=document_backed
+            ),
+            identity_attested=identity_attested,
+            document_backed=document_backed,
+            environment=str(payload.get("environment") or settings.world_environment),
+            action=settings.world_action,
+        )
+
     async def _post(self, body: dict[str, Any]) -> dict[str, Any]:
         url = self._settings.world_verify_url
         if self._client is not None:
@@ -440,6 +514,7 @@ def build_envelope(
     attested_at: str,
     assertions: dict[str, bool],
     verifier: str,
+    tier: Tier | None = None,
 ) -> dict[str, Any]:
     """The public evidence record published to 0G Storage.
 
@@ -464,7 +539,11 @@ def build_envelope(
         "integrity": integrity,
         "artifactDigest": artifact_digest(integrity),
         "nullifier": verified.nullifier,
-        "tier": verified.tier,
+        # The EFFECTIVE tier, which may exceed what this proof alone established
+        # — a prior Identity Check enrolment raises it. Passed in rather than
+        # read off `verified` so the public record can never disagree with the
+        # stored one; they are the same number or this is a bug.
+        "tier": tier if tier is not None else verified.tier,
         "assertions": dict(sorted(assertions.items())),
         "action": verified.action,
         # Recorded so a reader can tell a staging proof from a real one. A

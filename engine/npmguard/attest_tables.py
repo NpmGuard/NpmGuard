@@ -4,7 +4,15 @@ Conventions match ``persistence.py`` / ``panel/tables.py``: shared
 ``kit_spine.db.metadata``, ISO-string timestamps written via ``now_iso()``
 (never a SQL DEFAULT), and a sqlite-compatible surrogate PK.
 
-Two entities, deliberately separate:
+Three entities, deliberately separate:
+
+``enrolments``
+    Durable, keyed by World nullifier. What Identity Check established about a
+    *human* — document-backed, 18+ — which is a property of the person, not of
+    any release. Established once and looked up per release, because re-scanning
+    a passport for every publish proves nothing new and (since ``IdentityCheck``
+    accepts no ``signal``) could not be bound to the artifact anyway.
+
 
 ``attest_sessions``
     Short-lived. One attempt by one signed-in GitHub user to attest one release.
@@ -52,6 +60,30 @@ attest_sessions = sa.Table(
     sa.Column("created_at", sa.String(64), nullable=False),
     sa.Column("updated_at", sa.String(64), nullable=False),
     sa.Index("ix_attest_sessions_pkg", "package_name", "version"),
+)
+
+
+enrolments = sa.Table(
+    "enrolments",
+    metadata,
+    # The World nullifier IS the identity here — there is no other key, and that
+    # is the point. Enrolment says "the human behind pseudonym N holds a
+    # document-backed credential"; it never learns who that human is.
+    sa.Column("nullifier", sa.String(128), primary_key=True),
+    sa.Column("tier", sa.Integer, nullable=False),
+    # Which attributes World attested, as BOOLEANS. Attribute values are never
+    # stored — that is the whole minimization claim, and `build_envelope`
+    # enforces it for anything published.
+    sa.Column("assertions", sa.JSON, nullable=False),
+    sa.Column("environment", sa.String(16), nullable=False),
+    # The action the enrolment nullifier was scoped to. Recorded because the
+    # nullifier is only comparable to a release proof's nullifier when both were
+    # scoped identically — if the action ever changed, old enrolments silently
+    # stop matching and this column is what makes that visible instead of
+    # mysterious.
+    sa.Column("action", sa.String(128), nullable=False),
+    sa.Column("enrolled_at", sa.String(64), nullable=False),
+    sa.Column("updated_at", sa.String(64), nullable=False),
 )
 
 
