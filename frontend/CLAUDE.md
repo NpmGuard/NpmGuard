@@ -123,10 +123,12 @@ Contract shapes live in `@npmguard/shared` (zod). The engine's
 `scripts/gen-contract.sh`. **Author a new wire shape in `shared/src/*.ts` and
 regenerate** — never hand-write one here.
 
-- Panel **and audit/report** types import from `@npmguard/shared` **directly**.
-  There is deliberately **no re-export** in `lib/engine-types.ts`: a re-export is
-  an invitation to add "just one" hand-written shape beside it, and the deleted
-  hand-written copies had already drifted — `price.currency` was `string` where
+- **Nothing in this app declares a wire shape.** Every type crossing the engine
+  boundary is imported from `@npmguard/shared` **directly**, and there is no
+  local module re-exporting them — `lib/engine-types.ts` is deleted, not emptied,
+  because a surviving re-export file is an invitation to add "just one"
+  hand-written shape beside it. The hand-written copies it held had already
+  drifted — `price.currency` was `string` where
   the schema says `string | null` (would have thrown in a formatter), and
   `audit_error` declared all three of `{error, code, retryable}` optional-nullable
   where the contract and every emit site say required non-null (which bought an
@@ -154,15 +156,17 @@ regenerate** — never hand-write one here.
   so an event type the engine adds has no listener and is dropped by EventSource
   before any validation runs. Strictness applies only to the 17 names we asked
   for. See `audit-fold.ts`'s header.
-- What remains hand-written in `engine-types.ts` is only the audit routes' **HTTP
-  envelopes** (`StartAuditResponse`, `PackageReportResponse`, `PackageSummary`,
-  `ResolveResponse`, `PublicConfig`/`CryptoConfig`, `CheckoutResponse`,
-  `CheckoutStatus`) — the shapes with no zod in `shared/src` yet. They cannot be
-  schematised from this package: `zod` is a dependency of `@npmguard/shared` and
-  not of this app, so a local schema would be both an undeclared dependency and a
-  second source of truth. Author them in `shared/src/backend.ts` and regenerate.
-  The report *inside* two of those envelopes is already parsed
-  (`AuditReportSchema`), because that is the half that carries structure.
+- The audit routes' **HTTP envelopes** were the last hand-written shapes and are
+  now `shared/src/audit-api.ts` (`StartAuditResponse`, `AuditAcceptedResponse`,
+  `ResolveResponse`, `DemoPackagesResponse`, `PackageSummary`/`PackageIndexResponse`,
+  `PackageReportResponse`, `PublicConfig`/`CryptoConfig`, `CheckoutResponse`,
+  `CheckoutStatus`). Every one is parsed with `getWire`/`postWire` in `lib/api.ts`
+  — there is no `getJson<T>` cast left on an audit route — and the engine builds
+  each response from the generated model via `api.py::_wire`, so both sides read
+  one author. `CryptoConfig` is the shape to imitate when authoring a new one: it
+  has no nullable fields, because "we cannot take a crypto payment" is expressed
+  once by the parent being null rather than by three fields that might each be
+  missing.
 - **Two verdict domains, not aliases.** Audit `VerdictEnum` is `{SAFE, DANGEROUS}`
   because a failed audit emits an `audit_error` event. Panel `Outcome` is
   `{SAFE, ERROR, DANGEROUS}` because a rollup must *count* failures. Do not
