@@ -1,4 +1,4 @@
-"""DB-backed opaque-token panel sessions (port of TS ``session.ts``).
+"""DB-backed opaque-token panel sessions.
 
 The token is 32 random bytes hex, stored in the HttpOnly ``ng_session`` cookie;
 logout is a row delete. Expiry is a 30-day sliding window, extended at most

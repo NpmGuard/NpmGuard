@@ -14,7 +14,7 @@
  *                             FAILURE, never a silent default. Defaulting would
  *                             let a dropped engine field validate cleanly, which
  *                             is the exact drift this contract exists to catch.
- *  C3  unrepresentable states — the retired SUSPECT / UNKNOWN outcomes cannot be
+ *  C3  unrepresentable states — SUSPECT / UNKNOWN outcomes cannot be
  *                             expressed at all, so they cannot be reintroduced by
  *                             an engine regression.
  *  C4  domain sentinels      — limit 0 / remaining null is the UNLIMITED signal

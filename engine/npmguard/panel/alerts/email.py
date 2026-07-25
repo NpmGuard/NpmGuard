@@ -1,4 +1,4 @@
-"""DANGEROUS-verdict email (port of TS ``alerts/email.ts``, nodemailer → SMTP).
+"""DANGEROUS-verdict email over SMTP.
 
 The 3am-malware case must reach a human even when nobody is watching the PR.
 Configuration over a vendor SDK (repo rule): a single ``NPMGUARD_SMTP_URL``

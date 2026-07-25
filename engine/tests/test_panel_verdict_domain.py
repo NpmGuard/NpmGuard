@@ -9,21 +9,8 @@
 # truth AND the public registry routes' source of truth, so one screening rule has
 # to hold for both.
 #
-# Why any of this exists — the falsification pass behind it, so the next reader does
-# not have to redo it. The verdict collapse (`d1c4cd7`) justified deleting the
-# retired `SUSPECT` state with "SUSPECT had zero producers anywhere." That claim is
-# FALSE. At `origin/main`'s tip:
-#   * `engine/src/proof-quality.ts`  assessAuditReport() returns
-#                                    `classification: "SUSPECT"` on its middle branch
-#   * `engine/src/report-store.ts`   saveReport() -> normalizeReportVerdict()
-#                                    OVERWRITES the stored `verdict` with that
-#                                    classification, so the FILE carries SUSPECT
-#   * `engine/src/verdict-index.ts`  installReportHook() -> upsertVerdict(...)
-#                                    writes it into `package_verdicts` unfiltered
-# and both lineages resolve `data/reports/` to the byte-identical path. The
-# separation is a DB filename (`npmguard.db` vs `npmguard.sqlite3`) plus a
-# `LANDABLE_VERDICTS` write filter that predates the collapse — and that filter never
-# covered the report READERS.
+# The write side had a `LANDABLE_VERDICTS` filter long before the read side did, and
+# that filter never covered the report READERS — which is the gap this file pins.
 #
 # Progress axis (the -O half):
 #   C1  `item_outcome`'s stored-domain guard still fires under `python -O` — it is a
@@ -40,10 +27,10 @@
 #   C6  the domain is DERIVED from the generated contract, so it cannot drift from
 #       `AuditReport.verdict` and a legitimate widening needs no second edit here
 #       (a DRIFT GUARD, not a regression test — see its docstring)
-#   C7  the SHAPE half of the same leak: the foreign writer's other output is an
-#       unversioned body with an IN-DOMAIN verdict, which the verdict rule passes and
-#       the client then fails to parse. Screened at the same boundary, so the routes
-#       404 it rather than serving a page-bricking body
+#   C7  the SHAPE half of the same leak: an unversioned body with an IN-DOMAIN
+#       verdict, which the verdict rule passes and the client then fails to parse.
+#       Screened at the same boundary, so the routes 404 it rather than serving a
+#       page-bricking body
 #
 # N-7: C1-C5 were each checked against their reverted production hunk in an isolated
 # worktree and all five go red. C6 does not, by construction, and says so.
@@ -65,7 +52,7 @@ from npmguard import report_store
 from npmguard.api import create_app
 from npmguard.config import get_settings
 
-# A verdict from the retired 4-state vocabulary that `origin/main` still produces.
+# A verdict outside the contract's domain.
 FOREIGN_VERDICT = "SUSPECT"
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
@@ -74,9 +61,7 @@ ENGINE_ROOT = Path(__file__).resolve().parents[1]
 def _report(verdict: str, *, legacy: bool = False) -> dict:
     """A minimal report body carrying `verdict`.
 
-    `legacy=True` is the TS lineage's actual schemaVersion-1 output (no
-    `schemaVersion`, `capabilities`/`runtimeEvidence` present) — this checkout's own
-    `data/reports/event-stream/4.0.1.json` has exactly these keys. It is a separate
+    `legacy=True` drops `schemaVersion`, the off-version shape. It is a separate
     axis from the verdict on purpose: the store screens BOTH, so a fixture that is
     legacy AND foreign-verdict would pass C3-C5 without the verdict rule existing.
     """
@@ -128,8 +113,8 @@ def test_stored_domain_guard_survives_python_dash_o() -> None:
 
     This is the exact probe that showed the collapse's enforcement layer was
     conditionally compiled: with a bare `assert` it returned 'UNKNOWN' under -O, so
-    the retired 4-state domain flowed again and every branch the commit deleted was
-    licensed by a check that was not running. A subprocess because -O is a flag on
+    the wider domain flowed again and every branch the commit deleted was licensed
+    by a check that was not running. A subprocess because -O is a flag on
     the interpreter, and this suite does not run under it.
     """
     probe = (
@@ -154,9 +139,8 @@ def test_db_check_constraint_survives_python_dash_o(tmp_path) -> None:
     """C2: under `python -O`, the DATABASE still rejects an out-of-domain verdict.
 
     The distinct claim from C1: this holds with no guard of ours in the call path at
-    all, which is what the cross-lineage producer needs — `origin/main`'s
-    `upsertVerdict` writes the same table through better-sqlite3 and would never
-    reach a Python check, optimized away or not.
+    all, so it covers a writer that never runs this Python — a migration, a repair
+    script, a psql session.
     """
     probe = (
         "import sqlalchemy as sa\n"
@@ -259,11 +243,11 @@ def test_the_store_screens_both_of_its_read_entry_points(reports_app) -> None:
 def test_a_legacy_shaped_report_is_refused_by_both_public_routes(reports_app) -> None:
     """C7: an in-domain verdict on a schemaVersion-1 body is still not servable.
 
-    This is the half the verdict rule cannot catch, and the one that actually bit:
-    `event-stream/4.0.1.json` carries `"verdict": "SAFE"`, passes every verdict
-    check, and then dies in the client on `counts: Required` — permanently, because
-    the store re-serves the same file on every request. A 404 makes it a package
-    with no report instead of a package whose page cannot render.
+    This is the half the verdict rule cannot catch, and the one that actually bit: a
+    pre-v2 file carries `"verdict": "SAFE"`, passes every verdict check, and then
+    dies in the client on `counts: Required` — permanently, because the store
+    re-serves the same file on every request. A 404 makes it a package with no
+    report instead of a package whose page cannot render.
     """
     app, write = reports_app
     write("leftpad", "1.0.0", "SAFE")

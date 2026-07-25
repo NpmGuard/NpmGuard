@@ -1,7 +1,6 @@
 """Repo file access for the panel.
 
-A port of the TS engine's ``github/content.ts``. Two access paths, kept
-strictly separate:
+Two access paths, kept strictly separate:
 
 - **Authenticated contents API** (installation client) —
   :func:`find_root_lockfile`, :func:`fetch_lockfile`, :func:`fetch_manifest`.

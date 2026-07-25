@@ -9,7 +9,7 @@ Package keys vary across lockfile versions::
 Scoped names keep their internal slash ("/@scope/name@1.2.3"). The format is
 decided by ``lockfileVersion``, not guessed — package names may legally
 contain "_" (``string_decoder``) and v5 peer suffixes put "@" in the version,
-so heuristics mis-split. A port of TS ``lockfile/pnpm.ts``.
+so heuristics mis-split.
 """
 
 from __future__ import annotations
