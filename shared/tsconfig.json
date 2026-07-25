@@ -11,6 +11,13 @@
     // `tsc -b` builds it on demand, so a shared/ edit can never be consumed as a
     // stale dist/ — which is the whole point of N-12 (one contract, generated).
     "composite": true,
+    // Keep the build ledger INSIDE the output dir. By default composite writes
+    // `tsconfig.tsbuildinfo` next to tsconfig.json, so `rm -rf dist` leaves a
+    // ledger claiming the build is current and tsc then refuses to rebuild
+    // ("up to date because newest input is older than output") while every
+    // output is missing. Co-locating them means dist and its ledger live or die
+    // together, so deleting dist is a real reset.
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
