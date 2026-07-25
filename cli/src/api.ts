@@ -15,6 +15,24 @@ export interface StartAuditResponse {
   packageName: string;
 }
 
+/**
+ * Who published a release, as opposed to what the release does.
+ *
+ * A SEPARATE AXIS from `verdict` and never merged into it: a package can be
+ * SAFE and BREAK at once (clean code, provenance that just changed hands) or
+ * DANGEROUS and ATTESTED (a maintainer who shipped a bug). Reading one as the
+ * other loses both.
+ */
+export interface PublisherContinuity {
+  status: "NO_HISTORY" | "ATTESTED" | "NEW_PUBLISHER" | "BREAK" | "UNATTESTED";
+  summary: string;
+  streak: number;
+  publisher: string | null;
+  tier: number;
+  attestedCount: number;
+  totalKnown: number;
+}
+
 export interface PackageReport {
   packageName: string;
   version: string;
@@ -24,6 +42,7 @@ export interface PackageReport {
   counts?: Record<string, number>;
   hypotheses?: unknown[];
   confirmedHypIds?: string[];
+  publisherContinuity?: PublisherContinuity;
   [key: string]: unknown;
 }
 

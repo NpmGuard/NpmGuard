@@ -147,6 +147,45 @@ export async function installCommand(
   process.exit(0);
 }
 
+/**
+ * Print the publisher-continuity line, if there is anything to say.
+ *
+ * Returns true when the signal is serious enough that the install must not be
+ * silent. NO_HISTORY prints nothing at all: nearly every npm package is
+ * unattested, and a warning that fires on everything is one users learn to
+ * scroll past — which costs nothing until the day it is right.
+ */
+function printContinuity(report: api.PackageReport): boolean {
+  const c = report.publisherContinuity;
+  if (!c || c.status === "NO_HISTORY") return false;
+
+  if (c.status === "BREAK") {
+    console.log(chalk.bgRed.white.bold("  PUBLISHER BREAK  "));
+    console.log(chalk.red(`  ${c.summary}`));
+    if (c.publisher) {
+      console.log(
+        chalk.red(`  Previous ${c.streak} releases: ${c.publisher.slice(0, 18)}…`),
+      );
+    }
+    return true;
+  }
+
+  if (c.status === "NEW_PUBLISHER") {
+    console.log(chalk.bgYellow.black.bold("  NEW PUBLISHER  "));
+    console.log(chalk.yellow(`  ${c.summary}`));
+    return true;
+  }
+
+  if (c.status === "ATTESTED") {
+    const tier = c.tier >= 2 ? "identity-checked" : "human-attested";
+    console.log(chalk.green(`  ✓ Publisher ${tier} (${c.streak} in a row)`));
+    return false;
+  }
+
+  console.log(chalk.gray(`  ${c.summary}`));
+  return false;
+}
+
 function handleExistingReport(
   report: api.PackageReport,
   name: string,
@@ -158,11 +197,27 @@ function handleExistingReport(
   const rationale = extractRationale(report);
   const reportUrl = `${apiUrl}/package/${encodeURIComponent(name)}/report`;
 
-  // SAFE — the only silent-install path.
+  // SAFE — normally the only silent-install path. Continuity can still stop it:
+  // the code being harmless says nothing about whether the person who published
+  // it is the person who published every version before. That is precisely the
+  // case a stolen token produces, and the case this whole feature exists for.
   if (verdict === "SAFE") {
     console.log(chalk.green("  ✓ SAFE — audited by NpmGuard"));
     if (rationale) console.log(chalk.gray(`  ${rationale}`));
-    process.exit(runInstall(fullSpec));
+    const alarming = printContinuity(report);
+    if (!alarming) process.exit(runInstall(fullSpec));
+
+    console.log(chalk.dim(`  Full report: ${reportUrl}`));
+    console.log();
+    if (opts.force) {
+      console.log(chalk.yellow("  --force passed, installing anyway..."));
+      process.exit(runInstall(fullSpec));
+    }
+    promptAndInstallIfAccepted(
+      fullSpec,
+      "  The code looks clean, but the publisher changed. Install anyway? (y/N) ",
+    );
+    return;
   }
 
   // DANGEROUS — the only hard block. A CONFIRMED hypothesis with reproduced
@@ -171,6 +226,7 @@ function handleExistingReport(
     console.log(chalk.bgRed.white.bold("  DANGEROUS  "));
     if (rationale) console.log(chalk.red(`  ${rationale}`));
     printConfirmed(report);
+    printContinuity(report);
     console.log(chalk.dim(`  Full report: ${reportUrl}`));
     console.log();
 
@@ -198,6 +254,7 @@ function handleExistingReport(
     console.log(chalk.yellow("  Some hypotheses are still unresolved."));
   }
   if (rationale) console.log(chalk.yellow(`  ${rationale}`));
+  printContinuity(report);
   console.log(chalk.dim(`  Full report: ${reportUrl}`));
   console.log();
 

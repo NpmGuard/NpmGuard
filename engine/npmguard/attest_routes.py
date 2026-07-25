@@ -26,6 +26,12 @@ from fastapi.responses import JSONResponse
 
 from kit_spine import now_iso
 
+from .attest_index import (
+    Continuity,
+    continuity_for,
+    published_versions,
+    release_history,
+)
 from .attest_ownership import OwnershipError, verify_ownership
 from .attest_store import AttestationConflict
 from .attestations import (
@@ -272,6 +278,51 @@ async def read_session(request: Request, session_id: str) -> JSONResponse:
     if session.status == "verified":
         attestation = await runtime.attest.for_release(session.package_name, session.version)
     return JSONResponse(_public_session(session, attestation))
+
+
+async def continuity_of(runtime: Any, package_name: str, version: str) -> dict[str, Any]:
+    """The continuity block for one release, or a silent one.
+
+    Shared by the report route and the CLI route so both cannot drift: a
+    security signal that reads differently depending on where you saw it is
+    worse than no signal.
+    """
+    if runtime.attest is None:
+        return Continuity(
+            status="NO_HISTORY", summary="Attestation is not configured on this server."
+        ).to_json()
+    attested = await runtime.attest.for_package(package_name)
+    published = await published_versions(package_name)
+    if not published:
+        # No timeline to place releases on. Fall back to the attestations' own
+        # order rather than inventing one — degraded, never wrong.
+        published = {a.version: a.attested_at for a in attested}
+    return continuity_for(release_history(published, attested), version).to_json()
+
+
+@router.get("/package/{name:path}/continuity")
+async def package_continuity(name: str, request: Request) -> JSONResponse:
+    """Publisher continuity for one release.
+
+    Deliberately its own route, not folded into the audit verdict. Continuity
+    answers "who published this?"; the verdict answers "what does the code do?".
+    A consumer must be able to read either without being handed the other.
+    """
+    runtime = runtime_of(request)
+    version = request.query_params.get("version")
+    try:
+        valid_package_name(name)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    if not version:
+        return JSONResponse({"error": "version is required"}, status_code=400)
+    return JSONResponse(
+        {
+            "packageName": name,
+            "version": version,
+            "publisherContinuity": await continuity_of(runtime, name, version),
+        }
+    )
 
 
 @router.get("/attest/enrol/request")

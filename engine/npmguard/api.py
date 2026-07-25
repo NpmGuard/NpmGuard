@@ -33,6 +33,7 @@ from kit_spine import (
 from kit_spine.db import metadata
 from kit_stream import StreamService
 
+from .attest_routes import continuity_of
 from .attest_routes import router as attest_router
 from .attest_store import AttestStore
 from .attestations import WorldVerifier
@@ -639,7 +640,19 @@ async def package_report(name: str, request: Request) -> JSONResponse:
         suffix = f"@{version}" if version else ""
         return JSONResponse({"error": f"No audit report found for {name}{suffix}"}, status_code=404)
     report, resolved_version = result
-    return JSONResponse({"report": report, "version": resolved_version, "packageName": name})
+    # A SIBLING of the report, never folded into it. The verdict is derived from
+    # reproduced evidence about the code; continuity is derived from who pressed
+    # publish. A release can be SAFE and BREAK at once, and collapsing the two
+    # would destroy both — see attest_index's invariants.
+    continuity = await continuity_of(request.app.state.runtime, name, resolved_version)
+    return JSONResponse(
+        {
+            "report": report,
+            "version": resolved_version,
+            "packageName": name,
+            "publisherContinuity": continuity,
+        }
+    )
 
 
 @router.get("/resolve/{name:path}")
