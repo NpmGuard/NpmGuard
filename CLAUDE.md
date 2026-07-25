@@ -12,10 +12,16 @@ Read `README.md` first. Scope changes to one subproject. Each has its own `CLAUD
   — **the audit core, first principles, traced with a real recorded audit.**
   Everything else in the product is a consumer of this: the CLI, the web app, the
   GitHub panel, and the benchmark all differ only in *which* `(package, version)`
-  pairs they ask about and who pays. Read this before anything else.
+  pairs they ask about and who pays. Read this before anything else — and read
+  **§24.0 before acting on anything in §24**: it is the per-finding status
+  (fixed / tracked / superseded) and it records where §24's own analysis was
+  wrong. Acting on a finding that has already been fixed is the mistake that
+  section exists to prevent.
 - [`docs/specs/2026-07-24-platform-v3-system-design.md`](docs/specs/2026-07-24-platform-v3-system-design.md)
   — the v3 platform design: requirements, entities, APIs, the architectural
-  rework (R-1…R-7), the decisions log (D-1…D-8), and the phase plan.
+  rework (R-1…R-7), the decisions log (D-1…D-9), and the phase plan. §8's goals
+  table carries per-goal status against a named commit; §1 is a **dated
+  snapshot** and is marked as such — do not read it as current state.
 
 ## Rules
 
