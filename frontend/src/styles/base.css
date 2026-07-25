@@ -35,7 +35,7 @@
   --line-strong: #c8c4ba;
   --line-faint: #ebe8e0;                   /* row separators */
   --line-panel: rgba(207, 203, 193, 0.95); /* floating panel border */
-  --line-modal: rgba(196, 191, 179, 0.95);
+  /* `--line-modal` deleted with `.dialog`, its only consumer. */
 
   /* interactive accent */
   --violet: #7058d9;
@@ -86,7 +86,9 @@
   --shadow-dark-btn: 0 2px 4px rgba(20, 19, 16, 0.12);
   --shadow-hint: 0 3px 10px rgba(49, 44, 32, 0.08);
 
-  --scrim: rgba(31, 29, 25, 0.34);
+  /* `--scrim` deleted with `.scrim`, its only consumer. The v3 scrim is
+     `--ng-scrim` in tokens.css, reached as `bg-scrim`, and it carries a per-theme
+     alpha (§2.6) that this single light-only value could not. */
 
   /* radii: bigger container ⇒ bigger radius */
   --r-xs: 5px;   /* kbd */
@@ -239,10 +241,9 @@ kbd {
 
 .btn--sm { min-height: var(--h-btn-sm); padding: 0 10px; border-radius: var(--r-sm); font-size: 11px; }
 
-.btn--bare {
-  border-color: transparent; background: transparent;
-}
-.btn--bare:hover:not(:disabled) { border-color: transparent; background: var(--surface-hover); }
+/* `.btn--bare` deleted: `pages/RepoDetail.tsx`'s back link was its only consumer
+   and is now `<Button asChild variant="ghost">`. The v3 equivalent is that ghost
+   variant. */
 
 .icon-btn {
   width: var(--h-icon-btn); height: var(--h-icon-btn);
@@ -407,24 +408,17 @@ kbd {
 
 /* ---------- dialogs ---------- */
 
-.scrim {
-  position: fixed; inset: 0; z-index: 100;
-  display: grid; place-items: start center;
-  padding: 14vh 18px 18px;
-  background: var(--scrim);
-  backdrop-filter: blur(3px);
-  overflow-y: auto;
-}
+/* `.scrim`, `.dialog` and `.dialog--wide` were DELETED here, not moved. They were
+   the panel's hand-rolled modal shell and `components/panel/PanelDialog.tsx` had
+   the only references to all three; it is now an adapter over the Radix-backed
+   `components/ui/dialog.tsx`, which supplies the overlay, the box, the elevation
+   and — unlike this shell — a real focus trap, focus restore, and the aria-hidden
+   treatment that makes the modality claim true.
 
-.dialog {
-  width: min(100%, 560px);
-  border: 1px solid var(--line-modal);
-  border-radius: var(--r-2xl);
-  background: var(--surface-strong);
-  box-shadow: var(--shadow-modal);
-  overflow: hidden;
-}
-.dialog--wide { width: min(100%, 860px); }
+   The three `.dialog__*` rules below survive because the three feature dialogs
+   (features/billing/UpgradeDialog, features/repos/PublicAuditDialog,
+   features/repos/PublicAuditReportDialog) still render legacy bodies inside the
+   new shell. They die when those are recomposed onto DialogHeader/Body/Footer. */
 
 .dialog__header {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
@@ -508,7 +502,11 @@ kbd {
 }
 .banner--danger { border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger-ink); }
 .banner--suspect { border-color: var(--suspect-border); background: var(--suspect-bg); color: var(--suspect-ink); }
-.banner--safe { border-color: var(--safe-border); background: var(--safe-bg); color: var(--safe-ink); }
+/* `.banner--safe` deleted: `pages/Dashboard.tsx`'s "payment confirmed" notice was
+   its only consumer, and spending the SAFE hue on a billing receipt is what makes
+   green stop meaning "no confirmed threat" (§0 rule 1). That notice is on the
+   accent slot now. `.banner--running` is likewise unreferenced but predates the
+   panel and is left for whoever owns the audit sheets. */
 .banner--running { border-color: var(--running-border); background: var(--running-bg); color: var(--running-ink); }
 
 .spinner {

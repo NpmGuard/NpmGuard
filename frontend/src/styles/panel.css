@@ -1,6 +1,40 @@
 /* ============================================================
-   panel cluster — GitHub dashboard + repo detail
-   Composes base.css primitives; every class namespaced .panel-*
+   panel cluster — LEGACY RESIDUE.
+
+   This sheet used to dress the whole panel: two pages plus ten components.
+   `pages/Dashboard.tsx`, `pages/RepoDetail.tsx` and `components/panel/**` are
+   now on the v3 token layer, and everything they used has been deleted from
+   here — 27 rule groups, including the whole repo-detail half (`panel-overview`,
+   `panel-tiles`, `panel-tile*`, `panel-queue*`, `panel-inventory*`, `panel-dep*`,
+   `panel-detail-head*`, `panel-back`), the shared chrome (`panel-hero*`,
+   `panel-toolbar`, `panel-search`, `panel-filter*`, `panel-grid`, `panel-gate`,
+   `panel-login*`), and `panel-link` / `panel-spin`.
+
+   WHAT IS LEFT, AND WHO STILL NEEDS IT. Every rule below has at least one
+   consumer under `frontend/src/features/**`, which the panel recomposition was
+   scoped out of. Nothing here is reachable from a v3 surface:
+
+     panel-section, panel-banner-gap, panel-strong, panel-tablewrap,
+     panel-loading                     shared across the ten
+     panel-ledger, panel-account*      features/billing/PlanLedger
+     panel-meter*                      features/billing/AllowanceMeter
+     panel-paywall*                    features/billing/UpgradeDialog
+     panel-dialog-sub                  features/billing/UpgradeDialog,
+                                       features/repos/PublicAuditDialog
+     panel-dialog-error, panel-field,
+     panel-boundary*, panel-footnote   features/repos/PublicAuditDialog
+     panel-history*                    features/repos/PublicAuditHistory
+     panel-posture*                    features/repos/PortfolioPosture
+     panel-repo*                       features/repos/RepoCard
+     panel-scanstatus*                 features/repos/ScanStatus
+     panel-report*, panel-summary,
+     panel-reason, panel-cachednote    features/repos/PublicAuditReportDialog
+     panel-alerts*                     features/alerts/AlertsNotice
+
+   This file is deleted, and its `@import` removed from `src/index.css`, by
+   whoever recomposes those ten components. It is the only thing keeping the
+   import alive. Do not add a rule here for a v3 surface — compose tokens and
+   `components/ui/` primitives instead.
    ============================================================ */
 
 /* ---------- shared bits ---------- */
@@ -11,11 +45,6 @@
 
 .panel-strong { color: var(--ink); font-weight: 600; }
 
-.panel-spin { animation: spin 900ms linear infinite; }
-
-.panel-link { transition: color var(--t-fast) ease; }
-.panel-link:hover { color: var(--violet); text-decoration: underline; text-underline-offset: 2px; }
-
 .panel-tablewrap { overflow-x: auto; }
 
 .panel-loading {
@@ -23,31 +52,6 @@
   padding: 18px 0;
   color: var(--ink-faint); font-size: 12px;
 }
-
-/* ---------- gates / signed-out ---------- */
-
-.panel-gate { display: grid; place-items: center; min-height: 55vh; }
-
-.panel-login {
-  display: grid; place-items: center;
-  min-height: 60vh;
-  border-radius: var(--r-lg);
-}
-.panel-login__card {
-  display: grid; gap: 12px; justify-items: start;
-  width: min(100%, 440px);
-  padding: 28px;
-}
-
-/* ---------- hero ---------- */
-
-.panel-hero {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 16px; flex-wrap: wrap;
-  margin-bottom: 18px;
-}
-.panel-hero__intro { display: grid; gap: 6px; justify-items: start; }
-.panel-hero__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* ---------- plan ledger ---------- */
 
@@ -105,34 +109,8 @@
 .panel-alerts__list { display: grid; gap: 3px; font-size: 12px; }
 .panel-alerts__list li { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 
-/* ---------- toolbar (search + filter pills) ---------- */
+/* ---------- repo cards ---------- */
 
-.panel-toolbar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-.panel-search { position: relative; flex: 1; min-width: 220px; color: var(--ink-faint); }
-.panel-search svg {
-  position: absolute; left: 11px; top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-.panel-search .input { width: 100%; padding-left: 33px; }
-.panel-filters { display: flex; gap: 6px; flex-wrap: wrap; }
-.panel-filter__count { font-size: 10px; color: var(--ink-faint); }
-.panel-filter.active {
-  border-color: var(--tone-violet-border);
-  background: var(--violet-soft);
-  color: var(--violet-dark);
-}
-.panel-filter.active .panel-filter__count { color: var(--violet-dark); }
-
-/* ---------- repo grid / cards ---------- */
-
-.panel-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
-}
 .panel-repo { display: flex; flex-direction: column; gap: 12px; padding: 18px; }
 .panel-repo__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .panel-repo__id { display: grid; gap: 1px; justify-items: start; text-align: left; min-width: 0; }
@@ -157,7 +135,12 @@
 .panel-scanstatus--running { display: grid; gap: 6px; }
 .panel-scanstatus__row { display: flex; align-items: center; gap: 8px; }
 
-/* ---------- dialogs ---------- */
+/* ---------- dialogs ----------
+   The dialog SHELL is gone: `components/panel/PanelDialog.tsx` is now an adapter
+   over the Radix-backed `ui/dialog`, so `.scrim`, `.dialog` and `.dialog--wide`
+   were deleted from base.css. What survives here is the BODY styling of the three
+   feature dialogs, which still render legacy `.dialog__header/__body/__footer`
+   (also still in base.css) inside the new shell. */
 
 .panel-dialog-sub { margin-top: 4px; }
 .panel-dialog-error { margin-top: 12px; }
@@ -207,55 +190,3 @@
 .panel-paywall__offer { display: grid; gap: 10px; padding: 16px; }
 .panel-paywall__offerhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .panel-paywall__limits { display: grid; gap: 6px; font-size: 12px; color: var(--ink-soft); }
-
-/* ---------- repo detail ---------- */
-
-.panel-back { margin-bottom: 10px; color: var(--ink-faint); }
-
-.panel-detail-head {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 16px; flex-wrap: wrap;
-  margin-bottom: 18px;
-}
-.panel-detail-head__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-.panel-detail-head__actions { display: flex; gap: 8px; flex-wrap: wrap; }
-
-.panel-overview { display: grid; gap: 14px; padding: 20px; }
-.panel-overview__head {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 14px; flex-wrap: wrap;
-}
-.panel-overview__label { margin-bottom: 2px; }
-
-.panel-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
-.panel-tile {
-  display: grid; gap: 4px;
-  padding: 11px 13px;
-  border: 1px solid var(--line); border-radius: var(--r-md);
-  background: var(--surface-strong);
-}
-.panel-tile__value { font-size: 19px; font-weight: 500; color: var(--ink); }
-.panel-tile__label { display: inline-flex; align-items: center; gap: 6px; }
-
-/* review queue */
-.panel-queue { padding: 4px 8px; }
-.panel-queue__row {
-  display: flex; align-items: center; gap: 10px;
-  width: 100%;
-  padding: 10px;
-  border-bottom: 1px solid var(--line-faint);
-  border-radius: var(--r-sm);
-  text-align: left;
-  font-size: 12px; color: var(--ink-soft);
-  transition: background var(--t-fast) ease;
-}
-.panel-queue__row:last-child { border-bottom: 0; }
-.panel-queue__row:hover { background: var(--surface-hover); }
-.panel-queue__meta { margin-left: auto; white-space: nowrap; }
-.panel-queue__jump { margin-left: auto; }
-
-/* dependency inventory */
-.panel-inventory { padding: 6px 14px 10px; }
-.panel-dep { display: flex; align-items: center; gap: 9px; }
-.panel-dep__id { display: grid; gap: 1px; min-width: 0; }
-.panel-inventory__more { display: flex; align-items: center; gap: 10px; padding: 12px 2px 6px; }

@@ -8,23 +8,64 @@
  * reconcile them by hand on every action (`toggleProtect` re-read the store to
  * decide whether its own optimistic write was safe). Now the query cache is the
  * single source of truth and the stream is one of its writers.
+ *
+ * ── PRESENTATION: what the recomposition onto the token layer changed ───────
+ *
+ * Nothing about what this page fetches or decides. Four things about what it
+ * SAYS, and three of the four are honesty fixes rather than restyling:
+ *
+ * 1. The posture rail painted its PENDING segment blue (`rail__seg--running`).
+ *    §2.2 rule 2 makes the progress axis achromatic and confines accent to the
+ *    moving part of a spinner, precisely so an in-flight scan cannot read as a
+ *    verdict. `SeverityRibbon` hatches pending instead, which is the component's
+ *    stated reason to exist.
+ * 2. Severity reached a row as a coloured dot — colour only. §2.4 requires glyph
+ *    + word + colour, in that order: "remove all colour from the UI and every
+ *    state is still readable" is the test. The dots are gone; the row carries a
+ *    stamp with a glyph, and severity arrives as the §2.8 3px left rule.
+ * 3. A rejected mutation rendered `banner--danger` — RED, for a failure of our
+ *    own plumbing. §0 rule 3 reserves red for claims about a package. It is now
+ *    in the `error` slot, which is the same "we don't know" slot as audit ERROR.
+ * 4. Two grey `.empty-state` boxes ("no baseline", "nothing matches this view")
+ *    now go through the `DataRegion`/`EmptyState` chokepoint, so a read failure
+ *    has no code path that lands on either.
+ *
+ * `RepoDetail.test.tsx` passes unmodified, which is the intended proof that the
+ * page's decisions are untouched.
  */
 
 import type { AuditSetItem } from "@npmguard/shared";
-import { ArrowLeft, RefreshCw, Search, Shield, ShieldCheck, X } from "lucide-react";
-import { AnimatePresence } from "motion/react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { ArrowLeft, ChevronRight, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, useParams } from "react-router";
+import { PanelPage, PanelSection, SectionLabel } from "../components/panel/layout.tsx";
 import {
   OutcomePill,
+  ProgressPill,
   depPriority,
   depTone,
   outcomeTone,
-  toneAccent,
-  toneDotClass,
+  toneSeverity,
   type Tone,
 } from "../components/panel/tone.tsx";
+import { Badge } from "../components/ui/badge.tsx";
+import { Button } from "../components/ui/button.tsx";
+import { Card, CardBody } from "../components/ui/card.tsx";
+import { DataRegion } from "../components/ui/data-region.tsx";
 import { DegradedSurface } from "../components/ui/degraded-state.tsx";
+import { EmptyState } from "../components/ui/empty-state.tsx";
+import { loaded } from "../components/ui/load-state.ts";
+import { SeverityRibbon } from "../components/ui/severity-ribbon.tsx";
+import { Skeleton } from "../components/ui/skeleton.tsx";
+import { Switch } from "../components/ui/switch.tsx";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table.tsx";
 import { UpgradeDialog } from "../features/billing/components/UpgradeDialog.tsx";
 import {
   useRepoDetail,
@@ -33,6 +74,7 @@ import {
   useSetProtect,
   useTriggerScan,
 } from "../features/repos/hooks.ts";
+import { cn } from "../lib/cn.ts";
 import { formatDate } from "../lib/format.ts";
 import { actionFailure } from "../lib/query-state.ts";
 import { usePanelUi } from "../stores/panelStore.ts";
@@ -62,25 +104,75 @@ const DEP_FILTERS: { key: DepFilter; label: string }[] = [
   { key: "pending", label: "Pending" },
 ];
 
+/** Search input. Duplicated shape with the dashboard's, kept local to each page
+ * rather than promoted: `ui/` has no input primitive (reported as a gap), and a
+ * two-page helper module for one control is the abstraction the design brief
+ * warns against more than the repetition is. */
+const SEARCH_INPUT = cn(
+  "h-control w-full rounded-md border border-border-control bg-surface",
+  "pl-8 pr-2.5 text-sm text-text placeholder:text-text-3",
+  "transition-colors duration-fast hover:border-border-strong",
+);
+
 function DepStatusPill({ dep }: { dep: AuditSetItem }) {
   // Outcome first, progress only for the not-concluded case: a null outcome
   // ALWAYS resolves itself (a job is live), so it gets a spinner and never the
   // "Audit failed" copy — that belongs to ERROR, which needs a retry.
   if (dep.outcome) return <OutcomePill outcome={dep.outcome} />;
-  if (dep.jobState === "running")
-    return (
-      <span className="pill pill--running">
-        <span className="spinner" aria-hidden="true" /> Auditing
+  if (dep.jobState === "running") return <ProgressPill state="running">Auditing</ProgressPill>;
+  return <ProgressPill state="queued">Queued</ProgressPill>;
+}
+
+/** One row of the review queue. A real `<Link>`, not a `<button onClick={navigate}>`:
+ * these go to a canonical report URL, and a button that navigates cannot be
+ * middle-clicked, opened in a new tab, or announced as a link. */
+function QueueRow({
+  to,
+  name,
+  version,
+  stamp,
+  meta,
+  severity,
+}: {
+  to: string;
+  name: string;
+  version: string;
+  stamp: ReactNode;
+  meta: string;
+  severity: "danger" | "error" | undefined;
+}) {
+  return (
+    <Link
+      to={to}
+      className={cn(
+        "flex items-center gap-3 border-b border-border-faint px-4 py-2.5 text-sm last:border-b-0",
+        "transition-colors duration-fast hover:bg-sunken",
+        // §2.8's 3px rule, with a transparent one on unruled rows so nothing
+        // shifts 3px when severity changes.
+        "border-l-[length:var(--ng-border-rule)]",
+        severity === "danger"
+          ? "border-l-danger"
+          : severity === "error"
+            ? "border-l-error"
+            : "border-l-transparent",
+      )}
+    >
+      <span className="min-w-0 truncate font-mono text-sm text-text">
+        {name}@{version}
       </span>
-    );
-  return <span className="pill">Queued</span>;
+      {stamp}
+      <span className="ms-auto flex items-center gap-1 whitespace-nowrap text-2xs text-text-3">
+        {meta}
+        <ChevronRight aria-hidden="true" className="size-icon-sm" />
+      </span>
+    </Link>
+  );
 }
 
 export function RepoDetail() {
   const params = useParams<{ owner: string; name: string }>();
   const owner = params.owner ?? "";
   const name = params.name ?? "";
-  const navigate = useNavigate();
 
   const state = useRepoDetail(owner, name);
   const detail = state.status === "ok" ? state.data : null;
@@ -93,6 +185,7 @@ export function RepoDetail() {
   const [filter, setFilter] = useState<DepFilter>("all");
   const [visibleCount, setVisibleCount] = useState(PAGE);
   const inventoryRef = useRef<HTMLElement | null>(null);
+  const protectLabelId = useId();
 
   // ONE stream per live set, writing into the query cache: a dep frame REPLACES
   // the matching item (the frame carries the whole contract item, not a lossier
@@ -145,11 +238,14 @@ export function RepoDetail() {
 
   if (state.status === "loading") {
     return (
-      <div className="page__inner" aria-busy="true">
-        <div className="empty-state" role="status">
-          <span className="spinner" /> Loading repository…
+      <PanelPage>
+        <div role="status" aria-busy="true" className="flex flex-col gap-6">
+          <span className="sr-only">Loading repository</span>
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-64 w-full" />
         </div>
-      </div>
+      </PanelPage>
     );
   }
 
@@ -159,22 +255,26 @@ export function RepoDetail() {
   // could not see this repository" look identical in a grey box.
   //
   // A 404 offers no retry (there is nothing to retry into) but does offer a way
-  // out; anything else offers the retry the query itself provides.
-  if (state.status === "failed" || detail === null) {
-    const failure =
-      state.status === "failed"
-        ? state.failure
-        : { what: `${owner}/${name}`, detail: "The repository detail could not be read." };
+  // out; anything else offers the retry the query itself provides. Both come from
+  // `Failure` rather than from a branch here — `retryable()` is the one policy.
+  if (state.status === "failed") {
     return (
-      <div className="page__inner">
-        <DegradedSurface failure={failure} escape={{ label: "Back to dashboard", href: "/dashboard" }} />
-      </div>
+      <PanelPage>
+        <DegradedSurface
+          failure={state.failure}
+          escape={{ label: "Back to dashboard", href: "/dashboard" }}
+        />
+      </PanelPage>
     );
   }
 
-  const repo = detail.repo;
-  const scan = detail.set;
-  const alerts = detail.alerts;
+  // The `ok` arm always carries data, so the old `|| detail === null` guard was
+  // unreachable. Reading `state.data` directly is what keeps `state.read` in
+  // scope — the token below is minted from this read and from nothing else.
+  const detailOk = state.data;
+  const repo = detailOk.repo;
+  const scan = detailOk.set;
+  const alerts = detailOk.alerts;
   // One banner over three mutations: each holds its own error, and a cap is
   // filtered out because the paywall dialog owns it.
   const actionFailed =
@@ -230,22 +330,6 @@ export function RepoDetail() {
     overview = { label: "No known threats", tone: "safe", copy: lastScanCopy };
   }
 
-  // The four buckets partition the set (safe + dangerous + error + pending ==
-  // total), so the rail is a true proportion rather than an overlapping tally.
-  const railSegments: { key: string; tone: Tone; count: number }[] = [
-    { key: "dangerous", tone: "danger", count: rollup.dangerous },
-    { key: "error", tone: "error", count: rollup.error },
-    { key: "pending", tone: running ? "running" : "unknown", count: rollup.pending },
-    { key: "safe", tone: "safe", count: rollup.safe },
-  ];
-
-  const tiles: { label: string; value: number; tone: Tone }[] = [
-    { label: "Dangerous", value: rollup.dangerous, tone: "danger" },
-    { label: "Audit failed", value: rollup.error, tone: "error" },
-    { label: "Safe", value: rollup.safe, tone: "safe" },
-    { label: "Pending", value: rollup.pending, tone: running ? "running" : "unknown" },
-  ];
-
   const filterCounts: Record<DepFilter, number> = {
     all: deps.length,
     flagged,
@@ -268,32 +352,66 @@ export function RepoDetail() {
     inventoryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  return (
-    <div className="page__inner">
-      <button
-        type="button"
-        className="btn btn--bare btn--sm panel-back"
-        onClick={() => navigate("/dashboard")}
-      >
-        <ArrowLeft size={14} /> Dashboard
-      </button>
+  const resetFilters = () => {
+    setQuery("");
+    setFilter("all");
+  };
 
-      <header className="panel-detail-head fade-up">
-        <div>
-          <span className="microtext">{repo.owner}</span>
-          <h1 className="headline headline--lg">{repo.name}</h1>
-          <div className="panel-detail-head__meta">
-            <span className="microtext mono">{repo.defaultBranch}</span>
-            {repo.private && <span className="tag">Private</span>}
-            <span className={`tag${repo.protected ? " tag--violet" : ""}`}>
-              {repo.protected ? "Continuous protection" : "Manual monitoring"}
-            </span>
+  return (
+    <PanelPage>
+      {/* A link, not a `navigate()` button — same destination, but back-to-parent
+          is navigation and belongs on an `<a>`. */}
+      <Button asChild variant="ghost" size="sm" className="-ms-2 mb-2">
+        <Link to="/dashboard">
+          <ArrowLeft aria-hidden="true" className="size-icon-sm" /> Dashboard
+        </Link>
+      </Button>
+
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col items-start gap-1.5">
+          <SectionLabel>{repo.owner}</SectionLabel>
+          <h1 className="text-2xl font-semibold tracking-tight text-text">{repo.name}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge mono>{repo.defaultBranch}</Badge>
+            {repo.private && <Badge>Private</Badge>}
+            {/* Neutral either way. Protection is a system setting, not an outcome
+                — §3.2 keeps chips almost always uncoloured so the one coloured
+                thing on a row is the verdict. */}
+            <Badge>{repo.protected ? "Continuous protection" : "Manual monitoring"}</Badge>
           </div>
         </div>
-        <div className="panel-detail-head__actions">
-          <button
-            type="button"
-            className="btn btn--dark"
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col items-start gap-1">
+            {/* `aria-labelledby` to a real node rather than an `aria-label`
+                string: Radix renders the switch as a `<button role="switch">`,
+                which `<label for>` cannot legally associate with, and a duplicated
+                string is a thing that drifts. */}
+            <span id={protectLabelId} className="text-2xs font-medium text-text-2">
+              Protect
+            </span>
+            <span className="flex items-center gap-2">
+              {/* §3.1 inventories Protect as a `Switch`, and the semantics matter:
+                  a toggle announces its on/off state, a button announces a label
+                  that has to encode it ("Protected" vs "Protect").
+                  `checked` is NOT optimistic, deliberately — `useSetProtect`
+                  patches on success only, because Protect can be refused by a 402
+                  cap and a security product must never flash a protection state
+                  it does not have. `pending` therefore means "in flight", and it
+                  contributes the shimmer and `aria-busy` without moving the
+                  thumb. */}
+              <Switch
+                checked={repo.protected}
+                pending={setProtect.isPending}
+                disabled={busy}
+                aria-labelledby={protectLabelId}
+                onCheckedChange={(on) => setProtect.mutate({ repoId: repo.id, on })}
+              />
+              {repo.protected && (
+                <ShieldCheck aria-hidden="true" className="size-icon-sm text-accent-text" />
+              )}
+            </span>
+          </div>
+          <Button
             disabled={running || busy}
             onClick={() => triggerScan.mutate(repo.id)}
           >
@@ -304,258 +422,312 @@ export function RepoDetail() {
                 : scan
                   ? "Run audit again"
                   : "Run first audit"}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => setProtect.mutate({ repoId: repo.id, on: !repo.protected })}
-          >
-            {repo.protected ? <ShieldCheck size={14} /> : <Shield size={14} />}
-            {repo.protected ? "Protected" : "Protect"}
-          </button>
-          <button
-            type="button"
-            className="btn"
+          </Button>
+          <Button
+            variant="outline"
             disabled={busy || running}
             title="Re-read the lockfile from GitHub"
             onClick={() => resync.mutate(repo.id)}
           >
-            <RefreshCw size={14} /> {resync.isPending ? "Re-syncing…" : "Re-sync"}
-          </button>
+            <RefreshCw
+              aria-hidden="true"
+              className={cn(
+                "size-icon-sm",
+                resync.isPending && "animate-spin motion-reduce:animate-none",
+              )}
+            />{" "}
+            {resync.isPending ? "Re-syncing…" : "Re-sync"}
+          </Button>
         </div>
       </header>
 
       {actionFailed && (
-        <div className="banner banner--danger panel-banner-gap" role="alert">
+        // The `error` slot, not `danger`: a rejected action is our plumbing
+        // failing, and §0 rule 3 keeps red for claims about a package. No hatch —
+        // hatch means "no signal here", and this region has not gone missing; a
+        // request was answered, with a refusal.
+        <div
+          role="alert"
+          className="mt-6 flex items-center justify-between gap-3 rounded-lg border border-error-border bg-error-wash px-3 py-2 text-sm text-error-text"
+        >
           <span>{`${actionFailed.what} failed — ${actionFailed.detail ?? "no detail"}`}</span>
-          <button
-            type="button"
-            className="icon-btn"
+          <Button
+            variant="ghost"
+            size="sm"
             aria-label="Dismiss error"
+            className="size-control-sm shrink-0 px-0 text-error-text"
             onClick={dismissActionFailure}
           >
-            <X size={13} />
-          </button>
+            <X aria-hidden="true" className="size-icon-sm" />
+          </Button>
         </div>
       )}
 
-      <section
-        className="card card--accent panel-overview"
-        style={{ "--accent": toneAccent(overview.tone) } as CSSProperties}
+      {/* `role="group"` is what makes the label meaningful — an `aria-label` on a
+          bare `<div>` is dropped by assistive tech, which is what the legacy
+          markup did. */}
+      <Card
+        className="mt-6"
+        severity={toneSeverity(overview.tone)}
+        role="group"
         aria-label="Audit posture"
       >
-        <div className="panel-overview__head">
-          <div>
-            <h2 className="headline panel-overview__label">{overview.label}</h2>
-            <p className="subtext">
-              {checked} of {rollup.total} dependencies checked
-            </p>
-          </div>
-          <p className="microtext">{overview.copy}</p>
-        </div>
-        <div
-          className="rail"
-          role="img"
-          aria-label={`${rollup.dangerous} dangerous, ${rollup.error} could not be audited, ${rollup.safe} safe, ${rollup.pending} pending`}
-        >
-          {railSegments
-            .filter((segment) => segment.count > 0)
-            .map((segment) => (
-              <span
-                key={segment.key}
-                className={`rail__seg rail__seg--${segment.tone}`}
-                style={{ flexGrow: segment.count }}
-              />
-            ))}
-        </div>
-        <div className="panel-tiles">
-          {tiles.map((tile) => (
-            <div key={tile.label} className="panel-tile">
-              <span className="panel-tile__value mono">{tile.value}</span>
-              <span className="panel-tile__label">
-                <span className={toneDotClass(tile.tone)} />
-                <span className="eyebrow eyebrow--faint">{tile.label}</span>
-              </span>
+        <CardBody className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-text">{overview.label}</h2>
+              <p className="text-sm text-text-2">
+                {checked} of {rollup.total} dependencies checked
+              </p>
             </div>
-          ))}
-        </div>
-      </section>
+            <p className="text-2xs text-text-3">{overview.copy}</p>
+          </div>
+
+          {/* Rendered only over a population. `SeverityRibbon`'s own all-zero
+              fallback is a bare hatched bar, and its docblock says callers should
+              put a real state around that rather than ship a mystery bar — for an
+              unaudited repo the honest rendering is no bar at all, and the label
+              above already says "Not audited". */}
+          {rollup.total > 0 && (
+            <>
+              <SeverityRibbon
+                dangerous={rollup.dangerous}
+                error={rollup.error}
+                safe={rollup.safe}
+                pending={rollup.pending}
+              />
+              {/* §4.2's prose summary. The group words do the teaching that the
+                  enum names cannot: "could not conclude" is neither safe nor
+                  dangerous, and saying so in situ is how the two-axis model gets
+                  learned. */}
+              <p className="text-2xs text-text-3">
+                <span className="font-mono tabular-nums">{rollup.dangerous}</span> dangerous ·{" "}
+                <span className="font-mono tabular-nums">{rollup.error}</span> could not conclude ·{" "}
+                <span className="font-mono tabular-nums">{rollup.safe}</span> no threat found
+                {rollup.cached > 0 && (
+                  <>
+                    {" · "}
+                    <span className="font-mono tabular-nums">{rollup.cached}</span> reused from cache
+                  </>
+                )}
+              </p>
+              {rollup.pending > 0 && (
+                // The progress axis refusing to masquerade as a verdict. Without
+                // this line a half-finished scan reads as a settled posture.
+                <p className="text-2xs text-progress-ink">
+                  <span className="font-mono tabular-nums">{rollup.pending}</span> still running —
+                  posture may change
+                </p>
+              )}
+            </>
+          )}
+        </CardBody>
+      </Card>
 
       {flagged > 0 && (
-        <section className="panel-section" aria-label="Review queue">
-          <div className="section-title">
-            <span className="eyebrow eyebrow--danger">Review queue</span>
-            <span className="microtext">
-              {flagged} flagged {flagged === 1 ? "dependency" : "dependencies"}
-            </span>
-            <button
-              type="button"
-              className="btn btn--sm panel-queue__jump"
-              onClick={reviewFlagged}
-            >
+        <PanelSection
+          label="Review queue"
+          tone="danger"
+          meta={`${flagged} flagged ${flagged === 1 ? "dependency" : "dependencies"}`}
+          action={
+            <Button variant="outline" size="sm" onClick={reviewFlagged}>
               Review flagged
-            </button>
-          </div>
-          <div className="card panel-queue">
+            </Button>
+          }
+        >
+          <Card className="overflow-hidden">
             {alerts.length > 0
               ? alerts.slice(0, 4).map((alert) => (
-                  <button
+                  <QueueRow
                     key={alert.id}
-                    type="button"
-                    className="panel-queue__row"
-                    onClick={() => navigate(`/package/${alert.packageName}`)}
-                  >
-                    <span className={toneDotClass(outcomeTone(alert.outcome))} />
-                    <span className="mono">
-                      {alert.packageName}@{alert.version}
-                    </span>
-                    <OutcomePill outcome={alert.outcome} />
-                    <span className="microtext panel-queue__meta">
-                      {alert.origin} · {formatDate(alert.createdAt)}
-                    </span>
-                  </button>
+                    to={`/package/${alert.packageName}`}
+                    name={alert.packageName}
+                    version={alert.version}
+                    stamp={<OutcomePill outcome={alert.outcome} />}
+                    meta={`${alert.origin} · ${formatDate(alert.createdAt)}`}
+                    severity={toneSeverity(outcomeTone(alert.outcome))}
+                  />
                 ))
               : queueDeps.map((dep) => (
-                  <button
+                  <QueueRow
                     key={`${dep.name}@${dep.version}`}
-                    type="button"
-                    className="panel-queue__row"
-                    onClick={() => navigate(`/package/${dep.name}`)}
-                  >
-                    <span className={toneDotClass(depTone(dep))} />
-                    <span className="mono">
-                      {dep.name}@{dep.version}
-                    </span>
-                    {dep.outcome && <OutcomePill outcome={dep.outcome} />}
-                    <span className="microtext panel-queue__meta">
-                      {dep.direct ? "Direct" : "Transitive"}
-                    </span>
-                  </button>
+                    to={`/package/${dep.name}`}
+                    name={dep.name}
+                    version={dep.version}
+                    stamp={dep.outcome ? <OutcomePill outcome={dep.outcome} /> : null}
+                    meta={dep.direct ? "Direct" : "Transitive"}
+                    severity={toneSeverity(depTone(dep))}
+                  />
                 ))}
-          </div>
-        </section>
+          </Card>
+        </PanelSection>
       )}
 
-      <section className="panel-section" aria-label="Dependency inventory" ref={inventoryRef}>
-        <div className="section-title">
-          <span className="eyebrow eyebrow--faint">Dependency inventory</span>
-          <span className="microtext mono">{filtered.length}</span>
-        </div>
+      <PanelSection
+        label="Dependency inventory"
+        meta={<span className="font-mono tabular-nums">{filtered.length}</span>}
+        ref={inventoryRef}
+      >
         {deps.length === 0 ? (
-          <div className="empty-state">
-            <strong>No dependency baseline yet</strong>
-            <span>Run an audit to index this repository&apos;s lockfile.</span>
-          </div>
+          // The token comes from the read that produced `deps`. "No dependency
+          // baseline yet" is a claim about this repository, and only a successful
+          // read can support it — which is why `EmptyState` demands the proof
+          // rather than trusting the call site to have checked.
+          <EmptyState
+            read={state.read}
+            message="No dependency baseline yet."
+            hint="Run an audit to index this repository's lockfile."
+          />
         ) : (
           <>
-            <div className="panel-toolbar">
-              <div className="panel-search">
-                <Search size={14} aria-hidden="true" />
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <div className="relative min-w-56 flex-1 text-text-3">
+                <Search
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1/2 left-2.5 size-icon-sm -translate-y-1/2"
+                />
                 <input
-                  className="input"
                   type="search"
                   placeholder="Search dependencies"
                   aria-label="Search dependencies"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  className={SEARCH_INPUT}
                 />
               </div>
-              <div className="panel-filters" role="group" aria-label="Filter dependencies">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter dependencies">
                 {DEP_FILTERS.map((entry) => (
-                  <button
+                  <Button
                     key={entry.key}
-                    type="button"
-                    className={`btn btn--sm panel-filter${filter === entry.key ? " active" : ""}`}
+                    variant="outline"
+                    size="sm"
                     aria-pressed={filter === entry.key}
                     onClick={() => setFilter(entry.key)}
+                    className={cn(
+                      filter === entry.key &&
+                        "border-accent-border bg-accent-wash text-accent-text",
+                    )}
                   >
                     {entry.label}{" "}
-                    <span className="mono panel-filter__count">{filterCounts[entry.key]}</span>
-                  </button>
+                    <span className="font-mono text-2xs tabular-nums opacity-70">
+                      {filterCounts[entry.key]}
+                    </span>
+                  </Button>
                 ))}
               </div>
             </div>
-            {filtered.length === 0 ? (
-              <div className="empty-state">
-                <strong>No dependencies match this view</strong>
-                <button
-                  type="button"
-                  className="btn btn--sm"
-                  onClick={() => {
-                    setQuery("");
-                    setFilter("all");
-                  }}
-                >
-                  Reset filters
-                </button>
-              </div>
-            ) : (
-              <div className="card panel-inventory">
-                <div className="panel-tablewrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Package</th>
-                        <th>Version</th>
-                        <th>Source</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.slice(0, visibleCount).map((dep) => (
-                        <tr key={`${dep.name}@${dep.version}`}>
-                          <td>
-                            <div className="panel-dep">
-                              <span className={toneDotClass(depTone(dep))} />
-                              <div className="panel-dep__id">
+            {/* `loaded(filtered)` is honest: this IS data we read, narrowed by a
+                client-side filter. Routing the "nothing matched" case through the
+                same chokepoint as the read is what leaves no hand-written empty
+                box on the page for a future edit to point at a failure. */}
+            <DataRegion
+              state={loaded(filtered)}
+              empty={{
+                message: "No dependencies match this view.",
+                hint: "Clear the search box or widen the filter.",
+                action: (
+                  <Button variant="outline" onClick={resetFilters}>
+                    Reset filters
+                  </Button>
+                ),
+              }}
+            >
+              {(rows) => (
+                <Card className="overflow-hidden">
+                  {/* Wide content scrolls inside its own container, never the
+                      page body. Plain overflow rather than `ScrollArea`: §3.1
+                      forbids nesting a second scroll region inside the page
+                      scroll, and this one is horizontal only. */}
+                  <div className="overflow-x-auto">
+                    <Table density="dense" label="Dependency inventory">
+                      {/* NOT `sticky`, deliberately. `position: sticky` resolves
+                          against the nearest scroll container, and the
+                          `overflow-x-auto` above is one — so `sticky top-0` would
+                          pin to a box that never scrolls vertically and the prop
+                          would be decoration. Making it real needs either a
+                          fixed-height vertically-scrolling body (which §3.1
+                          forbids nesting inside the page scroll) or the
+                          virtualized table §3.2 specifies, whose `TanStack
+                          Virtual` dependency is not installed. Left off with the
+                          reason, rather than set and inert. */}
+                      <TableHeader>
+                        <tr>
+                          <TableHead>Package</TableHead>
+                          <TableHead>Version</TableHead>
+                          <TableHead>Source</TableHead>
+                          <TableHead>Status</TableHead>
+                        </tr>
+                      </TableHeader>
+                      <TableBody>
+                        {rows.slice(0, visibleCount).map((dep) => (
+                          <TableRow
+                            key={`${dep.name}@${dep.version}`}
+                            // Severity as a 3px left rule, never a row fill:
+                            // whole-row tinting is reserved for log and evidence
+                            // panes, and on 340 rows it turns a table into
+                            // wallpaper.
+                            severity={toneSeverity(depTone(dep))}
+                          >
+                            <TableCell>
+                              <div className="flex flex-col gap-0.5">
                                 {/* A report page exists only where an audit
                                     CONCLUDED with a verdict — an ERROR dep has
                                     no report to link to. */}
                                 {dep.outcome === "SAFE" || dep.outcome === "DANGEROUS" ? (
-                                  <Link className="mono panel-link" to={`/package/${dep.name}`}>
+                                  <Link
+                                    className="font-mono text-sm text-accent-text hover:underline"
+                                    to={`/package/${dep.name}`}
+                                  >
                                     {dep.name}
                                   </Link>
                                 ) : (
-                                  <span className="mono">{dep.name}</span>
+                                  <span className="font-mono text-sm text-text">{dep.name}</span>
                                 )}
                                 {dep.range && (
-                                  <span className="microtext mono">{dep.range}</span>
+                                  <span className="font-mono text-2xs text-text-3">{dep.range}</span>
                                 )}
                               </div>
-                            </div>
-                          </td>
-                          <td className="mono">{dep.version}</td>
-                          <td>{dep.direct ? "Direct" : "Transitive"}</td>
-                          <td>
-                            <DepStatusPill dep={dep} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {filtered.length > visibleCount && (
-                  <div className="panel-inventory__more">
-                    <button
-                      type="button"
-                      className="btn btn--sm"
-                      onClick={() => setVisibleCount((count) => count + PAGE)}
-                    >
-                      Load 100 more
-                    </button>
-                    <span className="microtext">
-                      Showing {Math.min(visibleCount, filtered.length)} of {filtered.length}
-                    </span>
+                            </TableCell>
+                            <TableCell className="font-mono tabular-nums text-text-2">
+                              {dep.version}
+                            </TableCell>
+                            <TableCell className="text-text-2">
+                              {dep.direct ? "Direct" : "Transitive"}
+                            </TableCell>
+                            <TableCell>
+                              <DepStatusPill dep={dep} />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
-                )}
-              </div>
-            )}
+                  {rows.length > visibleCount && (
+                    <div className="flex items-center gap-3 border-t border-border-faint px-4 py-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setVisibleCount((count) => count + PAGE)}
+                      >
+                        Load 100 more
+                      </Button>
+                      <span className="text-2xs text-text-3">
+                        Showing{" "}
+                        <span className="font-mono tabular-nums">
+                          {Math.min(visibleCount, rows.length)}
+                        </span>{" "}
+                        of <span className="font-mono tabular-nums">{rows.length}</span>
+                      </span>
+                    </div>
+                  )}
+                </Card>
+              )}
+            </DataRegion>
           </>
         )}
-      </section>
+      </PanelSection>
 
-      <AnimatePresence>{paywall && <UpgradeDialog key="paywall" />}</AnimatePresence>
-    </div>
+      {paywall && <UpgradeDialog />}
+    </PanelPage>
   );
 }

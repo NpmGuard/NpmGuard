@@ -18,6 +18,20 @@
  *  T4  ok with zero deps → EMPTY, not degraded — "no dependency baseline yet" is a
  *                                     claim only a successful read can support.
  *
+ * T5–T7 were added with the recomposition onto the design system.
+ *
+ *  T5  a failed read reaches NO empty state and NO posture claim. The page grew a
+ *                                     second `EmptyState` (the "nothing matches this
+ *                                     filter" branch) and a `SeverityRibbon`, and each
+ *                                     is a new way to look confident over data that
+ *                                     was never read.
+ *  T6  the PENDING part of the posture is hatched, never coloured, and the page says
+ *                                     so in words. The old rail painted pending BLUE,
+ *                                     which is how a half-finished scan came to read
+ *                                     as a settled posture — §2.2 rule 2 makes the
+ *                                     progress axis achromatic for exactly this.
+ *  T7  both themes render, and no colour is hardcoded.
+ *
  * Blackbox: msw at the boundary, assertions on the accessibility tree and the
  * `data-state` markers.
  */
@@ -27,6 +41,7 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { Route, Routes } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { expectNoHardcodedColour } from "../components/panel/theme-probe.ts";
 import {
   auditSet,
   clearAbsoluteApiBase,
@@ -38,14 +53,40 @@ import { RepoDetail } from "./RepoDetail.tsx";
 
 const server = setupServer();
 
+/** jsdom implements no `EventSource`, and a RUNNING set makes the page open the
+ * progress stream — so without this the T6 cases die in `connectScanStream` with
+ * `ReferenceError: EventSource is not defined` and the failure reads like a
+ * component bug. `lib/sse.ts` accepts an injected ctor, but `useRepoDetailStream`
+ * does not thread one through, so the global is the only seam from out here.
+ *
+ * Inert on purpose: T6 is about how a running set is DRAWN, and driving frames
+ * through it would be testing the stream reducer, which `lib/sse.test.ts` and
+ * `features/repos/hooks.test.tsx` already own. */
+class InertEventSource {
+  onmessage: ((ev: MessageEvent) => void) | null = null;
+  onerror: ((ev: Event) => void) | null = null;
+  // A plain field, not a parameter property: `erasableSyntaxOnly` is on, and a
+  // parameter property is the one class syntax that cannot be erased.
+  readonly url: string;
+  constructor(url: string) {
+    this.url = url;
+  }
+  addEventListener(): void {}
+  close(): void {}
+}
+
+const realEventSource = globalThis.EventSource;
+
 beforeAll(() => {
   useAbsoluteApiBase();
+  globalThis.EventSource = InertEventSource as unknown as typeof EventSource;
   server.listen({ onUnhandledRequest: "error" });
 });
 afterEach(() => server.resetHandlers());
 afterAll(() => {
   server.close();
   clearAbsoluteApiBase();
+  globalThis.EventSource = realEventSource;
 });
 
 const DEP = {
@@ -141,4 +182,122 @@ describe("RepoDetail — T3/T4 a successful read", () => {
     expect(screen.getByText(/No dependency baseline yet/)).toBeInTheDocument();
     expect(document.querySelector('[data-state="degraded"]')).toBeNull();
   });
+});
+
+describe("RepoDetail — T5 a failed read claims nothing", () => {
+  it("T5: no empty state and no posture is rendered over a read that failed", async () => {
+    respondWith({ error: "upstream" }, 502);
+    renderDetail();
+
+    await screen.findByRole("alert");
+    // Neither of the page's two empty states. "No dependency baseline yet" would
+    // be a claim about this repository's lockfile from a read that never returned
+    // one, and "no dependencies match this view" would be a claim about a filter
+    // over rows we do not have.
+    expect(document.querySelector('[data-state="empty"]')).toBeNull();
+    expect(screen.queryByText(/No dependency baseline yet/)).toBeNull();
+    expect(screen.queryByText(/No dependencies match this view/)).toBeNull();
+    // And no posture: a ribbon over zeroes is a chart of an unknown denominator,
+    // which reads as "nothing wrong here".
+    expect(screen.queryByText("No known threats")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Audit posture" })).toBeNull();
+    expect(document.querySelector("table")).toBeNull();
+  });
+
+  it("T5: an unaudited repo draws no posture bar either", async () => {
+    // The neighbouring case, and the reason the ribbon is guarded on a population
+    // rather than rendered always: `SeverityRibbon`'s own all-zero fallback is a
+    // bare hatched bar, and a bar with no numbers beside "Not audited" invites the
+    // reader to interpret a texture. The honest rendering of no data is no bar.
+    respondWith({
+      repo: panelRepo({ lastScan: null }),
+      set: null,
+      depsTruncated: false,
+      deps: [],
+      alerts: [],
+    });
+    renderDetail();
+
+    await screen.findByText("Not audited");
+    expect(document.querySelector("[data-segment]")).toBeNull();
+  });
+});
+
+describe("RepoDetail — T6 progress is never a verdict", () => {
+  const RUNNING_SET = auditSet({
+    status: "running",
+    finishedAt: null,
+    rollup: { outcome: null, total: 20, safe: 5, dangerous: 0, error: 0, pending: 15, cached: 2 },
+  });
+
+  it("T6: the pending segment is hatched and carries no outcome hue", async () => {
+    respondWith({
+      repo: panelRepo({ lastScan: RUNNING_SET }),
+      set: RUNNING_SET,
+      depsTruncated: false,
+      deps: [],
+      alerts: [],
+    });
+    renderDetail();
+
+    await screen.findByText(/Scan in progress/);
+    const pending = document.querySelector("[data-segment='pending']");
+    expect(pending).not.toBeNull();
+    // The one property that stops an in-flight scan reading as green. The rail this
+    // replaced used `--running` blue here, which is both a hue on the progress axis
+    // (§2.2 forbids it) and one that failed the §2.3 colourblind separation check
+    // against error-violet.
+    expect(pending?.getAttribute("style")).toMatch(/repeating-linear-gradient/);
+    expect(pending?.className).not.toMatch(/safe|danger|error/);
+  });
+
+  it("T6: the page says in words that the posture may still change", async () => {
+    respondWith({
+      repo: panelRepo({ lastScan: RUNNING_SET }),
+      set: RUNNING_SET,
+      depsTruncated: false,
+      deps: [],
+      alerts: [],
+    });
+    renderDetail();
+
+    // Texture is not a sentence. §4.2 puts this line under the ribbon precisely so
+    // the progress axis states its own incompleteness rather than relying on a
+    // reader to decode a hatch — and it survives greyscale, print and no-CSS.
+    expect(await screen.findByText(/still running — posture may change/)).toBeInTheDocument();
+    // 5 of 20 safe so far, and the page must not round that up to a verdict.
+    expect(screen.queryByText("No known threats")).toBeNull();
+  });
+});
+
+describe("RepoDetail — T7 both themes", () => {
+  afterEach(() => document.documentElement.classList.remove("dark", "light"));
+
+  const CONCLUDED = auditSet({
+    rollup: { outcome: "DANGEROUS", total: 1, safe: 0, dangerous: 1, error: 0, pending: 0, cached: 0 },
+  });
+
+  for (const theme of ["light", "dark"] as const) {
+    it(`T7: renders under an explicit .${theme} stamp`, async () => {
+      document.documentElement.classList.add(theme);
+      respondWith({
+        repo: panelRepo({ lastScan: CONCLUDED }),
+        set: CONCLUDED,
+        depsTruncated: false,
+        deps: [DEP],
+        alerts: [],
+      });
+      renderDetail();
+
+      // Same markup, both themes — that is what `@theme inline` buys, and it holds
+      // only while no colour is decided at author time.
+      expect(await screen.findByText("Action required")).toBeInTheDocument();
+      const table = screen.getByRole("table", { name: "Dependency inventory" });
+      // Addressed through the stamp's own `data-outcome` hook rather than by text:
+      // the review queue stamps the same dep, so a bare `getByText("DANGEROUS")`
+      // finds two and says nothing about which surface it found.
+      expect(table.querySelector("[data-outcome='DANGEROUS']")).not.toBeNull();
+      expectNoHardcodedColour();
+    });
+  }
 });
