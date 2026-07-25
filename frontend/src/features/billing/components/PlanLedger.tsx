@@ -1,4 +1,4 @@
-/** Per-billing-account plan cards: plan pill, allowance meters, and the
+/** Per-billing-account plan cards: plan chip, allowance meters, and the
  * upgrade / manage-billing action.
  *
  * Renders a `LoadState`, not a `billing | null` plus a `billingError` string.
@@ -9,14 +9,33 @@
  * Not a `<DataRegion>`: the honest empty rendering here is *nothing* (an identity
  * with no installations has no plan to show), and `DataRegion` requires empty
  * copy it would then never display. The failed≠empty guarantee still holds
- * structurally — there is no `data` on the `failed` arm to render. */
+ * structurally — there is no `data` on the `failed` arm to render.
+ *
+ * ── PRESENTATION ────────────────────────────────────────────────────────────
+ *
+ * DECISION the brief left open — it specifies no treatment for a plan name.
+ * `Badge`, and `accent` only for Pro; Free is neutral. §3.2's rule is that chips
+ * are metadata and almost never coloured, and a plan is metadata about the
+ * account, not an outcome about a package — so neither hue in the semantic set is
+ * available to it. Accent for Pro is the system hue marking the one row that has
+ * something the others do not; a green "pro" would spend the SAFE slot on a
+ * subscription tier, which is the same leak the billing notice on the dashboard
+ * was moved off green to avoid. */
 
 import type { BillingResponse } from "@npmguard/shared";
 import { CreditCard, Sparkles } from "lucide-react";
+import { PanelSection } from "../../../components/panel/layout.tsx";
+import { Badge } from "../../../components/ui/badge.tsx";
+import { Button } from "../../../components/ui/button.tsx";
+import { Card, CardBody } from "../../../components/ui/card.tsx";
 import { DegradedRegion } from "../../../components/ui/degraded-state.tsx";
 import type { LoadState } from "../../../components/ui/load-state.ts";
 import { useOpenBillingPortal, useStartProCheckout } from "../hooks.ts";
 import { AllowanceMeter } from "./AllowanceMeter.tsx";
+
+/** Account cards hold a login, two meters and one control. 18rem is the point
+ * below which a meter's `label / value` head wraps onto two lines. */
+const LEDGER_GRID = "grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-6";
 
 export function PlanLedger({ state }: { state: LoadState<BillingResponse> }) {
   const checkout = useStartProCheckout();
@@ -27,10 +46,13 @@ export function PlanLedger({ state }: { state: LoadState<BillingResponse> }) {
   if (state.status === "loading") return null;
 
   if (state.status === "failed") {
+    // Deliberately NOT wrapped in `PanelSection`: `DegradedRegion` renders its own
+    // titled frame, and a second heading above it would name the section twice —
+    // once as present and once as missing.
     return (
-      <section className="panel-section">
+      <div className="mt-12">
         <DegradedRegion failure={state.failure} title="Plan & usage" />
-      </section>
+      </div>
     );
   }
 
@@ -38,11 +60,8 @@ export function PlanLedger({ state }: { state: LoadState<BillingResponse> }) {
   if (billing.accounts.length === 0) return null;
 
   return (
-    <section className="panel-section" aria-label="Plan and usage">
-      <div className="section-title">
-        <span className="eyebrow eyebrow--faint">Plan &amp; usage</span>
-      </div>
-      <div className="panel-ledger">
+    <PanelSection label="Plan & usage">
+      <div className={LEDGER_GRID}>
         {billing.accounts.map((account) => {
           // Which row is busy comes from the mutation that is running, not from a
           // store field mirroring it: `variables` is the installation id this
@@ -51,43 +70,49 @@ export function PlanLedger({ state }: { state: LoadState<BillingResponse> }) {
             (checkout.isPending && checkout.variables === account.installationId) ||
             (portal.isPending && portal.variables === account.installationId);
           return (
-            <article key={account.installationId} className="card panel-account">
-              <header className="panel-account__head">
-                <span className="mono panel-account__login">{account.accountLogin}</span>
-                <span className={`pill${account.plan === "pro" ? " pill--violet" : ""}`}>
-                  {account.plan}
-                </span>
-              </header>
-              <AllowanceMeter label="Protected repositories" bucket={account.protectedRepos} />
-              <AllowanceMeter label="Public repository audits" bucket={account.publicRepoAudits} />
-              <p className="microtext">
-                Re-auditing the same public repository never consumes another slot.
-              </p>
-              {account.plan === "free" ? (
-                <button
-                  type="button"
-                  className="btn btn--sm btn--violet"
-                  disabled={busy || !billing.checkoutEnabled}
-                  onClick={() => checkout.mutate(account.installationId)}
-                >
-                  <Sparkles size={13} />
-                  {busy ? "Redirecting…" : "Upgrade to Pro"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn--sm"
-                  disabled={busy}
-                  onClick={() => portal.mutate(account.installationId)}
-                >
-                  <CreditCard size={13} />
-                  {busy ? "Opening…" : "Manage billing"}
-                </button>
-              )}
-            </article>
+            // `Card` renders a `<div>` and takes no `asChild`, so the legacy
+            // `<article>` element is gone rather than nested. No loss: an
+            // `<article>` is for independently distributable content, and a plan
+            // card is a fragment of this account's settings. The accessible name
+            // it needed came from the section heading either way.
+            <Card key={account.installationId}>
+              <CardBody className="flex flex-col items-start gap-3">
+                <header className="flex w-full items-center justify-between gap-2.5">
+                  <span className="min-w-0 truncate font-mono text-sm font-medium text-text">
+                    {account.accountLogin}
+                  </span>
+                  <Badge tone={account.plan === "pro" ? "accent" : "neutral"}>{account.plan}</Badge>
+                </header>
+                <AllowanceMeter label="Protected repositories" bucket={account.protectedRepos} />
+                <AllowanceMeter label="Public repository audits" bucket={account.publicRepoAudits} />
+                <p className="text-2xs text-text-3">
+                  Re-auditing the same public repository never consumes another slot.
+                </p>
+                {account.plan === "free" ? (
+                  <Button
+                    size="sm"
+                    disabled={busy || !billing.checkoutEnabled}
+                    onClick={() => checkout.mutate(account.installationId)}
+                  >
+                    <Sparkles aria-hidden="true" className="size-icon-sm" />
+                    {busy ? "Redirecting…" : "Upgrade to Pro"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => portal.mutate(account.installationId)}
+                  >
+                    <CreditCard aria-hidden="true" className="size-icon-sm" />
+                    {busy ? "Opening…" : "Manage billing"}
+                  </Button>
+                )}
+              </CardBody>
+            </Card>
           );
         })}
       </div>
-    </section>
+    </PanelSection>
   );
 }

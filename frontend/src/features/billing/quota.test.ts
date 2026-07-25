@@ -2,23 +2,24 @@
  * Unit: pure quota-display logic — quota.ts.
  *
  * Input classes (the three states a UsageBucket collapses to):
- *  C1  unlimited  — remaining === null (limit 0) → {kind:"unlimited"}; copy/label/fraction
- *                   all render the ∞ branch, NEVER "zero left".
+ *  C1  unlimited  — remaining === null (limit 0) → {kind:"unlimited"}; copy/label
+ *                   both render the ∞ branch, NEVER "zero left".
  *  C2  exhausted  — remaining <= 0 with a real limit → {kind:"exhausted"}; re-audit copy
  *                   still tells the user existing repos can be re-audited (not a dead end).
  *  C3  available  — remaining > 0 → {kind:"available", remaining}; copy singular/plural.
  *
- * Blackbox: quotaState is total over the bucket shape; the derived copy/label/
- * fraction helpers are asserted against each state.
+ * Blackbox: quotaState is total over the bucket shape; the derived copy/label
+ * helpers are asserted against each state.
+ *
+ * The `usageFraction` assertions moved with the helper's deletion — the bar's
+ * magnitude is now derived inside `ui/meter`, so the property that a bucket never
+ * reads as a full or empty bar it has not earned is pinned in
+ * `components/AllowanceMeter.test.tsx` (M2/M3) against the rendered meter state
+ * rather than against a number this module no longer produces.
  */
 
 import { describe, expect, it } from "vitest";
-import {
-  publicAuditAllowanceCopy,
-  quotaState,
-  usageFraction,
-  usageLabel,
-} from "./quota.ts";
+import { publicAuditAllowanceCopy, quotaState, usageLabel } from "./quota.ts";
 import type { UsageBucket } from "@npmguard/shared";
 
 const bucket = (used: number, limit: number, remaining: number | null): UsageBucket => ({
@@ -32,12 +33,10 @@ describe("quota — C1 unlimited", () => {
     expect(quotaState(bucket(9, 0, null))).toEqual({ kind: "unlimited" });
   });
 
-  it("C1: unlimited never reads as 'zero left' in copy/label/fraction", () => {
+  it("C1: unlimited never reads as 'zero left' in copy or label", () => {
     const b = bucket(9, 0, null);
     expect(publicAuditAllowanceCopy(b)).toBe("Unlimited public repository audits.");
     expect(usageLabel(b)).toBe("9 / ∞");
-    // a token sliver, not a full or empty bar
-    expect(usageFraction(b)).toBe(0.05);
   });
 });
 
@@ -48,13 +47,12 @@ describe("quota — C2 exhausted", () => {
     expect(quotaState(bucket(4, 3, -1))).toEqual({ kind: "exhausted" });
   });
 
-  it("C2: exhausted copy still offers free re-audits; label/fraction reflect full use", () => {
+  it("C2: exhausted copy still offers free re-audits; the label reflects full use", () => {
     const b = bucket(3, 3, 0);
     expect(publicAuditAllowanceCopy(b)).toBe(
       "Free repository allowance used. Existing repositories can still be re-audited.",
     );
     expect(usageLabel(b)).toBe("3 / 3");
-    expect(usageFraction(b)).toBe(1);
   });
 });
 
@@ -72,10 +70,8 @@ describe("quota — C3 available", () => {
     );
   });
 
-  it("C3: label reads used/limit and fraction is used/limit clamped to 1", () => {
+  it("C3: label reads used/limit", () => {
     expect(usageLabel(bucket(1, 3, 2))).toBe("1 / 3");
-    expect(usageFraction(bucket(1, 4, 3))).toBe(0.25);
-    // used over limit clamps rather than exceeding the meter
-    expect(usageFraction(bucket(9, 3, -6))).toBe(1);
+    expect(usageLabel(bucket(9, 3, -6))).toBe("9 / 3");
   });
 });
