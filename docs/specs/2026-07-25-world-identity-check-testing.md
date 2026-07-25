@@ -211,6 +211,23 @@ staging so the security-critical path is still exercised — but if the simulato
 *can* issue attributes, saying so plainly in the docs would remove the single
 biggest blocker to testing this feature.
 
+**Partially answered by trying it, not by reading.** Opening
+`simulator.orb.engineer` reveals a "Select test identity" screen with a single
+synthetic identity — *Identity #0, Verified (All), "Passport • John Doe"*. So
+the simulator **does** carry a document-backed credential, which suggests tier 2
+is exercisable on staging.
+
+We only found this by opening the tool. Nothing in the Identity Check docs, the
+simulator's own landing copy, or the `worldcoin/simulator` README says that a
+document credential is available for testing. One sentence — *"the simulator's
+test identity holds a passport credential, so Identity Check attribute requests
+can be exercised on staging"* — would have saved the entire investigation, and
+is exactly what a beta tester needs to know before deciding whether the feature
+is testable at all.
+
+Whether attribute *matching* (`document_type: passport`, `minimum_age: 18`)
+actually succeeds against this identity is still untested on our side.
+
 ### D-7 🟡 `identityCheck()`'s doc comment describes a parameter that does not exist
 
 ```ts
