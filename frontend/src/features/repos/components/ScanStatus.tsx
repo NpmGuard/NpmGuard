@@ -11,8 +11,8 @@
  * Three coloured DOTS are gone, and that is the §2.4 correction rather than a
  * restyle: a dot encodes state in colour alone, and the brief's stated test is
  * "remove all colour and every state is still readable". Each state now travels
- * on a stamp that carries a glyph and a word — `ProgressPill` on the achromatic
- * progress axis, `OutcomePill` for a concluded outcome. `dot--running` was also
+ * on a stamp that carries a glyph and a word — `ProgressStamp` on the achromatic
+ * progress axis, `VerdictStamp` for a concluded outcome. `dot--running` was also
  * BLUE, a hue on the progress axis, which is the pair §2.3's colourblind check
  * failed on.
  *
@@ -25,12 +25,12 @@
  * covered zero packages) is a `Badge`, not a stamp. §3.3's `VerdictStamp` states
  * are the six outcome/progress ones and this is none of them: it is a successful,
  * concluded read of the fact that the lockfile declared no npm dependencies. A
- * `ProgressPill` would say "not attempted" about something that was attempted and
- * finished, and an `OutcomePill` needs an `Outcome` there is honestly none of.
+ * `ProgressStamp` would say "not attempted" about something that was attempted and
+ * finished, and an `VerdictStamp` needs an `Outcome` there is honestly none of.
  * Neutral metadata is what is left, and it is the truthful slot. */
 
 import type { AuditSet } from "@npmguard/shared";
-import { OutcomePill, ProgressPill } from "../../../components/panel/tone.tsx";
+import { ProgressStamp, VerdictStamp } from "../../../components/ui/verdict-stamp.tsx";
 import { Badge } from "../../../components/ui/badge.tsx";
 import { Progress } from "../../../components/ui/progress.tsx";
 import { formatDate } from "../../../lib/format.ts";
@@ -39,7 +39,7 @@ export function ScanStatus({ scan }: { scan: AuditSet | null }) {
   if (!scan) {
     return (
       <div className="flex min-h-5.5 flex-wrap items-center gap-2">
-        <ProgressPill state="unaudited">Not audited</ProgressPill>
+        <ProgressStamp state="unaudited">Not audited</ProgressStamp>
       </div>
     );
   }
@@ -50,7 +50,7 @@ export function ScanStatus({ scan }: { scan: AuditSet | null }) {
     return (
       <div className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <ProgressPill state="running">Scanning</ProgressPill>
+          <ProgressStamp state="running">Scanning</ProgressStamp>
         </div>
         {/* Only over a real population. Radix rejects `max={0}` (and would warn),
             and a bar for a set covering nothing would be a magnitude invented out
@@ -66,7 +66,7 @@ export function ScanStatus({ scan }: { scan: AuditSet | null }) {
   // "nothing concluded yet", because finishing requires pending === 0.
   return (
     <div className="flex min-h-5.5 flex-wrap items-center gap-2">
-      {outcome ? <OutcomePill outcome={outcome} /> : <Badge>Nothing to audit</Badge>}
+      {outcome ? <VerdictStamp outcome={outcome} /> : <Badge>Nothing to audit</Badge>}
       <span className="text-2xs text-text-3">
         {total} {total === 1 ? "dependency" : "dependencies"} · {formatDate(scan.finishedAt)}
       </span>

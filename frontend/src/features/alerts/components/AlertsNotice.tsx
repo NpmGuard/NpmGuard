@@ -32,11 +32,11 @@
  * `error` violet) and a refused mutation (the `error` notice in `RepoCard`).
  *
  * §2.4's glyph + word + colour needs no extra work here: the count is the word,
- * the triangle is the glyph, and each row carries its own `OutcomePill`. */
+ * the triangle is the glyph, and each row carries its own `VerdictStamp`. */
 
 import type { Alert } from "@npmguard/shared";
 import { TriangleAlert } from "lucide-react";
-import { OutcomePill } from "../../../components/panel/tone.tsx";
+import { VerdictStamp } from "../../../components/ui/verdict-stamp.tsx";
 import { Button } from "../../../components/ui/button.tsx";
 import { DegradedRegion } from "../../../components/ui/degraded-state.tsx";
 import type { LoadState } from "../../../components/ui/load-state.ts";
@@ -72,7 +72,7 @@ export function AlertsNotice({ state }: { state: LoadState<Alert[]> }) {
               <span className="font-mono">
                 {alert.packageName}@{alert.version}
               </span>{" "}
-              is <OutcomePill outcome={alert.outcome} />
+              is <VerdictStamp outcome={alert.outcome} />
             </li>
           ))}
         </ul>

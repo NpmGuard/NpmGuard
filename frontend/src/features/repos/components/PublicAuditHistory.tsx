@@ -9,7 +9,7 @@
  *
  * The running row's blue `dot--running` is gone for the §2.4/§2.2 reason the rest
  * of this cluster lost its dots: colour alone is not a state, and the progress
- * axis carries no hue. `ProgressPill` puts a glyph and the word "Scanning" there,
+ * axis carries no hue. `ProgressStamp` puts a glyph and the word "Scanning" there,
  * and `Progress` carries the count in text beside the bar so it survives
  * reduced motion.
  *
@@ -24,7 +24,7 @@
 
 import type { PublicRepoScan } from "@npmguard/shared";
 import { PanelSection } from "../../../components/panel/layout.tsx";
-import { OutcomePill, ProgressPill } from "../../../components/panel/tone.tsx";
+import { ProgressStamp, VerdictStamp } from "../../../components/ui/verdict-stamp.tsx";
 import { Badge } from "../../../components/ui/badge.tsx";
 import { Button } from "../../../components/ui/button.tsx";
 import { Card } from "../../../components/ui/card.tsx";
@@ -99,7 +99,7 @@ export function PublicAuditHistory({ state, onOpen }: PublicAuditHistoryProps) {
                 {running ? (
                   <>
                     <span className="flex items-center gap-2">
-                      <ProgressPill state="running">Scanning</ProgressPill>
+                      <ProgressStamp state="running">Scanning</ProgressStamp>
                     </span>
                     {/* Only over a real population — Radix rejects `max={0}`, and a
                         bar over an empty denominator is an invented magnitude. */}
@@ -113,7 +113,7 @@ export function PublicAuditHistory({ state, onOpen }: PublicAuditHistoryProps) {
                   </>
                 ) : (
                   <span className="flex flex-wrap items-center gap-2">
-                    {outcome ? <OutcomePill outcome={outcome} /> : <Badge>Nothing to audit</Badge>}
+                    {outcome ? <VerdictStamp outcome={outcome} /> : <Badge>Nothing to audit</Badge>}
                     <span className="text-2xs text-text-3">{formatDate(scan.set.finishedAt)}</span>
                   </span>
                 )}
