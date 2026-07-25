@@ -175,7 +175,13 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
     return None
 
 
-def _public(package_name: str) -> bool:
+def public_package(package_name: str) -> bool:
+    """Whether a package name belongs on a product surface.
+
+    Exported because the replay gallery reads `audit_sessions` rather than this
+    store and must hide the same fixtures the registry hides — a second copy of
+    this predicate would drift the two lists apart.
+    """
     return not (
         package_name.startswith("test-pkg-")
         or package_name.startswith("test-package")
@@ -189,7 +195,7 @@ def list_reports() -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for file in DATA_DIR.rglob("*.json"):
         package_name = file.parent.relative_to(DATA_DIR).as_posix()
-        if not _public(package_name):
+        if not public_package(package_name):
             continue
         try:
             report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
