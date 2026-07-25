@@ -56,6 +56,15 @@ VOIDING_CODES = frozenset(
         "NPMGUARD-0020",  # DockerUnavailableError — sandbox infrastructure.
         "NPMGUARD-0040",  # QueueFullError — admission pressure from the harness itself.
         "NPMGUARD-0001",  # PackageNotFoundError — a corpus bug, not a measurement.
+        # PackageTooLargeError — the engine refused the INPUT before any model call,
+        # so no detection was attempted. Naming it here rather than leaving it to the
+        # default, because it is the one code whose bucket is genuinely arguable: a
+        # refusal IS the tool's configured behaviour (like a phase timeout, which
+        # abstains), but unlike a timeout it measures the CORPUS — an entry over the
+        # bound is over it on every run and for every model, so filing it as an
+        # abstention would move a fixed property of the corpus into the tool's
+        # capability rate and make the denominator depend on a knob.
+        "NPMGUARD-0003",
         "NPMGUARD-9999",  # an unclassified crash.
     }
 )

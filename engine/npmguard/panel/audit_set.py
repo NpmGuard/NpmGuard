@@ -828,7 +828,18 @@ class AuditSetStore:
                 (
                     await session.execute(
                         sa.select(audit_sets.c.id).where(
-                            audit_sets.c.finished_at.is_(None)
+                            audit_sets.c.finished_at.is_(None),
+                            # Boot recovery exists for sets whose progress is
+                            # PANEL-JOB driven: refresh() finalizes a set once no
+                            # live job remains, which is how an orphaned scan gets
+                            # closed after a restart. A bench_run's items go through
+                            # the audit core's own admission path and never create a
+                            # panel job, so it has no jobs to be orphaned FROM --
+                            # sweeping it finalizes a run that is still going.
+                            # Execution-proven before this guard existed: a live
+                            # bench set with finished_at=None came back stamped after
+                            # one sweep.
+                            audit_sets.c.origin != ORIGIN_BENCH_RUN,
                         )
                     )
                 )

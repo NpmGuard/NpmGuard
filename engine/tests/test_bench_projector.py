@@ -15,7 +15,8 @@
 #   C6  FALSE_ALARM_STRUCTURAL  ... confirmed==0 with a dealbreaker
 #   C7  ABSTAINED               no verdict, cause is an engine capability limit
 #                               (0031 incomplete / 0030 phase timeout)
-#   C8  VOID                    no verdict, cause is infra/harness/corpus
+#   C8  VOID                    no verdict, cause is infra/harness/corpus — incl.
+#                               0003 (input refused as too large), argued in the test
 #   C8b VOID by DEFAULT for an unknown code — a new failure mode must not enter
 #       the denominator silently
 #   C8c the two codes retired in b9b805d (0010 LLMUnavailable, 0050 SessionLimit)
@@ -175,10 +176,20 @@ def test_abstained(code: str) -> None:
     assert classify(_entry(), item, code) is Outcome.ABSTAINED
 
 
-@pytest.mark.parametrize("code", ["NPMGUARD-0020", "NPMGUARD-0040", "NPMGUARD-0001"])
+@pytest.mark.parametrize(
+    "code", ["NPMGUARD-0020", "NPMGUARD-0040", "NPMGUARD-0001", "NPMGUARD-0003"]
+)
 def test_void(code: str) -> None:
-    """C8: docker, admission pressure, an unresolvable fixture. The observation
-    failed to be made; it says nothing about the tool."""
+    """C8: docker, admission pressure, an unresolvable fixture, and an input the
+    engine refused as too large (PackageTooLargeError, 0003). The observation failed
+    to be made; it says nothing about the tool.
+
+    0003 is the arguable one and it is filed here deliberately. A refusal is the
+    engine's own configured behaviour, which is the argument that put a phase timeout
+    (0030) in ABSTAINED — but a source-file bound is a fixed property of the ENTRY:
+    an over-bound package is over the bound on every run, at every model tier, so
+    counting it as a capability limit would make the detection denominator move with
+    a config knob instead of with the tool."""
     assert classify(_entry(), _item(None, error="boom"), code) is Outcome.VOID
 
 
