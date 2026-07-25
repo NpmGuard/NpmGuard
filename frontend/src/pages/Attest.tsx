@@ -319,10 +319,22 @@ function WorldProof({
     onAttemptStart();
     setWaiting(true);
     try {
-      const [{ IDKit, proofOfHuman }, qrcode] = await Promise.all([
+      const [idkit, qrcode] = await Promise.all([
         import("@worldcoin/idkit-core"),
         import("qrcode"),
       ]);
+      const { IDKit } = idkit;
+      // All three presets accept a `signal`, so the artifact binding is the same
+      // whichever the engine asks for. A World ID that holds a document
+      // credential may hold no Orb credential at all, and vice versa — which is
+      // a `credential_unavailable` the publisher cannot resolve on the spot, so
+      // which one to ask for has to be operator-configurable.
+      const PRESETS = {
+        proof_of_human: idkit.proofOfHuman,
+        passport: idkit.passport,
+        mnc: idkit.mnc,
+      };
+      const preset = PRESETS[config.credential] ?? idkit.proofOfHuman;
       // Named once so the diagnostic below reports what was actually asked for
       // rather than a hand-copied guess that can drift from it.
       const asked = {
@@ -333,11 +345,11 @@ function WorldProof({
         // for, so it always travels with the request.
         environment: config.environment as "production" | "staging" | "sandbox",
         require_user_presence: true,
-        // Legacy (v3) proofs are off: they predate the v4 credential model this
-        // design assumes. If a World ID can only answer with a legacy credential
-        // the request fails `credential_unavailable` rather than silently
-        // downgrading — an attestation must not quietly mean something weaker.
-        allow_legacy_proofs: false,
+        // Legacy (v3) proofs predate the v4 credential model. Whether one may
+        // answer is the engine's call, not this bundle's — it decides what an
+        // attestation is allowed to mean, and it records the protocol version
+        // so a legacy one is never mistaken for a current one.
+        allow_legacy_proofs: config.allowLegacyProofs,
       };
       const request = await IDKit.request({
         app_id: config.appId as `app_${string}`,
@@ -345,9 +357,10 @@ function WorldProof({
         // Minted server-side; the signing key never reaches this bundle.
         rp_context: config.rpContext,
         ...asked,
-        // proofOfHuman is the ONLY preset that accepts a signal, which is what
-        // binds the proof to this exact tarball. IdentityCheck cannot.
-      }).preset(proofOfHuman({ signal: config.signal }));
+        // The signal is what binds the proof to this exact tarball. Every preset
+        // here accepts one; IdentityCheck is the only preset that cannot, which
+        // is why enrolment and per-release proof are separate steps.
+      }).preset(preset({ signal: config.signal }));
 
       setUri(request.connectorURI);
       setQr(await qrcode.toDataURL(request.connectorURI, { margin: 1, width: 240 }));
@@ -366,7 +379,7 @@ function WorldProof({
           JSON.stringify(
             {
               code: outcome.kind === "cancelled" ? outcome.code : "malformed_completion",
-              requested: { preset: "ProofOfHuman", ...asked },
+              requested: { credential: config.credential, ...asked },
               package_version: report.package_version,
               transport: report.transport,
               response_payload: report.response_payload,

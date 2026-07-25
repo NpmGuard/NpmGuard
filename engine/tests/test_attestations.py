@@ -141,6 +141,67 @@ async def test_a_valid_proof_yields_a_bound_present_human() -> None:
     assert verified.environment == "staging"
 
 
+async def test_a_document_credential_reaches_tier_2_without_disclosing_anything() -> None:
+    """A passport-issued proof is document-backed by construction.
+
+    `issuer_schema_id` is a property of the credential that produced the proof,
+    so the document tier is established without requesting a single identity
+    attribute — no name, no document number, no nationality, not even an age
+    assertion. This is the strongest form of the minimization claim: there is
+    nothing to leak because nothing was asked for.
+    """
+    verified = await _verify_with(
+        {
+            "success": True,
+            "action": "attest-npm-release",
+            "environment": "staging",
+            "user_presence_completed": True,
+            "responses": [
+                {"signal_hash": SIGNAL_HASH, "nullifier": NULLIFIER, "issuer_schema_id": 9303}
+            ],
+        }
+    ).verify({}, expected_signal=SIGNAL)
+    assert verified.tier == TIER_IDENTITY
+    assert verified.document_backed is True
+    # ...and World was never asked to attest attributes, so it did not.
+    assert verified.identity_attested is False
+
+
+async def test_an_orb_proof_stays_tier_1_and_is_not_called_document_backed() -> None:
+    """The other half of the pair: a proof-of-human credential is schema 1, and
+    must never be graded as though a document backed it."""
+    verified = await _verify_with(
+        {
+            "success": True,
+            "action": "attest-npm-release",
+            "environment": "staging",
+            "user_presence_completed": True,
+            "responses": [
+                {"signal_hash": SIGNAL_HASH, "nullifier": NULLIFIER, "issuer_schema_id": 1}
+            ],
+        }
+    ).verify({}, expected_signal=SIGNAL)
+    assert verified.tier == TIER_HUMAN
+    assert verified.document_backed is False
+
+
+async def test_a_legacy_proof_records_the_protocol_it_was_made_under() -> None:
+    """A v3 proof may be allowed, but it must never be indistinguishable from a
+    v4 one after the fact."""
+    verified = await _verify_with(
+        {
+            "success": True,
+            "protocol_version": "3.0",
+            "action": "attest-npm-release",
+            "environment": "staging",
+            "user_presence_completed": True,
+            "results": [{"signal_hash": SIGNAL_HASH, "nullifier": NULLIFIER}],
+        }
+    ).verify({}, expected_signal=SIGNAL)
+    assert verified.protocol_version == "3.0"
+    assert verified.tier == TIER_HUMAN
+
+
 async def test_a_rejected_proof_is_never_partially_accepted() -> None:
     with pytest.raises(AttestationError, match="all_verifications_failed"):
         await _verify_with(

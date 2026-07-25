@@ -243,6 +243,11 @@ async def idkit_request(request: Request, session_id: str) -> JSONResponse:
             "ttlSeconds": RP_SIGNATURE_TTL_SECONDS,
             "action": settings.world_action,
             "signal": session.signal,
+            # Which credential to ask for, and whether a legacy proof may answer.
+            # Both are the engine's call, not the browser's: they decide what an
+            # attestation is allowed to mean.
+            "credential": settings.world_credential,
+            "allowLegacyProofs": settings.world_allow_legacy_proofs,
             "environment": settings.world_environment,
             # The UI must say so loudly: a staging proof carries no real-world
             # assurance and must never be presentable as though it did.
@@ -305,7 +310,9 @@ async def submit_proof(request: Request, session_id: str) -> JSONResponse:
         "human_verified": True,
         "user_present": verified.user_presence,
         f"minimum_age>={runtime.settings.world_minimum_age}": verified.identity_attested,
-        "document_backed": verified.identity_attested,
+        # True via either route: an IdentityCheck attestation, or a proof issued
+        # against a passport/MNC credential. The second discloses nothing at all.
+        "document_backed": verified.identity_attested or verified.document_backed,
     }
     attested_at = now_iso()
     try:

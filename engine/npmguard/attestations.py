@@ -182,6 +182,12 @@ class VerifiedAttestation:
     user_presence: bool
     environment: str
     action: str
+    # Issued against a passport/MNC credential — document assurance without any
+    # identity attribute being requested or disclosed.
+    document_backed: bool = False
+    # "4.0", or "3.0" when a legacy proof was allowed. Recorded so a consumer can
+    # tell a legacy attestation from a current one rather than having to assume.
+    protocol_version: str = "4.0"
 
 
 def _response_items(payload: Any) -> list[dict[str, Any]]:
@@ -238,8 +244,29 @@ def _reject_reason(payload: dict[str, Any], *, sent: dict[str, Any]) -> str:
     return f"World rejected the proof: {code}" + (f" — {'; '.join(map(str, parts))}" if parts else "")
 
 
+# World's credential issuer schema ids, from the `ResponseItemV4.issuer_schema_id`
+# doc comment in idkit-core@4.2.2. The two document issuers are what make a
+# credential document-backed.
+SCHEMA_PROOF_OF_HUMAN = 1
+SCHEMA_SELFIE = 11
+SCHEMA_PASSPORT = 9303
+SCHEMA_MNC = 9310
+DOCUMENT_SCHEMAS = frozenset({SCHEMA_PASSPORT, SCHEMA_MNC})
+
+
+def _document_backed(payload: dict[str, Any]) -> bool:
+    """True when the proof was issued against a document credential.
+
+    Read from `issuer_schema_id` on the response items — a property of the
+    credential that produced the proof, not a claim anyone made about it. This is
+    also why the document tier needs no identity attributes at all: the schema id
+    says a passport backed this proof without disclosing one field of it.
+    """
+    return any(item.get("issuer_schema_id") in DOCUMENT_SCHEMAS for item in _response_items(payload))
+
+
 def assign_tier(
-    *, identity_attested: bool, has_jurisdiction: bool = False
+    *, identity_attested: bool, document_backed: bool = False, has_jurisdiction: bool = False
 ) -> Tier:
     """Grade what was actually proven.
 
@@ -247,8 +274,12 @@ def assign_tier(
     failure. Proof of human bound to the artifact is the security-critical
     claim and stands on its own; the document tier is presentational assurance
     layered on top.
+
+    Either route reaches tier 2 — an IdentityCheck attestation, or a proof issued
+    against a document credential — because they establish the same thing, and
+    the second establishes it while disclosing strictly less.
     """
-    if not identity_attested:
+    if not (identity_attested or document_backed):
         return TIER_HUMAN
     return TIER_JURISDICTION if has_jurisdiction else TIER_IDENTITY
 
@@ -325,10 +356,20 @@ class WorldVerifier:
         identity_attested = bool(
             payload.get("identity_attested") or proof_payload.get("identity_attested")
         )
+        # The issuer schema lives on the response items, which World echoes in
+        # whichever half of the exchange carries them.
+        document_backed = _document_backed(payload) or _document_backed(proof_payload)
+        protocol = str(
+            payload.get("protocol_version") or proof_payload.get("protocol_version") or "4.0"
+        )
         return VerifiedAttestation(
             nullifier=nullifier,
-            tier=assign_tier(identity_attested=identity_attested),
+            tier=assign_tier(
+                identity_attested=identity_attested, document_backed=document_backed
+            ),
             identity_attested=identity_attested,
+            document_backed=document_backed,
+            protocol_version=protocol,
             user_presence=presence,
             environment=str(payload.get("environment") or settings.world_environment),
             action=settings.world_action,

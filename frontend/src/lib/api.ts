@@ -125,6 +125,11 @@ export interface AttestRequestConfig {
   ttlSeconds: number;
   action: string;
   signal: string;
+  /** Which World credential to request. The engine decides — all three bind the
+   * signal, so they differ in what the credential says, not in the binding. */
+  credential: "proof_of_human" | "passport" | "mnc";
+  /** Whether a legacy (v3) proof may answer. Engine's call, never the browser's. */
+  allowLegacyProofs: boolean;
   environment: string;
   /** False for staging/sandbox — the UI MUST say so. */
   isProduction: boolean;

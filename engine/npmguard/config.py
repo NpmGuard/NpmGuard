@@ -117,6 +117,18 @@ class Settings(KitSettings):
     # every publisher gets a new pseudonym, which silently resets every
     # continuity streak — the one thing this feature exists to measure.
     world_action: str = "attest-npm-release"
+    # Which credential a publisher proves with. All three bind a `signal`, so the
+    # artifact binding — the security-critical part — is identical across them;
+    # they differ only in what the credential says about the human behind it.
+    # `proof_of_human` is the Orb credential and the right default for npm. The
+    # document credentials exist because a World ID that holds one may hold no
+    # Orb credential at all, which is a `credential_unavailable` and not a
+    # recoverable one: the publisher cannot acquire an Orb on the spot.
+    world_credential: Literal["proof_of_human", "passport", "mnc"] = "proof_of_human"
+    # Legacy (v3) proofs predate the v4 credential model. Off by default: an
+    # attestation must not quietly mean something weaker than it did yesterday.
+    # When on, the protocol version is recorded so a consumer can tell.
+    world_allow_legacy_proofs: bool = False
     world_environment: Literal["production", "staging", "sandbox"] = "staging"
     world_api_base: str | None = None  # TEST-ONLY: point the verifier at a stub
     # Minimum age asserted at enrolment. Requested as an Identity Check
