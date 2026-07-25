@@ -33,6 +33,7 @@
 #       by then, so it is fully covered under a budget of 0
 #   C15 max_new_audits=None (every billed origin) never trims
 from collections.abc import Sequence
+from typing import cast
 
 import pytest
 import sqlalchemy as sa
@@ -49,10 +50,12 @@ from npmguard.panel.audit_set import (
     AuditSetSpec,
     build_store,
 )
-from npmguard.panel.jobs import PanelJobQueue
 from npmguard.panel.lockfile import LockfileDep
 from npmguard.panel.public_limits import PublicScanLimits, TooManyLiveScansError
 from npmguard.panel.verdict_index import VerdictIndex
+from npmguard.persistence import AuditSessionStore, audit_sessions
+from npmguard.pipeline import AuditPipeline
+from npmguard.service import AuditService
 
 # Import so metadata.create_all sees the panel tables.
 _ = tables
@@ -89,6 +92,13 @@ async def db(tmp_path):
     await engine.dispose()
 
 
+class _StubPipeline:
+    """Never runs: no worker pool is started in these classes."""
+
+    async def run(self, package_name, *, audit_id, version, emitter):  # pragma: no cover
+        raise AssertionError("the pipeline must not run here")
+
+
 @pytest.fixture
 async def store(db):
     notifier = PollingNotifier(poll_interval=0.01)
@@ -96,7 +106,11 @@ async def store(db):
     yield build_store(
         db,
         VerdictIndex(db),
-        PanelJobQueue(db),
+        AuditService(
+            cast(AuditPipeline, _StubPipeline()),
+            AuditSessionStore(db),
+            StreamService(db, notifier),
+        ),
         StreamService(db, notifier),
         notifier,
     ), db
@@ -278,7 +292,7 @@ async def test_zero_budget_covers_the_cache_and_buys_nothing(store) -> None:
     )
     assert await _items(factory, set_id) == {"known": True}
     async with factory() as session:
-        jobs = (await session.execute(sa.select(tables.panel_jobs))).mappings().all()
+        jobs = (await session.execute(sa.select(audit_sessions))).mappings().all()
     assert jobs == []
 
 

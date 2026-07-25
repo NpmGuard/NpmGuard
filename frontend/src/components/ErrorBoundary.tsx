@@ -5,6 +5,7 @@
  * unmounts the whole tree).
  */
 
+import { DegradedSurface } from "./ui/degraded-state.tsx";
 import { Component, type ReactNode } from "react";
 
 interface ErrorBoundaryProps {
@@ -25,22 +26,26 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   override render() {
     if (this.state.error) {
       return (
-        <div className="empty-state" role="alert" style={{ minHeight: "60vh" }}>
-          <div className="empty-state__icon" aria-hidden="true">
-            !
-          </div>
-          <p className="headline headline--sm">Something broke while rendering</p>
-          <p className="subtext">{this.state.error.message}</p>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              this.setState({ error: null });
-              window.location.assign("/");
+        // A crash is a DEGRADED state, not an empty one — the old markup was
+        // `.empty-state`, i.e. the treatment that means "we looked and there was
+        // nothing here". `DegradedSurface` names what failed, wears the `error`
+        // violet rather than danger red (§0 rule 3: this is our plumbing, not a
+        // claim about a package), and offers a way out.
+        //
+        // Deliberately NOT a `PanelPage`: this boundary mounts outside both
+        // providers, so it must not depend on anything a provider supplies.
+        <div className="ng-root mx-auto w-full max-w-[1160px] px-4 py-16">
+          <DegradedSurface
+            failure={{
+              what: "This page",
+              detail: this.state.error.message,
+              retry: () => {
+                this.setState({ error: null });
+                window.location.assign("/");
+              },
             }}
-          >
-            Back to safety
-          </button>
+            escape={{ label: "Back to home", href: "/" }}
+          />
         </div>
       );
     }

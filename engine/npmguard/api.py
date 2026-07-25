@@ -63,7 +63,6 @@ from .panel.caps import CapsStore
 from .panel.github.checks import check_conclusion, check_summary, conclude_check_run
 from .panel.github.client import GitHubAppClient
 from .panel.github.content import fetch_lockfile, fetch_manifest
-from .panel.jobs import PanelJobQueue, PanelWorkerPool
 from .panel.lockfile import manifest_ranges, parse_lockfile
 from .panel.public_limits import PublicScanLimits
 from .panel.routes.auth import router as panel_auth_router
@@ -74,6 +73,7 @@ from .panel.routes.public_repos import router as panel_public_repos_router
 from .panel.scan.public_repo_scan import PublicRepoScanEngine
 from .panel.scan.repo_scan import LockfileNotFoundError, ParsedRepoDeps, RepoScanEngine
 from .panel.sessions import PanelSessionStore
+from .panel.settle import build_settle_hook
 from .panel.stores import GhUserStore, InstallationStore, RepoStore
 from .panel.tables import audit_sets
 from .panel.tables import repos as repo_table
@@ -150,14 +150,12 @@ class PanelRuntime(Runtime):
     panel_repos: RepoStore
     panel_caps: CapsStore
     panel_verdicts: VerdictIndex
-    panel_queue: PanelJobQueue
     # The ONE audit-set entity (R-1): creation, progress, rollup, and the SSE
     # stream every origin shares.
     panel_sets: AuditSetStore
     panel_scan: RepoScanEngine
     panel_public_scan: PublicRepoScanEngine
     panel_billing: BillingStore
-    panel_workers: PanelWorkerPool
 
 
 def _runtime(request: Request) -> Runtime:
@@ -856,7 +854,6 @@ async def lifespan(app: FastAPI):
         queue_size=settings.queue_size,
         max_concurrent=settings.max_running_sessions,
     )
-    await audits.start()
     # Panel wiring: build the GitHub App client + panel stores only when the App
     # is configured. Without it every panel route 503s and none of this exists,
     # so the engine boots and behaves exactly as it does without the panel.
@@ -878,7 +875,6 @@ async def lifespan(app: FastAPI):
         panel_repos = RepoStore(sessions_factory)
         panel_caps = CapsStore(sessions_factory, settings)
         panel_verdicts = VerdictIndex(sessions_factory)
-        panel_queue = PanelJobQueue(sessions_factory)
 
         # Conclude a set's GitHub check-run once the set finalizes. The mapping is
         # check_conclusion over the ROLLUP (fail only on DANGEROUS, neutral on
@@ -920,7 +916,7 @@ async def lifespan(app: FastAPI):
         panel_sets = build_store(
             sessions_factory,
             panel_verdicts,
-            panel_queue,
+            audits,
             stream,
             notifier,
             finalize_check=finalize_check,
@@ -952,34 +948,30 @@ async def lifespan(app: FastAPI):
                 sessions_factory, name, version, origin=origin, settings=settings
             )
 
-        # The panel scan-engine funnels cache-misses into the SAME AuditService
-        # (the single owner of the Docker cap), never a second executor; the
-        # worker awaits admit's future then indexes the saved verdict. A settle
-        # nudges every LIVE set covering the pair, whatever its origin — one hook,
-        # not one per kind of scan.
-        panel_workers = PanelWorkerPool(
-            panel_queue,
-            audits,
-            panel_verdicts,
-            count=settings.scan_concurrency,
-            load_report=load_report,
-            on_sets_touched=panel_sets.refresh_touching,
-            on_dangerous=on_dangerous,
+        # The panel's aftermath, fired once per audit that reaches a terminal state
+        # on a cache-filling lane: index the verdict, alert on DANGEROUS, advance
+        # every live set covering the pair. One hook where a whole worker pool used
+        # to await futures for audits it had itself admitted.
+        audits.bind_settle_hook(
+            build_settle_hook(
+                panel_verdicts,
+                panel_sets,
+                on_dangerous=on_dangerous,
+                load_report=load_report,
+            )
         )
         rebuilt = await panel_verdicts.rebuild(_saved_reports)
-        requeued = await panel_queue.reset_stale()
         # Sets left live by a crashed process are finalized honestly here, BEFORE
-        # the workers start: without it a set whose jobs never existed stays
+        # the pool starts: without it a set whose work never existed stays
         # `running` forever, its check run never concludes, and its stream never
         # terminates.
         swept = await panel_sets.refresh_live()
-        panel_workers.start()
 
         # Registry-watch + reconcile background loops. Both self-schedule with a
         # short first-run delay so boot isn't blocked; interval from
         # settings.watch_interval_min (reconcile stays on its daily default).
         watch_interval_seconds = settings.watch_interval_min * 60
-        watcher = RegistryWatcher(sessions_factory, panel_queue, panel_verdicts)
+        watcher = RegistryWatcher(sessions_factory, audits, panel_verdicts)
         panel_watch_task = asyncio.create_task(
             watcher.run_forever(watch_interval_seconds),
             name="npmguard-panel-registry-watch",
@@ -998,7 +990,6 @@ async def lifespan(app: FastAPI):
         log.info(
             "panel enabled: GitHub App configured",
             verdicts_rebuilt=rebuilt,
-            jobs_requeued=requeued,
             live_sets_swept=swept,
             scan_concurrency=settings.scan_concurrency,
             watch_interval_min=settings.watch_interval_min,
@@ -1019,15 +1010,16 @@ async def lifespan(app: FastAPI):
             panel_repos=panel_repos,
             panel_caps=panel_caps,
             panel_verdicts=panel_verdicts,
-            panel_queue=panel_queue,
             panel_sets=panel_sets,
             panel_scan=panel_scan,
             panel_public_scan=panel_public_scan,
             panel_billing=panel_billing,
-            panel_workers=panel_workers,
             panel_watch_task=panel_watch_task,
             panel_reconcile_task=panel_reconcile_task,
         )
+    # LAST, so every settle consumer is bound before a worker can claim: start()
+    # also runs restart recovery, which settles interrupted rows immediately.
+    await audits.start()
     app.state.runtime = runtime
     try:
         yield
@@ -1042,8 +1034,6 @@ async def lifespan(app: FastAPI):
             if task is not None:
                 with suppress(asyncio.CancelledError):
                     await task
-        if isinstance(runtime, PanelRuntime):
-            await runtime.panel_workers.close()
         await audits.close(settings.shutdown_deadline_seconds)
         await llm.aclose()
         await notifier.close()

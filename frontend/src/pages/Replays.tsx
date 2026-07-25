@@ -19,7 +19,7 @@
 import type { ReplayEntry } from "@npmguard/shared";
 import { History } from "lucide-react";
 import { Link } from "react-router";
-import { OutcomePill } from "../components/panel/tone.tsx";
+import { VerdictStamp } from "../components/ui/verdict-stamp.tsx";
 import { PanelPage, SectionLabel } from "../components/panel/layout.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { DataRegion } from "../components/ui/data-region.tsx";
@@ -100,7 +100,7 @@ export function Replays() {
 
 /** One finished audit.
  *
- * `OutcomePill` renders the verdict even though its declared domain is the panel
+ * `VerdictStamp` renders the verdict even though its declared domain is the panel
  * `Outcome`: SAFE|DANGEROUS is a subset of it, and this page can never produce
  * ERROR because an audit that could not conclude has no report and is not listed.
  * Reaching for the panel's stamp rather than writing a second one is deliberate —
@@ -127,7 +127,7 @@ function ReplayRow({ entry }: { entry: ReplayEntry }) {
         {entry.version ?? <span className="text-text-3">unversioned</span>}
       </TableCell>
       <TableCell>
-        <OutcomePill outcome={entry.verdict} />
+        <VerdictStamp outcome={entry.verdict} />
       </TableCell>
       <TableCell className="font-mono tabular-nums text-text-2">
         {formatDuration(entry.durationMs)}

@@ -158,7 +158,7 @@ class BenchRunStore:
         No ``audit_set_items`` rows are written, and that is a decision rather
         than an omission. The panel's progress machinery reaches every live set by
         ``audit_set_items`` (``refresh_touching``) and recomputes it from
-        ``panel_jobs`` liveness, which a bench audit — submitted through the audit
+        panel-lane liveness, which a bench audit — submitted through the audit
         core's own admission path, not the panel lane — never has. Items would
         therefore make a concurrent panel settle finalize a running bench set. The
         bench origin owns its own item source instead, lifting observations
