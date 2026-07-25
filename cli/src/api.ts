@@ -15,10 +15,28 @@ export interface StartAuditResponse {
   packageName: string;
 }
 
+export type Verdict = "SAFE" | "DANGEROUS";
+
+const VERDICTS: readonly string[] = ["SAFE", "DANGEROUS"];
+
+/**
+ * Narrow a verdict off the wire, or `null` if it is not one the engine can reach.
+ *
+ * The domain is closed: an audit concludes SAFE or DANGEROUS, and an audit that
+ * cannot conclude is an `audit_error`, never a third verdict. So `null` here is a
+ * protocol violation — a stale server, a proxy rewriting the body — and every
+ * caller must surface it as one. It is NOT a soft "we're not sure": inventing a
+ * middle state is how "we couldn't check" gets rendered as a hedge instead of a
+ * failure.
+ */
+export function asVerdict(value: unknown): Verdict | null {
+  const upper = typeof value === "string" ? value.toUpperCase() : "";
+  return VERDICTS.includes(upper) ? (upper as Verdict) : null;
+}
+
 export interface PackageReport {
   packageName: string;
   version: string;
-  // 4-state graph verdict: SAFE | SUSPECT | DANGEROUS | UNKNOWN. Only DANGEROUS blocks.
   verdict: string;
   rationale?: string;
   counts?: Record<string, number>;

@@ -1,58 +1,29 @@
 """constrain package_verdicts.verdict to the audit-core domain (SAFE|DANGEROUS)
 
-Adds ``CHECK (verdict IN ('SAFE', 'DANGEROUS'))`` to the ONE column in this schema
-a producer outside this codebase can reach, and deletes the rows that violate it.
+Adds ``CHECK (verdict IN ('SAFE', 'DANGEROUS'))`` and deletes the rows that violate
+it.
 
 WHY A CONSTRAINT AND NOT AN ASSERT
 ----------------------------------
 The verdict collapse (``d1c4cd7``) licensed every one of its deletions under N-4
 rule 3 ("delete-iff-asserted") on the strength of bare ``assert`` statements. Under
 ``python -O`` those vanish: ``item_outcome('UNKNOWN', pending=False)`` then returns
-``'UNKNOWN'``, the retired 4-state domain flows again, and the deleted branches are
-gone — the enforcement was CONDITIONALLY COMPILED, in exactly the configuration a
-production deploy may use. A DB ``CHECK`` cannot be compiled away, and it holds for
-a producer that never runs this Python at all.
-
-THAT PRODUCER IS REAL, WHICH IS WHY THIS COLUMN AND NO OTHER
-------------------------------------------------------------
-``d1c4cd7``'s message claims "SUSPECT had zero producers anywhere." That is false.
-At ``origin/main``'s tip:
-
-  engine/src/proof-quality.ts   assessAuditReport() returns
-                                `classification: "SUSPECT"` on its middle branch
-                                (>=1 accepted finding, no admitted reproducer)
-  engine/src/verdict-index.ts   installReportHook() -> upsertVerdict(name, version,
-                                assessment.classification, ...) — UNFILTERED
-  engine/src/verdict-index.ts   SEVERITY is a 4-state map, UNKNOWN the default rank
-  engine/migrations/001_init.sql
-                                package_verdicts(name, version, verdict TEXT NOT
-                                NULL, ...) PRIMARY KEY(name, version) — the SAME
-                                table, column and key as 0005 created, no CHECK
-
-The two lineages are separated by the DB *filename* (`data/npmguard.db` via
-NPMGUARD_DB_PATH vs `data/npmguard.sqlite3` via NPMGUARD_DATABASE_URL) — not by
-anything structural — while sharing `data/reports/` byte-for-byte. The audited
-checkout's own reports directory contains a TS-authored file
-(`event-stream/4.0.1.json`, carrying `capabilities`/`runtimeEvidence` and no
-`schemaVersion`), so the shared path is a fact here and now, not a hypothetical.
+``'UNKNOWN'``, the wider domain flows again, and the deleted branches are gone — the
+enforcement was CONDITIONALLY COMPILED, in exactly the configuration a production
+deploy may use. A DB ``CHECK`` cannot be compiled away.
 
 THE OTHER ENUM COLUMNS DELIBERATELY GET NO CONSTRAINT
 -----------------------------------------------------
 `audit_sets.origin` / `trigger_kind`, `alerts.outcome` / `origin`,
 `panel_jobs.state` / `origin` all hold domain enums and are all left unconstrained,
-because both halves of the argument above fail for them:
-
-  - No second producer. R-1 (0006) dropped `scans` / `public_repo_scans` and
-    created `audit_sets`, a table no other lineage has ever declared. A foreign
-    writer reaches these columns only by first creating the table.
-  - The domains are OPEN by design, and a CHECK on an open domain is a liability.
-    `audit_set.py` lists `dep_tree` and `bench_run` as "designed-for, not built …
-    so adding either costs an item-discovery function and NO schema or wire
-    change" — a CHECK converts that into "a function AND a migration".
-    `alerts.outcome` is `Literal['DANGEROUS']` today and §4.4 argues at length
-    that ERROR is "a fact worth showing", so an ERROR alert is a plausible next
-    value; and `alerts` is notification HISTORY, not a derived index, so a
-    constraint violation there would not be recoverable by a rebuild.
+because their domains are OPEN by design, and a CHECK on an open domain is a
+liability. `audit_set.py` lists `dep_tree` and `bench_run` as "designed-for, not
+built … so adding either costs an item-discovery function and NO schema or wire
+change" — a CHECK converts that into "a function AND a migration".
+`alerts.outcome` is `Literal['DANGEROUS']` today and §4.4 argues at length that
+ERROR is "a fact worth showing", so an ERROR alert is a plausible next value; and
+`alerts` is notification HISTORY, not a derived index, so a constraint violation
+there would not be recoverable by a rebuild.
 
 Those columns are guarded instead by boundary checks written as `raise
 AssertionError` rather than `assert`, so `-O` cannot remove them either
@@ -67,7 +38,7 @@ logged, and this docstring is the record):
 
   - such a row is corruption relative to the domain either way: `item_outcome`
     raises on it, which is a 500 on a user's dashboard on every read, forever;
-  - `verdict_index.rebuild` only `continue`s past a foreign report and never
+  - `verdict_index.rebuild` only `continue`s past an unreadable report and never
     DELETEs, so the row is neither removed nor overwritten by any boot — this
     migration is the only thing that removes it, and the CHECK is what stops it
     coming back;

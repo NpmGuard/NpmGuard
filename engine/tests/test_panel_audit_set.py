@@ -171,7 +171,7 @@ def test_rollup_wire_shape() -> None:
 
 
 def test_rollup_rejects_foreign_outcome() -> None:
-    """C12: a value outside the 3-state domain (a legacy SUSPECT/UNKNOWN row
+    """C12: a value outside the 3-state domain (a corrupt row
     reaching the rollup) fails loud rather than being counted.
 
     The enforcement is ``outcome_severity``'s total mapping, and the ``KeyError``

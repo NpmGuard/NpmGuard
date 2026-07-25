@@ -2,6 +2,9 @@
 
 _Status: proposed · 2026-07-10 · brainstormed + approved · builds on 2026-07-08-evidence-timeline-judge_
 
+> **Landed.** The `engine/src/**.ts` paths below are dead; this design lives in
+> `engine/npmguard/`. Read it as the record of a decision, not a map of the code.
+
 Rewrite the detection front-end so the LLM does the understanding and the code holds invariants — no
 hand-coded taxonomy, per-category strategy tables, static clearing, or coverage-gap verdicts. Same job,
 far simpler system.

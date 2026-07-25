@@ -225,14 +225,7 @@ audit_set_items = sa.Table(
 # Derived, rebuildable index of data/reports/.
 #
 # INVARIANT: `verdict` is exactly 'SAFE' or 'DANGEROUS', enforced by a DB CHECK
-# (alembic 0007) and not only by the writer's guard. This is the ONE column in the
-# schema that a producer outside this codebase can reach: the TS lineage at
-# origin/main declares `package_verdicts(name, version, verdict, ...)` with the
-# same name, columns and primary key, and its `upsertVerdict` writes an
-# unfiltered 4-state `assessAuditReport().classification` — so 'SUSPECT' has a
-# live writer there. The two lineages are separated only by the DB *filename*
-# (`data/npmguard.db` vs `data/npmguard.sqlite3`) while sharing `data/reports/`
-# byte-for-byte, which is a weaker guarantee than a constraint.
+# (alembic 0007) and not only by the writer's guard.
 #
 # A CHECK is the right tool HERE and nowhere else in this schema for two reasons
 # the other enum columns do not share: the domain is closed by design (§4.4 — the

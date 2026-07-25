@@ -1,4 +1,4 @@
-"""Durable panel audit-job queue + worker pool (port of TS ``jobs/{queue,workers}``).
+"""Durable panel audit-job queue + worker pool.
 
 The ``panel_jobs`` table is the panel's **outer, durable, unbounded** audit
 queue. A partial-unique index (``ix_panel_jobs_active_pkg``) guarantees at most

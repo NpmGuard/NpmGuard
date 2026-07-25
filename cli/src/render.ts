@@ -1,7 +1,8 @@
 import chalk from "chalk";
+import type { Verdict } from "./api.js";
 
-/** Per-state tally carried on the 4-state verdict. All fields optional so the
- *  renderer is tolerant of partial payloads. */
+/** Per-state hypothesis tally carried alongside the verdict. All fields optional
+ *  so the renderer is tolerant of partial payloads. */
 export interface VerdictCounts {
   total?: number;
   open?: number;
@@ -21,37 +22,20 @@ export interface ResolvedHypothesis {
   reason?: string;
 }
 
-/**
- * Render the 4-state verdict. Only DANGEROUS is a block; SUSPECT and UNKNOWN
- * inform. UNKNOWN is called out loudly — "couldn't analyze" must never read as
- * a quiet pass.
- */
 export function renderVerdict(
-  verdict: string,
+  verdict: Verdict,
   rationale = "",
   counts?: VerdictCounts,
 ): void {
-  const v = verdict.toUpperCase();
-  const bg =
-    v === "SAFE"
-      ? chalk.bgGreen.white.bold
-      : v === "DANGEROUS"
-        ? chalk.bgRed.white.bold
-        : chalk.bgYellow.black.bold;
-  const fg = v === "SAFE" ? chalk.green : v === "DANGEROUS" ? chalk.red : chalk.yellow;
+  const safe = verdict === "SAFE";
+  const bg = safe ? chalk.bgGreen.white.bold : chalk.bgRed.white.bold;
+  const fg = safe ? chalk.green : chalk.red;
 
   console.log();
-  console.log(bg(`  ${v}  `));
+  console.log(bg(`  ${verdict}  `));
   console.log();
 
   if (rationale) console.log(fg(rationale));
-  if (v === "UNKNOWN") {
-    console.log(
-      chalk.yellow(
-        "Coverage gap — parts of this package could not be analyzed. This is NOT a clean pass.",
-      ),
-    );
-  }
 
   if (counts) {
     const parts: string[] = [];
@@ -63,6 +47,23 @@ export function renderVerdict(
     if (counts.deferred) parts.push(`${counts.deferred} deferred`);
     if (parts.length) console.log(chalk.gray(`Hypotheses: ${parts.join(", ")}`));
   }
+  console.log();
+}
+
+/**
+ * The engine sent something that is not a verdict. Reported as the protocol
+ * failure it is, never as a hedged result — the caller exits non-zero and does
+ * not install.
+ */
+export function renderUnusableVerdict(raw: unknown): void {
+  console.log();
+  console.log(chalk.bgRed.white.bold("  UNUSABLE RESPONSE  "));
+  console.log(
+    chalk.red(
+      `The engine reported a verdict of ${JSON.stringify(raw)}, which is not one it can produce.` +
+        " Nothing was installed. Check that the CLI and the engine are the same version.",
+    ),
+  );
   console.log();
 }
 

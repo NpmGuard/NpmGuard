@@ -1,4 +1,4 @@
-"""GitHub App webhooks (port of TS ``routes/gh-webhooks.ts``).
+"""GitHub App webhooks.
 
 The delivery is HMAC-verified against the **raw** request body (read before any
 parsing), then the handler responds ``202`` fast and does the work in an
@@ -10,9 +10,9 @@ Events handled:
 - ``installation`` — ``deleted`` cascade-deletes the installation's repos (via
   the ``installations`` FK cascade) and re-syncs the watch list; ``created``
   upserts the installation + any repositories in the payload; other actions
-  (suspend/unsuspend/permissions) just upsert the installation. (TS cancels the
-  Stripe subscription first; that is deferred to the billing stage — here we
-  cascade-delete and log.)
+  (suspend/unsuspend/permissions) just upsert the installation. Cancelling the
+  Stripe subscription on delete is deferred to the billing stage — here we
+  cascade-delete and log.
 - ``installation_repositories`` — ``added`` upserts, ``removed`` deletes + re-
   syncs the watch list.
 - ``push`` — a root lockfile / ``package.json`` change invalidates the cached

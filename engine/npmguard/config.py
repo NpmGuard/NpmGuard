@@ -53,9 +53,8 @@ def _named_by_variable(exc: ValidationError) -> str:
 # why the surface carries no exemption list. Inherited `KitSettings` fields are
 # Kit's surface, not this one's.
 #
-# Eight knobs were deleted rather than wired, none of which ever had a reader in
-# this engine or in the TypeScript engine it was ported from (so the port
-# carried the shape, not any behaviour): `triage_max_files`, `max_agent_turns`,
+# Eight knobs were deleted rather than wired, none of which ever had a reader:
+# `triage_max_files`, `max_agent_turns`,
 # `investigation_enabled`, `test_gen_model`, `test_gen_mode`,
 # `max_findings_to_prove`, `verify_timeout_sec`, `max_docker_exec_timeout_sec`.
 # Two of them named bounds the code contradicts — `max_docker_exec_timeout_sec`

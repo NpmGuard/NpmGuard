@@ -2,6 +2,9 @@
 
 _Status: proposed · 2026-07-08 · engine v2 · branch `engine-v2-cutover`_
 
+> **Landed.** The `engine/src/**.ts` paths below are dead; this design lives in
+> `engine/npmguard/`. Read it as the record of a decision, not a map of the code.
+
 This is a **from-scratch rewrite of the evidence layer** to be basic, clean, and working — the
 foundation we finetune later. It builds exactly the six steps of the reimagined pipeline and adds
 nothing else. No capability matching, no action taxonomy, no category gates, no preflight checks.

@@ -1,7 +1,7 @@
 """package-lock.json v2/v3 parser.
 
 Walks the ``packages`` map. v1 (npm < 7) has no ``packages`` key and is
-rejected with a regenerate hint. A port of TS ``lockfile/npm.ts``.
+rejected with a regenerate hint.
 """
 
 from __future__ import annotations

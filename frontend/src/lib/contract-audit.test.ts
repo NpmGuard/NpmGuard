@@ -189,7 +189,7 @@ describe("audit wire contract — C4 wire nullability", () => {
 });
 
 describe("audit wire contract — C5 unrepresentable states", () => {
-  it("C5: the retired SUSPECT / UNKNOWN verdicts cannot be expressed on a report", () => {
+  it("C5: SUSPECT / UNKNOWN verdicts cannot be expressed on a report", () => {
     const report = {
       schemaVersion: 2,
       verdict: "SAFE",

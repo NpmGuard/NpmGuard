@@ -1,7 +1,6 @@
 """Panel core routes: the user's orgs (installations) and repos.
 
-A port of the TS engine's ``routes/panel.ts`` orgs/repos handlers. Both are
-session-gated and scoped to the GitHub App installations the user can access
+The orgs/repos handlers. Both are session-gated and scoped to the GitHub App installations the user can access
 (the org-shared view). The ``user_installations`` cache is (re)built on
 ``/panel/orgs`` and read by ``/panel/repos``.
 
@@ -293,7 +292,7 @@ async def panel_repos(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# Scan / repo-detail / scan-progress SSE (port of TS routes/panel.ts)
+# Scan / repo-detail / scan-progress SSE
 # ---------------------------------------------------------------------------
 
 

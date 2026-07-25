@@ -2,6 +2,9 @@
 
 _Status: approved · 2026-07-11 · brainstormed + approved · builds on 2026-07-10-triage-hypothesis-redesign_
 
+> **Landed.** The `engine/src/**.ts` paths below are dead; this design lives in
+> `engine/npmguard/`. Read it as the record of a decision, not a map of the code.
+
 Fix the HYPOTHESIZE experiment-generation bottleneck: the model composes the whole hypothesis in **one
 shot** against a schema that is **typed all the way down** (no unconstrained `args` hole), delivered via a
 **single forced tool call** so the backend actually honors it. This removes both the original freeform-args

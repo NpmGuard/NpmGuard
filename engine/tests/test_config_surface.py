@@ -69,18 +69,6 @@ ENV_VARIABLE = re.compile(rf"{re.escape(ENV_PREFIX)}[A-Z0-9_]+")
 # re-point). An entry here is a licence to crash mid-audit on a typo; the honest move
 # when one is tempting is to land the reader, not to grow the list.
 UNDECLARED_READS: dict[str, str] = {}
-RETIRED_KNOBS = (
-    "triage_max_files",
-    "max_agent_turns",
-    "investigation_enabled",
-    "test_gen_model",
-    "test_gen_mode",
-    "max_findings_to_prove",
-    "verify_timeout_sec",
-    "max_docker_exec_timeout_sec",
-)
-
-
 def _own_fields() -> list[str]:
     inherited = set(KitSettings.model_fields)
     return [name for name in Settings.model_fields if name not in inherited]

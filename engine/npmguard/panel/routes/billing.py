@@ -1,6 +1,6 @@
 """Billing routes: Pro subscription checkout + portal + entitlements view.
 
-Port of the TS ``routes/billing.ts``. Wire shapes are §1d of the port plan:
+Wire shapes:
 
 - ``GET  /panel/billing``          → 200 ``BillingResponse`` (accounts / plans /
   ``checkoutEnabled`` / ``price``). 401 not-signed-in. 503 App-disabled.
