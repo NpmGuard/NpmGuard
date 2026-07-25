@@ -12,6 +12,8 @@ from uuid import uuid4
 from .config import Settings
 from .contract.models import Budget, ObserveFlags, RunArtifact, RunError, ToolCall, Trigger
 from .docker import (
+    TMPFS_TMP,
+    DockerOutputTooLargeError,
     TmpfsMount,
     VolumeMount,
     default_container_spec,
@@ -84,6 +86,30 @@ def is_unresolved_module(error: RunError | None) -> bool:
     )
 
 
+# The one RunError kind the orchestrator will REFUTE on: SetupError, SensorError
+# and TimeoutError all route to DEFERRED (orchestrator.py, the error_kind check).
+# So it is the only kind a coverage gap has to displace.
+_REFUTABLE_ERROR_KIND = "CrashError"
+
+
+def coverage_gap(previous: RunError | None, detail: str) -> RunError:
+    """The error a run carries once a sensor's evidence could not be retrieved WHOLE.
+
+    Error latching keeps the FIRST cause, because the first thing that went wrong is
+    what the artifact should name. But `kind` is not only a diagnosis — it is what
+    bars REFUTED — so a CrashError latched before the pcap transfer failed would let
+    a judge refute on a timeline that is missing evidence nobody knows was lost,
+    which is a coverage gap laundered into SAFE. A gap therefore displaces a
+    refutable kind and folds the earlier cause into the detail, so both survive in
+    cause order; against a kind that already defers it changes nothing.
+    """
+    if previous is None:
+        return RunError(kind="SensorError", detail=detail)
+    if previous.kind != _REFUTABLE_ERROR_KIND:
+        return previous
+    return RunError(kind="SensorError", detail=f"{previous.detail}; then {detail}")
+
+
 async def dry_run_load(
     package_path: Path, experiment: list[ToolCall], settings: Settings
 ) -> RunError | None:
@@ -139,7 +165,7 @@ async def run_under_observation(
         settings,
         volumes=[VolumeMount(str(package_path), "/pkg-src", True)],
         tmpfs=[
-            TmpfsMount("/tmp", "rw,noexec,nosuid,size=64m"),
+            TMPFS_TMP,
             TmpfsMount("/pkg", "rw,size=256m,uid=1000,gid=1000,mode=0755"),
             TmpfsMount("/home/node", "rw,size=64m,uid=1000,gid=1000,mode=0755"),
         ],
@@ -258,44 +284,81 @@ async def run_under_observation(
                     else None
                 )
                 exec_args = ["exec", *(["-i"] if stdin_bytes is not None else []), container, *wrapped]
-                result = await docker_exec(exec_args, int(limits.wallMs), stdin=stdin_bytes)
-                exit_code, timed_out = result.exit_code, result.timed_out
-                stdout_hash = sha256_hex(result.stdout) if result.stdout else None
-                stderr_hash = sha256_hex(result.stderr) if result.stderr else None
-                if timed_out:
-                    error = RunError(
-                        kind="TimeoutError",
-                        detail=f"wall-clock budget ({limits.wallMs}ms) exceeded; container killed",
-                    )
-                    events.append(
-                        synthetic_event(
-                            "truncated", f"wall-clock budget ({limits.wallMs}ms) exceeded"
-                        )
-                    )
-                elif exit_code != 0:
-                    error = RunError(
-                        kind="CrashError",
-                        detail=f"node exited {exit_code}; stderr: {result.stderr[:500]}",
-                    )
-                if observed.node:
-                    l4 = parse_l4_trace(result.stdout)
-                    if l4 is None and error is None:
+                try:
+                    result = await docker_exec(exec_args, int(limits.wallMs), stdin=stdin_bytes)
+                except DockerOutputTooLargeError as exc:
+                    # The trigger wrote more than one transfer can carry (`error` is
+                    # still None here — nothing else has run). Its stdout is BOTH the
+                    # L4 trace and a hashed capture, so a prefix would seal stdoutHash
+                    # over a fragment of the run and hand the judge a trace that just
+                    # stops. No hash is computed, the gap is named in the timeline, and
+                    # SensorError routes to DEFER.
+                    #
+                    # L1 is deliberately not read after this: abandoning the transfer
+                    # kills the local docker client, not the traced process inside the
+                    # container, so /tmp/strace.log is still being written and anything
+                    # read from it is torn. The pcap below IS still collected —
+                    # stop_pcap TERMs tcpdump and waits for its flush, so that file is
+                    # whole — which keeps a real exfiltration confirmable from L2 while
+                    # the gap bars a refutation.
+                    error = RunError(kind="SensorError", detail=str(exc))
+                    events.append(synthetic_event("truncated", str(exc)))
+                else:
+                    exit_code, timed_out = result.exit_code, result.timed_out
+                    # Sound because of the seam's invariant: a returned stream is the
+                    # process's complete output, or `timed_out` marks it as cut short
+                    # by the kill. docker_exec no longer hands back a silent prefix,
+                    # so these hashes cannot attest a fragment as the whole stream.
+                    stdout_hash = sha256_hex(result.stdout) if result.stdout else None
+                    stderr_hash = sha256_hex(result.stderr) if result.stderr else None
+                    if timed_out:
                         error = RunError(
-                            kind="SensorError",
-                            detail="L4 trace markers absent from stdout (instrumentation evaded or suppressed)",
+                            kind="TimeoutError",
+                            detail=f"wall-clock budget ({limits.wallMs}ms) exceeded; container killed",
                         )
-                    elif l4:
-                        events.extend(l4)
-                if observed.kernel:
-                    trace = await docker_exec(["exec", container, "cat", "/tmp/strace.log"], 10_000)
-                    if trace.exit_code == 0 and trace.stdout:
-                        events.extend(parse_strace_log(trace.stdout, run_start_sec))
-                        strace_hash = sha256_hex(trace.stdout)
-                    elif error is None:
+                        events.append(
+                            synthetic_event(
+                                "truncated", f"wall-clock budget ({limits.wallMs}ms) exceeded"
+                            )
+                        )
+                    elif exit_code != 0:
                         error = RunError(
-                            kind="SensorError",
-                            detail=f"strace log unreadable: {trace.stderr[:300]}",
+                            kind="CrashError",
+                            detail=f"node exited {exit_code}; stderr: {result.stderr[:500]}",
                         )
+                    if observed.node:
+                        l4 = parse_l4_trace(result.stdout)
+                        if l4 is None and error is None:
+                            error = RunError(
+                                kind="SensorError",
+                                detail="L4 trace markers absent from stdout (instrumentation evaded or suppressed)",
+                            )
+                        elif l4:
+                            events.extend(l4)
+                    if observed.kernel:
+                        try:
+                            trace = await docker_exec(
+                                ["exec", container, "cat", "/tmp/strace.log"], 10_000
+                            )
+                        except DockerOutputTooLargeError as exc:
+                            # A chatty run can outgrow one transfer. The log is hashed
+                            # into straceLogHash and parsed into every L1 event, so a
+                            # prefix would seal a hash over part of the trace and show
+                            # the judge a syscall record that ENDS early — which reads
+                            # exactly like a package that stopped acting. Before the
+                            # seam raised, this surfaced as parse_strace_log's
+                            # "unrecognised line body" assert, which had to GUESS
+                            # truncation from the last line being incomplete.
+                            error = coverage_gap(error, str(exc))
+                            events.append(synthetic_event("truncated", str(exc)))
+                        else:
+                            if trace.exit_code == 0 and trace.stdout:
+                                events.extend(parse_strace_log(trace.stdout, run_start_sec))
+                                strace_hash = sha256_hex(trace.stdout)
+                            else:
+                                error = coverage_gap(
+                                    error, f"strace log unreadable: {trace.stderr[:300]}"
+                                )
 
         if observed.fsDiff and (error is None or error.kind not in {"SetupError", "SensorError"}):
             try:
@@ -303,19 +366,29 @@ async def run_under_observation(
                 events.extend(diff_events)
                 fs_diff_hash = sha256_hex(raw_diff) if raw_diff else None
             except Exception as exc:
-                if error is None:
-                    error = RunError(
-                        kind="SensorError", detail=f"fs-diff post-snapshot failed: {exc}"
-                    )
+                error = coverage_gap(error, f"fs-diff post-snapshot failed: {exc}")
 
         if observed.network and (error is None or error.kind != "SetupError"):
             try:
                 pcap = await stop_pcap(container)
                 events.extend(pcap.events)
+                # INVARIANT: pcapHash is the hash of the WHOLE capture. stop_pcap
+                # either returns every byte tcpdump wrote or raises — a transfer that
+                # passes the cap raises at the docker seam (DockerOutputTooLargeError)
+                # instead of decoding into a short pcap, which is what used to make
+                # this line seal a 7.5 MiB prefix of a 13 MB capture as the complete
+                # packet record, with error=null. So a non-null pcapHash now MEANS
+                # "this is the capture", which is what the contract always claimed.
                 pcap_hash = sha256_hex(pcap.raw_pcap) if pcap.raw_pcap else None
             except Exception as exc:
-                if error is None:
-                    error = RunError(kind="SensorError", detail=f"pcap stop/parse failed: {exc}")
+                # Any failure here is missing network evidence: a capture that died
+                # mid-run, a parse that failed, or a transfer that could not be
+                # completed. It must reach the judge as an incomplete capture rather
+                # than as an empty L2 section, and it must bar REFUTED even when the
+                # run itself already crashed.
+                detail = f"pcap stop/parse failed: {exc}"
+                error = coverage_gap(error, detail)
+                events.append(synthetic_event("truncated", detail))
 
         # Read back what the setup actually DID, while the container is still alive —
         # last, so a coverage gap discovered here cannot gate the sensor collection
