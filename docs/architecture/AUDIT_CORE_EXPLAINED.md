@@ -2233,7 +2233,7 @@ experiment (an ERROR), never silently run."
 | `setEnv` | `envs = dict(values)`; all keys and values must be strings | `{"env": {...}}` | `:81-83`, `:74-78` |
 | `plantFiles` | `post_start` writes each file via base64-over-`sh`; **every path must be POSIX-absolute** | `{"plantFiles": [PlantedFileRef(path, contentHash=sha256(content))]}` | `:86-112` |
 | `setDate` | parse ISO (tz offset **required**), convert to `FAKETIME="@%Y-%m-%d %H:%M:%S"`, set `ld_preload=/usr/lib/libfaketime.so.1` | `{"date": iso}` | `:115-128` |
-| `stubUrl` | set 7 proxy env vars; `post_start` writes `assets/stub-proxy.js` into `/tmp` and launches it detached; wait for readiness | `{"stubUrls": [StubUrlRef(pattern, responseHash)]}` | `:201-298` |
+| `stubUrl` | `post_start` launches `assets/stub-proxy.js`, waits for its readiness marker, then installs + verifies nat REDIRECT rules for each stubbed authority; `observe` reads the proxy's served ledger after the run | `{"stubUrls": [StubUrlRef(pattern, responseHash)]}` — **`responseHash` is null until the ledger says otherwise** | `_stub_url` |
 | `patchFile` | `post_start` reads `/pkg/{path}`, applies literal `str.replace` pairs, writes back only if changed; path must be **relative** with no `..` | `{"patches": [FilePatchRef(path, patchHash)]}` | `:146-198` |
 | `preload` | `post_start` writes the code to `/tmp/npmguard-preload.js`; `preload` field points at it | `{"preloadHash": sha256(code)}` | `:131-143` |
 
@@ -2243,74 +2243,154 @@ paths (`:101-104`) because it plants bait anywhere in the container filesystem
 (`:155-159`) because it may only rewrite files inside the package under test.
 
 Note also that content is recorded as a **hash**, never as the literal value.
+`StubUrlRef.responseHash` is the one entry in that table which is *not* derived
+from the experiment: it is read back from the proxy after the run and is `null`
+when the stub served nothing (§14.3). A setup record is a claim about the run.
 `SetupApplied` (`shared/src/evidence.ts:140-149`) carries
 `PlantedFileRef{path, contentHash}`, `StubUrlRef{pattern, responseHash}`,
 `FilePatchRef{path, patchHash}`, and `preloadHash` — but `env` is stored as
 literal `record(string)`, because the judge needs to see planted canary *names*
 and values to correlate them with observed reads.
 
-### 14.3 `stubUrl` in detail — why a stub needs a readiness barrier
+### 14.3 `stubUrl` in detail — interception, and a record of what was served
 
-`stubUrl` is the most involved builder because it must guarantee something
-subtle: *the fake HTTP server is definitely serving before the package runs*.
+`stubUrl` is the most involved builder because it has to guarantee two things a
+setup record normally cannot: *the endpoint is really intercepted, for whatever
+client the package chose*, and *the artifact states what was actually served*.
+
+It used to guarantee neither. Interception was `HTTP_PROXY`/`HTTPS_PROXY`, which
+Node core's `http`/`https` ignore — and so does Node 22's global `fetch`/undici
+(verified inside the sandbox image: with all four proxy variables set, every
+client dialled the real endpoint and the proxy logged nothing). Meanwhile
+`responseHash` was `sha256` of the *planned* response, so an artifact asserted a
+canned reply for a stub that had intercepted nothing. §24.0 has the history.
+
+**Interception is a transparent redirect inside the container's own network
+namespace**, below every client library:
 
 ```
- _stub_url environment (experiments.py:241-249)
-   HTTP_PROXY / HTTPS_PROXY / http_proxy / https_proxy = http://127.0.0.1:18080
-   NO_PROXY = ""              ← so nothing is exempted
-   NPMGUARD_STUBS = <compact JSON of the stub list>
-   NPMGUARD_STUB_PORT = "18080"
+ stub_intercept_target(pattern) -> StubTarget | None        experiments.py
+   "http://localhost:9999/exfil"        → (127.0.0.1, 9999, pin localhost)
+   "http://exfil.example.com/*"         → (127.0.0.1,   80, pin the name)
+   "http://169.254.169.254/latest/*"    → (169.254.169.254, 80, no pin)
+   "http://*/collect"                   → (any host,     80, no pin)
+   "https://…", "*", "ftp://…", IPv6    → None = OUT OF REACH (a coverage gap)
 
- post_start (experiments.py:251-296)
+ envs                   NPMGUARD_STUBS, NPMGUARD_STUB_PORT      ← and nothing else
+ extra_hosts            "<name>:127.0.0.1" per named authority  → docker --add-host
+ post_start
  ┌───────────────────────────────────────────────────────────────────────┐
- │ write /tmp/npmguard-stub-proxy.js  (assets/stub-proxy.js bytes)        │
- │ docker exec -d <c> sh -c "node /tmp/npmguard-stub-proxy.js             │
- │                            2>/tmp/npmguard-stub-proxy.log"            │
- │   exit != 0 → RuntimeError("stubUrl proxy failed to launch: …")        │
+ │ write /tmp/npmguard-stub-proxy.js, launch it detached (as before), and │
+ │ poll the proxy's OWN .ready / .err markers, ≤120 s, every 100 ms       │
+ │   .err → RuntimeError("stubUrl proxy crashed on startup: …")           │
+ │   timeout → cat the .log, raise "did not become ready within 120s"     │
  │                                                                       │
- │ THE BARRIER — poll the proxy's OWN markers, up to 120 s, every 100 ms: │
- │   if -f /tmp/npmguard-stub-proxy.ready → READY  → return              │
- │   elif -f /tmp/npmguard-stub-proxy.err → ERR    → RuntimeError(
- │        "stubUrl proxy crashed on startup: …")                         │
- │   (both markers are written by the proxy itself)                      │
- │ on timeout: cat the .log and raise "stubUrl proxy did not become ready │
- │   within 120s: {detail}"                                              │
+ │ THEN, only once it is listening, per reachable target:                 │
+ │   docker exec --privileged --user 0 <c>                                │
+ │     iptables -t nat -A OUTPUT -p tcp [-d <host>] --dport <port>        │
+ │                              -j REDIRECT --to-ports 18080              │
+ │   then the SAME rule expressions with -C to verify they are installed  │
+ │   any failure → RuntimeError (→ SetupError → DEFER)                    │
  └───────────────────────────────────────────────────────────────────────┘
+ THE INVARIANT: post_start returns ⟺ every reachable stub authority is
+ redirected into a proxy confirmed listening. The order is load-bearing in both
+ directions: rules before the proxy leaves a window where the stubbed port
+ answers ECONNREFUSED, and `-C` after `-A` is what makes "installed" a fact
+ rather than an exit code.
 ```
 
-The comment at `experiments.py:270-275` records what this replaced: "the old
-30×50 ms loop of node-cold-start TCP probes, which could neither distinguish a
-crash from a slow bind nor survive a tail spike."
+`--privileged` applies to that one `exec`; the container keeps `cap_drop=ALL`, so
+the package under audit cannot read the nat table, let alone remove a rule
+(verified: `iptables -t nat -L` as uid 1000 is "Permission denied"). The
+`--add-host` pin exists because a nonexistent exfil host would otherwise fail at
+DNS and never reach a redirect at all — `.invalid` resolves nowhere.
 
-The proxy itself (`engine/npmguard/assets/stub-proxy.js`) is written to make its
-own state observable, because `docker exec -d` discards stderr and `docker logs`
-only shows PID 1:
+The proxy and its state are put out of the package's reach for the same reason,
+because the **ledger is read after the package has run**:
+
+```
+ --tmpfs /npmguard-stub:rw,noexec,nosuid,size=8m,uid=0,gid=0,mode=0755
+ docker exec -d --user 0 -e NPMGUARD_STUB_DIR=/npmguard-stub … node …stub-proxy.js
+   ⇒ root-owned 0755 dir: world-READABLE (the engine polls it as the container
+     user) and root-WRITABLE only
+   ⇒ uid 1000 can neither append a forged ledger row, nor plant the .err marker,
+     nor signal or ptrace the proxy to take over port 18080
+   (each verified in a real container; the tmpfs mounts fine at a path absent
+    from the image even under --read-only)
+ liveness = pgrep -u 0 -f <proxy>  ⇒ a uid-1000 decoy with a matching cmdline
+     cannot vouch for a proxy that is gone
+```
+
+The *script* stays on `/tmp` because the engine writes it as the container user;
+by the time the package runs, the proxy has already loaded it.
+
+Why not the alternatives: an interception patch inside the L4 instrument is
+bypassed by `execFileSync('node', …)`, because the instrument is loaded by
+`--require` on the trigger's command line and a child inherits none of it; and
+binding the stub at the real address cannot cover a bare-IP authority such as
+`169.254.169.254` without the same NET_ADMIN it was meant to avoid.
+
+**The record comes from the proxy, not the plan.** `assets/stub-proxy.js` appends
+one row per request to `/tmp/npmguard-stub-proxy.served` — `{stub: <index|null>,
+method, url, status, responseHash}` — synchronously, in the same turn that writes
+the response, so a row exists exactly when a response was written for a request
+that matched that stub. After the trigger, `Manipulation.observe` reads that
+ledger and rebuilds `setupApplied.stubUrls`:
+
+```
+ responseHash = sha256(JSON.stringify({status, body, headers}))  ← as SENT
+              = null  when the stub answered nothing
+ continuity   = the same iptables -C expressions + pgrep of the proxy,
+                re-checked AFTER the run (mirrors stop_pcap: "installed before
+                the trigger" is not "in force for the whole run")
+ gap          = an unreachable pattern, or a redirect/proxy no longer in force
+              → RunError(kind="SetupError") → the orchestrator can only DEFER
+```
+
+So `responseHash` is a fact about the run: non-null *is* the statement "this
+canned response was served". A gap does not block the trigger — the run still
+executes and its evidence can still CONFIRM — it only bars REFUTED, because a
+manipulation that was never in force cannot clear a suspicion.
 
 ```
  assets/stub-proxy.js
-   process.on('uncaughtException', e => fail(e.stack))          :18
-   server.on('error', e => fail('listen error: ' + e.stack))    :70
+   process.on('uncaughtException', e => fail(e.stack))
+   server.on('error', e => fail('listen error: ' + e.stack))
      ← a bind failure (EADDRINUSE) arrives as an EVENT, not a throw; without
        this handler it would be a silent death
-   fail(reason): write reason to /tmp/npmguard-stub-proxy.err,
-                 print to stderr, process.exit(3)               :13-17
-   listen(PORT, '127.0.0.1', () => write /tmp/npmguard-stub-proxy.ready) :71-78
+   fail(reason): write reason to …/.err, print to stderr, process.exit(3)
+   listen(PORT, '127.0.0.1', () => write …/.ready)
 
-   matchStub(url):  escape every regex metacharacter in the pattern, then
-     turn the escaped `\*` back into `.*`, anchor with ^…$      :29-45
-     ⇒ "*" is the ONLY wildcard; everything else is literal
-   matched   → writeHead(status, headers); end(body)            :53-57
-   unmatched → 502 "stub-proxy: no matching stub for {url}"     :58-59
-   CONNECT   → 502 (HTTPS MitM is not supported)                :62-66
+   target(request):  absolute-form (`GET http://h/p`) as sent; otherwise
+     'http://' + Host header + request.url  ← what the redirect delivers
+   matchStub(url):  escape every regex metacharacter INCLUDING `*`, then turn
+     the escaped `\*` back into `.*`, anchor with ^…$; returns the stub INDEX
+     ⇒ "*" is the ONLY wildcard, everything else is literal, first match wins
+   matched   → record(row); writeHead(status, headers); end(body)
+   unmatched → record(row with stub:null); 502 "no matching stub for {url}"
+   CONNECT   → 502 (HTTPS MitM is not supported)
 ```
 
-Two consequences for reading real timelines: an HTTPS target cannot be stubbed
-(only the `CONNECT` attempt is observable), and an *unmatched* HTTP request still
-reaches the proxy and gets a 502 — so it appears as a `network`/`http_request`
-event even though no stub served it. In the `hyp-0008` timeline, the POST is
-rendered `POST http://localhost/exfil` (no port) while the stub pattern was
-`http://localhost:9999/exfil` — and six other hypotheses' judges cited exactly
-that mismatch as grounds to refute (§16.8).
+Escaping `*` is not cosmetic: without it the character survived into the regex as
+a quantifier on whatever preceded it, so `http://169.254.169.254/latest/meta-data/*`
+compiled to "…/meta-data" plus zero-or-more slashes and matched no sub-path.
+**Every wildcard stub in the recorded corpus was inert for that reason**, on top
+of the proxy never being reached at all.
+
+Two consequences remain for reading real timelines. An `https://` target still
+cannot be stubbed — that needs a MitM CA the sandbox deliberately does not ship —
+but it is now a `SetupError` naming the pattern instead of a silent no-op. And an
+*unmatched* request to a stubbed authority still gets a 502, so it appears as a
+`network`/`http_request` event with no stub behind it; requests to authorities no
+pattern named are not redirected at all, so a run can still observe a real
+second-stage download it was never asked to intercept.
+
+Note what does **not** prove interception: L1. `strace` records the `connect`
+argument, and netfilter rewrites the destination afterwards — so the running
+example's `connect(19, 127.0.0.1:9999) = -1` looks identical whether or not a
+redirect is in force. Interception is observable only from what the client
+received and from the proxy's ledger, which is why the ledger is what the
+artifact records (`tests/e2e/test_stub_intercept.py` asserts through both).
 
 ### 14.4 `compose` and `merge_container_spec`
 
@@ -2655,6 +2735,9 @@ For `hyp-0008`, the sealed artifact records the exact yield of each layer
  │ user         "1000:1000"  ← non-root                                   │
  │ pids_limit   64           ← a fork bomb hits this, not the host        │
  │ workdir      "/pkg"                                                    │
+ │ extra_hosts  "<name>:127.0.0.1" per stubUrl authority (§14.3)          │
+ │              → --add-host; /etc/hosts is a ROOT-owned bind mount, so   │
+ │                the package cannot rewrite what a name resolves to      │
  │ volumes      [ host <package_path> → /pkg-src  READ-ONLY ]            │
  │ tmpfs        /tmp       rw,noexec,nosuid,size=64m                      │
  │              /pkg       rw,size=256m,uid=1000,gid=1000,mode=0755       │
@@ -2736,12 +2819,24 @@ becomes `NODE_OPTIONS=--require <path>`, appended to any existing `NODE_OPTIONS`
  │      snapshot_post → events.extend(diff); fs_diff_hash = sha256(raw)      │
  │ 8. if network and error.kind != "SetupError":         :306-313             │
  │      stop_pcap → events.extend(pcap.events); pcap_hash = sha256(raw_pcap) │
+ 9. SETUP READ-BACK — for each setup.observers hook, while the container lives   │
+ │      applied = observation.applied   ← what the manipulation actually did     │
+ │      events += observation.events    ← e.g. a setup_bypass row                │
+ │      observation.gap → error = RunError("SetupError", gap) if error is None    │
+ │      an exception → RunError("SetupError", "setup read-back failed: …")        │
+ │      LAST on purpose: a gap found here must not gate the sensor collection    │
+ │      above out of the artifact (fs-diff and pcap both skip on SetupError)     │
  └── finally: docker rm -f <container>, exceptions suppressed  :314-316 ──────┘
  events.sort(key=lambda e: e.timestamp)                :318
  return seal_run_artifact({...})                       :319-340
 ```
 
 Three structural properties of that sequence deserve naming:
+
+**`setupApplied` is not an input.** The record sealed into the artifact is the one
+step 9 produced, not the one `compose` built: a manipulation that can only be
+described after the fact (a stub's served response) describes itself there, and the
+compile-time value asserts nothing (§14.3).
 
 **Error latching.** `error` is set once and then gates later steps. So the
 *first* thing that went wrong is what the artifact reports, and later sensors do
@@ -3536,7 +3631,10 @@ evidence for the `DANGEROUS` verdict. 152 lines; the load-bearing excerpts:
  e37   env      HOSTNAME
  e38   env      HTTP_PROXY               ◀── e38-e42, e46-e47: the harvester's
  e39   env      HTTPS_PROXY                  own /token|secret|key|…/i regex
- e40   env      https_proxy                  sweeping OUR stubUrl env vars
+ e40   env      https_proxy                  sweeping the proxy variables that
+                                              stubUrl used to set (it no longer
+                                              sets any — §14.3); the READ is
+                                              logged whether or not it is set
  e41   env      NO_PROXY
  e42   env      NPMGUARD_STUB_PORT
  e43   env      NPM_TOKEN
@@ -3837,8 +3935,11 @@ real code paths.
  │ → DEFERRED  (blocks SAFE entirely; with 0 confirmed ⇒ audit ERRORS)      │
  │                                                                          │
  │ D1 SetupError — `cp -a /pkg-src/. /pkg/` failed, a plantFiles write      │
- │    failed, the stubUrl proxy did not become ready within 120 s, or       │
- │    trigger.kind was "lifecycle"/"bin".                                   │
+ │    failed, the stubUrl proxy did not become ready within 120 s, its      │
+ │    redirect could not be installed or did not verify, a stub pattern     │
+ │    was out of the redirect's reach, a redirect or the proxy was no       │
+ │    longer in force at the end of the run (§14.3), or trigger.kind was    │
+ │    "lifecycle"/"bin".                                                    │
  │      observation.py:204-212, 226-232, 241-247; experiments.py:280-296    │
  │                                                                          │
  │ D2 SensorError — tcpdump did not confirm 'listening on' within 15 s;     │
@@ -4468,7 +4569,8 @@ observed, the evidence, and why it might matter.
 These findings were triaged into the phase plan (design doc **D-9**, goals
 G28–G32), not filed. Four are fixed; the rest are tracked. **Read this subsection
 before trusting any item below** — acting on the fixes corrected the analysis in
-three places, and turned up one defect this section missed entirely.
+four places, and turned up three defects this section missed entirely (all now
+fixed: the `stubUrl` cluster below).
 
 **Fixed** (`instrumentation-monkey.js`, new `instrumentation-require-hook.js`,
 `evidence.py`, `sensors.py`, `graph.py`, `docker.py`):
@@ -4528,17 +4630,70 @@ three places, and turned up one defect this section missed entirely.
    IMDS GET that carried the whole verdict is that L4 was structurally blind to
    `http.get`.
 
-**The defect this section missed, and it is larger than most of what it found:**
+**The defect this section missed, and it is larger than most of what it found —
+now fixed:**
 
-> **`stubUrl` never intercepted the running example at all.** It works by setting
+> **`stubUrl` never intercepted the running example at all.** It worked by setting
 > `HTTP_PROXY`/`HTTPS_PROXY`, and Node core's `http`/`https` ignore proxy
-> environment variables. The recorded L1 proves it: `connect(19, 127.0.0.1:9999)
+> environment variables. The recorded L1 shows it: `connect(19, 127.0.0.1:9999)
 > = -1` — the package dialled its real endpoint and never touched the proxy on
-> `127.0.0.1:18080`. So `setupApplied.stubUrls[].responseHash` attests a canned
+> `127.0.0.1:18080`. So `setupApplied.stubUrls[].responseHash` attested a canned
 > response that was never served, and the experiment's central manipulation
-> silently did not apply. This is the same defect class as §24.14 (a sealed
-> artifact asserting a bound the run never applied) but worse, because a
-> hypothesis's logic may *depend* on the stub. Tracked, not fixed.
+> silently did not apply. Same defect class as §24.14 (a sealed artifact asserting
+> a bound the run never applied) but worse, because a hypothesis's logic may
+> *depend* on the stub.
+
+Fixed in three parts (`experiments.py`, `assets/stub-proxy.js`, `docker.py`,
+`observation.py`, `evidence.py`, `shared/src/evidence.ts`, and the sandbox image),
+all detailed in §14.3:
+
+- **Interception is now a nat REDIRECT inside the container's network namespace**,
+  installed through `docker exec --privileged` after the proxy is confirmed
+  listening and re-verified after the run, plus an `--add-host` pin so a
+  nonexistent exfil host still connects. It covers core `http`/`https`,
+  `fetch`/undici, userland clients with their own agent, raw sockets, and **child
+  processes** — the case that rules out an instrument-level patch, since the
+  instrument is loaded by `--require` on the trigger's command line and a child
+  inherits none of it. The proxy environment variables are gone: they intercepted
+  nothing, and for the one client family that does honour them (axios) they would
+  have routed *all* traffic to the proxy and 502'd endpoints no stub declared.
+- **`responseHash` is read back from the proxy's own served ledger** and is `null`
+  when the stub answered nothing, so non-null *is* the statement "this canned
+  response was served" and the plan is no longer an input. `StubUrlRef.responseHash`
+  became `.nullable()` — deliberately the only wire change, since an added field
+  would alter the canonical form, and therefore the `contentHash`, of every
+  artifact ever sealed.
+- **An unappliable stub is a coverage gap, not a no-op.** An `https://` pattern (no
+  MitM CA, by design), a redirect that will not install, or a redirect/proxy no
+  longer in force at the end of the run all produce `RunError(kind="SetupError")`
+  naming the pattern, plus a `setup_bypass` row in the timeline. The trigger is not
+  blocked — the run's evidence can still CONFIRM — but SetupError bars REFUTED, so
+  a gap can never reach SAFE.
+
+**Two further defects of the same family, found while fixing that one:**
+
+1. **`*` was never a wildcard.** `matchStub` escaped every regex metacharacter
+   *except* `*`, so the character survived into the compiled regex as a quantifier
+   on whatever preceded it: `http://169.254.169.254/latest/meta-data/*` meant
+   "…/meta-data" plus zero-or-more slashes and matched no sub-path at all. Every
+   wildcard stub in the recorded corpus was inert twice over. §14.3's own
+   description of the intent ("turn the escaped `\*` back into `.*` ⇒ `*` is the
+   ONLY wildcard") was accurate about the intent and wrong about the code.
+2. **Two `stubUrl` calls silently dropped the first.** The stub list rides in one
+   env var, so `compose`'s `envs.update` let the second manipulation overwrite the
+   first while `applied.stubUrls` still listed both patterns — an artifact naming a
+   stub the proxy never loaded. `compile_experiment` now folds every `stubUrl` call
+   into one manipulation, which removes the state rather than detecting it. Only
+   the agent path could reach it (the one-shot generator already emits a single
+   call), and no recorded transcript does.
+
+**And one claim in this document that was simply false:** the §24.0 text above
+said proxy environment variables are honoured by "`fetch`/undici and userland
+clients". Node 22's global `fetch` does **not** honour them — verified in the
+sandbox image (`node v22.23.1`): with `HTTP_PROXY`, `http_proxy`, `HTTPS_PROXY`
+and `NO_PROXY=""` all set, core `http`, `fetch` and a raw socket every one dialled
+the real endpoint and the proxy logged zero requests. The mechanism was inert for
+every Node client, not just for core `http`.
 
 One correct fix is written and deliberately **not** landed: `_describe` reuses
 the fd table for a `connect` without checking `is_socket`, so an AF_UNIX connect
@@ -4551,6 +4706,41 @@ a paid re-record, so it is pinned as `xfail(strict=True)` in `test_evidence.py`
 C14b and flips green when the re-record happens. The `sensors.py` fix above
 already removes that fallback for every AF_INET/AF_INET6 connect, so the
 residual exposure is AF_UNIX only.
+
+**§24.9 is wrong in four places**, established by
+[`../specs/2026-07-25-cross-hypothesis-coherence.md`](../specs/2026-07-25-cross-hypothesis-coherence.md)
+and worth reading before relying on it:
+
+1. *"thirteen refutations cited the same observed behaviour"* — **impossible by
+   contract.** `validate_verdict` (`orchestrator.py:89`) forbids citations on a
+   non-malicious verdict, so `citedEvents` is empty on all thirteen. §24.9 names
+   the mechanism and its opposite in one breath. Measured on the judges' *prose*
+   instead: **8 of 13**. The other five ran against `index.js` on 59–73-row
+   timelines with zero egress and zero credential reads, and are honest.
+2. *"largely artefacts, not genuine absence of malice"* — **understated.** **Zero
+   of seven** were absence of malice: six were decided on facts the sealed
+   artifact held and the renderer dropped, one on a fact no sensor captured.
+3. *"the redundancy of 8-flags-per-file is what saved the audit"* — **mostly
+   wrong, and this is the important correction.** `connect(→169.254.169.254:80)`
+   *and* `write(18, "GET /latest/meta-data/ HTTP/1.1…", 82)` appear in **9 of 9**
+   `setup.js` artifacts; only **3 of 9** rendered anything at L2. So the decisive
+   fact was *universally present and selectively rendered* — a rendering lottery,
+   not a framing lottery. `hyp-0001.timeline.txt:126-129` shows the IMDS probe as
+   `connect socket` / `write socket` / `read socket`, and `hyp-0005`'s judge wrote
+   *"there is no evidence of a request to the IMDS"* while reading those three
+   lines. The `sensors.py` fix above collapses that lottery to 9/9.
+4. **A defect §24 misses entirely:** the *"setup is test context, not proof"*
+   guard (`orchestrator.py:77`) is **one-directional**. It stops a judge
+   confirming its own experiment design and says nothing about using the setup to
+   *acquit* — `hyp-0002` and `hyp-0003` both did, on the basis of the `stubUrl`
+   manipulation that never applied.
+
+And the root cause underneath all of it, which is neither a sensor nor a
+renderer: **`JudgeVerdict.malicious` is a `bool`** (`phases.py:204-209`). A judge
+that means *"the timeline does not carry the fact this claim turns on"* has no way
+to say so, and `orchestrator.py:247-256` launders that answer into `REFUTED`,
+which contributes to `SAFE`. Two of the seven refutations say exactly that in
+their prose.
 
 Finally, a note on why all of this survived a green suite: **the C2 test in
 `test_sensors.py` asserted a line shape strace never emits**
