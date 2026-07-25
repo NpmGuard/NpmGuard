@@ -84,11 +84,14 @@ export type Severity = z.infer<typeof Severity>;
 // Cross-process data models — sent over SSE or HTTP to non-engine consumers
 // ---------------------------------------------------------------------------
 
+// INVARIANT: a WIRE schema expresses nullability as .nullable(), never
+// .optional(). events.ts dumps payloads with exclude_none=False, so every
+// Optional engine field reaches the wire as an explicit `null` — and
+// z.string().optional() accepts `undefined`, not `null`, so .optional() here
+// makes parse() throw on real traffic.
 export const FocusArea = z.object({
   file: z.string(),
-  // .optional() (not .nullable) so the JSON Schema sent to LLMs is `type: "string"`
-  // instead of `type: ["string","null"]` — MiniMax rejects union types.
-  lines: z.string().optional(),
+  lines: z.string().nullable().default(null),
   reason: z.string(),
 });
 export const FocusAreaSchema = FocusArea;
@@ -102,12 +105,14 @@ export const TriageResult = z.object({
 export const TriageResultSchema = TriageResult;
 export type TriageResult = z.infer<typeof TriageResult>;
 
+// Built by the engine (pipeline.py) for the file_verdict SSE frame — NOT an LLM
+// output schema. See the WIRE nullability invariant on FocusArea above:
+// suspiciousLines is `null` for every clean file, so .optional() would throw.
 export const FileVerdict = z.object({
   file: z.string(),
   capabilities: z.array(z.string()).default([]),
   suspiciousPatterns: z.array(z.string()).default([]),
-  // .optional() (not .nullable) — MiniMax rejects union types like ["string","null"].
-  suspiciousLines: z.string().optional(),
+  suspiciousLines: z.string().nullable().default(null),
   summary: z.string(),
   riskContribution: z.number().int().min(0).max(10),
 });

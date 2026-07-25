@@ -60,7 +60,14 @@ export const PackageMetadataSchema = z.object({
   license: z.string().nullable().default(null),
   homepage: z.string().nullable().default(null),
   keywords: z.array(z.string()).default([]),
-  repository: z.unknown().default(null),
+  // npm allows EITHER a shorthand string ("chalk/chalk") or an object
+  // ({type,url,directory}); the engine passes package.json through verbatim
+  // (inventory.py:104). Modelled as the real union rather than `unknown` so a
+  // consumer must branch instead of rendering "[object Object]".
+  repository: z
+    .union([z.string(), z.record(z.unknown())])
+    .nullable()
+    .default(null),
 });
 export type PackageMetadata = z.infer<typeof PackageMetadataSchema>;
 

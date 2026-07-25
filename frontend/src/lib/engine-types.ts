@@ -17,7 +17,15 @@
  *  - verdict_reached carries {verdict, rationale, counts, confirmedCount},
  *    NOT {capabilities, proofCount}.
  * If the engine contract changes, THIS file changes.
+ *
+ * MIGRATION IN PROGRESS (N-12): shapes that HAVE a zod schema are being bound to
+ * `@npmguard/shared` (the same source the engine's Pydantic models are generated
+ * from) instead of hand-restated here. Two hand-kept copies of one shape is a
+ * reachable state where they disagree with nothing to catch it. Anything still
+ * declared by hand below is a shape with no schema yet.
  */
+
+import type { DependencyGroups, PackageMetadata } from "@npmguard/shared";
 
 // ===== enums =====
 
@@ -162,14 +170,14 @@ export interface Finding {
 
 export interface InventoryMeta {
   scripts: Record<string, string>;
-  dependencies: Record<string, Record<string, string>>;
+  // KEYED from the contract, not Record<string, …>: an unkeyed map let the fold
+  // read `dependencies`/`devDependencies` (never emitted) and report 0 · 0
+  // dependencies for every package, with no type error.
+  dependencies: DependencyGroups;
   entryPoints: { install: string[]; runtime: string[]; bin: string[] };
-  metadata: {
-    name: string | null;
-    version: string | null;
-    description: string | null;
-    license: string | null;
-  };
+  // The engine emits all 7 PackageMetadata fields; the old inline 4-field
+  // literal silently dropped homepage/keywords/repository.
+  metadata: PackageMetadata;
 }
 
 /** A hypothesis as it appears inline in the triage_complete stream event. */
