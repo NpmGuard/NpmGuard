@@ -10,6 +10,7 @@ from typing import Any
 from kit_stream import StreamService
 
 from .config import REPO_ROOT, Settings
+from .contract.models import StartAuditResponse
 from .events import ENVELOPE_KEYS, TERMINAL_EVENTS, AuditEmitter, audit_channel
 from .persistence import DEMO_PACKAGE_PATH, AuditSessionStore
 
@@ -151,7 +152,7 @@ class DemoService:
             recordings[recording.package_name] = recording
         return recordings
 
-    async def start(self, package_name: str) -> dict[str, str]:
+    async def start(self, package_name: str) -> StartAuditResponse:
         recording = self.recordings.get(package_name)
         if recording is None:
             raise KeyError(f'No demo recording for "{package_name}"')
@@ -165,7 +166,7 @@ class DemoService:
         )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
-        return {"auditId": session.audit_id, "packageName": package_name}
+        return StartAuditResponse(auditId=session.audit_id, packageName=package_name)
 
     async def _replay(self, audit_id: str, recording: DemoRecording) -> None:
         emitter = AuditEmitter(audit_id, self.stream)

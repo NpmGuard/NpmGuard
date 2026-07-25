@@ -13,6 +13,9 @@
  *                              ContractViolationError (never ApiError: the request
  *                              succeeded, so a status branch would call it healthy)
  *                              instead of reaching a component as `undefined`.
+ *  C6  envelopes too         — the same holds for the routes' HTTP ENVELOPES, which
+ *                              were the last cast shapes in the app. Each case is a
+ *                              field a real consumer dereferences unchecked.
  *
  * Blackbox via msw: ORIGIN-RELATIVE handlers (http.get("/api/…")) matched against
  * the jsdom origin; apiBase() is pinned to `${origin}/api` so undici sees an
@@ -258,6 +261,86 @@ describe("api — C5 report responses are CHECKED, not cast", () => {
     // class stands on its own.
     server.use(http.get("/api/audit/:id/report", () => HttpResponse.json(report)));
     await expect(fetchAuditReport("aud-1")).resolves.toMatchObject({ verdict: "SAFE", schemaVersion: 2 });
+  });
+});
+
+describe("api — C6 every audit envelope is checked, not just the report", () => {
+  /**
+   * The envelopes (`{auditId, packageName}`, the public config, the checkout
+   * status) were the last shapes with no schema, so `api.ts` cast them: a
+   * hand-written interface on this side, a dict literal on the engine's, and
+   * nothing that could ever notice the two disagreeing. They are contract shapes
+   * now (`shared/src/audit-api.ts`), and these assert the difference that makes.
+   *
+   * Each case is a field a REAL consumer dereferences without checking, so the
+   * counterfactual is concrete rather than decorative — that is the bar for
+   * belonging in this class.
+   */
+  it("C6: a start response missing auditId fails loud, not as a navigation to /audit/undefined", async () => {
+    server.use(http.post("/api/audit/stream", () => HttpResponse.json({ packageName: "chalk" })));
+    await expect(startAuditStream({ packageName: "chalk", version: "5.0.0" })).rejects.toBeInstanceOf(
+      ContractViolationError,
+    );
+  });
+
+  it("C6: a public config missing priceCents fails loud, not as a NaN price", async () => {
+    server.use(
+      http.get("/api/config/public", () =>
+        HttpResponse.json({ paymentRequired: true, paymentEnabled: true, stripeEnabled: true, crypto: null }),
+      ),
+    );
+    await expect(fetchPublicConfig()).rejects.toBeInstanceOf(ContractViolationError);
+  });
+
+  it("C6: a crypto block without a fee is rejected — the engine retracts the method instead", async () => {
+    // `auditFeeWei` is non-nullable on purpose: the engine emits `crypto` only
+    // when it read the fee, and answers `crypto: null` when it could not. A
+    // fee-less block would reach `BigInt(...)` in PayPage's transaction builder.
+    server.use(
+      http.get("/api/config/public", () =>
+        HttpResponse.json({
+          paymentRequired: true,
+          paymentEnabled: true,
+          stripeEnabled: false,
+          priceCents: 500,
+          crypto: { chain: "base-sepolia", chainId: 84532, contract: "0xabc", auditFeeWei: null },
+        }),
+      ),
+    );
+    await expect(fetchPublicConfig()).rejects.toBeInstanceOf(ContractViolationError);
+  });
+
+  it("C6: an unclaimed checkout status carries auditId: null, and parses", async () => {
+    // Absent-vs-null was the drift: one engine branch sent the key and the other
+    // omitted it, so "not claimed yet" and "this engine does not report claims"
+    // were the same observation. The contract says null, always present.
+    server.use(
+      http.get("/api/checkout/:id/status", () =>
+        HttpResponse.json({ paid: true, packageName: "chalk", version: "5.0.0", auditId: null }),
+      ),
+    );
+    await expect(fetchCheckoutStatus("cs_1")).resolves.toMatchObject({ paid: true, auditId: null });
+  });
+
+  it("C6: a checkout status that OMITS auditId is drift, not an unclaimed payment", async () => {
+    server.use(
+      http.get("/api/checkout/:id/status", () =>
+        HttpResponse.json({ paid: true, packageName: "chalk", version: "5.0.0" }),
+      ),
+    );
+    await expect(fetchCheckoutStatus("cs_1")).rejects.toBeInstanceOf(ContractViolationError);
+  });
+
+  it("C6: a package-index row with an out-of-domain verdict is rejected", async () => {
+    // The row drives a tone lookup that has no arm for SUSPECT.
+    server.use(
+      http.get("/api/packages", () =>
+        HttpResponse.json({
+          packages: [{ packageName: "chalk", version: "5.0.0", verdict: "SUSPECT", auditedAt: "2026-07-01T00:00:00Z" }],
+        }),
+      ),
+    );
+    await expect(fetchPackages()).rejects.toBeInstanceOf(ContractViolationError);
   });
 });
 
