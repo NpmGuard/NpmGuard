@@ -548,16 +548,20 @@ async def checkout(request: Request) -> JSONResponse:
                 {"error": f"Package {parsed.packageName}@{version} not found on npm"},
                 status_code=404,
             )
-    origin = request.headers.get("origin") or (
-        request.headers.get("referer") or "https://npmguard.com"
-    ).rstrip("/")
     try:
         url, session_id = await create_checkout_session(
             runtime.settings,
             package_name=parsed.packageName,
             version=version,
             email=str(parsed.email) if parsed.email else None,
-            origin=origin,
+            # Configuration, never the request. `success_url` carries
+            # `{CHECKOUT_SESSION_ID}`, and that id is the bearer proof
+            # `POST /audit/stream` accepts — so an origin read from the caller's
+            # `Origin`/`Referer` header lets anyone mint a real Stripe page that
+            # delivers the payer, and their session id, to a site of their
+            # choosing. `panel_base_url` is this deployment's own app origin; the
+            # subscription checkout in panel/routes/billing.py already uses it.
+            origin=runtime.settings.panel_base_url.rstrip("/"),
         )
         return _wire(CheckoutResponse(url=url, sessionId=session_id))
     except Exception:

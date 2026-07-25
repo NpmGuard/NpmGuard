@@ -9,7 +9,8 @@
 #       with a positive valid-tx probe on the same engine) [C5, C11];
 #       unconfigured chain → 501; missing/invalid fields → 400
 #   S7  stripe checkout create + live-verified status (paid:false) + paid-session
-#       stream launch + claimed-session idempotency
+#       stream launch + claimed-session idempotency; checkout redirect origin comes
+#       from config, never from the caller's Origin/Referer
 #   S8  webhook claim once-only across replays + bad signature → 400 (offline HMAC) [C5]
 #   S26 webhook vs /audit/stream race for one paid session → exactly one
 #       session/claim/launch [C5, C10] — sqlite only, a DELIBERATE narrowing of
@@ -369,6 +370,37 @@ def test_checkout_creates_stripe_session(engine_factory, mock_llm, stripe_stub):
         "packageName": ENV_EXFIL_PKG,
         "version": ENV_EXFIL_VERSION,
     }
+
+
+def test_checkout_redirects_come_from_config_not_the_caller(
+    engine_factory, mock_llm, stripe_stub
+):
+    """S7: a hostile `Origin`/`Referer` cannot steer where Stripe sends the payer.
+
+    `success_url` carries `{CHECKOUT_SESSION_ID}`, and that id is the bearer proof
+    `POST /audit/stream` accepts — so building the redirect from a request header
+    let anyone mint a genuine Stripe page that delivers both the payer and their
+    session id to a site of their choosing, and claim the audit they paid for. The
+    origin is this deployment's configured app origin instead.
+    """
+    mock_llm.load(scripted_roles=scripted_safe_roles())
+    engine = _stripe_engine(engine_factory, mock_llm, stripe_stub)
+
+    response = httpx.post(
+        f"{engine.base_url}/checkout",
+        json={"packageName": ENV_EXFIL_PKG, "version": ENV_EXFIL_VERSION},
+        headers={
+            "origin": "https://attacker.example",
+            "referer": "https://attacker.example/pay",
+        },
+        timeout=HTTP_TIMEOUT_SECONDS,
+    )
+
+    assert response.status_code == 200, response.text
+    form = stripe_stub.create_forms[-1]
+    for field in ("success_url", "cancel_url"):
+        assert "attacker.example" not in form[field], form[field]
+        assert form[field].startswith(engine.panel_base_url), form[field]
 
 
 def test_checkout_status_unclaimed_session(engine_factory, mock_llm, stripe_stub):
