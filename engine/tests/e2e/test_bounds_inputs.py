@@ -1,6 +1,7 @@
 # CLASS MAP — bounds + error-y inputs (e2e: real engine, shrunken K5 knobs, registry stub)
-# Axes: bound kind (wait-queue depth / execution concurrency) × session state counted
-#       (executing / queued / done) × input shape (name / semver / body / package content)
+# Axes: bound kind (wait-queue depth / execution concurrency / package size) × session
+#       state counted (executing / queued / done) × input shape (name / semver / body /
+#       package content)
 # Single-owner rework (2026): the running-count session cap (NPMGUARD-0050) is retired.
 # Two independent bounds now — execution concurrency = max_concurrent
 # (NPMGUARD_MAX_RUNNING_SESSIONS) and the wait-queue depth = queue_size
@@ -18,8 +19,18 @@
 #       /packages disk-scan reassembly
 #   S35 input-validation matrix: bad names/semver/body → 400 on every audit entry route;
 #       zero-source-file package PROBE → flag phase over an empty set
+#   S36 the PER-AUDIT SPEND bound (NPMGUARD_MAX_SOURCE_FILES=2, a 3-source package):
+#       synchronous POST /audit → HTTP 413 NPMGUARD-0003 non-retryable, the mock LLM
+#       sees ZERO requests, and no report is written. The third bound in this file and
+#       the only one that is about MONEY rather than capacity: FLAG is one model call
+#       per source file, so an oversized package can burn a whole audit's price and
+#       then time out with nothing delivered
+#   S36b (flip) the same package at a bound of exactly 3 completes SAFE — so S36 is the
+#       bound refusing, not the package being unauditable, and `>` is not `>=`
 # Adversarial pass: W4b — "is a 503 bound rejection observable as retryable, and does the
 #   engine keep serving afterwards?" answered by the paired follow-up probes in S24/S25.
+#   S36: "does the refusal actually cost nothing?" — answered by loading the mock with
+#   NOTHING, so any model call at all lands in its unmatched log.
 #
 # Blackbox: engine HTTP + SSE + report files; bounds shrunk via public env knobs (K5).
 
@@ -43,6 +54,8 @@ ENV_EXFIL_PKG = "test-pkg-env-exfil"
 ENV_EXFIL_VERSION = "2.0.1"
 SCOPED_PKG = "@npmguard-test/demo-pkg"
 ZERO_SOURCE_PKG = "npmguard-zero-src-pkg"
+OVERSIZED_PKG = "npmguard-oversized-pkg"
+OVERSIZED_SOURCES = 3  # FLAG-eligible .js files; the bound below is set under it
 CRE_KEY = "cre-test-key"
 
 AUDIT_DEADLINE_SECONDS = 90.0
@@ -229,6 +242,83 @@ async def test_queued_sessions_count_toward_queue_bound(engine_factory, mock_llm
     assert refused.status_code == 503, refused.text
     # free /audit/stream refusal goes through the route catch → the flat _audit_error shape
     assert refused.json()["code"] == "NPMGUARD-0040"  # the queued session filled the bound
+
+
+# ---------------------------------------------------------------------------
+# S36 — the per-audit spend bound
+# ---------------------------------------------------------------------------
+
+
+def _oversized_package() -> dict[str, str]:
+    files = {
+        "package.json": json.dumps(
+            {"name": OVERSIZED_PKG, "version": "1.0.0", "main": "index.js", "license": "MIT"}
+        )
+    }
+    files.update(
+        {f"lib/s{index}.js": "module.exports = 1;\n" for index in range(OVERSIZED_SOURCES)}
+    )
+    return files
+
+
+async def test_oversized_package_is_refused_413_without_a_model_call(
+    engine_factory, mock_llm, registry_stub
+):
+    """S36: NPMGUARD_MAX_SOURCE_FILES=2 against a 3-source package. The synchronous
+    /audit path awaits the future, so the refusal reaches the caller as its own HTTP
+    status: 413 NPMGUARD-0003, retryable=False — a client must not loop on an input
+    that cannot become acceptable by waiting.
+
+    The mock LLM is loaded with NOTHING, so any model call whatsoever lands in its
+    unmatched log. That is the assertion that matters: FLAG spends one model call per
+    source file, and a bound that trips after the first call still loses the money it
+    exists to save. Zero unmatched requests is a positive proof of zero spend at the
+    HTTP boundary, not an inference from the absence of a crash."""
+    mock_llm.load()  # no bundles, no scripted roles: every call is unmatched
+    _add_registry_package(registry_stub, OVERSIZED_PKG, "1.0.0", _oversized_package())
+    engine = engine_factory(
+        llm_url=mock_llm.v1_url,
+        registry_url=registry_stub.base_url,
+        env={"NPMGUARD_MAX_SOURCE_FILES": str(OVERSIZED_SOURCES - 1)},
+    )
+
+    refused = await _post(
+        f"{engine.base_url}/audit", json={"packageName": OVERSIZED_PKG, "version": "1.0.0"}
+    )
+    assert refused.status_code == 413, refused.text
+    body = refused.json()
+    assert body["code"] == "NPMGUARD-0003"
+    assert body["retryable"] is False
+    assert "NPMGUARD_MAX_SOURCE_FILES" in body["message"]  # names the knob to change
+
+    assert mock_llm.unmatched()["count"] == 0, mock_llm.unmatched()["entries"]
+    assert mock_llm.status()["consumed"] == 0
+    # A refusal is not a partial audit: nothing is filed under data/reports.
+    assert not (engine.data_dir / "reports" / OVERSIZED_PKG).exists()
+
+
+async def test_the_same_package_at_the_bound_completes(
+    engine_factory, mock_llm, registry_stub
+):
+    """S36b (flip): the identical package with the bound set to exactly 3 audits to a
+    verdict. Without this, S36 would also pass against a package the engine simply
+    cannot process, and against a `>=` comparison that refuses the packages an
+    operator sized the number for."""
+    mock_llm.load(scripted_roles=scripted_safe_roles())
+    _add_registry_package(registry_stub, OVERSIZED_PKG, "1.0.0", _oversized_package())
+    engine = engine_factory(
+        llm_url=mock_llm.v1_url,
+        registry_url=registry_stub.base_url,
+        env={"NPMGUARD_MAX_SOURCE_FILES": str(OVERSIZED_SOURCES)},
+    )
+
+    started = engine.start_audit(OVERSIZED_PKG, "1.0.0")
+    frames = await collect_frames(
+        engine.base_url, started["auditId"], deadline=AUDIT_DEADLINE_SECONDS
+    )
+    terminal = terminal_frame(frames)
+    assert terminal.type == "verdict_reached", event_types_dump(frames)
+    assert terminal.data["verdict"] == "SAFE"
 
 
 # ---------------------------------------------------------------------------

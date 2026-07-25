@@ -1,4 +1,3 @@
-import os
 import shutil
 import tarfile
 import tempfile
@@ -7,10 +6,19 @@ from pathlib import Path
 
 import httpx
 
-from .config import REPO_ROOT
+from .config import REPO_ROOT, Settings
 from .errors import PackageNotFoundError
 
-NPM_REGISTRY = os.environ.get("NPMGUARD_NPM_REGISTRY") or "https://registry.npmjs.org"
+# Bound at import, as before — `panel/watch.py` imports this name and uses it as a
+# dataclass field default, so the module attribute is the seam and stays one. What
+# changed is where the value comes from: a validated setting, so
+# `NPMGUARD_NPM_REGISTRY=registry.npmjs.org` (no scheme) is a named boot rejection
+# rather than an httpx UnsupportedProtocol raised inside a paid audit's resolve
+# phase, and the trailing slash is normalised off for the f-string below.
+# `Settings()` and not `get_settings()`: this is an import-time constant, and the
+# cached singleton would additionally fix the whole config surface at whatever
+# moment this module first got imported.
+NPM_REGISTRY = Settings().npm_registry
 
 
 @dataclass(frozen=True)

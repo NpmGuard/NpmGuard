@@ -20,7 +20,7 @@ from .contract.models import (
     PhaseLog,
 )
 from .deps import provision_dependencies
-from .errors import AuditIncompleteError, AuditTimeoutError
+from .errors import AuditIncompleteError, AuditTimeoutError, PackageTooLargeError
 from .events import AuditEmitter
 from .evidence import ArtifactStore
 from .graph import HypothesisGraph, build_graph, derive_graph_verdict
@@ -286,6 +286,26 @@ class AuditPipeline:
                 )
                 log.write("report.json", report)
                 return AuditResult(report, resolved.path, resolved)
+
+            # INVARIANT: past this line the audit is committed to at most
+            # `max_source_files` FLAG model calls, because `sources` IS the list
+            # run_flag fans out over one call at a time. It sits AFTER the
+            # dealbreaker return — a free, correct DANGEROUS verdict is never
+            # discarded over a size bound — and BEFORE `intent`, which is the
+            # first model call of the audit, so the refusal costs exactly zero.
+            #
+            # Why a bound at all: FLAG's budget is FLAG_TIMEOUT_MS × timeout_scale
+            # (600s × ≤4 = 2400s) at concurrency 8 with a 60s per-call timeout, so
+            # between ~320 files (60s/call) and ~6400 (3s/call) fit — and which
+            # end you land on is decided by provider latency, not by anything here.
+            # Past that line the phase raises AuditTimeoutError and the audit
+            # ERRORS having already paid for every call it made, with no report
+            # written. The failure is not overspend; it is total loss of spend with
+            # nothing delivered. This turns that into a cheap, honest refusal.
+            if self.settings.max_source_files and len(sources) > self.settings.max_source_files:
+                raise PackageTooLargeError(
+                    package_name, len(sources), self.settings.max_source_files
+                )
 
             intent, phase = await _timed_phase(
                 "intent-extraction",

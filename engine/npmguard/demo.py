@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -11,7 +10,7 @@ import structlog
 
 from kit_stream import StreamService
 
-from .config import REPO_ROOT
+from .config import REPO_ROOT, Settings
 from .events import AuditEmitter
 from .persistence import AuditSessionStore
 
@@ -32,7 +31,21 @@ MIN_TYPE_DELAY = {
     "verify_test_result": 700,
 }
 # Playwright/e2e divides the human throttle by this (0 ⇒ emit instantly); prod unset ⇒ 1.0.
-DEMO_SPEED = max(0.0, float(os.environ.get("NPMGUARD_DEMO_SPEED", "1")))
+#
+# Read through Settings, so `NPMGUARD_DEMO_SPEED=fast` is a ConfigError NAMING the
+# variable instead of `ValueError: could not convert string to float: 'fast'` from a
+# bare `float()` on the raw string — and npmguard.api imports this module, so that
+# bare ValueError stopped the engine booting. Still at module scope and still a
+# fresh `Settings()` rather than the cached `get_settings()`: this constant is the
+# knob's only seam (tests set the variable and reload the module), and a cached
+# singleton would make the reload a no-op.
+#
+# The `max(0.0, …)` clamp stays because it is pinned behaviour (test_demo.py C11),
+# but a negative divisor is an incoherent value, not a value to normalise:
+# `demo_speed: float = Field(default=1, ge=0)` in config.py would refuse it at boot
+# and let this line be `Settings().demo_speed`. That change is one line here plus
+# one there, and it turns C11 red — so it belongs with an edit to test_demo.py.
+DEMO_SPEED = max(0.0, Settings().demo_speed)
 
 
 @dataclass(frozen=True)

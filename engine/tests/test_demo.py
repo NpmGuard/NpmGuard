@@ -73,9 +73,13 @@
 #   C10 a finite speed DIVIDES the throttle: the same recording at speed 6 sleeps
 #       past SLOW_FLOOR, an order of magnitude beyond the speed-0 ceiling
 #   C11 a negative value is clamped to 0 by max(0.0, …) — never a negative sleep
-#   C12 FINDING (pin): a NON-NUMERIC value raises ValueError at IMPORT, with a
-#       message naming neither the knob nor the module, and npmguard.api imports
-#       this module — so a typo in the demo knob stops the engine from booting
+#   C12 a NON-NUMERIC value still stops the IMPORT — npmguard.api imports this
+#       module, so a bad value must kill the process rather than boot an engine
+#       that cannot replay — but as a ConfigError NAMING NPMGUARD_DEMO_SPEED. It
+#       used to be `could not convert string to float: 'fast'`, naming neither the
+#       knob nor the module. No longer a FINDING: the knob is declared in
+#       config.py, so pydantic's field-level message is rewritten to name the
+#       environment variable an operator actually set
 #   C13 the two throttle bounds: MIN_TYPE_DELAY floors a sub-millisecond recorded
 #       gap (frames cannot fly past unreadably) and MAX_DELAY_MS caps a 10-minute
 #       recorded gap (a long pause in a recording cannot stall the gallery)
@@ -119,7 +123,7 @@ from kit_spine.notify_polling import PollingNotifier
 from kit_stream import StreamService
 from npmguard import demo as demo_module
 from npmguard import report_store
-from npmguard.config import REPO_ROOT, Settings
+from npmguard.config import REPO_ROOT, ConfigError, Settings
 from npmguard.deps import provision_dependencies
 from npmguard.events import sse_events
 from npmguard.inventory import EXTENSION_TYPE_MAP, classify_files
@@ -411,18 +415,23 @@ async def test_a_negative_speed_is_clamped_to_zero(rig, at_speed) -> None:
 
 
 def test_a_non_numeric_speed_breaks_the_import(at_speed) -> None:
-    """C12: FINDING, pinned. float() runs on the raw environment string at module
-    scope, so `NPMGUARD_DEMO_SPEED=fast` raises at IMPORT with a message that names
-    neither the knob nor the module — and npmguard.api imports this module, so the
-    engine cannot boot. A knob whose bad value is a crash should be parsed where a
-    bad value can be reported."""
+    """C12: a NON-NUMERIC value still stops the IMPORT — npmguard.api imports this
+    module, so a bad config must kill the process rather than boot an engine that
+    cannot replay — but now as a ConfigError NAMING `NPMGUARD_DEMO_SPEED`, where it
+    used to be `could not convert string to float: 'fast'`, naming neither the knob
+    nor the module. No longer a FINDING: the knob is declared in config.py and
+    parsed there, so pydantic's field-level message is rewritten to name the
+    environment variable an operator actually set."""
     import npmguard.api  # noqa: F401  (the import chain being asserted)
 
     assert "npmguard.demo" in sys.modules
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ConfigError) as excinfo:
         at_speed("fast")
-    assert "could not convert string to float" in str(excinfo.value)
-    assert SPEED_ENV not in str(excinfo.value)
+    # Still a ValueError subclass, so any caller that broadly catches parse
+    # failures at boot keeps working.
+    assert isinstance(excinfo.value, ValueError)
+    assert SPEED_ENV in str(excinfo.value)
+    assert "could not convert string to float" not in str(excinfo.value)
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,4 @@
 import json
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .config import REPO_ROOT
+from .config import Settings
 
 
 def _json_value(value: Any) -> Any:
@@ -24,7 +23,15 @@ class AuditLog:
     def __init__(self, package_name: str) -> None:
         stamp = datetime.now(UTC).isoformat().replace(":", "-").replace(".", "-")
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", package_name)
-        root = Path(os.environ.get("NPMGUARD_AUDIT_LOG_DIR") or REPO_ROOT / "audit-logs")
+        # Resolved per AuditLog, which is per audit — the same cadence as the raw
+        # `os.environ` read this replaces, so the variable stays the seam eight test
+        # modules already move this directory through. Through Settings, so the value
+        # is validated absolute: a relative root silently follows the process cwd,
+        # which for the engine is whatever systemd/uvicorn/pytest started it in, and
+        # `NPMGUARD_AUDIT_LOG_DIR=` used to fall through an `or` to the default and
+        # hide the typo. `Settings()` and not `get_settings()` for the same reason —
+        # the per-call read is the seam.
+        root = Settings().audit_log_dir
         self.run_dir = root / f"{stamp}_{safe}"
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self._counter = 0
