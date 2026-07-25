@@ -53,6 +53,32 @@ const HERO_EVENTS: { id: string; tag: string; what: string; cited?: boolean }[] 
   { id: "e6", tag: "net", what: "body carries the planted token", cited: true },
 ];
 
+/** What each layer wrote while the token left the box. One moment, four
+ *  independent records — the L-names are the engine's own stream ids. */
+const KERNEL: [string, string][] = [
+  ["openat", "~/.npmrc"],
+  ["read", "~/.npmrc"],
+  ["connect", "93.184.x.x:443"],
+  ["sendto", "512 B"],
+];
+const RUNTIME: [string, string][] = [
+  ["require", '"https"'],
+  ["fs", "read ~/.npmrc"],
+  ["env", "NPM_TOKEN"],
+  ["net", "POST a1-metrics.io"],
+];
+const WIRE: [string, string][] = [
+  ["dns", "a1-metrics.io"],
+  ["tls", "a1-metrics.io"],
+  ["http", "POST /collect"],
+  ["bytes", "512 out"],
+];
+const DISK: [string, string][] = [
+  ["created", "/tmp/.x9f"],
+  ["modified", "/pkg/index.js"],
+  ["deleted", "/pkg/.stage"],
+];
+
 const HERO_STEPS = [
   { label: "Package", body: <>chalk-utils@1.4.2</> },
   { label: "Says it does", body: <>Prints coloured text in a terminal.</> },
@@ -93,6 +119,8 @@ export function HowItWorks() {
         gsap.set("[data-rail-pod]", { top: "100%" });
         gsap.set("[data-hl]", { scaleX: 1 });
         gsap.set("[data-token]", { opacity: 0 });
+        gsap.set("[data-sensor-hatch]", { scaleY: 1 });
+        gsap.set("[data-sensor-flag]", { opacity: 1 });
         const type = q("[data-typeline]")[0];
         if (type) type.prepend(document.createTextNode(PITCH));
         const cmd = q("[data-cmd]")[0];
@@ -242,55 +270,40 @@ export function HowItWorks() {
         const grid = q("[data-sgrid]")[0];
         const cards = q("[data-sensor]");
         const blind = q("[data-sensor-blind]")[0];
-        const blindWave = blind.querySelector("[data-sensor-wave]");
-        const liveWaves = cards
+        const blindRows = blind.querySelector("[data-sensor-rows]");
+        const hatch = blind.querySelector("[data-sensor-hatch]");
+        const liveRows = cards
           .filter((c) => c !== blind)
-          .map((c) => c.querySelector("[data-sensor-wave]"));
+          .map((c) => c.querySelector("[data-sensor-row]:last-child"));
 
-        gsap.set("[data-sensor-wave]", { drawSVG: "0%" });
-        gsap.set("[data-sensor-flag]", { opacity: 0 });
+        gsap.set(hatch, { scaleY: 0, transformOrigin: "top center" });
 
-        gsap.from(cards, {
-          opacity: 0,
-          y: 22,
-          duration: 0.55,
-          stagger: 0.08,
-          ease: "power3.out",
-          scrollTrigger: st({ trigger: grid, start: "top 82%", toggleActions: "play none none reverse" }),
-        });
-
-        // The four traces draw once on arrival, and FULLY DRAWN is the resting
-        // state — a loop that parks at 0% leaves four blank cards for whoever
-        // arrives mid-cycle, which is the opposite of what this section says.
-        gsap.to("[data-sensor-wave]", {
-          drawSVG: "100%",
-          duration: 1.1,
-          stagger: 0.1,
-          ease: "none",
-          scrollTrigger: st({ trigger: grid, start: "top 82%", once: true }),
-        });
+        gsap
+          .timeline({
+            scrollTrigger: st({ trigger: grid, start: "top 82%", toggleActions: "play none none reverse" }),
+          })
+          .from(cards, { opacity: 0, y: 22, duration: 0.55, stagger: 0.08, ease: "power3.out" })
+          .from(q("[data-sensor-row]"), { opacity: 0, x: -8, duration: 0.28, stagger: 0.035, ease: "power2.out" }, "-=0.3");
 
         gsap
           .timeline({
             repeat: -1,
-            repeatDelay: 2.4,
-            delay: 1.8,
+            repeatDelay: 2.6,
+            delay: 2.2,
             // Paused off-screen: an infinite loop nobody is looking at is pure
             // battery, and it also lets a screenshot settle.
             scrollTrigger: st({ trigger: grid, start: "top 78%", toggleActions: "play pause resume pause" }),
           })
-          // One recorder gets patched out mid-run…
-          .to(blindWave, { drawSVG: "100% 100%", duration: 0.5, ease: "power2.in" })
-          .to("[data-sensor-flag]", { opacity: 1, duration: 0.3 }, "-=0.25")
-          // …and the other three keep writing regardless.
-          .fromTo(
-            liveWaves,
-            { drawSVG: "0% 0%" },
-            { drawSVG: "0% 100%", duration: 0.9, stagger: 0.08, ease: "none" },
-            "+=0.3",
-          )
-          .to(blindWave, { drawSVG: "0% 100%", duration: 0.6, ease: "power2.out" }, "+=0.6")
-          .to("[data-sensor-flag]", { opacity: 0, duration: 0.3 }, "-=0.45");
+          // The runtime is patched out mid-run: its log stops, and what is left
+          // is the app's "no signal here" hatch — not an empty, quiet card.
+          .to(blindRows, { opacity: 0.12, duration: 0.45, ease: "power2.in" })
+          .to(hatch, { scaleY: 1, duration: 0.45, ease: "power2.out" }, "<")
+          .to("[data-sensor-flag]", { opacity: 1, duration: 0.3 }, "-=0.3")
+          // …and the other three are still writing the same moment down.
+          .from(liveRows, { color: "var(--ng-accent-text)", duration: 0.5, stagger: 0.12, ease: "power2.out" }, "+=0.2")
+          .to(hatch, { scaleY: 0, duration: 0.4, ease: "power2.in" }, "+=1.4")
+          .to(blindRows, { opacity: 1, duration: 0.4, ease: "power2.out" }, "<")
+          .to("[data-sensor-flag]", { opacity: 0, duration: 0.3 }, "<");
       }
 
       /* ── The two early exits: the ticks that ran fill; the rest hatch ── */
@@ -758,29 +771,16 @@ export function HowItWorks() {
           </h2>
 
           <div className="hiw-sgrid" data-sgrid>
-            <Sensor
-              k="the kernel"
-              d="M0 28 H14 l3 -12 l3 20 l3 -12 H38 l3 -7 l3 12 l3 -7 H56 l4 -16 l4 24 l4 -16 H82 l3 -9 l3 15 l3 -9 H104 l3 -6 l3 10 l3 -6 H120"
-            >
+            <Sensor k="the kernel" stream="L1:seccomp" rows={KERNEL}>
               Every request it makes of the operating system.
             </Sensor>
-            <Sensor
-              k="the runtime"
-              d="M0 24 H18 l3 -10 l3 17 l3 -10 H44 l4 -14 l4 22 l4 -14 H72 l3 -8 l3 13 l3 -8 H96 l3 -11 l3 18 l3 -11 H120"
-              blind
-            >
+            <Sensor k="the runtime" stream="L4:monkey" rows={RUNTIME} blind>
               Inside the JavaScript engine — and it can be patched out.
             </Sensor>
-            <Sensor
-              k="the wire"
-              d="M0 26 H22 l4 -18 l4 28 l4 -18 H52 l3 -6 l3 10 l3 -6 H74 l4 -13 l4 21 l4 -13 H100 l3 -8 l3 13 l3 -8 H120"
-            >
+            <Sensor k="the wire" stream="L2:pcap" rows={WIRE}>
               Raw packets leaving the box, whatever the code claims.
             </Sensor>
-            <Sensor
-              k="the disk"
-              d="M0 30 H26 l4 -17 l4 26 l4 -17 H62 l3 -5 l3 8 l3 -5 H88 l4 -12 l4 19 l4 -12 H120"
-            >
+            <Sensor k="the disk" stream="L3:fsDiff" rows={DISK}>
               A before-and-after photograph of the filesystem.
             </Sensor>
           </div>
@@ -1027,14 +1027,20 @@ function CodeLine({ n, src, hot }: { n: string; src: string; hot?: boolean }) {
   );
 }
 
+/** One recorder, showing what it actually wrote during the run in that layer's
+ *  own vocabulary. The four cards are four independent records of ONE moment,
+ *  which is the section's whole argument: when the runtime card goes dark, the
+ *  other three are still holding a record of it. */
 function Sensor({
   k,
-  d,
+  stream,
+  rows,
   blind,
   children,
 }: {
   k: string;
-  d: string;
+  stream: string;
+  rows: [string, string][];
   blind?: boolean;
   children: React.ReactNode;
 }) {
@@ -1044,10 +1050,23 @@ function Sensor({
       data-sensor
       data-sensor-blind={blind ? "" : undefined}
     >
-      <span className="hiw-sensor__k">{k}</span>
-      <svg viewBox="0 0 120 40" preserveAspectRatio="none" aria-hidden="true">
-        <path className="hiw-wave" data-sensor-wave d={d} />
-      </svg>
+      <header className="hiw-sensor__head">
+        <span className="hiw-sensor__k">{k}</span>
+        <span className="hiw-sensor__stream">{stream}</span>
+      </header>
+
+      <div className="hiw-sensor__log">
+        {blind ? <span className="hiw-sensor__hatch" data-sensor-hatch aria-hidden="true" /> : null}
+        <div className="hiw-sensor__rows" data-sensor-rows>
+          {rows.map(([verb, target]) => (
+            <div className="hiw-srow" data-sensor-row key={verb + target}>
+              <span className="hiw-srow__verb">{verb}</span>
+              <span className="hiw-srow__target">{target}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <p>{children}</p>
       {blind ? (
         <span className="hiw-sensor__flag" data-sensor-flag>
