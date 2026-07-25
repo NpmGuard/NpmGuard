@@ -77,6 +77,7 @@ from .payments import (
 from .persistence import AuditSession, AuditSessionStore
 from .pipeline import AuditPipeline
 from .report_store import (
+    REPORT_SCHEMA_VERSIONS,
     REPORT_VERDICTS,
     extract_report_version,
     list_reports,
@@ -644,19 +645,28 @@ def _replay_entry(session: AuditSession) -> ReplayEntry | None:
     authored, so the gallery cannot describe a run differently from how it went.
 
     Two rejections, both silent because neither is a failure to report: a fixture
-    package name is not a product exhibit, and a verdict outside the contract's
-    domain is the same foreign report `report_store._in_domain` refuses to hand
-    out (`data/reports/` is shared byte-for-byte with a lineage that writes a
-    4-state classification into that field).
+    package name is not a product exhibit, and a report outside the contract's
+    readable domain is one no client could render.
+
+    That second screen is `report_store._readable`'s rule, applied at this store's
+    door. It cannot BE that function — this reads `audit_sessions.report`, keyed by
+    `audit_id`, which is a different store from `data/reports/` and has no `Path` to
+    name — but the rule must be the same, and for the sharper reason: a row listed
+    here is a link to `/audit/{id}/report`, which serves the stored report RAW. So
+    an unrenderable report does not fail here, it fails on the page this row sends
+    someone to. Screening the version as well as the verdict is what makes that
+    unreachable: an in-domain verdict on an off-version body passes a verdict check
+    and then dies on the client's first missing v2 field.
     """
     assert session.report is not None, f"replayable() yielded {session.audit_id} with no report"
     if not public_package(session.package_name):
         return None
-    verdict = session.report.get("verdict")
-    if verdict not in REPORT_VERDICTS:
+    schema_version, verdict = session.report.get("schemaVersion"), session.report.get("verdict")
+    if schema_version not in REPORT_SCHEMA_VERSIONS or verdict not in REPORT_VERDICTS:
         log.warning(
-            "ignoring replay outside the verdict domain",
+            "ignoring replay outside the readable domain",
             audit_id=session.audit_id,
+            schemaVersion=schema_version,
             verdict=verdict,
         )
         return None

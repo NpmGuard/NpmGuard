@@ -9,7 +9,8 @@
 #   C4 non-terminal and errored audits are absent (a card promises a conclusion)
 #   C5 demo rows (package_path == '__demo__') are absent — committed-recording lineage
 #   C6 fixture package names are absent, matching what /packages hides
-#   C7 a verdict outside the contract's domain is dropped, not handed out
+#   C7 a report outside the contract's READABLE domain is dropped, not handed out —
+#      both halves: a foreign verdict, and an in-domain verdict on an off-version body
 #   C8 version: report inventory version wins; falls back to the requested version;
 #      null when neither exists (an audit that never resolved one)
 #   C9 the body validates against the generated contract; /api mirror is identical
@@ -38,9 +39,11 @@ SAFE_REPORT = {
 }
 
 
-def _report(verdict: str = "SAFE", version: str | None = "4.0.1") -> dict:
+def _report(
+    verdict: str = "SAFE", version: str | None = "4.0.1", schema_version: int = 2
+) -> dict:
     trace = [{"phase": "inventory", "output": {"metadata": {"version": version}}}] if version else []
-    return {"schemaVersion": 2, "verdict": verdict, "trace": trace}
+    return {"schemaVersion": schema_version, "verdict": verdict, "trace": trace}
 
 
 @pytest.fixture
@@ -213,12 +216,17 @@ def test_fixture_names_are_absent(make_app, tmp_path, package_name) -> None:
         assert _replays(client) == []
 
 
-def test_foreign_verdict_is_dropped(make_app, tmp_path) -> None:
-    """C7: `data/reports/` is shared with a lineage that writes a 4-state
-    classification into `verdict`. One reaching this route would put a value on the
-    wire the contract does not declare and the client has no branch for."""
+def test_unreadable_reports_are_dropped(make_app, tmp_path) -> None:
+    """C7: both halves of the readable domain, screened here for a sharper reason
+    than at the file store — a listed row is a LINK to /audit/{id}/report, which
+    serves the stored report raw. A foreign verdict is a value the client has no
+    branch for; an in-domain verdict on an off-version body is worse, because it
+    passes a verdict check and then dies on the client's first missing v2 field, on
+    the page this row sent them to."""
     with TestClient(make_app()) as client:
-        _insert(tmp_path, "foreign", "chalk", report=_report(verdict="SUSPECT"))
+        _insert(tmp_path, "foreign-verdict", "chalk", report=_report(verdict="SUSPECT"))
+        _insert(tmp_path, "off-version", "chalk", report=_report(schema_version=1))
+        _insert(tmp_path, "no-version", "chalk", report={"verdict": "SAFE", "trace": []})
         _insert(tmp_path, "ours", "chalk", report=_report())
         assert [row["auditId"] for row in _replays(client)] == ["ours"]
 
