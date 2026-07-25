@@ -27,8 +27,6 @@
 #   C15 list_reports visibility + order: test-pkg-*/test-package*/-bench- names are
 #       saved but NOT listed (the mechanism keeping malware-fixture reports out of
 #       the public listing); verdict-less files skipped; ordering newest-first
-# Adversarial pass: W5 2026-07-23 — "can a reader ever see a half-written file?" →
-#   C6 probes the os.replace atomicity with live readers during repeated rewrites.
 import json
 import os
 import threading

@@ -4,9 +4,6 @@
 #   C1 one file's model chain fails      — run_flag raises AuditIncompleteError naming that file
 #   C2 sibling in-flight call cancelled  — the concurrent sibling's provider call is cancelled
 #                                          promptly instead of running (and billing) to completion
-# Adversarial pass: 2026-07-23/W6 — the old test proved private _gather_fail_fast
-# in isolation; this proves the same guarantee holds through the public phase
-# entrypoint with the real semaphore fan-out in between.
 import asyncio
 import json
 

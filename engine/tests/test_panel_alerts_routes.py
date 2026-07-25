@@ -26,10 +26,6 @@
 #   C12 no session → 401
 #   C13 App not configured → 503
 #
-# Adversarial pass: "can a user read or acknowledge an alert belonging to an org
-#   they have no installation for?" C2/C11 seed exactly that shape — a second org
-#   with its own alerts that the session user is deliberately NOT joined to — and
-#   assert on the DB after the ack, not just on the response body.
 
 from __future__ import annotations
 

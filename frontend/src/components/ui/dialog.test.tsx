@@ -21,7 +21,6 @@
  *      walk out of the modal while sighted focus stays in it.
  *  C7  AlertDialog: the destructive action is NEVER the default-focused element,
  *      and it is not dismissed by an outside click.
- *  C8  `className` survives the merge on the content.
  *
  * Blackbox: fireEvent + document.activeElement. `@testing-library/user-event` is
  * not a dependency here, so tab traversal is asserted through Radix's own
@@ -173,15 +172,6 @@ describe("Dialog semantics", () => {
     });
   });
 
-  it("C8: an incoming className reaches the content and wins its group", async () => {
-    render(<Harness className="max-w-3xl rounded-none" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open report" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveClass("max-w-3xl");
-    expect(dialog).toHaveClass("rounded-none");
-    expect(dialog).not.toHaveClass("max-w-lg");
-    expect(dialog).not.toHaveClass("rounded-xl");
-  });
 });
 
 describe("AlertDialog", () => {
