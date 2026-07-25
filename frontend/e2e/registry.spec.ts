@@ -46,7 +46,7 @@ test("S5: a registry row navigates to its durable report", async ({ page }) => {
   await page.getByRole("link", { name: `view full audit of ${SAFE_PKG.name}` }).click();
 
   await page.waitForURL(new RegExp(`/package/${SAFE_PKG.name}`));
-  await expect(page.locator(".report-verdict__badge")).toHaveText("SAFE");
+  await expect(page.locator("[data-verdict]")).toHaveText("SAFE");
 });
 
 test("S5: a search matching nothing shows a reason-aware empty, never a fake SAFE", async ({
