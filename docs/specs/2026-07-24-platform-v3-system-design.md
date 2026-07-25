@@ -1109,15 +1109,20 @@ Register the OAuth callback; tunnel webhook delivery and prove a real `push`
 produces a push scan + check-run; configure billing so the upgrade path stops
 being an honest 501. Covers F-B1, F-D2, F-E4, N-14. **SMTP stays out (F-D5).**
 
-**Debt this phase inherits from Phase 3:** the alert *trigger* is the one thing
-the browser tier could not drive. `PanelScanWorker` raises an alert only when a
-real audit lands DANGEROUS, which needs docker + a live LLM (and under
-`NPMGUARD_MOCK_LLM` a concluding audit can only be SAFE), so `panel.spec.ts` P4
-fires the engine's own `handle_dangerous_verdict` from the harness process
-(`panel_e2e_server.py`'s `/fixture/dangerous-fanout`) and proves the feed
-downstream of it. **When an audit here can genuinely conclude DANGEROUS, delete
-that endpoint and its helper and let P4 drive a real scan.** Both sites carry a
-`REVISIT IN PHASE 4` marker.
+**The alert trigger is not covered by the browser tier, by decision.** An alert is
+raised only where an audit settles on a DANGEROUS verdict (`panel/settle.py`), so
+a dep resolved from the verdict index — a cache hit — raises none, and a browser
+harness that cannot run docker plus a live LLM cannot reach the trigger at all.
+The synthetic `/fixture/dangerous-fanout` endpoint that stood in for it is
+**deleted**, along with the P4 spec it propped up: a scenario whose subject is
+manufactured by the harness proves the feed and claims the trigger. The producer
+and its exposure rules keep their engine-side unit coverage
+(`test_panel_alerts.py`, `test_panel_alerts_routes.py`), which is where that
+behaviour is actually pinned.
+
+Notifying on a cache-hit exposure — a protected repo whose lockfile already
+carries a known-DANGEROUS pair — is deliberately **not** built here. It is a
+product decision about when a user is told, not a gap in this phase.
 _Note:_ do **not** harden the plan model here (F-E). Get *a* payment path
 working behind the F-E1 seam and leave the shape changeable.
 
