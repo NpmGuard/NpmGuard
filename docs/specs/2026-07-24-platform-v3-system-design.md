@@ -1102,6 +1102,11 @@ Each is binary and observable — no "improve", no "polish".
 | G25 | `/benchmark` renders a real run, misses as prominent as hits | 7b | page + e2e |
 | G26 | `ruff check` + `pytest` + `vitest` + `playwright` all green | all | `scripts/gate.sh` + `npm run gate` |
 | G27 | Engine tests stay hermetic (no `.env` read, panel off by default) | all | conftest assert |
+| G28 | A rendered timeline shows the authority the package actually requested, port included | §24 | unit: non-default port renders, default port is not invented |
+| G29 | A planted canary appearing in an exfiltrated body is citable by the judge | §24 | unit: bounded body capture, canary matchable against `setupApplied.env` |
+| G30 | No report implies a region was tested when no experiment covering it ran | §24 | unit on the merge path; `mergedCount` can no longer hide a dropped experiment |
+| G31 | No declared value in the wire vocabulary lacks a producer | §24 | grep per enum: error codes, `Trigger.kind`, `LifecycleHook`, config keys |
+| G32 | Every replay is a real capture, and derived fields equal what the engine computes | 5 | fidelity check, not just `safeParse` |
 
 ---
 
@@ -1435,6 +1440,7 @@ which is why the tier gets a name.
 | **D-8** | **O-8 answered — no serif.** None of the surveyed dev-tool landing pages use one, and that survey *is* the evidence; overriding it would be taste against data. The brief's type system collapses to sans (interface) + mono (machine-authored fact), which also sharpens the mono signal by removing a third voice competing with it. | Simplifies R-6a's type scale and drops a webfont from the boot path. |
 | **D-6** | **O-2 answered** — 8-value observation taxonomy, derived at read time. `ERROR` splits into **`ABSTAINED`** (the engine's own honest "couldn't determine" — stays in the denominator) and **`VOID`** (Docker/LLM/queue fault — excluded from rates but counted and reported), keyed on the stable `NpmGuardError` codes. `verified` splits too: a `DANGEROUS` verdict with `confirmedCount == 0` is not weakly-proved, it is a **dealbreaker** (`pipeline.py:249-262`) — a disjoint mechanism that produces zero hypotheses. | The design doc's own candidate was wrong in one place: "give DEFERRED its own outcome bucket" is **unreachable**. `pipeline.py:390-398` raises `AuditIncompleteError` when hypotheses are deferred and none confirmed, so a report with deferred-but-nothing-confirmed **does not exist**; the observable is no report at all. 3 projector assertions guard the states the engine makes unreachable. |
 | **D-7** | **O-3 answered** — expand to **50 malware + 75 negative controls at N=2**, plus a 10-entry N=5 stability probe (~280 audits). Minimum viable tier 40+40. | Rests on a **statistical error in v1 worth more than the schema fix**: v1 §8 pools entries×runs to n=60 and puts a Wilson CI on that — pseudo-replication, narrowing the interval ~40% on a false independence assumption. With n = *entries*, the intuition behind N=3 **reverses**: at fixed budget, entries buy CI width and replication buys none (60 audits as N=1×60 ⇒ ≥94.0% lower bound at a perfect score; as N=3×20 ⇒ ≥83.9%). Replication measures *stability*, which is a separate question needing its own small probe. Also: v1's "precision" is actually **specificity**, and its ≥95% bar needs **73** clean entries — it set a bar it had no corpus to clear. |
+| **D-9** | **Evidence fidelity is fixed before detection is measured, and the §24 findings are triaged into the phase plan rather than filed.** Writing [`../architecture/AUDIT_CORE_EXPLAINED.md`](../architecture/AUDIT_CORE_EXPLAINED.md) surfaced 19 cited discrepancies, and one of them changes the ordering of this whole plan: on real credential-stealing malware, **13 of 14 hypotheses were refuted citing rendering artefacts rather than absent malice**, and the `DANGEROUS` verdict survived only because one hypothesis happened to be phrased around a request the pcap sensor rendered literally. The largest single cause is a missing `options.port` in the L4 URL builder (`instrumentation-monkey.js:28`), which three judges quoted verbatim as grounds to refute. | The bench cannot run first: D-6/D-7's rates would describe an engine that loses true positives to a missing `:9999`, and publishing them would be measuring the framing lottery. So **§24 fidelity (tasks #18, #21) precedes Phase 7b**, and Phase 5's replays must be **re-recorded** — §24.1 shows the committed recording is a hybrid whose `fileType`, `riskContribution`, `trace`, and `fileSummaries` are hand-authored and contradict engine output. Contract-pinning does not catch this: a curated value can be schema-valid and still a lie, so G16 gains a *fidelity* check alongside its schema check. Also note the cost this exposes — changing the rendered timeline changes the judge prompt, so recorded LLM exchanges fail loud by design; **a re-record is an owner decision with a dollar attached, never an agent's.** |
 | **D-5** | Phase 0 authors the contract at its **target shape** — generalized `AuditSet` (R-1) + 3-state verdict (§4.4) — not today's shape | Avoids rewriting the contract three times and touching every route + consumer three times. Inverts the usual order on purpose: the contract is the *specification*, so it leads, and Phase 1 / R-1 become **migrations to** it with a mechanical definition of done ("generated types compile against both sides") instead of a judgement call. |
 
 ---
@@ -1459,6 +1465,11 @@ textbook exfil, so the tier choice is a *detection-validity* decision as much as
 budget one. Running the bench on a tier you would not ship is measuring the wrong
 engine.
 
+**O-7 now has a prerequisite, per D-9.** Answering it against today's renderer
+would price a measurement of the wrong engine for a second reason — not the model
+tier, but the evidence it reads. The §24 fidelity work (tasks #18, #21) lands
+first; only then does the tier question isolate the variable it means to.
+
 ---
 
 ## 10. Explicitly out of scope
@@ -1474,11 +1485,15 @@ engine.
 - **Mutation-testing bench** — later dataset version, and O-2 has to land first.
 - **Comparative wrappers** (`npm audit`, Snyk side-by-side) — mechanical, queued
   behind a bench that measures the right thing.
-- **Touching the audit core's *pipeline*.** Resolve→…→judge and schemaVersion 2
-  are the fixed point. Pressure to change them is a signal that a consumer is
-  modeled wrong. (Note: R-2 changes how work is *dispatched to* the pipeline, not
-  the pipeline itself — that's the consumer side of the boundary, and it is in
-  scope.)
+- **Touching the audit core's *pipeline shape*.** Resolve→…→judge and
+  schemaVersion 2 are the fixed point. Pressure to change them is a signal that a
+  consumer is modeled wrong. (Note: R-2 changes how work is *dispatched to* the
+  pipeline, not the pipeline itself — that's the consumer side of the boundary,
+  and it is in scope.)
+  **This exclusion covers shape, not correctness.** Fixing a bug that makes the
+  core fail its own stated contract is always in scope — see D-9. "Frozen" means
+  the stages and their contracts don't get renegotiated; it never means a stage
+  is allowed to keep lying about what it observed.
 - **Actually running multi-node** (R-3, O-5c). The requirement is *designed to
   scale*; the seam is in scope, the distribution is not.
 - **Building dep-tree audits** (R-7). Designed for, deliberately not built —
