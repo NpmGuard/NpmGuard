@@ -4,6 +4,9 @@
 **Contact:** see repo contributors
 **Date opened:** 2026-07-25 (ETHGlobal Lisbon)
 **Status:** developer feedback = findings below, gathered while integrating.
+D-1…D-12 come from building against the SDK; **D-13 and D-14 come from a live
+staging proof that World rejected**, and are the only two that cost us real
+debugging time rather than reading time — worth weighting accordingly.
 User feedback = protocol defined, sessions pending.
 
 Versions under test:
@@ -33,6 +36,7 @@ The short list to raise in person. Each is expanded in the findings below.
 | **Q4** | Can the **simulator** issue Identity Check document attributes, or does tier 2 require a real document? | Decides whether our document-backed tier is demoable at all without real documents. **D-6** |
 | **Q5** | Is there a documented spec (or non-JS implementation) of `hashSignal` **and `signRequest`**? | A non-JS backend must reverse-engineer *two* undocumented schemes before it can sign or verify anything — and `signRequest`'s reference implementation refuses to run outside Node by design. **D-11, D-12** |
 | **Q6** | Does `/api/v4/verify/{rp_id}` echo `identity_attested`, or must the backend trust the client payload? | Attribute verification is precisely what a backend must not take on trust. **D-3** |
+| **Q7** | Can `validation_error` name the offending field, and can the completion envelope be made un-postable by construction? | The one failure that actually stopped us in testing. A correct proof was rejected because we forwarded IDKit's `{success, result}` wrapper; the error pointed at the proof, not the wrapper. **D-13, D-14** |
 
 ---
 
@@ -397,6 +401,67 @@ integrators do not poll needlessly or, worse, assume failure.
 above would be enough), or ship signing helpers for at least one non-JS backend.
 Combined with D-11, a non-JS backend currently has to reverse-engineer **two**
 undocumented hashing/signing schemes before it can verify anything.
+
+### D-13 🟠 `pollUntilCompletion()` returns an envelope, and the type system cannot stop you posting it
+
+This one cost us a live debugging session, so it is worth stating precisely.
+
+```ts
+type IDKitCompletionResult =
+  | { success: true;  result: IDKitResult }
+  | { success: false; error: IDKitErrorCodes }
+```
+
+`/api/v4/verify/{rp_id}` wants `IDKitResult`'s **own** fields at the top level
+(`protocol_version`, `nonce`, `action`, `responses`, `user_presence_completed`,
+`environment`). Post the envelope instead of `.result` and you get
+`validation_error` — with no indication that the *wrapper* is the problem.
+
+The README does show `JSON.stringify(completion.result)`, so the correct usage is
+documented. What makes it a trap is that nothing enforces it: the natural backend
+signature for a proof is `unknown` or `Record<string, unknown>` (you are about to
+forward it verbatim to World, and you have no reason to model its interior), and
+**the envelope satisfies both**. So the one place a type checker could catch the
+mistake is exactly the place where the type has been widened for good reason. It
+type-checks, it runs, and it fails at the far end of a network call as a
+validation error about the proof.
+
+The naming compounds it: the envelope's discriminant is `success`, and so is the
+verify response's. Two different `success` booleans, one flow.
+
+**Ask:** give the two shapes distinguishable types — a branded `IDKitProof`
+returned by `.result`, or a `toVerifyPayload()` / `verifyBody` accessor on the
+completion that is the only way to get a postable object. Either makes the
+correct call the one that compiles. Failing that, `pollUntilCompletion()` could
+return the result directly and surface refusals as a separate channel, since
+`success: false` is a *user declining*, not a proof that failed to verify —
+conflating those two into one boolean is what puts the envelope on the wire.
+
+### D-14 🟠 `validation_error` names no field
+
+The verify API's rejection for a malformed body is `code: "validation_error"`
+with no indication of which field was missing, unexpected, or misshapen.
+
+From the RP's side this is close to unactionable. The word "validation" points at
+the *proof* — the natural reading is "the user's credential did not validate" —
+when in our case the proof was perfect and the request wrapper was wrong. We
+diagnosed it by reading `dist/index.d.ts` and the README, not from the error.
+
+This matters more here than in a typical API, because a protocol-4.0 body is not
+hand-written: it is whatever the SDK handed you, forwarded verbatim. When the
+server says "that is invalid" and the client says "that is what I was given",
+there is no third place to look.
+
+**Ask:** include the offending field path in `detail`, as most validation layers
+do by default. `{"code":"validation_error","detail":"responses: field required"}`
+would have turned a multi-step investigation into a one-line fix. Distinguishing
+"request body malformed" from "proof failed to verify" at the code level would be
+even better — they have completely different remedies and completely different
+audiences.
+
+> Our own error handling had the same flaw and we fixed it in the same change:
+> we were reporting World's `code` and discarding its `detail`. Worth noting that
+> an RP will naturally mirror whatever granularity the API offers.
 
 ### D-10 🔵 Version skew between the two published packages
 
