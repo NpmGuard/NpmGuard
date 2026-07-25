@@ -15,6 +15,26 @@ from .contract.models import EventSummary, EvidenceEvent, RunArtifact
 
 TRACE_START = "__NPMGUARD_TRACE__"
 TRACE_END = "__NPMGUARD_TRACE_END__"
+# Where observation writes the L4 instrument inside the sandbox, and therefore the
+# `from` value that would appear on a require the INSTRUMENT made rather than the
+# package. Single source of truth: observation.py mounts it here and passes it to
+# `node --require`, and parse_l4_trace refuses a trace that attributes an
+# instrument require to the package.
+INSTRUMENT_PATH = "/tmp/_instrument.js"
+# What instrumentation-require-hook.js records as `from` when a require has no
+# parent module. Node's own `-e` bootstrap lazily requires `module` this way on
+# every run, so it is baseline noise — but it is never the package, which always
+# requires from inside a module.
+TRACE_NO_PARENT = "<root>"
+# A captured request body gets more display room than a path: a credential blob's
+# interesting part is rarely in the first 100 characters. The full captured prefix
+# (instrument-capped) stays in the sealed artifact, and the canary match is computed
+# over that prefix rather than this truncation, so a value past the cut is still named.
+_BODY_RENDER_CHARS = 200
+# A planted value shorter than this appears in a payload by coincidence about as often
+# as by exfiltration (`CI=1`, `TZ=UTC`), and naming it as a canary match would hand the
+# judge a citation that proves nothing.
+_MIN_BAIT_CHARS = 8
 SYSCALL_KINDS = frozenset(
     {"openat", "read", "write", "connect", "sendto", "execve", "clone", "unlink", "rename", "link"}
 )
@@ -106,7 +126,9 @@ class ArtifactStore:
         return content_hash_of(value) == digest
 
 
-def parse_l4_trace(stdout: str) -> list[EvidenceEvent] | None:
+def parse_l4_trace(
+    stdout: str, instrument_path: str = INSTRUMENT_PATH
+) -> list[EvidenceEvent] | None:
     end = stdout.rfind(TRACE_END)
     if end < 0:
         return None
@@ -134,6 +156,20 @@ def parse_l4_trace(stdout: str) -> list[EvidenceEvent] | None:
         }:
             continue
         kind, normalized = _normalize_l4(entry)
+        if kind == "require" and normalized["from"] == instrument_path:
+            # INVARIANT: no `require` event in a trace is the instrument's own.
+            # instrumentation-require-hook.js is concatenated after every fragment
+            # that requires anything, so this is unreachable — and it must stay
+            # unreachable, because a timeline that shows the instrument's
+            # child_process/crypto requires as the package's tells the judge the
+            # package reached for capabilities it never touched. Raising here
+            # DEFERS the hypothesis with a located cause; it never launders a
+            # misattributed timeline into a verdict.
+            raise AssertionError(
+                f"parse_l4_trace: require of {normalized['module']!r} attributed to the "
+                f"package but made by the instrument ({instrument_path}) — the require "
+                "hook was installed before the instrument's own dependencies"
+            )
         events.append(
             EvidenceEvent(
                 stream="L4:v8inspector" if entry["type"] == "script" else "L4:monkey",
@@ -157,9 +193,16 @@ def _normalize_l4(entry: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     if event_type == "fs":
         return "fs_op", {"method": str(entry.get("method", "")), "path": str(entry.get("path", ""))}
     if event_type == "network":
+        # `body`/`bodyBytes` are always projected so the shape is uniform: bodyBytes
+        # 0 means the package submitted no request body, and `len(body) < bodyBytes`
+        # means the instrument's cap truncated it. An artifact recorded before body
+        # capture existed also reads as 0 — the renderer says nothing in either case,
+        # so neither is ever presented as evidence of an empty payload.
         return "network", {
             "method": str(entry.get("method", "GET")),
             "url": str(entry.get("url", "")),
+            "body": str(entry.get("body", "")),
+            "bodyBytes": int(entry.get("bodyBytes") or 0),
         }
     if event_type == "process":
         return "process", {"method": str(entry.get("method", "")), "cmd": str(entry.get("cmd", ""))}
@@ -237,6 +280,15 @@ class RenderedTimeline:
 
 def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
     home = (artifact.setupApplied.env or {}).get("HOME", "/home/node")
+    # The bait the experiment planted, in plaintext, so a captured request body can
+    # be correlated with it. Only `setupApplied.env` qualifies: planted FILE contents
+    # are recorded as hashes only (shared/src/evidence.ts PlantedFileRef), so a file
+    # canary inside a payload is not matchable from the artifact at all.
+    bait = {
+        key: value
+        for key, value in (artifact.setupApplied.env or {}).items()
+        if len(value) >= _MIN_BAIT_CHARS
+    }
 
     def shorten(value: str) -> str:
         return _truncate(("~" + value[len(home) :]) if value.startswith(home) else value)
@@ -254,8 +306,8 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
         1: ("stdout", False),
         2: ("stderr", False),
     }
-    node_rows = _collapse([_describe(event, shorten, fds) for event in node])
-    clock_rows = _collapse([_describe(event, shorten, fds) for event in clock])
+    node_rows = _collapse([_describe(event, shorten, fds, bait) for event in node])
+    clock_rows = _collapse([_describe(event, shorten, fds, bait) for event in clock])
     identifiers: set[str] = set()
     counter = 0
 
@@ -319,7 +371,7 @@ def _collapse(rows: list[tuple[str, str, str, int]]) -> list[tuple[str, str, str
 
 
 def _describe(
-    event: EvidenceEvent, shorten, fds: dict[int, tuple[str, bool]]
+    event: EvidenceEvent, shorten, fds: dict[int, tuple[str, bool]], bait: dict[str, str]
 ) -> tuple[str, str, str, int]:
     normalized = event.normalized or {}
 
@@ -351,6 +403,20 @@ def _describe(
         verb, target = event.kind, fds.get(fd, (f"fd:{fd if fd is not None else '?'}", False))[0]
     elif event.kind in {"connect", "sendto"}:
         verb = "connect" if event.kind == "connect" else "send"
+        # FINDING (open, pinned by test_evidence C14b, NOT fixed here): the fd table's
+        # second element records whether the descriptor was last bound to a SOCKET,
+        # and this ignores it — so an AF_UNIX/netlink connect on a recycled fd
+        # inherits the file path a previous openat left there and renders
+        # "connect /etc/localtime", which is false, not merely vague. The one-line
+        # fix (`bound[0] if bound and bound[1] else "socket"`) changes which rows
+        # _collapse merges and shifts the event ids of 9 of the 14 recorded
+        # test-pkg-dns-exfil artifacts by 1-2, invalidating that bundle's judge
+        # citations (hyp-0002 cites e246, which no longer exists). It therefore needs
+        # a re-record, which is an owner decision with a metered cost — landing it
+        # here would turn the gate red for a row nothing was ever refuted over.
+        # Scope note: the sensors.py inet-address fix already removes this fallback
+        # for every AF_INET/AF_INET6 connect, which is where the hypothesis-matching
+        # detail lives; what remains mis-rendered is unix-domain and netlink noise.
         target = (
             f"{value('addr')}:{value('port') or '?'}"
             if value("addr")
@@ -384,12 +450,30 @@ def _describe(
         verb, target = "tls", value("host") or value("sni")
     elif event.kind == "require":
         verb, target = "require", value("module")
+        if value("from") == TRACE_NO_PARENT:
+            # A parentless require is never the package's — it always requires from
+            # inside a module. Node's `-e` bootstrap contributes exactly one
+            # (`module`) per run. Named rather than dropped: dropping it would also
+            # blind the timeline to an evasive `Module._load(name, null)`, and the
+            # doctrine here is to make an event readable, never to filter it.
+            target += "  [no requiring module — node bootstrap, not the package]"
     elif event.kind == "env_access":
         verb, target = "env", value("key")
     elif event.kind == "fs_op":
         verb, target = "fs", f"{shorten(value('path'))} ({value('method')})".strip()
     elif event.kind == "network":
+        # An opaque payload is as unreadable to a judge as a bare `write(5, …)`, so
+        # the same "resolve it into a sentence" rule applies: show the bounded body
+        # and name which planted canaries it carries. Without this, "was the canary
+        # in the exfiltrated payload?" is unanswerable and a real exfil refutes.
         verb, target = "net", f"{value('method') or 'GET'} {shorten(value('url'))}".strip()
+        body, body_bytes = value("body"), int(float(value("bodyBytes") or 0))
+        if body_bytes:
+            preview = _truncate(re.sub(r"\s+", " ", body).strip(), _BODY_RENDER_CHARS)
+            target += f"  body[{body_bytes}b] {preview}"
+        carried = sorted(key for key, seed in bait.items() if seed in value("url") + body)
+        if carried:
+            target += f"  · carries planted env {', '.join(carried)}"
     elif event.kind == "process":
         verb, target = "spawn", shorten(value("cmd"))
     elif event.kind == "eval":

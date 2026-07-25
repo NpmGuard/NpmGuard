@@ -142,9 +142,18 @@ async def read_file_in_container(container: str, path: str) -> str:
 
 
 def instrumentation_source(inspector: bool) -> str:
+    """Concatenate the L4 instrument fragments into one CJS module.
+
+    INVARIANT: the `require` hook is installed after every fragment that requires
+    anything of its own, so no `require` event in the trace can be the
+    instrument's. Order is the mechanism — `instrumentation-require-hook.js` must
+    stay after monkey/inspector and before flush (which requires nothing). The
+    engine-side check is the assertion in `evidence.parse_l4_trace`.
+    """
     assets = Path(__file__).with_name("assets")
     parts = [(assets / "instrumentation-monkey.js").read_text(encoding="utf-8")]
     if inspector:
         parts.append((assets / "instrumentation-inspector.js").read_text(encoding="utf-8"))
+    parts.append((assets / "instrumentation-require-hook.js").read_text(encoding="utf-8"))
     parts.append((assets / "instrumentation-flush.js").read_text(encoding="utf-8"))
     return "\n".join(parts)

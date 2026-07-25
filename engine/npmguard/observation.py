@@ -22,6 +22,7 @@ from .docker import (
 )
 from .errors import DockerUnavailableError
 from .evidence import (
+    INSTRUMENT_PATH,
     compute_event_summary,
     parse_l4_trace,
     seal_run_artifact,
@@ -105,7 +106,7 @@ async def dry_run_load(
 
 
 def build_trigger_command(trigger: Trigger, l4: bool) -> list[str] | None:
-    flags = ["--require", "/tmp/_instrument.js"] if l4 else []
+    flags = ["--require", INSTRUMENT_PATH] if l4 else []
     if trigger.kind == "entrypoint":
         # Resolve like a shell against the sandbox workdir: an absolute path (e.g. a
         # planted /pkg/driver.js) stays absolute; a relative path resolves against
@@ -215,7 +216,7 @@ async def run_under_observation(
             try:
                 await write_file_in_container(
                     container,
-                    "/tmp/_instrument.js",
+                    INSTRUMENT_PATH,
                     instrumentation_source(bool(observed.inspector)),
                 )
             except Exception as exc:

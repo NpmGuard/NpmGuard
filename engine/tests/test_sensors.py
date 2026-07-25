@@ -7,6 +7,8 @@
 #   C1 strace wrapper preserves the command; pid/no-pid line variants parse;
 #      unfinished lines are dropped, not misparsed
 #   C2 strace log normalizes security-relevant fields (paths, addr:port, argv)
+#   C2b …in the formats REAL strace emits (inet_addr()/inet_pton()/AF_UNIX) — the
+#      axis C2's hand-authored line shape missed, which left the peer unparsed
 #   C3 fs diff distinguishes created/modified/deleted — deletion is an event,
 #      never silent absence
 #   C4 parse_snapshot: valid path\tsize\tmtime rows parse; CRLF tolerated;
@@ -76,6 +78,32 @@ def test_strace_log_normalizes_security_relevant_fields() -> None:
     assert events[0].normalized["path"] == "/pkg/.npmrc"
     assert events[1].normalized == {"ret": "0", "addr": "1.2.3.4", "port": 443}
     assert events[2].normalized["argv"] == ["sh", "-c", "bad"]
+
+
+def test_strace_log_normalizes_the_peer_real_strace_actually_prints() -> None:
+    """C2b: strace prints the address through a formatter — `sin_addr=inet_addr(...)`,
+    `inet_pton(AF_INET6, ...)` — so the bare `sin_addr="..."` pattern C2 asserts
+    (a shape strace never emits) matched NOTHING real: every inet connect in the
+    committed corpus normalized to addr=None while its raw carried the peer, and
+    render_timeline then fell back to "socket". These lines are copied verbatim from
+    a committed recorded artifact's `raw`."""
+    log = (
+        "1700000001.000000 connect(19, {sa_family=AF_INET, sin_port=htons(9999), "
+        'sin_addr=inet_addr("127.0.0.1")}, 16) = -1\n'
+        "1700000002.000000 connect(18, {sa_family=AF_INET, sin_port=htons(80), "
+        'sin_addr=inet_addr("169.254.169.254")}, 16) = -1\n'
+        "1700000003.000000 connect(20, {sa_family=AF_INET6, sin6_port=htons(443), "
+        'inet_pton(AF_INET6, "2606:4700::1", &sin6_addr), sin6_scope_id=0}, 28) = 0\n'
+        "1700000004.000000 connect(17, {sa_family=AF_UNIX, "
+        'sun_path="/var/run/nscd/socket"}, 110) = -1\n'
+    )
+    events = parse_strace_log(log, 1_700_000_000)
+    assert events[0].normalized == {"ret": "-1", "addr": "127.0.0.1", "port": 9999}
+    assert events[1].normalized == {"ret": "-1", "addr": "169.254.169.254", "port": 80}
+    assert events[2].normalized == {"ret": "0", "addr": "2606:4700::1", "port": 443}
+    # A unix-domain peer has no addr:port; it stays None rather than being invented
+    # from the socket path (FINDING: it still renders as the ambiguous "socket").
+    assert events[3].normalized == {"ret": "-1", "addr": None, "port": None}
 
 
 def test_filesystem_diff_never_turns_deletion_into_absence() -> None:

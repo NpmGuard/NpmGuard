@@ -17,8 +17,19 @@
 #      run error surfaces as a note
 #  C12 compute_event_summary buckets hosts / syscalls / files / dns from
 #      normalized events
+#  C13 a captured request body renders bounded, with its true size, and names the
+#      planted env canaries it carries; no body renders no body clause
+#  C14 an L1 connect renders the peer host:port it dialled, not "socket"
+# C14b …and never a FILE inherited from a recycled fd (xfail PIN — open finding,
+#      the fix needs a fixture re-record; see the marker's reason)
+#  C15 parse_l4_trace refuses a trace attributing an INSTRUMENT require to the
+#      package; a parentless (node-bootstrap) require is named, never dropped
 # Adversarial pass: 2026-07-23/W6 — added the artifact-integrity and timeline
 # axes (previously only the pure canonicalization half of the module was mapped).
+# Evidence-fidelity pass: C13-C15 close the rendering-loss classes that made real
+# malware refute — the timeline said less than the run did. The JS half of the
+# same axis (what the instrument EMITS) is proven in test_instrumentation_l4.py;
+# these classes prove what the renderer does with it.
 import math
 
 import pytest
@@ -190,6 +201,131 @@ def test_render_timeline_empty_run_and_error_note() -> None:
     assert timeline.ids == frozenset()
     assert "(no events captured)" in timeline.text
     assert "# note: run error — CrashError: Cannot find module 'x'" in timeline.text
+
+
+def test_captured_body_renders_bounded_and_names_planted_canaries() -> None:
+    """C13: the exfil line carries the payload and names which planted env canaries
+    are in it — the correlation hyp-0004 refuted for lacking ("the POST request is
+    recorded but its payload is not specified"). The displayed body is truncated,
+    the true submitted size is stated, and the canary match is computed over the
+    whole captured prefix, so a value past the display cut is still named."""
+    tail = "z" * 400
+    events = [
+        _l4(
+            "network",
+            {
+                "method": "POST",
+                "url": "http://localhost:9999/exfil",
+                "body": '{"pad":"' + tail + '","tok":"npm_12345secrettoken"}',
+                "bodyBytes": 4096,
+            },
+        )
+    ]
+    draft = _artifact_draft(
+        events, setupApplied={"env": {"NPM_TOKEN": "npm_12345secrettoken", "CI": "1"}}
+    )
+    line = next(
+        row for row in render_timeline(seal_run_artifact(draft)).text.splitlines() if " net " in row
+    )
+    assert "POST http://localhost:9999/exfil" in line
+    assert "body[4096b]" in line  # the size the package submitted, not the kept size
+    assert tail not in line  # bounded display
+    assert "carries planted env NPM_TOKEN" in line  # matched past the display cut
+    assert "CI" not in line.split("carries planted env")[1]  # too short to be a canary
+
+
+def test_a_bodyless_network_event_renders_no_body_clause() -> None:
+    """C13: absence of a body is not an empty payload. A GET (and an artifact that
+    predates body capture) renders exactly as before, so nothing invites a judge to
+    read "no body" as evidence the request was harmless."""
+    events = [_l4("network", {"method": "GET", "url": "https://evil.test/x"})]
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "net      GET https://evil.test/x" in text
+    assert "body[" not in text
+    assert "carries planted env" not in text
+
+
+def test_connect_renders_the_peer_it_dialled() -> None:
+    """C14: a connect whose normalized addr/port survived the strace parse renders
+    the peer, not "socket" — the hypothesis-matching detail three judges said was
+    missing ("No event matches the suspected endpoint")."""
+    events = [
+        EvidenceEvent(
+            stream="L1:seccomp",
+            timestamp=1,
+            pid=9,
+            kind="connect",
+            raw='connect(19, {sa_family=AF_INET, sin_port=htons(9999), sin_addr=inet_addr("127.0.0.1")}, 16) = -1',
+            normalized={"ret": "-1", "addr": "127.0.0.1", "port": 9999},
+        )
+    ]
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "connect  127.0.0.1:9999" in text
+    assert "socket" not in text
+
+
+@pytest.mark.xfail(
+    reason="OPEN FINDING: a connect on an fd last bound to a FILE inherits that "
+    "file as its peer, so live timelines say 'connect /etc/localtime'. The fd table "
+    "already carries the is-socket flag the fix needs, but honouring it re-collapses "
+    "rows and shifts 9 of 14 recorded test-pkg-dns-exfil event ids, invalidating that "
+    "bundle's judge citations — a re-record is an owner decision. The assertion below "
+    "is the CORRECT contract and flips green when the fix lands.",
+    strict=True,
+)
+def test_connect_never_claims_a_file_as_its_peer() -> None:
+    """C14b: you cannot connect(2) to a file. An AF_UNIX connect on a recycled fd
+    must not inherit the path a previous openat left in the fd table — a false target
+    is worse than a vague one, because a judge can cite it."""
+    events = [
+        EvidenceEvent(
+            stream="L1:seccomp",
+            timestamp=1,
+            pid=9,
+            kind="openat",
+            raw='openat(AT_FDCWD, "/etc/localtime", O_RDONLY) = 17',
+            normalized={"ret": "17", "path": "/etc/localtime"},
+        ),
+        EvidenceEvent(
+            stream="L1:seccomp",
+            timestamp=2,
+            pid=9,
+            kind="connect",
+            raw='connect(17, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) = -1',
+            normalized={"ret": "-1", "addr": None, "port": None},
+        ),
+    ]
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "connect  /etc/localtime" not in text
+    assert "connect  socket" in text
+
+
+def test_parse_l4_trace_refuses_an_instrument_require_attributed_to_the_package() -> None:
+    """C15: the instrument's own dependencies must never read as the package's — a
+    judge weights child_process as a capability. The ordering that guarantees it
+    lives in the instrument; this is the engine-side assertion that a regression
+    fails loud (→ DEFER with a located cause) instead of misattributing silently."""
+    trace = (
+        '__NPMGUARD_TRACE__[{"type":"require","module":"child_process",'
+        '"from":"/tmp/_instrument.js"}]__NPMGUARD_TRACE_END__'
+    )
+    with pytest.raises(AssertionError, match="made by the instrument"):
+        parse_l4_trace(trace)
+
+
+def test_a_parentless_require_is_named_not_dropped() -> None:
+    """C15: Node's `-e` bootstrap requires `module` with no parent module on every
+    run. It is not the package's, and it is not filtered either — filtering would
+    also blind the timeline to an evasive Module._load(name, null)."""
+    trace = (
+        '__NPMGUARD_TRACE__[{"type":"require","module":"module","from":"<root>"},'
+        '{"type":"require","module":"http","from":"/pkg/setup.js"}]__NPMGUARD_TRACE_END__'
+    )
+    events = parse_l4_trace(trace)
+    assert events is not None and len(events) == 2
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "require  module  [no requiring module — node bootstrap, not the package]" in text
+    assert "require  http" in text and "bootstrap" not in text.split("require  http")[1]
 
 
 def test_compute_event_summary_buckets_normalized_events() -> None:
