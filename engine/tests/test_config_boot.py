@@ -33,11 +33,6 @@
 #      names the variable. Paired with a control run at a VALID value that imports
 #      cleanly, so the class cannot pass by the import being broken for some other
 #      reason
-# Adversarial pass: 2026-07-25 — the first map was "bad values raise", which pydantic
-# already did before this change and which says nothing about the actual complaint
-# (the message). The missing dimensions are WHOSE NAME appears (C1/C2), what must NOT
-# appear (C3), and the difference between "raises in this process" and "the engine
-# will not boot" (C5).
 from __future__ import annotations
 
 import os

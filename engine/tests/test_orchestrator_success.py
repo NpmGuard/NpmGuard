@@ -35,9 +35,6 @@
 #               unlike every in-experiment bug which defers only its own hypothesis
 #           C19 stored artifact hash != declared hash → RuntimeError inside the try →
 #               generic except → DEFERRED "Internal error", never CONFIRMED/REFUTED
-# Adversarial pass: W5 2026-07-23 — "can a judge failure ever launder into
-#   REFUTED/SAFE?" → C4/C5/C6 pin every judge-side failure to DEFERRED, and C12
-#   pins that DEFERRED can never aggregate to SAFE.
 import asyncio
 
 import pytest

@@ -23,11 +23,6 @@
 #   C13 validate_raw_url: https + raw.githubusercontent.com passes
 #   C14 validate_raw_url: wrong host / non-https / missing URL → ValueError
 #
-# Adversarial pass — "which dimension is missing?": the oauth-host axis was
-#   split so a naive "return api_base" (C2 would pass, C3 would fail) and a
-#   naive "always github.com" (C3 would pass, C2/stub path-strip would fail)
-#   are both caught; the expiry axis carries the exact boundary (== now) so a
-#   `>=` vs `>` slip in token_not_expired is observable.
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse

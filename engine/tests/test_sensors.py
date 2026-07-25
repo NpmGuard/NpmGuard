@@ -6,8 +6,8 @@
 # and find are external producers, so every input below comes from
 # tests/fixtures/sensors/ — output captured from the real producer and committed,
 # with its command line recorded in PROVENANCE.json. Nothing here asserts a line
-# shape we invented. C2 used to, and that is exactly how a dead regex stayed green
-# for the whole life of the module: the test and the code shared one wrong belief.
+# shape we invented — that is how a dead regex stays green for the life of a
+# module: the test and the code share one wrong belief.
 #
 # Axes: strace line format variants × line completeness (whole / split across
 #       unfinished+resumed / status line) × syscall normalization × sockaddr
@@ -44,9 +44,10 @@
 #      never silent absence
 #   C8 parse_tshark_json over the real tshark JSON: dns/http/tls fields are found
 #      wherever tshark filed them, including under the mdns/llmnr layer keys
-#   C8b INVARIANT: every packet the -Y filter admitted yields an event. Six of
-#      thirteen real packets used to yield none, silently — indistinguishable
-#      from no traffic. The filter and the extraction share one field list
+#   C8b INVARIANT: every packet the -Y filter admitted yields an event, because the
+#      filter and the extraction share one field list. Looking fields up under
+#      hardcoded layer names instead drops packets silently — indistinguishable
+#      from no traffic
 #   C9 unreadable tshark stdout raises: a capture we cannot parse is missing
 #      evidence, not absent traffic (tshark prints "[]" for zero packets)
 #   C10 SYSCALL_KIND is total over TRACED_SYSCALLS — recvfrom/accept/accept4
@@ -64,16 +65,6 @@
 #      inflation was the last way a complete capture could pass the cap (13 MB
 #      arriving as a sealed 7.5 MiB pcapHash). Measured at the boundary in
 #      e2e/test_pcap_transfer.py (S48)
-# Adversarial pass: 2026-07-23/W6 — added the pure parse_snapshot and
-# parse_tshark_json partitions (previously untested).
-# Invariant pass: 2026-07-23 sensor-fidelity — C10-C12 flip the pinned
-# evidence-loss behaviors (sleep-armed pcap, fabricated 'openat' default) into
-# asserted invariants.
-# Adversarial pass: 2026-07-25 imagined-format sweep — the missing dimension was
-# INPUT PROVENANCE. Every parser class was covered; every one was covered with
-# input we wrote ourselves, so four live defects (dropped split syscalls, dropped
-# errno, dropped mdns/llmnr packets, dropped tab/newline paths) were invisible.
-# Classes C1-C9 are now driven by committed captures.
 import json
 import re
 from pathlib import Path
@@ -170,8 +161,8 @@ def test_captured_log_normalizes_security_relevant_fields() -> None:
     assert boot.normalized["path"] == "/usr/local/bin/node"
     assert boot.normalized["argv"] == ["node", "/cprobe.js"]
     assert _find(events, 'write(22, "hello-from-client"').normalized["fd"] == 22
-    # A DNS response's peer sockaddr: 221 recvfrom events in the committed corpus
-    # carry one, and every one of them used to be discarded.
+    # A DNS response's peer sockaddr — the only place an unconnected socket's peer
+    # appears at all.
     resolver = _find(events, "recvfrom(21, \"T\\0")
     assert (resolver.normalized["addr"], resolver.normalized["port"]) == ("127.0.0.53", 53)
 

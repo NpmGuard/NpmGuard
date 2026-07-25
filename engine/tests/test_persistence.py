@@ -10,11 +10,11 @@
 #   C4 session state durable: rows born 'queued'; finalize → status done + report
 #   C5 claim durable across engine restart — a fresh store over the same DB
 #      returns the original audit id, created=False
-#   C6 (single-owner flip) the running-count session cap is GONE: create() and
-#      claim_payment() both insert a 'queued' row and consult no cap. Backpressure
-#      is the wait-queue bound (queued_count vs queue_size) via AuditService.
-#      reserve(), so create() no longer takes max_running. Also covers the new
-#      mark_running (queued->running, once) + reset_to_queued (error->queued) guards.
+#   C6 there is no running-count session cap: create() and claim_payment() both
+#      insert a 'queued' row and consult no cap. Backpressure is the wait-queue
+#      bound (queued_count vs queue_size) via AuditService.reserve(). Also covers
+#      the mark_running (queued->running, once) and reset_to_queued (error->queued)
+#      guards.
 #   C7 finalize guard — INVARIANT: finalize transitions exactly one NON-TERMINAL
 #      (queued|running) row -> done|error; it succeeds on a queued row (close/
 #      recovery), and a re-finalize or a finalize of a nonexistent audit_id RAISE,
@@ -22,12 +22,6 @@
 #   C8 transaction() seam — a raise inside the block rolls back a joined
 #      finalize (row stays 'queued'); this is what makes the row transition and
 #      the terminal-event append atomic in AuditService._finish.
-# Adversarial pass: 2026-07-23/W6 — C1 alone was vacuous for the concurrency
-# clause (sqlite serializes); C2/C3/C5 add the MVCC, atomicity, and restart axes.
-# Adversarial pass: 2026-07-23/A1 — the Claim axis and the Cap axis never
-# intersected in any file; C6 adds the missing claim×cap class as a pin.
-# Invariant pass: 2026-07-23/lifecycle-coherence — finalize was an unconditional
-# UPDATE (no rowcount, no WHERE status); C7/C8 assert the enforced guard.
 import asyncio
 import os
 

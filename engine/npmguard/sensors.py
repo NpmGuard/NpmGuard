@@ -201,19 +201,11 @@ def _complete_lines(log: str) -> list[str]:
             )
             continue
         if not STRACE_CALL.match(body):
-            # No cause is named, because this parser cannot tell them apart and the
-            # one it used to name is now impossible. It said "docker_exec caps stdout
-            # at 10MiB, so a chatty run's log arrives as a prefix ending mid-line":
-            # the cap is 64 MiB and it RAISES rather than returning a prefix, and a
-            # timed-out read comes back with exit_code -1, which observation.py never
-            # parses. So the TRANSFER can no longer hand this parser a torn log.
-            # A torn log is still reachable from the PRODUCER side — strace writing
-            # into a /tmp that hit ENOSPC leaves the file ending mid-line (measured:
-            # a 64 MiB tmpfs filled by one writer ends "… = 3\nopen") — but a partial
-            # last line and an unknown complete shape are indistinguishable here, so
-            # the body is quoted and the diagnosis left to whoever reads it. Either
-            # way this raises: refuting a hypothesis on a partial syscall record
-            # would be unsound.
+            # No cause is named: a torn last line (strace writing into a /tmp that
+            # hit ENOSPC ends mid-line) and an unknown complete shape are
+            # indistinguishable here, so the body is quoted and the diagnosis left to
+            # whoever reads it. Either way this RAISES — refuting a hypothesis on a
+            # partial syscall record would be unsound.
             raise AssertionError(f"strace: unrecognised line body — {body[:200]!r}")
         output.append(line)
     # A syscall still in flight when the trace ended (the wall-clock budget killed
@@ -285,11 +277,9 @@ def _peer(syscall: str, args: str) -> dict[str, Any]:
     peer: dict[str, Any] = {"family": family, "addr": None, "port": None}
     if family == "AF_UNIX":
         # sun_path="/var/run/nscd/socket", or @"name" for an abstract socket. path
-        # stays None for an UNNAMED peer, which is real and captured: accepting a
-        # connection from a client that never bound a name prints a bare
-        # `{sa_family=AF_UNIX}` (verified — see the accept4 line in
-        # tests/fixtures/sensors/strace-node.log). Genuinely absent, and now
-        # distinguishable from a non-unix peer by `family`.
+        # stays None for an UNNAMED peer, which is real: accepting a connection from
+        # a client that never bound a name prints a bare `{sa_family=AF_UNIX}`.
+        # Genuinely absent, and distinguishable from a non-unix peer by `family`.
         path = re.search(r'sun_path=@?"((?:[^"\\]|\\.)*)"', block)
         peer["path"] = path.group(1) if path else None
         return peer
@@ -297,24 +287,20 @@ def _peer(syscall: str, args: str) -> dict[str, Any]:
         return peer  # AF_NETLINK and friends: named, with no address to invent
     # strace ALWAYS prints the address through a formatter call —
     # sin_addr=inet_addr("1.2.3.4") for v4, inet_pton(AF_INET6, "::1", &sin6_addr)
-    # for v6 — so the formatter is mandatory here, not optional. It was optional,
-    # to accept a bare sin_addr="1.2.3.4", and that permissiveness existed for
-    # exactly one reason: to keep a hand-authored test green. The comment defending
-    # it cited `-yy`; measured on strace 6.1 and 7.0, -y and -yy annotate the FILE
-    # DESCRIPTOR (`connect(21<TCP:[2422430]>, …`) and leave the sockaddr untouched,
-    # and `-v -e abbrev=none` changes nothing either. A regex widened to fit a
-    # fabricated fixture is the same defect as a fixture written to fit a wrong
-    # regex; the assert below is what makes tightening safe.
+    # for v6 — so the formatter is mandatory here, not optional. Measured on strace
+    # 6.1 and 7.0: `-y`/`-yy` annotate the FILE DESCRIPTOR (`connect(21<TCP:[…]>, …`)
+    # and leave the sockaddr untouched, and `-v -e abbrev=none` changes nothing. A
+    # bare `sin_addr="1.2.3.4"` is a shape strace does not emit, so accepting it
+    # would only ever admit a fabricated fixture.
     address = re.search(r'sin6?_addr=\w+\("([^"]+)"\)', block) or re.search(
         r'inet_pton\(AF_INET6,\s*"([^"]+)"', block
     )
     port = re.search(r"sin6?_port=htons\((\d+)\)", block)
     # INVARIANT: an AF_INET/AF_INET6 sockaddr ALWAYS carries a printable address and
     # port, so failing to extract them is a parser defect — never an address-less
-    # connection. Asserting is the whole fix: the dead sin_addr="…" regex returned
-    # addr=None on every inet connect ever captured and looked exactly like "no
-    # address available". This fails loud (-> the hypothesis DEFERs with a located
-    # cause) instead of showing a judge "connect socket" for a named endpoint.
+    # connection. Failing loud DEFERs the hypothesis with a located cause; returning
+    # addr=None instead shows the judge "connect socket" for a named endpoint, which
+    # is indistinguishable from "no address available".
     assert address and port, (
         f"{syscall}: {family} sockaddr with no extractable peer — strace printed "
         f"a shape this parser does not know: {block}"
@@ -351,9 +337,9 @@ def parse_strace_log(log: str, run_start_sec: float) -> list[EvidenceEvent]:
         if syscall in FD_FIRST_SYSCALLS:
             # INVARIANT: these syscalls take the descriptor as argument 0, so it is
             # always printed as a leading integer — including under -y/-yy, which
-            # annotate it as `21<TCP:[2422430]>` rather than replacing it. `fd=None`
-            # was a branch for a shape strace cannot emit, and an unreadable fd
-            # silently unnames every read/write the renderer resolves through it.
+            # annotate it as `21<TCP:[2422430]>` rather than replacing it. An
+            # unreadable fd silently unnames every read/write the renderer resolves
+            # through it, so this asserts rather than tolerating None.
             assert leading_int, f"{syscall}: no descriptor in argument 0 — {args[:120]!r}"
             normalized["fd"] = int(leading_int.group(1))
         if syscall in {"open", "openat"}:
@@ -466,10 +452,9 @@ def diff_snapshots(
 
 
 def _snapshot_command(paths: tuple[str, ...], output: str) -> str:
-    # `%s\t%T@\t%p\0`: numeric fields first, raw path last, records NUL-terminated.
-    # See parse_snapshot — with the path first and newline-delimited records, any
-    # filename containing a tab or newline produced a row the parser then skipped,
-    # deleting that file from the fs-diff evidence entirely.
+    # `%s\t%T@\t%p\0`: numeric fields first, raw path last, records NUL-terminated,
+    # so a filename holding a tab or a newline cannot be mistaken for a field
+    # boundary and dropped from the fs-diff evidence.
     safe_paths = " ".join(shlex.quote(path) for path in paths)
     return (
         f"find {safe_paths} -type f -printf '%s\\t%T@\\t%p\\0' 2>/dev/null "
@@ -577,11 +562,10 @@ def _deep_field(value: Any, key: str) -> str | None:
 # INVARIANT: these three fields are the SINGLE source of both halves of the pcap
 # sensor — the tshark display filter AND the extraction. They cannot drift, so
 # "the filter admitted a packet the extraction found nothing in" is impossible by
-# construction rather than by review. It was possible before: the extraction looked
-# the fields up under hardcoded layer names (`layers["dns"]`), but tshark's DNS
-# dissector also registers as `mdns`, `llmnr` and `nbns`, and its TLS dissector as
-# `quic`. On a real capture of a benign probe, 6 of the 13 packets tshark selected
-# produced ZERO events — silently, looking exactly like no traffic.
+# construction rather than by review. Looking the fields up under hardcoded LAYER
+# names is what breaks it: tshark's DNS dissector also registers as `mdns`, `llmnr`
+# and `nbns`, and its TLS dissector as `quic`, so a filter-selected packet yields
+# zero events — silently, looking exactly like no traffic.
 PCAP_FIELDS = ("dns.qry.name", "http.request", "tls.handshake.extensions_server_name")
 PCAP_FILTER = " or ".join(PCAP_FIELDS)
 
@@ -597,12 +581,10 @@ def _layer_field(layers: Any, key: str) -> str | None:
 
 
 def parse_tshark_json(raw: str) -> list[EvidenceEvent]:
-    # A capture we cannot read is missing evidence, not absent traffic. tshark 4.0
-    # prints "[\n\n]" for zero matching packets (verified against the sandbox
-    # image), so blank stdout means the pipeline broke, and stop_pcap already
-    # refuses to degrade a nonzero tshark exit into zero network events. Returning
-    # [] here would have reintroduced exactly that: an empty timeline that lets an
-    # exfil hypothesis be REFUTED for want of evidence nobody knows was lost.
+    # A capture we cannot read is missing evidence, not absent traffic. tshark prints
+    # "[\n\n]" for zero matching packets, so blank stdout means the pipeline broke.
+    # Returning [] would give an empty timeline that lets an exfil hypothesis be
+    # REFUTED for want of evidence nobody knows was lost.
     try:
         packets = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -612,11 +594,10 @@ def parse_tshark_json(raw: str) -> list[EvidenceEvent]:
     events = []
     for packet in packets:
         layers = packet.get("_source", {}).get("layers", {}) if isinstance(packet, dict) else {}
-        # INVARIANT: `frame` is tshark's pseudo-header — every packet in every -T
-        # json document carries it, with frame.time_relative as a nanosecond
-        # string. Falling back to timestamp 0 was a branch for a shape tshark does
-        # not emit, and it silently moved network evidence to the start of the run,
-        # where it no longer lines up with the syscalls that caused it.
+        # INVARIANT: `frame` is tshark's pseudo-header — every packet in every -T json
+        # document carries it, with frame.time_relative as a nanosecond string. A
+        # fallback to timestamp 0 would silently move network evidence to the start
+        # of the run, where it no longer lines up with the syscalls that caused it.
         relative = _layer_field(layers.get("frame", {}), "frame.time_relative")
         assert relative is not None, f"tshark: packet with no frame.time_relative — {packet}"
         timestamp = max(0, round(float(relative) * 1e9))
@@ -640,9 +621,8 @@ def parse_tshark_json(raw: str) -> list[EvidenceEvent]:
             uri = _layer_field(layers, "http.request.uri")
             # INVARIANT: what makes a packet an http.request is its REQUEST LINE, so
             # the method and the URI are always dissected. Defaulting them to
-            # "GET" / "/" invented a request that was never sent — the same
-            # fabrication as inventing a :80 port, and the real captures include an
-            # `M-SEARCH *` (SSDP), which "GET /" would have misreported outright.
+            # "GET" / "/" would invent a request that was never sent — real captures
+            # include an `M-SEARCH *` (SSDP), which "GET /" misreports outright.
             # `host` genuinely can be absent (HTTP/1.0 has no Host header).
             assert method and uri, f"tshark: http.request with no request line — {packet}"
             events.append(
@@ -713,12 +693,9 @@ async def stop_pcap(container: str) -> PcapResult:
     # INVARIANT: an over-cap transfer of a WHOLE capture is unrepresentable, not
     # merely loud. tcpdump writes the capture to the container's /tmp, a tmpfs of
     # SANDBOX_TMP_MB, and docker.py asserts at import that the tmpfs is no larger
-    # than MAX_EXEC_OUTPUT_BYTES — so a raw transfer of the whole file cannot pass
-    # the cap. Measured at the exact boundary: a file written until /tmp hit ENOSPC
-    # is 67,108,864 bytes = the cap, and read_bytes_from_container returned all of
-    # it sha256-identical; `base64 -w0` of the SAME file raised at 67,280,896 bytes
-    # read. The 4/3 inflation was the last way a complete capture could arrive as a
-    # prefix (13 MB -> a sealed 7.5 MiB pcapHash), and it bought no fidelity.
+    # than MAX_EXEC_OUTPUT_BYTES — so a RAW transfer of the whole file cannot exceed
+    # the cap. Base64's 4/3 inflation can, which is how a complete capture arrives
+    # as a silent prefix under a sealed hash, and it buys no fidelity.
     raw_pcap = await read_bytes_from_container(container, PCAP_FILE, user="0")
     tshark = await docker_exec(
         [

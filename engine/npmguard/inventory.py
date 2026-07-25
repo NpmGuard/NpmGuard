@@ -33,10 +33,9 @@ INSTALL_COVERAGE_GAP = "install-coverage-gap"
 # `docs/content/using-npm/scripts.md`, "Life Cycle Operation Order"). Ordered
 # tuples, not a set: `entryPoints.install` and the dealbreaker detail are both
 # derived by iterating these, and frozenset iteration order over str varies per
-# PROCESS (hash randomization) — the previous frozenset made the report's
-# entryPoints order, the flag order, and therefore the hypothesize prompt text
-# ("## Entry points - install: …", phases.py) differ between two audits of the
-# same bytes.
+# PROCESS (hash randomization) — which makes the report's entryPoints order, the
+# flag order, and therefore the hypothesize prompt text differ between two audits
+# of the same bytes.
 INSTALL_TIME_HOOKS = ("preinstall", "install", "postinstall")
 BUILD_TIME_HOOKS = ("prepare", "prepublish")
 LIFECYCLE_SCRIPTS = frozenset(INSTALL_TIME_HOOKS + BUILD_TIME_HOOKS)
@@ -70,11 +69,11 @@ MAGIC_BYTES = (
 HEAD_BYTES = 256
 # A shebang is the file's own declaration of the language it is written in, and it
 # outranks the file NAME because it is what the kernel obeys. Only interpreters whose
-# language some model in this engine actually reads are mapped: 13 of 94 real `bin`
-# targets ship extensionless (`typescript`'s bin/tsc, rollup, esbuild, acorn, uuid),
-# so a DECLARED executable entry point was classified `unknown` and read by nobody —
-# and `executable-outside-bin` does not fire on it either, because it sits under
-# `bin/`. Anything else with a shebang (`#!/usr/bin/env python3`) stays `unknown` on
+# language some model in this engine actually reads are mapped. It matters because
+# ~14% of real `bin` targets ship extensionless (`typescript`'s bin/tsc, rollup,
+# esbuild, acorn, uuid): without this a DECLARED executable entry point classifies
+# `unknown` and is read by nobody, and `executable-outside-bin` does not fire on it
+# either because it sits under `bin/`. Anything else with a shebang (`#!/usr/bin/env python3`) stays `unknown` on
 # purpose: `unknown` is what keeps it a coverage gap instead of silently clean.
 SHEBANG_TYPE_MAP = {
     "node": "js",
@@ -125,14 +124,14 @@ SCRIPT_INTERPRETERS = NODE_INTERPRETERS | frozenset(
 # Flags after which the next word is a PROGRAM, not a path: what executes lives in
 # the manifest string, so no file in the tarball can account for it. `msw@2.15.0`
 # ships `postinstall: node -e "import('./config/scripts/postinstall.js')…"`, whose
-# inline code the old extractor read as a FILENAME and then reported as a missing
-# install script — a DANGEROUS verdict on a benign package.
+# inline code read as a FILENAME reports a missing install script — a DANGEROUS
+# verdict on a benign package.
 INLINE_CODE_FLAGS = frozenset({"-e", "--eval", "-p", "--print", "-c", "--command", "-m"})
 # Node's own CommonJS resolution of a path target: `node scripts/postinstall`
 # executes `scripts/postinstall.js`, and `node .` reads `main` out of the
 # directory's package.json. Verified by execution (`node dir/postinstall` loads
-# `postinstall.js`). protobufjs@7.5.4 and @8.0.0 ship exactly the extensionless
-# shape and were false `missing-install-script` dealbreakers without this.
+# `postinstall.js`). protobufjs ships exactly this extensionless shape, and without
+# the resolution it is a false `missing-install-script` dealbreaker.
 NODE_EXTENSION_CANDIDATES = (".js", ".json", ".node", ".mjs", ".cjs")
 NODE_DIRECTORY_CANDIDATES = (
     "package.json",
@@ -144,8 +143,8 @@ NODE_DIRECTORY_CANDIDATES = (
 )
 # shlex(punctuation_chars=True) emits these as standalone tokens, so a compound
 # command is split on them instead of being read as one word list. Without the
-# split, `node build.js; tsc src/constants.ts` yielded the reference `build.js;`
-# — semicolon included — which no package can ever contain (@lezer/lr@1.4.9).
+# split, `node build.js; tsc src/constants.ts` yields the reference `build.js;` —
+# semicolon included — which no package can ever contain.
 SHELL_OPERATORS = frozenset({"&&", "||", ";", ";;", "|", "|&", "&"})
 
 
@@ -508,14 +507,14 @@ def run_inventory_checks(
     for target, path in resolved:
         # A target that ships is only analysable if some phase actually READS it,
         # and FLAG reads SOURCE_FILE_TYPES only (config.py, via
-        # phases.flag_source_files). `shell` is now in that set, so a shipped
-        # `postinstall.sh` IS coverage; what remains here are the types no model
+        # phases.flag_source_files), which includes `shell` — so a shipped
+        # `postinstall.sh` IS coverage. What remains here are the types no model
         # reads — a `.py`/`.rb`/`.pl` target (SCRIPT_INTERPRETERS accepts those
         # interpreters, and no extension mapping exists for their files, so they
         # classify `unknown`), and any extensionless target whose shebang names an
         # interpreter SHEBANG_TYPE_MAP does not map. Calling one of those "resolved"
-        # would be exactly the defect this function was audited for: a recogniser
-        # narrower than the claim it is read as. One check name for both gap kinds,
+        # would make this recogniser narrower than the claim it is read as. One check
+        # name for both gap kinds,
         # so a consumer deciding "can this audit still reach SAFE" branches on one
         # closed fact instead of a list that grows every time a new gap is found.
         if file_types[path] not in SOURCE_FILE_TYPES:

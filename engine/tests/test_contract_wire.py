@@ -1,5 +1,5 @@
 # CLASS MAP — the WIRE CONTRACT itself: what the authored Zod makes
-# unrepresentable, and what it no longer declares at all.
+# unrepresentable, and what it declares at all.
 # (seam: `npmguard.contract.models` — the GENERATED module — and
 #  `shared/contract/contract.schema.json`, the language-neutral artifact it is
 #  generated from. Read as data, never hand-edited. These tests exist because a

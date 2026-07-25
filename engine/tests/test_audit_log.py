@@ -6,10 +6,10 @@
 #      run that produced it from the audit_id ALONE — one glob, no side table.
 #      This is the fact the rest of the system is keyed on: audit_sessions.report,
 #      the SSE stream, the LLM capture context and evidenceRefs[].hash are all
-#      audit_id-keyed, while the directory holding the blobs used to be named
-#      <timestamp>_<package> and identified neither. tools/export_fixtures.py still
-#      ships a HAND-MAINTAINED audit-logs-dir-to-audit-id.json because of it, and
-#      npmguard/bench publishes `coverage: null` rather than a number
+#      audit_id-keyed. A directory named <timestamp>_<package> alone identifies
+#      neither, which is why tools/export_fixtures.py ships a HAND-MAINTAINED
+#      audit-logs-dir-to-audit-id.json and npmguard/bench publishes
+#      `coverage: null` rather than a number
 #   C3 two executions of the SAME audit_id get DIFFERENT directories. An errored
 #      audit is re-submittable (persistence.reset_to_queued, "a recoverable 'error'
 #      replay") and write() numbers from 01 on every construction, so a bare
@@ -21,12 +21,6 @@
 #      stays inside the configured root
 # UNENFORCED here: string-payload passthrough and write() ordering are exercised
 # implicitly by the orchestrator/pipeline suites, not pinned as classes.
-# Adversarial pass: 2026-07-23/W6 — REPO_ROOT monkeypatch replaced with the
-# public env knob.
-# Adversarial pass: 2026-07-25/artifact-root — C1 alone passed with the audit_id
-# absent from the name (a mutation that removed it survived the whole file), so the
-# joinability the change exists for was pinned by nothing. C3 is the pairing that
-# stops C2 being satisfied by naming the directory <audit_id> and nothing else.
 import json
 
 from npmguard.audit_log import AuditLog

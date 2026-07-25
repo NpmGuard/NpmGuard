@@ -45,12 +45,6 @@
 #   C7 the default, 0, is OFF: 3954 files — one more than the largest package
 #      measured — proceeds. This is why shipping the mechanism does not decide the
 #      refund-versus-probe question
-# Adversarial pass: 2026-07-25 — the first map had only "too big is refused", which a
-# single `if` satisfies while quietly truncating. Missing dimensions: what the
-# refusal COSTS (C1's provider counter — a refusal placed after `intent` still
-# refuses, and still burns a model call), what it LEAVES BEHIND (C2), and which side
-# of the bound the dealbreaker return owns (C4). C6/C7 are the two boundary values
-# where an off-by-one or a falsy-check bug would otherwise pass everything above.
 from __future__ import annotations
 
 import asyncio

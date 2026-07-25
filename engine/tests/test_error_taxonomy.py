@@ -12,19 +12,6 @@
 #   C5 retryable members                — 5xx only: a client that retries on
 #                                         `retryable` must never retry a client error
 #
-# Adversarial pass: 2026-07-25 — the first map asked only "is every class
-# raised?", which a grep already answers, and it would have FAILED on the base
-# class. The missing dimension was the exemption itself: NPMGUARD-9999's producer
-# is a string literal, not a raise, so a rule phrased over raise sites alone
-# either red-flags the base class or waves it through unexamined. C2 turns the
-# exemption into an assertion. Second missing dimension: a *retired* code is
-# reserved forever (kit_spine: "code is stable forever and is what clients branch
-# on"), so C4 asserts absence rather than trusting that nobody recycles 0050 for
-# a new meaning.
-#
-# The scan counts CONSTRUCTION, not `raise`, on purpose: `exc = X(...); raise exc`
-# and `raise X(...) from err` are the same producer, and an exception class
-# instantiated in production code but never raised would itself be a defect.
 import ast
 import re
 from pathlib import Path

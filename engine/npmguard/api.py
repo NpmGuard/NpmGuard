@@ -737,7 +737,7 @@ async def lifespan(app: FastAPI):
         # check_conclusion over the ROLLUP (fail only on DANGEROUS, neutral on
         # ERROR, neutral when the set covered nothing) — every answer is terminal,
         # because only a finalized set gets here and a finalized set has no pending
-        # items. That is what closed the empty-push check run that used to spin
+        # items — including the empty push, whose check run would otherwise spin
         # forever.
         async def finalize_check(set_id: int, check_run_id: int, rollup: Rollup) -> None:
             async with sessions_factory() as session:
@@ -798,8 +798,8 @@ async def lifespan(app: FastAPI):
         # The alert hook: fired by a worker only when IT lands a DANGEROUS
         # verdict. It fans out over the exposed repos and emails each org — it
         # never touches the core engine. ``origin`` is the job's own recorded
-        # AuditSetOrigin, so a public-repo finding is no longer filed as a
-        # registry-watch alert.
+        # AuditSetOrigin, so a public-repo finding is not filed as a registry-watch
+        # alert.
         async def on_dangerous(name: str, version: str, origin: str) -> None:
             await handle_dangerous_verdict(
                 sessions_factory, name, version, origin=origin, settings=settings

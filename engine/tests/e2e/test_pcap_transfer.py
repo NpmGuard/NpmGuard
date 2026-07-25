@@ -49,9 +49,9 @@ from npmguard.sensors import PCAP_FILE, start_pcap, stop_pcap
 pytestmark = [pytest.mark.e2e, pytest.mark.docker]
 
 # 2 MiB pushed over loopback in 64 KiB writes, so the capture is megabytes rather
-# than kilobytes — the size class that used to arrive silently prefixed. Loopback
-# only, so the volume does not depend on any host being reachable (the container
-# runs with --network=none).
+# than kilobytes — the size class a prefixing transfer would truncate silently.
+# Loopback only, so the volume does not depend on any host being reachable (the
+# container runs with --network=none).
 #
 # The volume is load-bearing, measured on this sandbox: this script yields a
 # 2,025,357-byte capture (tcpdump: 80 packets captured of 178 received by filter),

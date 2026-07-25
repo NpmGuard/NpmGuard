@@ -49,26 +49,6 @@
 #      the buffer's true size instead of reverting to a bare descriptor
 # C19d a sendto whose payload strace DECODED (AF_NETLINK) renders no buffer and
 #      invents no byte count
-# Adversarial pass: 2026-07-23/W6 — added the artifact-integrity and timeline
-# axes (previously only the pure canonicalization half of the module was mapped).
-# Evidence-fidelity pass: C13-C15 close the rendering-loss classes that made real
-# malware refute — the timeline said less than the run did. The JS half of the
-# same axis (what the instrument EMITS) is proven in test_instrumentation_l4.py;
-# these classes prove what the renderer does with it.
-# Manufactured-evidence pass: 2026-07-25 — the missing dimension was the
-# NEGATIVE direction of C13. Every canary class asserted that a real exfil is
-# named; none asserted that an ordinary string is not, and under a length floor
-# two values the recorded corpus actually plants (`/home/node`, `localhost`)
-# manufactured a citation for a benign request. C13b is that axis.
-# Captured-but-unrendered pass: 2026-07-25 — C13's fix (capture the L4 request body)
-# answered "what was in the payload" only for node's http module, while L1 had held up
-# to 4 KiB of EVERY write/sendto buffer, sealed and hashed, since the first run. C19*
-# is that layer: the renderer showed a descriptor and the bytes went unread.
-# Parser-input pass: 2026-07-25 — C10/C14/C14b's strace `raw` values were written
-# by hand (two real forms with the errno stripped, one with no sa_family at all,
-# one plausible and unverified). They now come from committed captures through
-# the real `parse_strace_log`, so the sensor→renderer seam is closed end to end
-# and the shapes are the producer's rather than ours.
 import math
 from pathlib import Path
 

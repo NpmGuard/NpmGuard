@@ -27,11 +27,6 @@
 #   C18 the DATABASE refuses an out-of-domain verdict on an insert that BYPASSES
 #       upsert (the 0007 CHECK), which is the only guard that also binds the
 #       producer that never runs this Python
-# Adversarial pass: the 2-state guard (C10/C15/C16/C18) is the load-bearing
-#   invariant — an out-of-domain verdict must never reach a dep row, and if one
-#   is already stored the read boundary must fail loud rather than render it. C15
-#   and C16 are `raise`, not `assert`, so `python -O` cannot strip them; C18 is the
-#   constraint that holds when no Python of ours runs at all.
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError

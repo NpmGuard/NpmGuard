@@ -22,12 +22,6 @@
 #      overwrite the first while applied.stubUrls still listed both)
 #  C10 a stub pattern naming a HOST pins it in the container's /etc/hosts; an IP
 #      literal and a wildcard authority pin nothing
-# Adversarial pass: 2026-07-23/W6 — added the arg-matrix, conflict, and merge
-# axes (only C1/C2 existed before).
-# Stub-fidelity pass: C7–C10 cover the stubUrl rework. The half that can only be
-# proven against a real sandbox — that the redirect actually intercepts, for every
-# client — is tests/e2e/test_stub_intercept.py; these classes prove what the
-# compiler decides before any container exists.
 import json
 
 import pytest

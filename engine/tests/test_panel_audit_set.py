@@ -55,7 +55,7 @@
 #   C27 the check-run hand-off carries the ROLLUP of the set's own items: one
 #       crashed audit among SAFE ones concludes ERROR, not a silent green
 #   C28 a set that covered NOTHING finalizes immediately and hands over a
-#       total==0 rollup — the empty push that used to hang in_progress forever
+#       total==0 rollup, rather than hanging in_progress forever
 #   C29 refresh_touching nudges every LIVE set covering the pair, across origins,
 #       and skips finalized ones
 #   C30 refresh_live finalizes a set orphaned by a crash (items, no jobs)

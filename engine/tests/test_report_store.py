@@ -31,8 +31,6 @@
 #       load path and never appears in the listing — a pre-v2 body carries an
 #       IN-DOMAIN verdict, so the verdict screen alone lets it through to a client
 #       that cannot parse it
-# Adversarial pass: W5 2026-07-23 — "can a reader ever see a half-written file?" →
-#   C6 probes the os.replace atomicity with live readers during repeated rewrites.
 import json
 import os
 import threading

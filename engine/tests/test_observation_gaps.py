@@ -36,8 +36,8 @@
 #      read (killing the transfer does not stop the traced process, so the log is
 #      mid-write) while the capture still is
 #   C5 strace log past the cap: straceLogHash stays NULL with a located
-#      SensorError — the parser used to have to GUESS truncation from its last
-#      line being unparseable
+#      SensorError, rather than leaving the parser to GUESS truncation from an
+#      unparseable last line
 #   C6 an empty/unreadable strace log after a crash also becomes SensorError: one
 #      rule for every retrieval gap, not a special case for the new one
 #   C7 a gap is recorded as EVIDENCE loss and nothing else: the kind is one the
@@ -55,10 +55,6 @@
 # ExperimentResult's fields: a coverage-gap test that pins another module's
 # in-flight shape is a compatibility shim, which is the smell this suite exists to
 # refuse. No orchestrator class covers CONFIRMED-with-an-error today.
-# Adversarial pass: 2026-07-25 transfer-seam — the missing dimension was WHAT ELSE
-# HAD ALREADY FAILED. A gap tested only on an otherwise-clean run passes while
-# `if error is None` quietly leaves the crashed-run case refutable on evidence
-# nobody knows was lost (C2, C6).
 from __future__ import annotations
 
 import json

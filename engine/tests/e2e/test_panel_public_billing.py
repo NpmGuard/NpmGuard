@@ -25,7 +25,7 @@
 #     - POST a signed customer.subscription.created (metadata.kind=
 #       'repo_pro_subscription', installationId=500, status='active') to
 #       /webhooks/stripe → 200; GET /panel/billing shows the account flipped to
-#       plan 'pro'; the previously-capped SECOND protect now SUCCEEDS (200) [C6]
+#       plan 'pro'; the capped SECOND protect then SUCCEEDS (200) [C6]
 #     - the one-off audit webhook branch is untouched (its tests stay green in the
 #       default suite; here we exercise only the subscription branch)
 #
@@ -221,8 +221,8 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
         # thing on the create response, the 409 body and the progress stream.
         assert detail["scan"]["id"] == detail["scan"]["set"]["id"] == scan_id
         # The commit the lockfile was read at, recorded so the snapshot is
-        # reproducible together with repo.lockfileSha (this used to be hardcoded
-        # null, which made every public snapshot unreproducible).
+        # reproducible together with repo.lockfileSha — a null here makes every
+        # public snapshot unreproducible.
         assert detail["scan"]["set"]["commitSha"], detail["scan"]["set"]
         assert detail["scan"]["set"]["origin"] == "public_repo_scan"
 
@@ -365,7 +365,7 @@ def test_s_bill_1_subscription_webhook_flips_plan_and_lifts_cap(
         assert account_after["plan"] == "pro", account_after
         assert account_after["subscriptionStatus"] == "active"
 
-        # The previously-capped second protect now succeeds on the Pro cap.
+        # The capped second protect succeeds on the Pro cap.
         lifted = client.post(f"{base}/api/panel/repo/1002/protect")
         assert lifted.status_code == 200, lifted.text
         assert lifted.json() == {"ok": True}
