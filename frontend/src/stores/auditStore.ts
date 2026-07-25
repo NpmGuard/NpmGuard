@@ -27,6 +27,10 @@ interface AuditStoreState extends AuditFoldState {
   /** demo started inline on Landing — the App suppresses the /audit/:id
    * auto-navigate so it streams in place (MiniAuditFeed) without leaving. */
   demoInline: boolean;
+  /** attached to an audit that already exists (a permalink) rather than one this
+   * session started. The stream is byte-identical either way — this says where
+   * the URL came from, and the App uses it to leave that URL alone. */
+  replaying: boolean;
 
   /** hydrated from GET /audit/:id/report after verdict_reached (schemaVersion 2) */
   report: AuditReport | null;
@@ -55,6 +59,7 @@ function baseState() {
     reconnecting: false,
     checkoutLoading: false,
     demoInline: false,
+    replaying: false,
     report: null as AuditReport | null,
     selectedFile: null as string | null,
     selectedFileContent: null as string | null,
@@ -196,6 +201,7 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
         // Network hiccup — fall through and let the SSE reconnect logic cope.
       }
       begin(auditId);
+      set({ replaying: true });
     },
 
     selectFile(path) {
