@@ -72,7 +72,7 @@ async def _replay_orchestrator(
     sandbox = RecordedSandbox(bundle)
 
     monkeypatch.setattr(orchestrator_module, "run_experiment", sandbox.run_experiment)
-    log = AuditLog(bundle.package)
+    log = AuditLog(bundle.package, f"replay-{bundle.package}")
     store = ArtifactStore(log.run_dir)
     try:
         summary = await run_orchestrator(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -405,9 +404,17 @@ def _safe_file(root: Path, relative: str) -> Path:
 
 def _noise(path: str) -> bool:
     """Generated type declarations and test/mock scaffolding — not the shipped
-    program, and not what an install or a require executes."""
+    program, and not what an install or a require executes.
+
+    All three declaration spellings, not just `.d.ts`: `.cts` and `.mts` map to `ts`
+    (inventory.EXTENSION_TYPE_MAP), so `foo.d.cts` and `foo.d.mts` were classified as
+    SOURCE and sent to a FLAG model as if they were code. Measured over 834 installed
+    packages, 1,515 such files were being read — 4.2% of the whole 36,239-file FLAG
+    corpus, and 533 of them in one package (es-toolkit: 1,893 files → 1,360). A
+    declaration file has no statements to flag, so that spend bought nothing.
+    """
     return bool(
-        path.endswith(".d.ts")
+        path.endswith((".d.ts", ".d.cts", ".d.mts"))
         or re.search(r"(^|/)(test|tests|__tests__|__mocks__)/", path)
         or re.search(r"\.(test|spec)\.(js|ts|mjs|cjs|tsx|mts)$", path)
     )
@@ -445,7 +452,13 @@ async def run_flag(
         if flag.file:
             facts.setdefault(flag.file, []).append(f"[{flag.severity}] {flag.check}: {flag.detail}")
     responses: list[tuple[str, FileFlagResponse] | None] = [None] * len(source_files)
-    semaphore = asyncio.Semaphore(max(1, int(os.environ.get("NPMGUARD_TRIAGE_CONCURRENCY", "8"))))
+    # INVARIANT: a valid semaphore size, guaranteed by `triage_concurrency`'s
+    # `ge=1, le=64` — so no `max(1, …)` clamp here, and no way to reach this line
+    # with a value that would deadlock the phase. `Settings()` and not
+    # `get_settings()`: the per-call read is the seam the e2e harness and
+    # test_fail_fast move this knob through, and lru_cache would freeze the first
+    # value read anywhere in the process (same reasoning as audit_log.py).
+    semaphore = asyncio.Semaphore(Settings().triage_concurrency)
     complete = 0
     lock = asyncio.Lock()
 
@@ -758,7 +771,8 @@ async def run_hypothesize(
 ) -> list[Hypothesis]:
     created_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     output: list[Hypothesis | None] = [None] * len(flags)
-    semaphore = asyncio.Semaphore(max(1, int(os.environ.get("NPMGUARD_TRIAGE_CONCURRENCY", "8"))))
+    # Same knob, same reasoning as run_flag's semaphore above.
+    semaphore = asyncio.Semaphore(Settings().triage_concurrency)
 
     async def arm(index: int) -> None:
         flag = flags[index]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,6 +17,7 @@ from .contract.models import (
     FileVerdict,
     Hypothesis,
     HypothesisCounts,
+    InventoryFlag,
     PhaseLog,
 )
 from .deps import provision_dependencies
@@ -25,7 +26,7 @@ from .events import AuditEmitter
 from .evidence import ArtifactStore
 from .graph import HypothesisGraph, build_graph, derive_graph_verdict
 from .hypothesis_agent import FallbackHypothesisGenerator, TwoPhaseHypothesisGenerator
-from .inventory import analyze_inventory
+from .inventory import INSTALL_COVERAGE_GAP, analyze_inventory
 from .orchestrator import run_orchestrator
 from .persistence import AuditSessionStore
 from .phases import (
@@ -120,8 +121,62 @@ async def _emit_file_verdicts(
 
 
 def _report(
-    graph: HypothesisGraph, summaries: list[FileSummary], trace: list[PhaseLog], *, dealbreaker=None
+    graph: HypothesisGraph,
+    summaries: list[FileSummary],
+    trace: list[PhaseLog],
+    *,
+    coverage_gaps: Sequence[InventoryFlag] = (),
 ) -> AuditReport:
+    """Turn a resolved hypothesis graph into the report a consumer receives.
+
+    INVARIANT: no report leaves this function while an install-time coverage gap is
+    open and nothing was confirmed. This is the ONE function in the pipeline that
+    derives a verdict from a graph — both SAFE-capable returns call it, the
+    dealbreaker return builds its DANGEROUS report inline and never comes here — so
+    the check cannot be bypassed by a return path added later, which a guard written
+    at each call site would be. `coverage_gaps` is empty unless
+    `NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP` is on (the caller gates it, see `run`), and
+    empty means exactly the behaviour that shipped before this existed.
+
+    Why a refusal and not a flag: the verdict vocabulary is {SAFE, DANGEROUS}, so
+    "we could not check what runs at install time" HAS no verdict. It is the same
+    position a DEFERRED hypothesis is in (see the refusal in `run`), and it is
+    refused the same way and with the same code — NPMGUARD-0031, retryable, no
+    report written. Reporting it as a `critical` flag beside `verdict: "SAFE"` is
+    what the engine did until now, and inventory flags reach only the PhaseLog and
+    the audit log, never `inventory_meta` — so a package whose `postinstall` runs
+    `node-gyp rebuild` shipped a green badge over unread install-time execution.
+
+    Two orderings are load-bearing:
+
+    - AFTER the dealbreaker early return, which is structural here rather than
+      positional: that path never calls this function, so a free and correct
+      DANGEROUS verdict can never be discarded over a gap.
+    - SKIPPED when any hypothesis CONFIRMED, so a coverage gap can never suppress a
+      true positive. Same rule 47b8c15 established for retrieval gaps: the gap is
+      raised after the run, never instead of it. The price is that a package that
+      will be refused still pays for intent + FLAG + hypothesize + the orchestrator
+      — unavoidable, because "did anything confirm" is not knowable before then, and
+      the cheap-refusal alternative (raise right after inventory) is exactly the
+      trade that would throw away DANGEROUS-by-evidence.
+
+    Measured blast radius when switched ON, over 834 installed packages on a dev
+    machine (5 with an install-time hook, 132 with any lifecycle hook): 2 packages
+    stop reaching SAFE — better-sqlite3 (`prebuild-install || node-gyp rebuild`) and
+    msw (`node -e "import('./config/scripts/postinstall.js')"`). Both are genuinely
+    unaudited install-time execution. 0.24% of manifests, 0 dealbreakers turned into
+    refusals. That measurement is why the switch exists rather than the behaviour
+    simply landing: it changes the conclusion for real, benign packages.
+    """
+    if coverage_gaps and not graph.filter_by_state("CONFIRMED"):
+        details = "; ".join(gap.detail for gap in coverage_gaps[:5])
+        plural = "" if len(coverage_gaps) == 1 else "s"
+        raise AuditIncompleteError(
+            "inventory",
+            f"{len(coverage_gaps)} install-time coverage gap{plural} and no confirmed "
+            f"hypothesis — this audit could not see what runs at install time, so it "
+            f"has no verdict to give: {details}",
+        )
     verdict = derive_graph_verdict(graph)
     return AuditReport(
         schemaVersion=2,
@@ -131,7 +186,7 @@ def _report(
         confirmedHypIds=verdict.confirmed_hyp_ids,
         hypotheses=graph.all(),
         fileSummaries=summaries,
-        dealbreaker=dealbreaker,
+        dealbreaker=None,
         trace=trace,
     )
 
@@ -166,7 +221,10 @@ class AuditPipeline:
         # (verdict_reached | audit_error). The service owns the terminal
         # transition — report durable on disk, then row running->terminal and
         # the terminal event in one transaction (AuditService._finish).
-        log = AuditLog(package_name)
+        log = AuditLog(package_name, audit_id)
+        # Rooted at the run directory, which now names the audit_id — so a digest in
+        # `report.hypotheses[].evidenceRefs[].hash` is joinable to the blob that
+        # backs it without a side table (see AuditLog's INVARIANT).
         artifacts = ArtifactStore(log.run_dir)
         trace: list[PhaseLog] = []
         if emitter:
@@ -287,6 +345,25 @@ class AuditPipeline:
                 log.write("report.json", report)
                 return AuditResult(report, resolved.path, resolved)
 
+            # "We could not check what runs at install time" (inventory.py:
+            # `install-coverage-gap`, either kind — a hook whose code is nowhere in
+            # the tarball, or a target that ships as a type no model reads). Read
+            # HERE, below the dealbreaker return, so a package that is both is
+            # DANGEROUS on the evidence rather than refused on the gap; carried to
+            # `_report`, which owns the refusal and the CONFIRMED exception.
+            #
+            # The knob is read at this ONE place rather than at the two `_report`
+            # call sites: an empty list is indistinguishable from "no gap", so OFF is
+            # exactly the pre-change behaviour and a third report path added later
+            # inherits the gate for free instead of needing to remember it. Ships OFF
+            # — turning it on changes the conclusion for real published packages, and
+            # that is an owner decision (see the field's ledger in config.py).
+            coverage_gaps = (
+                [flag for flag in inventory.flags if flag.check == INSTALL_COVERAGE_GAP]
+                if self.settings.refuse_install_coverage_gap
+                else []
+            )
+
             # INVARIANT: past this line the audit is committed to at most
             # `max_source_files` FLAG model calls, because `sources` IS the list
             # run_flag fans out over one call at a time. It sits AFTER the
@@ -348,7 +425,9 @@ class AuditPipeline:
             if not flagged.flags:
                 graph, _, _ = build_graph(audit_id, [])
                 await _emit_file_verdicts(flagged.fileSummaries, [], emitter)
-                report = _report(graph, flagged.fileSummaries, trace)
+                report = _report(
+                    graph, flagged.fileSummaries, trace, coverage_gaps=coverage_gaps
+                )
                 log.write("report.json", report)
                 return AuditResult(report, resolved.path, resolved)
 
@@ -443,7 +522,7 @@ class AuditPipeline:
                     "orchestrator",
                     f"{len(deferred)} hypotheses could not be evaluated (and none confirmed): {details}",
                 )
-            report = _report(graph, flagged.fileSummaries, trace)
+            report = _report(graph, flagged.fileSummaries, trace, coverage_gaps=coverage_gaps)
             log.write(
                 "graph-verdict.json",
                 {

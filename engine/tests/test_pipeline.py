@@ -139,13 +139,30 @@ NOISY_PACKAGE = {
     "package.json": MANIFEST,
     "index.js": CLEAN_SOURCE,
     "setup.js": CLEAN_SOURCE,
+    # Read: code some model must see. A shipped shell script an install hook can
+    # name, and an extensionless `#!node` program of the shape 13 of 94 real `bin`
+    # targets ship (typescript's bin/tsc, rollup, esbuild, acorn, uuid).
+    "install.sh": "echo installing\n",
+    "bin/tool": "#!/usr/bin/env node\nconsole.log(1)\n",
+    # Not read: generated declarations, in all three spellings. `.cts`/`.mts` map to
+    # `ts`, so `.d.cts`/`.d.mts` were classified SOURCE and sent to a FLAG model as
+    # if they were code — 1,515 such files over 834 installed packages, 4.2% of the
+    # whole FLAG corpus, for output a declaration file cannot produce.
     "index.d.ts": "export declare const x: number;\n",
+    "index.d.cts": "export declare const y: number;\n",
+    "index.d.mts": "export declare const z: number;\n",
+    # Not read: an extensionless file with no usable shebang, and one naming an
+    # interpreter no FLAG prompt has been validated on. `unknown` is what keeps a
+    # DECLARED entry point of that shape a reported coverage gap.
+    "LICENSE": "MIT License\n",
+    "tools/build.py": "print(1)\n",
     "test/helper.js": CLEAN_SOURCE,
     "tests/other.js": CLEAN_SOURCE,
     "__tests__/unit.js": CLEAN_SOURCE,
     "__mocks__/fs.js": CLEAN_SOURCE,
     "lib/index.test.js": CLEAN_SOURCE,
     "lib/index.spec.ts": CLEAN_SOURCE,
+    "lib/index.spec.d.mts": "export {};\n",
 }
 
 
@@ -153,12 +170,17 @@ async def test_flag_trace_names_exactly_the_files_flag_reads(build) -> None:
     """C1: the flag phase's recorded sourceFiles (the list the budget is scaled
     over) equals phases.flag_source_files equals the files that produced a
     FileSummary — one set, three observations. Every noise class ships in this
-    package: .d.ts, test/, tests/, __tests__/, __mocks__/, *.test.*, *.spec.*."""
+    package: .d.ts / .d.cts / .d.mts, test/, tests/, __tests__/, __mocks__/,
+    *.test.*, *.spec.*. And both directions are pinned, because "exactly" is the
+    claim: a shipped `.sh` and an extensionless `#!node` program ARE read (a declared
+    entry point that reaches no model is a coverage gap wearing a green badge), while
+    a `.py`, an extensionless licence and a declaration file are not."""
     rig = await build(NOISY_PACKAGE, _script())
     result = await _run(rig)
 
     expected = {file.path for file in flag_source_files(await analyze_inventory(rig.package))}
-    assert expected == {"index.js", "setup.js"}  # the shipped program, nothing else
+    # The shipped program, in every spelling a model reads — nothing else.
+    assert expected == {"index.js", "setup.js", "install.sh", "bin/tool"}
     flag_phase = next(phase for phase in result.report.trace if phase.phase == "flag")
     assert {entry["path"] for entry in flag_phase.input["sourceFiles"]} == expected
     assert {summary.file for summary in result.report.fileSummaries} == expected

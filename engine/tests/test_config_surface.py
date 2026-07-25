@@ -28,7 +28,11 @@
 # i.e. the audit's cost behaviour — was `int(os.environ.get(...))` inside the FLAG
 # fan-out, where a typo fails MID-AUDIT as a bare ValueError → NPMGUARD-9999,
 # non-retryable, discarding an audit already paid for. So the cleanup and the test
-# land together, and every surviving exemption is named below with its reason.
+# land together. The exemption table it needed at first is now EMPTY — the last two
+# reads (`NPMGUARD_TRIAGE_CONCURRENCY`, `NPMGUARD_DATA_DIR`) landed with their
+# declarations — and an empty table is the property C3 is really protecting: with a
+# list beside it the rule degrades from "two items of named debt" into "it does not
+# apply here". test_no_exemption_outlives_its_reader is what keeps it emptied.
 #
 # Adversarial pass: 2026-07-25 — the first version of C1 scanned the whole engine
 # tree, which counted a TEST as a reader; a knob only tests read is still dead
@@ -51,23 +55,20 @@ from npmguard.config import Settings
 PRODUCTION = Path(config_module.__file__).parent
 ENV_PREFIX = Settings.model_config["env_prefix"]
 ENV_VARIABLE = re.compile(rf"{re.escape(ENV_PREFIX)}[A-Z0-9_]+")
-# Environment reads C3 does not require a Settings field for. Each entry is debt
+# Environment reads C3 does not require a Settings field for. Each entry would be debt
 # with a named owner, not a design choice — delete the entry together with the swap.
-UNDECLARED_READS = {
-    "NPMGUARD_TRIAGE_CONCURRENCY": (
-        "read at two sites in phases.py (the run_flag and run_hypothesize fan-outs). "
-        "The swap is `max(1, get_settings().triage_concurrency)` plus a "
-        "`triage_concurrency: int = Field(default=8, ge=1, le=64)` here — and the "
-        "field CANNOT land first, because C1 forbids a declared knob with no reader. "
-        "Declaration and swap must land in one change; phases.py was owned by another "
-        "change in flight when this test was written."
-    ),
-    "NPMGUARD_DATA_DIR": (
-        "read once at report_store.py module scope, into the DATA_DIR constant that "
-        "tests/conftest.py's residue guard and several fixtures re-point. Same "
-        "coupling as above: `data_dir: Path` here plus that one line there, together."
-    ),
-}
+#
+# EMPTY, and that is the property this table protects. Both entries it used to carry
+# landed with their readers: `NPMGUARD_TRIAGE_CONCURRENCY` → `triage_concurrency`
+# (`Field(default=8, ge=1, le=64)`, read as `Settings().triage_concurrency` at both
+# phases.py fan-outs — `Settings()` rather than the `get_settings()` the exemption
+# proposed, because lru_cache would freeze the first value read anywhere in the
+# process and silently kill the per-call env seam the e2e harness and test_fail_fast
+# use), and `NPMGUARD_DATA_DIR` → `data_dir: Path` (validated absolute, read once into
+# report_store.DATA_DIR at import, which stays the constant eight test modules
+# re-point). An entry here is a licence to crash mid-audit on a typo; the honest move
+# when one is tempting is to land the reader, not to grow the list.
+UNDECLARED_READS: dict[str, str] = {}
 RETIRED_KNOBS = (
     "triage_max_files",
     "max_agent_turns",

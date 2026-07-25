@@ -70,9 +70,12 @@ def _named_by_variable(exc: ValidationError) -> str:
 # malformed value is a named boot rejection instead of a `ValueError` on whichever
 # code path first happens to touch it. `NPMGUARD_DEMO_SPEED=fast` used to stop the
 # engine booting with `could not convert string to float: 'fast'` — a message that
-# names neither the knob nor what to do about it. Two variables are still read
-# straight from `os.environ` and are named, with the one-line swap each needs, in
-# `test_config_surface.py`'s exemption table; they are ownership debt, not design.
+# names neither the knob nor what to do about it. That direction now holds with NO
+# exemptions: `test_config_surface.py`'s `UNDECLARED_READS` table is EMPTY, and both
+# entries it used to carry landed together with their readers
+# (`triage_concurrency` → phases.py, `data_dir` → report_store.py). The property
+# worth keeping is the empty table, not the rule with a list beside it — a knob
+# lands with its reader in one change, in either direction.
 class Settings(KitSettings):
     model_config = SettingsConfigDict(
         env_file=(REPO_ROOT / ".env", Path.cwd() / ".env"),
@@ -92,6 +95,11 @@ class Settings(KitSettings):
     npm_registry: str = "https://registry.npmjs.org"
     # Absolute on purpose — see _absolute_directory. Read per AuditLog (audit_log.py).
     audit_log_dir: Path = REPO_ROOT / "audit-logs"
+    # Root of the durable report store; `report_store.DATA_DIR` is
+    # `<data_dir>/reports`. Absolute for the same reason as audit_log_dir: a
+    # relative root follows the process cwd, so the reports of one audit and the
+    # next can land in different trees.
+    data_dir: Path = REPO_ROOT / "data"
 
     llm_backend: Literal["anthropic", "google", "openai_compatible"] = "anthropic"
     llm_base_url: str | None = None
@@ -123,6 +131,29 @@ class Settings(KitSettings):
     # decision, so the mechanism ships dark and enabling it is one env var.
     # Recommended production value once that decision is made: 1000.
     max_source_files: int = Field(default=0, ge=0)
+    # Whether an install-time coverage gap (`inventory.INSTALL_COVERAGE_GAP` — a hook
+    # whose code is nowhere in the tarball, or a target that ships as a type no model
+    # reads) may still end in a report. OFF = the gap ships as a `critical` inventory
+    # flag beside whatever verdict the graph derives, which today means `SAFE`. ON =
+    # `pipeline._report` refuses instead (NPMGUARD-0031, retryable, no report), unless
+    # a hypothesis CONFIRMED — in which case the evidence wins and the verdict is
+    # DANGEROUS, so the switch can never suppress a true positive.
+    #
+    # Defaults OFF for the same reason `max_source_files` does, and it is the same
+    # kind of decision: turning it on CHANGES THE CONCLUSION for real, benign
+    # packages. Measured over 834 installed packages (5 with an install-time hook,
+    # 132 with any lifecycle hook): 2 stop reaching SAFE — better-sqlite3
+    # (`prebuild-install || node-gyp rebuild`) and msw
+    # (`node -e "import('./config/scripts/postinstall.js')"`) — i.e. 0.24% of
+    # manifests and 40% of install-hooked ones. Both are genuinely unaudited
+    # install-time execution, and both are ordinary published packages a user will
+    # expect a verdict for, so the trade (a retryable error instead of a green badge
+    # over code nobody read) belongs to whoever owns what the product asserts. The
+    # refusal also lands AFTER the payment claim and after the full model spend — it
+    # cannot be raised earlier without discarding a possible DANGEROUS — so an
+    # operator switching it on is choosing to pay for audits that end in 0031.
+    # Recommended production value once that decision is made: true.
+    refuse_install_coverage_gap: bool = False
 
     payment_required: bool = True
     cre_api_key: str | None = None
@@ -143,6 +174,17 @@ class Settings(KitSettings):
 
     triage_model: str = "claude-haiku-4-5-20251001"
     investigation_model: str = "claude-sonnet-4-6"
+    # Model-call concurrency of BOTH triage fan-outs (phases.run_flag over the FLAG
+    # file set, phases.run_hypothesize over the flags it produced) — i.e. how many
+    # provider calls one audit has in flight, not how many it makes. `ge=1` is what
+    # makes the semaphore's argument valid by construction: the raw read this
+    # replaces needed `max(1, int(...))` because `NPMGUARD_TRIAGE_CONCURRENCY=0`
+    # would otherwise deadlock the phase, and a typo raised a bare ValueError
+    # MID-AUDIT (NPMGUARD-9999, non-retryable) on an audit already paid for.
+    # Upper bound at 64 because every slot is a concurrent provider request against
+    # one API key: past a provider's own concurrency limit the extra slots buy 429s,
+    # which kit retries and bills for.
+    triage_concurrency: int = Field(default=8, ge=1, le=64)
 
     sandbox_image: str = "npmguard-sandbox:v1"
     sandbox_memory_mb: int = Field(default=512, ge=64, le=4096)
@@ -202,14 +244,14 @@ class Settings(KitSettings):
         # is what makes that true for EVERY reader, instead of each one stripping.
         return value.rstrip("/")
 
-    @field_validator("audit_log_dir")
+    @field_validator("audit_log_dir", "data_dir")
     @classmethod
     def _absolute_directory(cls, value: Path) -> Path:
-        # A relative audit-log root silently follows the process cwd, which for the
-        # engine is whatever systemd/uvicorn/pytest happened to start it in — so the
-        # logs for one audit and the next can land in different trees. Empty string
-        # parses to Path(".") and is caught by the same check; it used to fall back
-        # to the default through an `or`, which hid the typo.
+        # A relative audit-log or report root silently follows the process cwd, which
+        # for the engine is whatever systemd/uvicorn/pytest happened to start it in —
+        # so the logs for one audit and the next can land in different trees. Empty
+        # string parses to Path(".") and is caught by the same check; it used to fall
+        # back to the default through an `or`, which hid the typo.
         if not value.is_absolute():
             raise ValueError(f"must be an absolute path (got {str(value)!r})")
         return value
@@ -251,5 +293,22 @@ def get_settings() -> Settings:
     return Settings()
 
 
-SOURCE_FILE_TYPES = frozenset({"js", "ts"})
+# The file types some model actually READS (phases.flag_source_files fans FLAG out
+# over exactly these). It is therefore the definition of "analysed", and every type
+# outside it that a package DECLARES as an entry point is a coverage gap by
+# construction (inventory.run_inventory_checks emits `install-coverage-gap` for one).
+#
+# `shell` is in the set because a `postinstall.sh` an install hook names and the
+# tarball SHIPS is the same fact as a `postinstall.js`: code npm will execute. It
+# was previously "resolved" — no dealbreaker — and read by nobody, which is a
+# coverage gap wearing a green badge, and the file is right there. Measured over 834
+# installed package copies: 22 `.sh` files enter the FLAG set — playwright-core 10
+# (two installed copies), better-sqlite3 1, pino 1 — against the 36,239 files FLAG
+# already read, i.e. +0.06%. The whole of this change's cost is those 22 calls.
+#
+# Not in the set, deliberately: `python`/`ruby`/`perl` targets (SCRIPT_INTERPRETERS
+# accepts them, so they resolve) have no extension mapping at all and stay `unknown`
+# → they keep producing a gap flag. That is the honest answer while no FLAG prompt
+# has been validated on them; widening this set is what would turn it into coverage.
+SOURCE_FILE_TYPES = frozenset({"js", "ts", "shell"})
 SKIP_DIRS = frozenset({"node_modules", ".git", ".svn"})

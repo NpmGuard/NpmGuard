@@ -6,10 +6,17 @@ from typing import Any, get_args
 
 import structlog
 
-from .config import REPO_ROOT
+from .config import Settings
 from .contract import models as contract
 
-DATA_DIR = (Path(os.environ.get("NPMGUARD_DATA_DIR") or REPO_ROOT / "data") / "reports").resolve()
+# Through Settings, not `os.environ`, so `NPMGUARD_DATA_DIR=reports` is a named boot
+# rejection (`must be an absolute path`) instead of a report store that silently
+# follows the process cwd — the same reason audit_log.py reads its root that way.
+# Still a module constant resolved at IMPORT, which is the seam eight test modules
+# already re-point (`monkeypatch.setattr(report_store, "DATA_DIR", …)`) and which
+# tests/conftest.py's residue guard depends on: the knob must be set before the first
+# import of this module, and the guard asserts exactly that.
+DATA_DIR = (Settings().data_dir / "reports").resolve()
 
 log = structlog.get_logger("npmguard.report_store")
 

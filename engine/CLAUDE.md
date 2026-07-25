@@ -11,8 +11,9 @@
   or `float()` happens to see it first. **`os.environ` is not a config source.**
   Two reads are still exempt in C3's table, each with its reason and the one-line
   swap it waits on: `NPMGUARD_TRIAGE_CONCURRENCY` (`phases.py`) and
-  `NPMGUARD_DATA_DIR` (`report_store.py`). AUDIT_CORE_EXPLAINED §24.20 describes
-  the pre-fix state and is stale on the other three.
+  `NPMGUARD_DATA_DIR` (`report_store.py`). AUDIT_CORE_EXPLAINED §24.20 now records
+  the landed fix, including the part the original finding missed: declaring a knob
+  is necessary but not sufficient, because pydantic-settings names the *field*.
 - `NPMGUARD_MAX_SOURCE_FILES` is the only bound on **one audit's** model spend
   (`llm_budget_usd_24h` is deployment-wide). It defaults to `0` = off because the
   refusal it enables lands *after* the payment claim — see the ledger comment on
