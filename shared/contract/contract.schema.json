@@ -155,6 +155,39 @@
       ],
       "title": "AppNotConfigured"
     },
+    "AuditAcceptedResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "accepted"
+        },
+        "auditId": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "queuePosition": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "status",
+        "auditId",
+        "packageName",
+        "version",
+        "queuePosition"
+      ],
+      "title": "AuditAcceptedResponse"
+    },
     "AuditEnqueuedEvent": {
       "type": "object",
       "properties": {
@@ -1536,6 +1569,49 @@
       ],
       "title": "CapResource"
     },
+    "CheckoutResponse": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "sessionId"
+      ],
+      "title": "CheckoutResponse"
+    },
+    "CheckoutStatus": {
+      "type": "object",
+      "properties": {
+        "paid": {
+          "type": "boolean"
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "auditId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "paid",
+        "packageName",
+        "version",
+        "auditId"
+      ],
+      "title": "CheckoutStatus"
+    },
     "ClaimKind": {
       "type": "string",
       "enum": [
@@ -1587,6 +1663,32 @@
       ],
       "title": "CorrelationConfidence"
     },
+    "CryptoConfig": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string",
+          "const": "base-sepolia"
+        },
+        "chainId": {
+          "type": "number",
+          "const": 84532
+        },
+        "contract": {
+          "type": "string"
+        },
+        "auditFeeWei": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain",
+        "chainId",
+        "contract",
+        "auditFeeWei"
+      ],
+      "title": "CryptoConfig"
+    },
     "CryptoOp": {
       "type": "object",
       "properties": {
@@ -1618,6 +1720,21 @@
         "detail"
       ],
       "title": "DealBreaker"
+    },
+    "DemoPackagesResponse": {
+      "type": "object",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "packages"
+      ],
+      "title": "DemoPackagesResponse"
     },
     "DependenciesProvisionedEvent": {
       "type": "object",
@@ -2864,6 +2981,21 @@
       ],
       "title": "Outcome"
     },
+    "PackageIndexResponse": {
+      "type": "object",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PackageSummary"
+          }
+        }
+      },
+      "required": [
+        "packages"
+      ],
+      "title": "PackageIndexResponse"
+    },
     "PackageMetadata": {
       "type": "object",
       "properties": {
@@ -2930,6 +3062,50 @@
         }
       },
       "title": "PackageMetadata"
+    },
+    "PackageReportResponse": {
+      "type": "object",
+      "properties": {
+        "report": {
+          "$ref": "#/$defs/AuditReport"
+        },
+        "version": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "report",
+        "version",
+        "packageName"
+      ],
+      "title": "PackageReportResponse"
+    },
+    "PackageSummary": {
+      "type": "object",
+      "properties": {
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "auditedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "packageName",
+        "version",
+        "verdict",
+        "auditedAt"
+      ],
+      "title": "PackageSummary"
     },
     "PanelRepo": {
       "type": "object",
@@ -3138,6 +3314,41 @@
         "cmd"
       ],
       "title": "ProcessSpawn"
+    },
+    "PublicConfig": {
+      "type": "object",
+      "properties": {
+        "paymentRequired": {
+          "type": "boolean"
+        },
+        "paymentEnabled": {
+          "type": "boolean"
+        },
+        "stripeEnabled": {
+          "type": "boolean"
+        },
+        "priceCents": {
+          "type": "integer"
+        },
+        "crypto": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CryptoConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "paymentRequired",
+        "paymentEnabled",
+        "stripeEnabled",
+        "priceCents",
+        "crypto"
+      ],
+      "title": "PublicConfig"
     },
     "PublicRepoScanDetailResponse": {
       "type": "object",
@@ -3381,6 +3592,22 @@
         "repos"
       ],
       "title": "ReposResponse"
+    },
+    "ResolveResponse": {
+      "type": "object",
+      "properties": {
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "packageName",
+        "version"
+      ],
+      "title": "ResolveResponse"
     },
     "ResolvedPackage": {
       "type": "object",
@@ -3763,6 +3990,22 @@
         "critical"
       ],
       "title": "Severity"
+    },
+    "StartAuditResponse": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "packageName"
+      ],
+      "title": "StartAuditResponse"
     },
     "StreamKind": {
       "type": "string",

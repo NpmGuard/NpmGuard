@@ -1,13 +1,14 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import stripe
+from eth_typing import HexStr
 from web3 import Web3
 
 from .config import Settings
+from .validation import SupportedChain
 
-SupportedChain = Literal["base-sepolia", "base"]
 AUDIT_EVENT_TOPIC = Web3.keccak(text="AuditRequested(string,string,address,uint256)").hex()
 AUDIT_FEE_ABI = [
     {
@@ -72,12 +73,14 @@ async def verify_audit_payment(
     rpc, contract, explorer = configured
     web3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 30}))
     try:
-        receipt = await asyncio.to_thread(web3.eth.wait_for_transaction_receipt, tx_hash, 30, 2)
+        receipt = await asyncio.to_thread(
+            web3.eth.wait_for_transaction_receipt, HexStr(tx_hash), 30, 2
+        )
     except Exception as exc:
         raise ChainVerificationError(f"Could not fetch receipt for {tx_hash}: {exc}") from exc
-    if receipt.status != 1:
+    if receipt["status"] != 1:
         raise ChainVerificationError(f"Transaction {tx_hash} reverted")
-    relevant = [log for log in receipt.logs if log["address"].lower() == contract.lower()]
+    relevant = [log for log in receipt["logs"] if log["address"].lower() == contract.lower()]
     if not relevant:
         raise ChainVerificationError(
             f"Transaction {tx_hash} did not interact with audit contract {contract}"
@@ -106,7 +109,7 @@ async def verify_audit_payment(
         version,
         match[0],
         match[1],
-        int(receipt.blockNumber),
+        int(receipt["blockNumber"]),
         f"{explorer}/tx/{tx_hash}",
     )
 

@@ -31,7 +31,7 @@ from npmguard.audit_log import AuditLog
 from npmguard.config import Settings
 from npmguard.contract.models import Hypothesis
 from npmguard.evidence import ArtifactStore, render_timeline
-from npmguard.graph import build_graph, derive_graph_verdict
+from npmguard.graph import HypothesisGraph, build_graph, derive_graph_verdict
 from npmguard.llm_runtime import build_npmguard_llm
 from npmguard.orchestrator import OrchestratorSummary, run_orchestrator
 from tests.support.llm_replay import Bundle, IndexedReplayProvider, RecordedSandbox, load_bundle
@@ -41,7 +41,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "llm"
 
 async def _replay_orchestrator(
     bundle_dir: str, monkeypatch, tmp_path: Path
-) -> tuple[Bundle, object, IndexedReplayProvider, OrchestratorSummary]:
+) -> tuple[Bundle, HypothesisGraph, IndexedReplayProvider, OrchestratorSummary]:
     """Drive the real orchestrator over one committed bundle. Returns
     (bundle, graph, provider, summary). The judge index excludes provider_error
     exchanges: a 200-with-no-choices advances the chain to an unrecorded fallback

@@ -15,7 +15,7 @@ import { useLocation, useNavigate } from "react-router";
 import type { Address } from "viem";
 import { fetchPublicConfig } from "../lib/api.ts";
 import { ApiError } from "../lib/api-base.ts";
-import type { PublicConfig } from "../lib/engine-types.ts";
+import type { PublicConfig } from "@npmguard/shared";
 import { formatCents, formatWeiAsEth, truncateMiddle } from "../lib/format.ts";
 import { hasInjectedWallet, payWithInjected, WalletRejectedError } from "../lib/wallet.ts";
 import { useAuditStore } from "../stores/auditStore.ts";
@@ -96,7 +96,7 @@ export function PayPage() {
         crypto.contract as Address,
         packageName,
         payVersion,
-        BigInt(crypto.auditFeeWei ?? "0"),
+        BigInt(crypto.auditFeeWei),
       );
       // Signed & broadcast — now the ENGINE verifies the receipt on-chain.
       setCryptoPhase("verifying");
@@ -314,7 +314,9 @@ interface CryptoPaneProps {
 function CryptoPane(props: CryptoPaneProps) {
   const { crypto, packageName, version, walletPresent, cryptoPhase, cryptoBusy, walletNotice } =
     props;
-  const feeLabel = crypto.auditFeeWei ? formatWeiAsEth(crypto.auditFeeWei) : "—";
+  // No "fee unknown" case: the contract offers a `crypto` block only when the
+  // engine could read the fee, and retracts the whole method otherwise.
+  const feeLabel = formatWeiAsEth(crypto.auditFeeWei);
   const cliTarget = version ? `${packageName}@${version}` : packageName;
 
   return (
@@ -338,9 +340,6 @@ function CryptoPane(props: CryptoPaneProps) {
         </div>
       </dl>
 
-      {crypto.auditFeeWei ? null : (
-        <p className="microtext">The audit fee could not be read from the contract right now.</p>
-      )}
 
       {walletPresent ? (
         <>

@@ -62,9 +62,26 @@ def _report(verdict: str, *, legacy: bool = False) -> dict:
     `legacy=True` drops `schemaVersion`, the off-version shape. It is a separate
     axis from the verdict on purpose: the store screens BOTH, so a fixture that is
     legacy AND foreign-verdict would pass C3-C5 without the verdict rule existing.
+
+    Minimal means "every required `AuditReport` field and nothing else", not
+    "fewer fields than the contract has". `counts` is here because it is the one
+    required field with no default, so a body without it is off-CONTRACT and
+    `/package/{name}/report` 404s it on the shape axis — which would make the
+    in-domain control case fail for a reason that has nothing to do with the
+    verdict this file is about. The retired `findings`/`proofs`/`capabilities`/
+    `runtimeEvidence` keys stay: they are dropped on the way out, and their
+    presence is what proves it.
     """
     body = {
         "verdict": verdict,
+        "counts": {
+            "total": 0,
+            "open": 0,
+            "inProgress": 0,
+            "confirmed": 0,
+            "refuted": 0,
+            "deferred": 0,
+        },
         "findings": [],
         "proofs": [],
         "trace": [],
@@ -172,10 +189,13 @@ def test_db_check_constraint_survives_python_dash_o(tmp_path) -> None:
 def test_packages_route_omits_an_out_of_domain_verdict(reports_app) -> None:
     """C3: `/packages` lists the in-domain reports and omits the foreign one.
 
-    The route is `JSONResponse({"packages": list_reports()})` with no model, so
+    The route was `JSONResponse({"packages": list_reports()})` with no model, so
     nothing validated `report["verdict"]` against
-    `AuditReport.verdict: Literal['SAFE','DANGEROUS']` before it crossed. Both halves
-    are asserted: the foreign verdict is gone AND the real ones survive, so a test
+    `AuditReport.verdict: Literal['SAFE','DANGEROUS']` before it crossed. It now
+    dumps a `PackageIndexResponse`, which is a second net rather than a
+    replacement — the store's screen is still what decides which rows exist, and
+    this test pins the store's behaviour through the route. Both halves are
+    asserted: the foreign verdict is gone AND the real ones survive, so a test
     that passed by breaking the route would fail.
     """
     app, write = reports_app

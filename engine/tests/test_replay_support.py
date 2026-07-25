@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from kit_llm.provider import ProviderRequest
 from tests.support.llm_replay import (
     Exchange,
     FixturePromptDrift,
@@ -110,7 +112,8 @@ async def test_provider_streaming_is_unsupported() -> None:
     """C3: the in-process provider replays completions only; streaming raises loud."""
     provider = IndexedReplayProvider([])
     with pytest.raises(ReplayUnmatched, match="streaming"):
-        await provider.stream(None, lambda _t: None)  # type: ignore[arg-type]
+        # A request is never built for the streaming path — the refusal comes first.
+        await provider.stream(cast(ProviderRequest, None), lambda _t: None)
 
 
 # ── C5: prompt drift ───────────────────────────────────────────────────────

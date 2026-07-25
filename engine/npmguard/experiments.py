@@ -370,7 +370,7 @@ def _stub_url(args: dict[str, Any]) -> Manipulation:
     stubs = args.get("stubs")
     if not isinstance(stubs, list) or not stubs:
         raise ExperimentCompileError("invalid args for tool 'stubUrl': stubs must be non-empty")
-    clean = []
+    clean: list[dict[str, Any]] = []
     refs = []
     for stub in stubs:
         if not isinstance(stub, dict) or not isinstance(stub.get("pattern"), str):

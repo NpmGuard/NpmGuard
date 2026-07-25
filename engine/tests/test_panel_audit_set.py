@@ -31,6 +31,7 @@
 #    billing still creates, rolls up and streams. That is the proof adding an origin
 #    costs an item-discovery function and nothing else.
 import json
+from typing import Any, cast
 
 import pytest
 import sqlalchemy as sa
@@ -40,6 +41,7 @@ from kit_spine.db import metadata
 from kit_spine.notify_polling import PollingNotifier
 from kit_stream import StreamService
 from npmguard.config import Settings
+from npmguard.contract.kinds import PackageOutcome
 from npmguard.panel import tables
 from npmguard.panel.audit_set import (
     ORIGIN_BENCH_RUN,
@@ -65,7 +67,7 @@ from npmguard.panel.verdict_index import VerdictIndex
 _ = tables
 
 
-def _items(*outcomes: str | None) -> list[RollupItem]:
+def _items(*outcomes: PackageOutcome | None) -> list[RollupItem]:
     return [RollupItem(outcome=outcome) for outcome in outcomes]
 
 
@@ -114,7 +116,8 @@ def test_rollup_all_error() -> None:
 def test_rollup_error_beats_safe() -> None:
     """C6: 12 crashed audits among 40 deps is NOT a green repo — ERROR outranks
     SAFE, and the error count is on the wire to prove it."""
-    r = compute_rollup(_items(*(["SAFE"] * 28 + ["ERROR"] * 12)))
+    outcomes: list[PackageOutcome] = ["SAFE"] * 28 + ["ERROR"] * 12
+    r = compute_rollup(_items(*outcomes))
     assert r.outcome == "ERROR"
     assert (r.safe, r.error, r.total) == (28, 12, 40)
 
@@ -183,8 +186,10 @@ def test_rollup_rejects_foreign_outcome() -> None:
     ``outcome_severity`` guard's message contained too.
     """
     for foreign in ("SUSPECT", "UNKNOWN", "safe"):
+        # Deliberately outside the outcome domain — the cast is the point of the
+        # test: a value the type forbids still has to fail loudly at runtime.
         with pytest.raises(KeyError, match=foreign):
-            compute_rollup([RollupItem(outcome=foreign)])
+            compute_rollup([RollupItem(outcome=cast(PackageOutcome, foreign))])
 
 
 def test_rollup_rejects_cached_without_landed_verdict() -> None:
@@ -320,7 +325,7 @@ def _deps(*pairs: tuple[str, str]) -> list[LockfileDep]:
 
 def _repo_spec(store: _Store, deps: list[LockfileDep], **overrides) -> AuditSetSpec:
     assert_budget, consume_budget = monthly_budget_hooks(store.caps, 1)
-    base = dict(
+    base: dict[str, Any] = dict(
         origin=ORIGIN_REPO_SCAN,
         origin_ref=10,
         trigger="manual",
@@ -335,10 +340,11 @@ def _repo_spec(store: _Store, deps: list[LockfileDep], **overrides) -> AuditSetS
 
 
 def _public_spec(deps: list[LockfileDep], **overrides) -> AuditSetSpec:
-    # No budget hooks and no payer: nobody is billed for a public snapshot (D-1).
-    # Its identity is the REQUESTER, and that absence-plus-requester IS the
+    # No budget hooks and no payer: nobody is billed for a public snapshot, and a
+    # public snapshot is capped by distinct repo id rather than by the monthly audit
+    # budget. Its identity is the REQUESTER, and that absence-plus-requester IS the
     # per-origin billing difference.
-    base = dict(
+    base: dict[str, Any] = dict(
         origin=ORIGIN_PUBLIC_REPO_SCAN,
         origin_ref=999,
         trigger="manual",
@@ -352,7 +358,7 @@ def _public_spec(deps: list[LockfileDep], **overrides) -> AuditSetSpec:
 def _bench_spec(deps: list[LockfileDep], **overrides) -> AuditSetSpec:
     # An origin with NO subject table and NO payer. It exists in this test only to
     # prove the shared machinery does not need either.
-    base = dict(
+    base: dict[str, Any] = dict(
         origin=ORIGIN_BENCH_RUN, origin_ref=4242, trigger="manual", items=deps
     )
     base.update(overrides)
