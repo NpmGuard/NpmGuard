@@ -359,6 +359,17 @@ async def enrol_proof(request: Request) -> JSONResponse:
         f"minimum_age>={runtime.settings.world_minimum_age}": verified.identity_attested,
         "document_backed": verified.identity_attested or verified.document_backed,
     }
+    if runtime.settings.world_allow_legacy_proofs:
+        # Finding D-15: a v3 proof and a v4 proof from one human carry different
+        # nullifiers, and enrolment is v4-only. So with legacy proofs enabled a
+        # publisher can enrol under one pseudonym and attest under another, and
+        # the tier lookup misses with no way to tell that from "never enrolled".
+        log.warning(
+            "enrolment recorded while legacy proofs are enabled — the tier may not "
+            "join to releases attested with a v3 proof (different nullifier)",
+            nullifier=verified.nullifier,
+        )
+
     enrolment = await runtime.attest.record_enrolment(
         nullifier=verified.nullifier,
         tier=verified.tier,

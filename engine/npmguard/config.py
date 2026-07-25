@@ -125,9 +125,20 @@ class Settings(KitSettings):
     # Orb credential at all, which is a `credential_unavailable` and not a
     # recoverable one: the publisher cannot acquire an Orb on the spot.
     world_credential: Literal["proof_of_human", "passport", "mnc"] = "proof_of_human"
-    # Legacy (v3) proofs predate the v4 credential model. Off by default: an
-    # attestation must not quietly mean something weaker than it did yesterday.
-    # When on, the protocol version is recorded so a consumer can tell.
+    # Legacy (v3) proofs predate the v4 credential model. Off by default for two
+    # reasons, and the second is the serious one:
+    #
+    #   1. an attestation must not quietly mean something weaker than yesterday;
+    #   2. a v3 and a v4 proof from the SAME human yield DIFFERENT nullifiers
+    #      (measured — see finding D-15). The nullifier is the durable publisher
+    #      identity that continuity is keyed on, so allowing both protocols
+    #      fragments one human into two publishers. Every streak then resets at
+    #      the protocol boundary and BREAK fires against a maintainer who did
+    #      nothing wrong — and it is undetectable, because "never enrolled" and
+    #      "enrolled under the other protocol" are the same empty lookup.
+    #
+    # Enabling this is a testing affordance. It trades publisher identity for
+    # client compatibility, and there is no way to have both today.
     world_allow_legacy_proofs: bool = False
     # Fresh liveness per release — the single primitive the anti-worm claim rests
     # on. A stolen token can replay bytes; it cannot make a human be present now.

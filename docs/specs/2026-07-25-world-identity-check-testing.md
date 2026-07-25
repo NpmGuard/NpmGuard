@@ -37,6 +37,7 @@ The short list to raise in person. Each is expanded in the findings below.
 | **Q5** | Is there a documented spec (or non-JS implementation) of `hashSignal` **and `signRequest`**? | A non-JS backend must reverse-engineer *two* undocumented schemes before it can sign or verify anything — and `signRequest`'s reference implementation refuses to run outside Node by design. **D-11, D-12** |
 | **Q6** | Does `/api/v4/verify/{rp_id}` echo `identity_attested`, or must the backend trust the client payload? | Attribute verification is precisely what a backend must not take on trust. **D-3** |
 | **Q7** | Can `validation_error` name the offending field, and can the completion envelope be made un-postable by construction? | The one failure that actually stopped us in testing. A correct proof was rejected because we forwarded IDKit's `{success, result}` wrapper; the error pointed at the proof, not the wrapper. **D-13, D-14** |
+| **Q8** | Does the nullifier's derivation include **protocol version** and/or **credential type**? We measured two different nullifiers for one identity under one app+action. | This is the sharpest one. The nullifier is documented as a durable pseudonym, and our whole product keys publisher continuity on it. If it changes with the proof type, every publisher's history silently resets and we raise a false alarm against an honest maintainer. **D-15** (supersedes the narrower **Q3/D-9**) |
 
 ---
 
@@ -462,6 +463,65 @@ audiences.
 > Our own error handling had the same flaw and we fixed it in the same change:
 > we were reporting World's `code` and discarding its `detail`. Worth noting that
 > an RP will naturally mirror whatever granularity the API offers.
+
+### D-15 🔴 A v3 and a v4 proof from the same identity yield different nullifiers
+
+**Measured, not inferred.** Same app, same `action`, same environment, same
+simulator identity, two proofs:
+
+| Proof | Protocol | Nullifier |
+|---|---|---|
+| Release attestation (Secure Document) | 3.0 | `0x1ef37d4685a77ba08b215704bd8068fe600f18438e5c0c187d96837f7855fe47` |
+| Identity Check enrolment | 4.0 | `0x0abf618973bdde8412c0ce87e309b9164466ffcc7a4f0d7039e9efc8f5bbd6d8` |
+
+For any product that uses the nullifier as a **durable pseudonymous identity**,
+this is the difference between working and not working. Ours keys publisher
+continuity on it: "the last 41 releases of this package were attested by
+publisher N, and this one is attested by nobody." If the same human silently
+becomes a different N when the proof protocol changes, then every publisher's
+history resets and the signal reports a break that did not happen — a false
+alarm aimed at the maintainer who did everything right.
+
+It also breaks tier inheritance: we enrol a human once via Identity Check and
+look that enrolment up per release by nullifier. Across a protocol boundary the
+lookup silently misses, and the publisher is quietly downgraded with no way to
+detect that an enrolment ever existed. **There is no observable difference
+between "this human never enrolled" and "this human enrolled under the other
+protocol"** — they are the same empty result.
+
+Two variables differed here (protocol *and* credential type), so this does not
+by itself settle **Q3/D-9**. But whichever variable is responsible, the
+practical consequence for an RP is the same and neither is documented.
+
+**Ask:** state the nullifier's derivation scope explicitly — is it
+`(identity, app, action)`, or does protocol version and/or credential type
+enter it? If it does, say so prominently: any app treating the nullifier as a
+stable pseudonym (the documented use for Sybil resistance) is silently wrong the
+first time a user's client produces a different proof type. A migration path, or
+a way to ask "is this nullifier the same human as that one", would make the
+identity usable across the v3→v4 transition instead of resetting at it.
+
+> Our own mitigation is blunt because nothing better is available: legacy proofs
+> are refused by default, so identity cannot fragment unless an operator opts in.
+> That means an RP must choose between supporting older clients and having a
+> durable identity — which is a choice we would rather not have to make.
+
+### D-16 🟢 The Identity Check consent screen is markedly better than the v4 proof screen
+
+Worth reporting as a positive, because the contrast is instructive.
+
+`proofOfHuman` consent reads: *"App will see your: Verification level."*
+Identity Check consent reads: *"App will learn **whether**: Age is 18 or older"*,
+followed by *"Your underlying document data is not shared."*
+
+The second is the honest description of what a zero-knowledge attribute proof
+does, and it is the sentence that makes a user comfortable presenting a passport
+to a package registry. The first sounds like data collection and undersells the
+protocol — "see your" is exactly the phrasing a privacy-conscious maintainer
+recoils from, and it is describing the *more* private of the two exchanges.
+
+**Ask:** carry the "will learn whether" framing and the non-disclosure line into
+every preset's consent screen, not just Identity Check.
 
 ### D-10 🔵 Version skew between the two published packages
 
