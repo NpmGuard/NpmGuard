@@ -88,3 +88,77 @@ export function fetchPackageReport(name: string, version?: string): Promise<Pack
   const query = version ? `?version=${encodeURIComponent(version)}` : "";
   return getJson(`${apiBase()}/package/${name}/report${query}`, "No audit report found");
 }
+
+// --- publisher attestation (World ID) ---------------------------------------
+
+export interface AttestSessionResponse {
+  sessionId: string;
+  packageName: string;
+  version: string;
+  status: "created" | "owned" | "verified" | "failed";
+  githubLogin: string | null;
+  error: string | null;
+  attestation?: {
+    tier: number;
+    nullifier: string;
+    environment: string;
+    assertions: Record<string, boolean>;
+    storageRoot: string | null;
+    chainTx: string | null;
+    attestedAt: string;
+  };
+}
+
+export interface RpContext {
+  rp_id: string;
+  nonce: string;
+  created_at: number;
+  expires_at: number;
+  signature: string;
+}
+
+export interface AttestRequestConfig {
+  appId: string;
+  rpId: string;
+  /** Minted server-side per request — the signing key never reaches the browser. */
+  rpContext: RpContext;
+  ttlSeconds: number;
+  action: string;
+  signal: string;
+  environment: string;
+  /** False for staging/sandbox — the UI MUST say so. */
+  isProduction: boolean;
+  minimumAge: number;
+  packageName: string;
+  version: string;
+}
+
+export function fetchAttestSession(sessionId: string): Promise<AttestSessionResponse> {
+  return getJson(`${apiBase()}/attest/session/${sessionId}`, "Could not load the session");
+}
+
+export function proveAttestOwnership(sessionId: string): Promise<AttestSessionResponse> {
+  return postJson(
+    `${apiBase()}/attest/session/${sessionId}/own`,
+    undefined,
+    "Could not verify repository ownership",
+  );
+}
+
+export function fetchAttestRequest(sessionId: string): Promise<AttestRequestConfig> {
+  return getJson(
+    `${apiBase()}/attest/session/${sessionId}/request`,
+    "Could not load the proof request",
+  );
+}
+
+export function submitAttestProof(
+  sessionId: string,
+  proof: unknown,
+): Promise<AttestSessionResponse> {
+  return postJson(
+    `${apiBase()}/attest/session/${sessionId}/proof`,
+    proof,
+    "Could not verify the proof",
+  );
+}

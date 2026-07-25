@@ -1,0 +1,162 @@
+/* Publisher attestation page (`.pg-attest-…`). Composes base.css primitives. */
+
+.pg-attest__version {
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
+.pg-attest__lede {
+  max-width: 56ch;
+  margin-block: var(--space-3) var(--space-5);
+}
+
+/* Load-bearing, not decoration: a staging proof is not a real-world credential
+   and the screen must never let one read as though it were. */
+.pg-attest__staging {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-5);
+  border: 1px solid var(--warn-line, #d9a441);
+  border-radius: var(--radius-2, 8px);
+  background: var(--warn-bg, #fff8e6);
+  color: var(--warn-fg, #6b4c00);
+  font-size: 0.9rem;
+}
+
+.pg-attest-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-5);
+}
+
+.pg-attest-step {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.pg-attest-step__title {
+  font-size: 1rem;
+  margin: 0 0 var(--space-1);
+}
+
+.pg-attest-step__marker {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pg-attest-step__marker--done {
+  border-color: var(--ok-line, #2e7d54);
+  color: var(--ok-fg, #2e7d54);
+}
+
+.pg-attest-step__marker--active {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+
+.pg-attest-step__marker--todo {
+  color: var(--fg-muted);
+}
+
+.pg-attest__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.pg-attest__result {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.pg-attest__tier {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--ok-fg, #2e7d54);
+}
+
+.pg-attest__facts {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+}
+
+.pg-attest__facts > div {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.85rem;
+}
+
+.pg-attest__facts dt {
+  min-width: 7rem;
+  color: var(--fg-muted);
+}
+
+.pg-attest__facts dd {
+  margin: 0;
+}
+
+.pg-attest__privacy {
+  font-size: 0.85rem;
+  margin-top: var(--space-2);
+}
+
+.pg-attest__error {
+  margin-top: var(--space-4);
+  color: var(--bad-fg, #a3242a);
+}
+
+@media (max-width: 40rem) {
+  .pg-attest-step {
+    grid-template-columns: 1.75rem 1fr;
+  }
+  .pg-attest__facts > div {
+    flex-direction: column;
+    gap: 0;
+  }
+}
+
+.pg-attest__proof {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.pg-attest__qr {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2, 8px);
+  background: #fff;
+}
+
+.pg-attest__uri {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 46rem;
+}
+
+/* The connector URI is long and must stay selectable — a truncated link is
+   useless when the verifier is a simulator you paste into. */
+.pg-attest__link {
+  display: block;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2, 8px);
+  font-size: 0.75rem;
+  word-break: break-all;
+  user-select: all;
+}

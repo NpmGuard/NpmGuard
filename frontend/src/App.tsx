@@ -17,6 +17,8 @@ const CliInstall = lazy(() =>
   import("./pages/CliInstall.tsx").then((m) => ({ default: m.CliInstall })),
 );
 const PayPage = lazy(() => import("./pages/PayPage.tsx").then((m) => ({ default: m.PayPage })));
+// Attestation pulls in IDKit (a WASM bundle) — kept off every other route.
+const Attest = lazy(() => import("./pages/Attest.tsx").then((m) => ({ default: m.Attest })));
 const Dashboard = lazy(() =>
   import("./pages/Dashboard.tsx").then((m) => ({ default: m.Dashboard })),
 );
@@ -126,6 +128,7 @@ export function App() {
             <Route path="/package/*" element={<PackageLookup />} />
             <Route path="/cli" element={<CliInstall />} />
             <Route path="/pay" element={<PayPage />} />
+            <Route path="/attest/:sessionId" element={<Attest />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/repo/:owner/:name" element={<RepoDetail />} />
             <Route path="/audit/:auditId" element={<AuditRoute />} />

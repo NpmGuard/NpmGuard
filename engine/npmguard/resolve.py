@@ -42,19 +42,50 @@ def _test_fixture(package_name: str) -> Path | None:
     return path if path.exists() else None
 
 
-async def resolve_tarball_url(package_name: str, version: str = "latest") -> tuple[str, str]:
+async def _packument(package_name: str, version: str) -> dict:
     url = f"{NPM_REGISTRY}/{package_name}/{version}"
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(url)
     if response.status_code == 404:
         raise PackageNotFoundError(package_name)
     response.raise_for_status()
-    data = response.json()
+    return response.json()
+
+
+async def resolve_tarball_url(package_name: str, version: str = "latest") -> tuple[str, str]:
+    data = await _packument(package_name, version)
     resolved = data.get("version")
     tarball = (data.get("dist") or {}).get("tarball")
     if not isinstance(resolved, str) or not isinstance(tarball, str):
         raise ValueError(f"npm registry returned malformed metadata for {package_name}@{version}")
     return resolved, tarball
+
+
+async def resolve_release(package_name: str, version: str = "latest") -> tuple[str, str, str]:
+    """``(version, tarball_url, integrity)`` for one release.
+
+    ``dist.integrity`` is npm's own subresource-integrity string for the tarball
+    and is what binds an attestation to an artifact. Older packages predate it
+    and publish only ``dist.shasum``; that is accepted as ``sha1-<hex>`` (the
+    same form npm itself normalizes to) so a maintainer of an old package is not
+    simply locked out. Absent both, there is nothing honest to bind to and the
+    caller must refuse rather than attest an unidentified artifact.
+    """
+    data = await _packument(package_name, version)
+    resolved = data.get("version")
+    dist = data.get("dist") or {}
+    tarball = dist.get("tarball")
+    if not isinstance(resolved, str) or not isinstance(tarball, str):
+        raise ValueError(f"npm registry returned malformed metadata for {package_name}@{version}")
+    integrity = dist.get("integrity")
+    if not isinstance(integrity, str) or not integrity:
+        shasum = dist.get("shasum")
+        integrity = f"sha1-{shasum}" if isinstance(shasum, str) and shasum else ""
+    if not integrity:
+        raise ValueError(
+            f"npm registry published no integrity or shasum for {package_name}@{resolved}"
+        )
+    return resolved, tarball, integrity
 
 
 def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
