@@ -160,3 +160,24 @@
   word-break: break-all;
   user-select: all;
 }
+
+/* Failure diagnostic — collapsed by default. A maintainer gets the sentence
+   above it; this is for whoever has to act on the code. */
+.pg-attest__diagnostic {
+  margin-top: var(--space-3, 0.75rem);
+  font-size: 0.8125rem;
+}
+.pg-attest__diagnostic summary {
+  cursor: pointer;
+  color: var(--text-muted, #6b7280);
+}
+.pg-attest__diagnostic pre {
+  margin-top: var(--space-2, 0.5rem);
+  padding: var(--space-3, 0.75rem);
+  overflow-x: auto;
+  border: 1px solid var(--keyline, #e5e7eb);
+  border-radius: 6px;
+  background: var(--surface-sunken, #fafafa);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  line-height: 1.5;
+}

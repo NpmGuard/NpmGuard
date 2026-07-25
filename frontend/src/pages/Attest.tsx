@@ -253,7 +253,12 @@ export function Attest() {
                   </p>
                 </div>
               ) : owned && config ? (
-                <WorldProof config={config} onProof={onProof} busy={busy} />
+                <WorldProof
+                  config={config}
+                  onProof={onProof}
+                  onAttemptStart={() => setError(null)}
+                  busy={busy}
+                />
               ) : (
                 <p className="muted">Complete step 2 first.</p>
               )}
@@ -286,13 +291,20 @@ export function Attest() {
 function WorldProof({
   config,
   onProof,
+  onAttemptStart,
   busy,
 }: {
   config: AttestRequestConfig;
-  onProof: (proof: unknown) => Promise<void>;
+  onProof: (proof: Record<string, unknown>) => Promise<void>;
+  onAttemptStart: () => void;
   busy: boolean;
 }) {
   const [loadError, setLoadError] = useState<string | null>(null);
+  // What IDKit reported when it produced no proof. Kept beside the friendly
+  // message because the friendly message is for the maintainer and this is for
+  // whoever has to fix it — usually not the same person, and usually not at the
+  // same time.
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [uri, setUri] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
@@ -300,17 +312,20 @@ function WorldProof({
 
   async function startRequest() {
     setLoadError(null);
+    setDiagnostic(null);
+    // Clear the *page* error too. A stale "World rejected the proof" left over
+    // from a previous attempt, sitting under a fresh one, reads as two failures
+    // and sent us chasing the wrong one once already.
+    onAttemptStart();
     setWaiting(true);
     try {
       const [{ IDKit, proofOfHuman }, qrcode] = await Promise.all([
         import("@worldcoin/idkit-core"),
         import("qrcode"),
       ]);
-      const request = await IDKit.request({
-        app_id: config.appId as `app_${string}`,
-        action: config.action,
-        // Minted server-side; the signing key never reaches this bundle.
-        rp_context: config.rpContext,
+      // Named once so the diagnostic below reports what was actually asked for
+      // rather than a hand-copied guess that can drift from it.
+      const asked = {
         // REQUIRED for staging. IDKit's `environment` is optional and defaults
         // to "production", so omitting it produces a production request that the
         // World simulator refuses with "Production request detected" — the
@@ -318,7 +333,18 @@ function WorldProof({
         // for, so it always travels with the request.
         environment: config.environment as "production" | "staging" | "sandbox",
         require_user_presence: true,
+        // Legacy (v3) proofs are off: they predate the v4 credential model this
+        // design assumes. If a World ID can only answer with a legacy credential
+        // the request fails `credential_unavailable` rather than silently
+        // downgrading — an attestation must not quietly mean something weaker.
         allow_legacy_proofs: false,
+      };
+      const request = await IDKit.request({
+        app_id: config.appId as `app_${string}`,
+        action: config.action,
+        // Minted server-side; the signing key never reaches this bundle.
+        rp_context: config.rpContext,
+        ...asked,
         // proofOfHuman is the ONLY preset that accepts a signal, which is what
         // binds the proof to this exact tarball. IdentityCheck cannot.
       }).preset(proofOfHuman({ signal: config.signal }));
@@ -330,7 +356,25 @@ function WorldProof({
       // envelope is what World's /verify answers `validation_error` to.
       const outcome = readCompletion(await request.pollUntilCompletion());
       if (outcome.kind !== "proof") {
+        // IDKit's own diagnostic. An error code alone says a credential was
+        // unusable but not which one was asked for, and the request/response
+        // payloads here are the only place that shows both sides.
+        const report = request.getDebugReport();
+        console.warn("[npmguard/idkit] no proof", outcome, report);
         setLoadError(outcome.message);
+        setDiagnostic(
+          JSON.stringify(
+            {
+              code: outcome.kind === "cancelled" ? outcome.code : "malformed_completion",
+              requested: { preset: "ProofOfHuman", ...asked },
+              package_version: report.package_version,
+              transport: report.transport,
+              response_payload: report.response_payload,
+            },
+            null,
+            2,
+          ),
+        );
         return;
       }
       await onProof(outcome.proof);
@@ -394,6 +438,22 @@ function WorldProof({
       )}
 
       {loadError && <p className="pg-attest__error">{loadError}</p>}
+      {diagnostic && (
+        <details className="pg-attest__diagnostic">
+          <summary>What World ID reported</summary>
+          <pre>{diagnostic}</pre>
+        </details>
+      )}
+      {uri && !waiting && (
+        <button
+          type="button"
+          className="btn pg-attest__cta"
+          onClick={() => void startRequest()}
+          disabled={busy}
+        >
+          Try again
+        </button>
+      )}
     </>
   );
 }
