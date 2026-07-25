@@ -164,7 +164,13 @@
   .cell.bad .t { color: var(--ng-danger-text); }
   .cell.good { background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left: 3px solid var(--ng-safe); color: var(--ng-safe); }
   .cell.good .t { color: var(--ng-safe-text); }
-  .cell.void { background-color: var(--ng-canvas); border-style: dashed; border-color: var(--ng-border-strong); }
+  /* Two different absences, so two different treatments.
+     .void = the step does not exist in npm at all (a hole in the process).
+     .none = the step exists but was never reached, because the break already
+             fired upstream. */
+  .cell.void { background-color: var(--ng-canvas); border-style: dashed; border-color: var(--ng-border-strong); background-image: repeating-linear-gradient(45deg, var(--ng-border) 0 1px, transparent 1px 7px); }
+  .cell.none { background-color: transparent; border-style: dashed; border-color: var(--ng-border); }
+  .cell.none .t { color: var(--ng-text-3); font-weight: 500; }
 
   .link { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; height: 15px; }
   @media (max-width: 760px) { .link { display: none; } }
@@ -172,6 +178,8 @@
   .link span::before { content: ""; position: absolute; left: 1.3rem; top: 0; bottom: 0; width: 2px; background: var(--ng-border); }
   .link span.on::before { background: var(--ng-safe-border); }
   .link span.off::before { background: var(--ng-danger-border); }
+  /* flow stopped: the rail goes dashed rather than continuing solid */
+  .link span.halt::before { background: repeating-linear-gradient(var(--ng-border) 0 3px, transparent 3px 7px); }
 
   .out { margin-top: 15px; display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; }
   @media (max-width: 760px) { .out { grid-template-columns: 1fr 1fr; } .out .mid { display: none; } }
@@ -229,6 +237,9 @@
   <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M6 18L18 6"/></symbol>
   <symbol id="i-fleet" viewBox="0 0 24 24"><rect x="2.6" y="4.4" width="18.8" height="12.2" rx="1.6"/><path d="M8.4 20.6h7.2M12 16.6v4"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8"/><path d="M12 6.8V12l3.4 2"/></symbol>
+  <symbol id="i-at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5.6a2.7 2.7 0 0 0 5.4 0V12A9.4 9.4 0 1 0 17.6 19.5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M7.4 16.4a4.3 4.3 0 0 1 .4-8.6 5.9 5.9 0 0 1 11.2 1.6 3.7 3.7 0 0 1-.8 7"/><path d="M12 11v8.4M12 19.4l-2.6-2.7M12 19.4l2.6-2.7"/></symbol>
+  <symbol id="i-run" viewBox="0 0 24 24"><rect x="2.6" y="4.2" width="18.8" height="15.6" rx="1.8"/><path d="M6.8 9.6l2.9 2.6-2.9 2.6M12.4 15.2h4.8"/></symbol>
   <symbol id="i-bomb" viewBox="0 0 24 24"><circle cx="10.5" cy="14.5" r="6.6"/><path d="M15.4 10.1l2.6-2.6M18.6 3.4v3.4M21.8 6.6h-3.2"/></symbol>
 </svg>
 
@@ -360,9 +371,16 @@
 
   <div class="rv">
     <div class="stage">
-      <div class="cell"><span class="ico"><svg><use href="#i-key"/></svg></span><span class="t">Attacker holds it<small>long-lived publish token</small></span></div>
-      <div class="step">stolen<br>credential</div>
-      <div class="cell"><span class="ico"><svg><use href="#i-key"/></svg></span><span class="t">Attacker holds it<small>nothing changes here</small></span></div>
+      <div class="cell"><span class="ico"><svg><use href="#i-at"/></svg></span><span class="t">Email swapped<small>to an attacker address</small></span></div>
+      <div class="step">maintainer<br>account</div>
+      <div class="cell"><span class="ico"><svg><use href="#i-at"/></svg></span><span class="t">Email swapped<small>nothing changes here</small></span></div>
+    </div>
+    <div class="link"><span></span><span class="mid"></span><span></span></div>
+
+    <div class="stage">
+      <div class="cell"><span class="ico"><svg><use href="#i-key"/></svg></span><span class="t">Attacker holds it<small>long-lived, never expires</small></span></div>
+      <div class="step">publish<br>token</div>
+      <div class="cell"><span class="ico"><svg><use href="#i-key"/></svg></span><span class="t">Attacker holds it<small>same token</small></span></div>
     </div>
     <div class="link"><span></span><span class="mid"></span><span></span></div>
 
@@ -371,13 +389,6 @@
       <div class="step">trusted<br>publishing</div>
       <div class="cell"><span class="ico"><svg><use href="#i-shield"/></svg></span><span class="t">Walked past<small>same bypass</small></span></div>
     </div>
-    <div class="link"><span></span><span class="mid"></span><span></span></div>
-
-    <div class="stage">
-      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Tagged <code>latest</code><small>one added dependency</small></span></div>
-      <div class="step">npm<br>registry</div>
-      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Tagged <code>latest</code><small>we don't stop the publish</small></span></div>
-    </div>
     <div class="link"><span></span><span class="mid"></span><span class="on"></span></div>
 
     <div class="stage">
@@ -385,12 +396,33 @@
       <div class="step">is a human<br>on this?</div>
       <div class="cell good"><span class="ico"><svg><use href="#i-person"/></svg></span><span class="t">Missing<small>4 releases had one · this has none</small></span></div>
     </div>
+    <div class="link"><span></span><span class="mid"></span><span class="on"></span></div>
+
+    <div class="stage">
+      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Tagged <code>latest</code><small>no source change</small></span></div>
+      <div class="step">npm<br>registry</div>
+      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Tagged <code>latest</code><small>we don't stop the publish</small></span></div>
+    </div>
     <div class="link"><span class="off"></span><span class="mid"></span><span class="on"></span></div>
 
     <div class="stage">
-      <div class="cell bad"><span class="ico"><svg><use href="#i-install"/></svg></span><span class="t">Postinstall runs<small>89 s to the first machine</small></span></div>
+      <div class="cell bad"><span class="ico"><svg><use href="#i-install"/></svg></span><span class="t">Resolves to 1.14.1<small><code>^1.14.0</code> matches it</small></span></div>
       <div class="step">npm<br>install</div>
-      <div class="cell good"><span class="ico"><svg><use href="#i-stop"/></svg></span><span class="t">PUBLISHER BREAK<small>stops before download</small></span></div>
+      <div class="cell good"><span class="ico"><svg><use href="#i-stop"/></svg></span><span class="t">PUBLISHER BREAK<small>stops here, before download</small></span></div>
+    </div>
+    <div class="link"><span class="off"></span><span class="mid"></span><span class="halt"></span></div>
+
+    <div class="stage">
+      <div class="cell bad"><span class="ico"><svg><use href="#i-download"/></svg></span><span class="t">Downloaded<small>and the decoy dependency with it</small></span></div>
+      <div class="step">tarball</div>
+      <div class="cell none"><span class="ico ghost"><svg><use href="#i-download"/></svg></span><span class="t">Never fetched</span></div>
+    </div>
+    <div class="link"><span class="off"></span><span class="mid"></span><span class="halt"></span></div>
+
+    <div class="stage">
+      <div class="cell bad"><span class="ico"><svg><use href="#i-run"/></svg></span><span class="t">Payload executes<small>RAT drops · beacons C2 every 60 s</small></span></div>
+      <div class="step">postinstall</div>
+      <div class="cell none"><span class="ico ghost"><svg><use href="#i-run"/></svg></span><span class="t">Never runs</span></div>
     </div>
 
     <div class="out">
