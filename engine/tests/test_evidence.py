@@ -35,10 +35,20 @@
 #      package; a parentless (node-bootstrap) require is named, never dropped
 #  C16 a stub whose responseHash is null (nothing served) is named in the setup
 #      header; a stub that served changes nothing about the header
-#  C17 a setup_bypass event renders WHY the manipulation did not hold
+#  C17 a setup_bypass event renders WHY the manipulation did not hold, and a
+#      `truncated` event renders WHICH coverage was lost (both were bare verbs)
 #  C18 a sealed artifact carries no field asserting a bound or a hash the run did
 #      not produce (xfail PIN — deleting a sealed field rehashes every recorded
 #      artifact; see the marker's reason)
+#  C19 an L1 write/sendto buffer is rendered, bounded, with the size the program
+#      passed — the bytes strace has captured with `-s 4096` since the first run and
+#      the renderer never showed; both cuts (render, tracer) are visible
+# C19b a MINTED canary inside a write buffer is named and quotable; a benign buffer
+#      carrying a coincidentally-planted value is not — C13b's axis on the L1 path
+# C19c the per-run buffer budget bounds one timeline, and a clipped row still states
+#      the buffer's true size instead of reverting to a bare descriptor
+# C19d a sendto whose payload strace DECODED (AF_NETLINK) renders no buffer and
+#      invents no byte count
 # Adversarial pass: 2026-07-23/W6 — added the artifact-integrity and timeline
 # axes (previously only the pure canonicalization half of the module was mapped).
 # Evidence-fidelity pass: C13-C15 close the rendering-loss classes that made real
@@ -50,6 +60,10 @@
 # named; none asserted that an ordinary string is not, and under a length floor
 # two values the recorded corpus actually plants (`/home/node`, `localhost`)
 # manufactured a citation for a benign request. C13b is that axis.
+# Captured-but-unrendered pass: 2026-07-25 — C13's fix (capture the L4 request body)
+# answered "what was in the payload" only for node's http module, while L1 had held up
+# to 4 KiB of EVERY write/sendto buffer, sealed and hashed, since the first run. C19*
+# is that layer: the renderer showed a descriptor and the bytes went unread.
 # Parser-input pass: 2026-07-25 — C10/C14/C14b's strace `raw` values were written
 # by hand (two real forms with the errno stripped, one with no sa_family at all,
 # one plausible and unverified). They now come from committed captures through
@@ -62,6 +76,8 @@ import pytest
 
 from npmguard.contract.models import EvidenceEvent, RunArtifact
 from npmguard.evidence import (
+    _BUFFER_RENDER_CHARS,
+    _BUFFER_RUN_BUDGET,
     CANARY_PATTERN,
     ArtifactStore,
     canonicalize,
@@ -107,6 +123,33 @@ def _captured_l1(filename: str, *needles: str, run_start: float) -> list[Evidenc
     ]
     assert len(lines) == len(needles), f"{needles} selected {len(lines)} captured lines"
     return parse_strace_log("\n".join(lines), run_start)
+
+
+def _write_with_payload(payload: str, needle: str) -> list[EvidenceEvent]:
+    """A captured write line with its PAYLOAD swapped, lengths recomputed.
+
+    Everything up to the opening quote — pid column, timestamp, syscall, descriptor —
+    is spliced verbatim out of a committed capture, which is the part the parser-fixture
+    rule protects. The payload is the traced PROGRAM's bytes, the one part of a strace
+    line no producer owns, and for a canary it cannot come from a fixture at all:
+    `mint_canary` draws 128 fresh bits per call, so no committed file can contain the
+    token a given run is looking for.
+
+    The two numbers are the producer's own convention, which is the whole reason a
+    preview cannot be read as a byte count: the printed string is ESCAPED (a quote
+    arrives as `\\"`, and the corpus's real captures show a byte as `\\335`) while the
+    length argument counts the buffer's actual bytes. `write(21, …)` in the same capture
+    prints 4096 escaped characters and states 9000.
+    """
+    line = next(
+        item
+        for item in SENSOR_FIXTURES.joinpath(NODE_LOG).read_text().splitlines()
+        if needle in item
+    )
+    head, _, _ = line.partition('"')
+    printed = payload.replace("\\", "\\\\").replace('"', '\\"')
+    size = len(payload.encode())
+    return parse_strace_log(f'{head}"{printed}", {size}) = {size}', NODE_RUN_START)
 
 
 def _row(text: str, *needles: str) -> str:
@@ -567,3 +610,117 @@ def test_a_setup_bypass_event_renders_its_reason() -> None:
     events = [synthetic_event("setup_bypass", "stubUrl pattern 'https://x/y' cannot be intercepted")]
     text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
     assert "bypass   stubUrl pattern 'https://x/y' cannot be intercepted" in text
+
+
+def test_a_truncated_event_renders_which_coverage_was_lost() -> None:
+    """C17: `truncated` had the same defect as its `setup_bypass` neighbour and it is
+    the more expensive one, because these two details are UNLIKE facts that arrived as
+    the identical `ENG truncated` row: the wall-clock budget killing a run (the package
+    was still acting) versus a sensor whose output could not be retrieved (the package
+    may have finished and the record is unreadable). Both bar a refutation, and a judge
+    told only that "something is missing" cannot tell which. Details are the strings
+    observation.py actually passes."""
+    events = [
+        synthetic_event("truncated", "wall-clock budget (20000ms) exceeded", timestamp=1),
+        synthetic_event("truncated", "pcap stop/parse failed: transfer exceeds 64MiB", timestamp=2),
+    ]
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "truncated wall-clock budget (20000ms) exceeded" in _row(text, "20000ms")
+    assert "truncated pcap stop/parse failed" in _row(text, "pcap")
+    # …and the two do not collapse into one row, which a bare verb guaranteed they would
+    assert "[x2]" not in text
+
+
+def test_an_l1_write_buffer_is_rendered_bounded_with_its_true_size() -> None:
+    """C19: strace runs with `-s 4096`, so up to 4 KiB of every write buffer has been
+    captured into `raw` and hashed into `contentHash` since the first run this engine
+    did; the renderer showed the descriptor and nothing else. Three captured writes: a
+    1-byte buffer, a 17-byte one, and one the TRACER itself cut (9000 bytes passed,
+    printed as `"…"...`). The row states the size the program passed, previews it
+    bounded, and marks each cut by its own producer's signal — so a preview can never
+    read as a whole buffer, and nobody re-reading the artifact expects 9000 bytes to be
+    in there."""
+    events = _captured_l1(
+        NODE_LOG, 'write(5, "*"', "write(21,", "write(22,", run_start=NODE_RUN_START
+    )
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "[buf 1b: *]" in _row(text, "buf 1b")
+    assert "[buf 17b: hello-from-client]" in _row(text, "hello-from-client")
+    capped = _row(text, "buf 9000b")
+    assert "…" in capped  # the RENDER cut
+    assert "capture capped by the tracer's string limit" in capped  # the TRACER's cut
+    # bounded: the payload is 9000 bytes and 4096 of them are in the artifact
+    assert len(capped) < 2 * _BUFFER_RENDER_CHARS
+
+
+def test_a_raw_socket_send_shows_a_payload_no_http_layer_could_see() -> None:
+    """C19: the L4 body capture answers "what was in the payload" only for what goes
+    through node's http module. This captured `sendto` is a DNS query whose payload
+    carries a hex-encoded `{"env":{` — a channel no monkey-patch observes, and the same
+    channel `test-pkg-dns-exfil` uses — and its bytes were sealed all along. `-s 4096`
+    is layer-blind in exactly the way the instrument cannot be."""
+    events = _captured_l1(NODE_LOG, "7b22656e76223a7b", run_start=NODE_RUN_START)
+    row = _row(render_timeline(seal_run_artifact(_artifact_draft(events))).text, "buf 47b")
+    assert "7b22656e76223a7b" in row  # the exfiltrated bytes, quotable by a judge
+    assert " send " in row
+
+
+def test_a_minted_canary_in_a_write_buffer_is_named_and_a_benign_buffer_is_not() -> None:
+    """C19b: this is the correlation hyp-0004's judge refuted for lacking — "the
+    timeline does not provide any evidence that the contents of those files were
+    transmitted" — supplied from the layer that had the bytes. Both events are the same
+    captured write shape and only one carries a token the engine MINTED. The negative
+    half is not hypothetical: `MYAPP_DB_HOST=localhost` is planted because the recorded
+    corpus really plants it, and a real captured stdout write in that very run really
+    contains `localhost`, so under a length floor this benign row would have been
+    cited. Paired in one run, because "no clause" must not be provable by breaking the
+    clause."""
+    planted = f"npm_{mint_canary()}"
+    events = _write_with_payload(f'{{"tok":"{planted}"}}', "write(22,") + _write_with_payload(
+        "[PRELOAD] Config result: db_host=localhost db_port=5432", 'write(5, "*"'
+    )
+    draft = _artifact_draft(
+        events, setupApplied={"env": {"NPM_TOKEN": planted, "MYAPP_DB_HOST": "localhost"}}
+    )
+    text = render_timeline(seal_run_artifact(draft)).text
+    carried = [row for row in text.splitlines() if "carries planted env" in row]
+    assert len(carried) == 1, f"exactly one buffer carried the canary:\n{text}"
+    assert carried[0].split("carries planted env")[1].rstrip("]").split() == ["NPM_TOKEN"]
+    assert planted in carried[0]  # quotable, not merely asserted
+    assert "db_host=localhost" in _row(text, "db_host")  # the benign buffer still shows
+
+
+def test_the_run_buffer_budget_bounds_a_timeline_without_going_silent() -> None:
+    """C19c: the per-event cap bounds one row and nothing bounded a RUN. strace caps
+    its string capture per call and not per run — the L4 body is capped twice at
+    capture (instrumentation-monkey.js `_BODY_CAP`/`_BODY_TOTAL_CAP`), which is the
+    bound L1 lacks — so a package writing thousands of distinct buffers could otherwise
+    make a judge prompt mostly payload. When the budget is spent the row still states
+    the buffer's true size and why it is not shown: reverting to a bare `fd:N` would
+    restore precisely the silence this path exists to remove."""
+    room = _BUFFER_RUN_BUDGET // _BUFFER_RENDER_CHARS
+    payloads = [f"{index:04d}" + "z" * (_BUFFER_RENDER_CHARS - 4) for index in range(room + 5)]
+    events = [event for load in payloads for event in _write_with_payload(load, "write(22,")]
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    shown = [row for row in text.splitlines() if f"[buf {_BUFFER_RENDER_CHARS}b: " in row]
+    clipped = [row for row in text.splitlines() if "run buffer budget spent" in row]
+    assert len(shown) == room
+    # The five clipped writes carry FIVE different payloads, and they collapse to one
+    # row because a clipped clause states no content to be wrong about — which is the
+    # second half of the bound: past the budget a flood costs one row, not one per call.
+    assert len(clipped) == 1 and "[x5]" in clipped[0]
+    assert f"buf {_BUFFER_RENDER_CHARS}b" in clipped[0]  # the true size survives the clip
+    assert "fd:22" in clipped[0]  # …and the row is not bare
+
+
+def test_a_sendto_whose_payload_strace_decoded_renders_no_buffer() -> None:
+    """C19d: 33 of the committed corpus's 253 sendtos are AF_NETLINK, whose payload
+    strace prints as a decoded struct rather than as bytes. There is nothing to show,
+    so nothing is shown, and no byte count is invented out of the struct's own
+    `nlmsg_len`. Asserting a buffer for every sendto would have failed on a shape the
+    producer really emits — which is why the parse returning nothing here is a branch
+    and not an assertion."""
+    events = _captured_l1(NODE_LOG, "RTM_GETLINK", run_start=NODE_RUN_START)
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert " send " in text
+    assert "[buf " not in text

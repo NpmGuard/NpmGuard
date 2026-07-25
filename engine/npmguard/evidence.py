@@ -32,6 +32,55 @@ TRACE_NO_PARENT = "<root>"
 # (instrument-capped) stays in the sealed artifact, and the canary match is computed
 # over that prefix rather than this truncation, so a value past the cut is still named.
 _BODY_RENDER_CHARS = 200
+# ── The L1 buffer contract ───────────────────────────────────────────────────────
+# strace runs with `-s 4096` (sensors.wrap_with_strace), so up to 4 KiB of EVERY
+# write/sendto buffer has been captured verbatim into the event's `raw` — and hashed
+# into `contentHash` — since the first run this engine ever did. Only the descriptor
+# was rendered. AUDIT_CORE_EXPLAINED §24.8 describes L1 as recording "only an fd";
+# measured over the 31 committed runartifacts, 241 of 241 writes and 220 of 253
+# sendtos carry a quoted buffer (the other 33 are netlink, whose payload strace
+# DECODES into `[{nlmsg_…}]` rather than printing bytes). The capture was never the
+# missing half. The rendering was.
+#
+# What that cost, measured on the corpus rather than argued: dns-exfil hyp-0003
+# rendered `send socket  [x44]` for 44 DNS packets whose payloads spell out a
+# hex-encoded `{"env":{"GITHUB_TOKEN":"ghp_np…` one chunk at a time. Judges refuted
+# exfiltration hypotheses for want of exactly that. Note what this does NOT explain,
+# because the tempting reading is wrong: env-exfil hyp-0004's refutation ("the POST
+# request is recorded but its payload is not specified") was CORRECT on its run —
+# `connect(20, 127.0.0.1:9999)` returned -1, no write to that descriptor exists at any
+# layer, and there were no bytes to render. Rendering buffers does not, and must not,
+# flip it.
+#
+# Rendered for `write`/`sendto` and deliberately NOT for `read`. The line is
+# evidentiary first: a write/sendto buffer is what LEFT the process, which is what
+# exfiltration is made of, while a read buffer is what came IN and is already located
+# by the `openat`/`read` pair above it. It is a cost line second, and the cost was
+# MEASURED rather than assumed, because the obvious guess is wrong: rendering the
+# corpus's 1440 read buffers as well would add 556 rows (4828 → 5384, +11.5%) but
+# +78% of timeline TEXT (312k → 554k characters). Reads do not explode the ROW count —
+# they roughly double the prompt. Extending this to reads is therefore a prompt-budget
+# decision someone can make on evidence, not a line this comment forbids.
+_BUFFER_RENDER_CHARS = 200
+# The only bound on how much buffer text ONE run can push into a judge prompt. The
+# L4 body has two (instrumentation-monkey.js: `_BODY_CAP` 2048/request and
+# `_BODY_TOTAL_CAP` 65536/run) because an unbounded payload capture grows without
+# limit; strace caps per call and not per run, so the run bound has to live at the
+# render seam. Sized from the corpus — the heaviest of the 31 artifacts consumes 5351
+# characters of it — so this is a ceiling on pathology, not a limiter on a
+# normal run. When it is spent the clause still states the true size and says why it
+# is not rendered: going silent is the defect this whole path exists to remove.
+_BUFFER_RUN_BUDGET = 8_000
+# `write(fd, "…", count)` and `sendto(fd, "…", len, flags, …)`: the buffer is
+# argument 1 and its byte count argument 2. Anchored on the descriptor and requiring
+# the count immediately after the closing quote, so a `sun_path="…"` later in a
+# sendto's sockaddr can never be picked up as the payload — the mirror of the bug
+# `sensors._brace_blocks` documents, where "the first brace group" read a peer
+# address out of attacker-controlled payload bytes. The quote body uses the same
+# escape-aware scanner as `sensors._quoted`, so an embedded `\"` cannot end the match
+# early, and strace's own `...` suffix (group 2) is how a capture that hit the
+# tracer's string limit announces itself.
+_L1_BUFFER = re.compile(r'^\w+\(\s*-?\d+,\s*"((?:[^"\\]|\\.)*)"(\.\.\.)?,\s*(\d+)')
 # ── The canary contract ──────────────────────────────────────────────────────────
 # A canary is bait the ENGINE MINTED. `render_timeline` names a planted env var as
 # "carried" by a request only when the request contains that minted token, and two
@@ -360,8 +409,13 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
         1: ("stdout", False),
         2: ("stderr", False),
     }
-    node_rows = _collapse([_describe(event, shorten, fds, bait) for event in node])
-    clock_rows = _collapse([_describe(event, shorten, fds, bait) for event in clock])
+    # ONE budget across both passes: it bounds the buffer text in a single judge
+    # prompt, and both sections go into the same prompt. L4 bodies do not draw on it —
+    # they are already twice-capped at capture (instrumentation-monkey.js), which is
+    # the bound strace does not provide per run.
+    budget = _BufferBudget()
+    node_rows = _collapse([_describe(event, shorten, fds, bait, budget) for event in node])
+    clock_rows = _collapse([_describe(event, shorten, fds, bait, budget) for event in clock])
     identifiers: set[str] = set()
     counter = 0
 
@@ -435,6 +489,85 @@ def _collapse(rows: list[tuple[str, str, str, int]]) -> list[tuple[str, str, str
     return [tuple(row) for row in output]
 
 
+@dataclass
+class _BufferBudget:
+    """How much buffer text ONE run may still render (see `_BUFFER_RUN_BUDGET`)."""
+
+    remaining: int = _BUFFER_RUN_BUDGET
+
+    def take(self, size: int) -> bool:
+        if size > self.remaining:
+            return False
+        self.remaining -= size
+        return True
+
+
+def _buffer_clause(
+    event: EvidenceEvent, bait: dict[str, str], budget: _BufferBudget | None
+) -> str:
+    """What a write/sendto PUT on the descriptor: bounded, with its true size stated.
+
+    Three sizes are distinct here and the clause never conflates them: `count` is the
+    buffer the program passed, the tracer captured at most its first 4 KiB, and the
+    preview is at most `_BUFFER_RENDER_CHARS` characters of THAT. So a truncated
+    preview can never read as a whole buffer, and the two cuts are reported by their
+    own producers rather than inferred — `…` for the render cut, strace's `...` suffix
+    for the capture cut. No captured BYTE count is claimed, because the escaped form
+    strace prints is not byte-for-byte the payload (a newline is two characters, an
+    arbitrary byte up to four): `script_parsed` can compare `len` to `len(source)`
+    because both are characters of the same string, and copying that idiom here would
+    invent a number.
+
+    INVARIANT: a rendered buffer cannot forge a timeline row. Two independent reasons —
+    `raw` is assembled from ONE line of a newline-split strace log
+    (`sensors._complete_lines`), so it contains no newline for a substring to inherit;
+    and strace prints a string's non-printables ESCAPED, so a newline byte in the
+    payload arrives as the two characters `\\` `n`. The whitespace collapse below is
+    the same normalization the L4 body and `script_parsed` source already apply, and it
+    holds the row to one line for an artifact that reached this renderer by any other
+    route. A package that could inject `e999  [L1] connect bank.test:443` into the text
+    could manufacture an event id for a judge to cite.
+    """
+    if event.kind not in {"write", "sendto"} or not isinstance(event.raw, str):
+        return ""
+    match = _L1_BUFFER.match(event.raw)
+    if match is None:
+        # A netlink sendto — 33 of the corpus's 253 — whose payload strace decoded into
+        # `[{nlmsg_…}]` instead of printing bytes. Not an assertion: this is a shape the
+        # producer really emits, and 33 counterexamples is what asserting here would
+        # have cost.
+        return ""
+    captured, capture_capped, count = match.group(1), bool(match.group(2)), int(match.group(3))
+    # Matched over the WHOLE captured prefix rather than the rendered preview, and
+    # BEFORE the budget is consulted, because the correlation is the one part of this
+    # clause a reader cannot recover from the artifact themselves: it is what turns
+    # "bytes left the process" into "the value the engine planted left the process".
+    # Exact against the escaped form — `mint_canary` emits only `[a-z0-9-]`, none of
+    # which strace escapes. Unlike the L4 body path this reaches a raw socket and a
+    # spawned `curl`, neither of which touches node's http module. A buffer that
+    # ENCODES the canary (the corpus's own DNS exfil hex-encodes its payload) will not
+    # match, so this clause is a lower bound on correlation: its absence is not
+    # evidence that nothing was exfiltrated.
+    carried = sorted(key for key, seed in bait.items() if seed in captured)
+    detail = f" · carries planted env {', '.join(carried)}" if carried else ""
+    if capture_capped:
+        detail = " · capture capped by the tracer's string limit" + detail
+    # A PARTIAL transfer: `_outcome` leaves a write's success unmarked, so without this
+    # the row would state a buffer size the kernel never accepted. Zero occurrences in
+    # the 461 buffered write/sendto events of the committed corpus, so it changes no
+    # recorded row.
+    accepted = (event.normalized or {}).get("ret")
+    transfer = (
+        f", only {accepted} accepted"
+        if isinstance(accepted, str) and accepted.isdigit() and int(accepted) != count
+        else ""
+    )
+    preview = _truncate(re.sub(r"\s+", " ", captured).strip(), _BUFFER_RENDER_CHARS)
+    if budget is not None and not budget.take(len(preview)):
+        return f"  [buf {count}b{transfer} · not rendered, run buffer budget spent{detail}]"
+    return f"  [buf {count}b{transfer}: {preview}{detail}]"
+
+
 def _outcome(kind: str, normalized: dict[str, Any]) -> str:
     """What the syscall RETURNED, as a clause a judge can read and cite.
 
@@ -482,8 +615,20 @@ def _outcome(kind: str, normalized: dict[str, Any]) -> str:
 
 
 def _describe(
-    event: EvidenceEvent, shorten, fds: dict[int, tuple[str, bool]], bait: dict[str, str]
+    event: EvidenceEvent,
+    shorten,
+    fds: dict[int, tuple[str, bool]],
+    bait: dict[str, str],
+    budget: _BufferBudget | None = None,
 ) -> tuple[str, str, str, int]:
+    """One event as (tag, verb, collapse-key target, timestamp).
+
+    `budget` is the RUN's remaining buffer-render allowance and belongs to whoever is
+    building a judge prompt — `render_timeline` always supplies one. `None` means "no
+    run bound", which is right for a caller that re-describes single events to measure
+    the renderer rather than to prompt a model (`bench/fidelity.py`): a per-event cap
+    still applies, and there is no prompt to overflow.
+    """
     normalized = event.normalized or {}
 
     def value(key: str) -> str:
@@ -631,15 +776,48 @@ def _describe(
         # naming the detail costs nothing at replay.
         verb, target = "bypass", _truncate(value("detail") or str(event.raw))
     elif event.kind == "truncated":
-        verb = "truncated"
+        # Same defect as the bare "bypass" row above, and the same fix: `truncated`
+        # alone told the judge that evidence is MISSING without saying which evidence
+        # or why. observation.py raises this for two unlike facts — the wall-clock
+        # budget killing the run, and a sensor whose output could not be retrieved
+        # (an over-cap /tmp/strace.log or stdout transfer, a pcap that failed to stop)
+        # — and both reached the judge as the identical row, so a run that was cut
+        # short and a run whose syscall record could not be read were the same
+        # evidence. No recorded artifact carries an `engine`-stream event at all, so
+        # naming the detail costs nothing at replay.
+        verb, target = "truncated", _truncate(value("detail") or str(event.raw))
     elif event.kind == "error":
         verb, target = "error", _truncate(str(event.raw))
-    # The result is appended LAST, after every fd-table write above, so the table
-    # keeps the bare peer/path: storing "127.0.0.1:9999  [connected]" would make a
-    # later read on that descriptor render the CONNECT's outcome as its own. It goes
-    # into `target` rather than beside it because that is the collapse key — which is
-    # precisely how `_collapse` stops merging two calls that differ in result.
-    return tag, verb, f"{target}{_outcome(event.kind, normalized)}".strip(), int(event.timestamp)
+    # The result and the buffer are appended LAST, after every fd-table write above,
+    # so the table keeps the bare peer/path: storing "127.0.0.1:9999  [connected]"
+    # would make a later read on that descriptor render the CONNECT's outcome as its
+    # own — and storing a sendto's PAYLOAD there would name the descriptor after the
+    # bytes that once went out on it, which is the same false-target class
+    # `_describe`'s socket branch already guards. Both go INTO `target` rather than
+    # beside it because that is the collapse key.
+    #
+    # Putting the buffer in the collapse key is the deliberate choice. `_collapse`
+    # merges only CONSECUTIVE rows sharing (tag, verb, target), so with the buffer in
+    # the key a `[xN]` write row means "the same bytes N times" — true and precise —
+    # whereas keying on the descriptor alone and showing one group member's buffer
+    # would present one payload as if it were all N. The case that decides it is in the
+    # corpus: dns-exfil hyp-0003 rendered `send socket  [x44]`, one row for 44 DNS
+    # packets carrying 44 DIFFERENT chunks of a hex-encoded credential dump
+    # (`{"env":{"GITHUB_TOKEN":"ghp_np…`). Keeping the buffer out of the key would have
+    # kept that one row and shown one chunk of it. The row cost is real and was
+    # measured over all 31 committed runartifacts rather than assumed: 4606 → 4828
+    # rows (+222, +4.8%) and 260k → 312k characters (+20.2%). Every recorded event id
+    # survives — `committed ⊆ live` for all 31, so every recorded judge citation still
+    # resolves, which is the property `RecordedSandbox` needs and the reason this
+    # change is free at replay.
+    #
+    # Every appended clause starts with "  [" so that a consumer splitting a target at
+    # its first bracket still recovers the bare peer/path (`bench/fidelity.py`'s
+    # anonymous-row predicate does exactly that, and it must keep counting an
+    # unresolved `fd:19` write as anonymous: rendering the bytes says nothing about
+    # whether the DESTINATION was named, so it must not flatter that number).
+    clauses = f"{_buffer_clause(event, bait, budget)}{_outcome(event.kind, normalized)}"
+    return tag, verb, f"{target}{clauses}".strip(), int(event.timestamp)
 
 
 def _truncate(value: str, length: int = 100) -> str:
