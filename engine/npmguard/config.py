@@ -10,6 +10,25 @@ from kit_spine import KitSettings
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+# INVARIANT: every setting declared here is read by production code under
+# `npmguard/`. A knob nothing reads is worse than an absent one, because an
+# unread *cap* reads as a protection that does not exist — someone sizing a
+# deployment from this file must be able to trust it. Enforced by
+# tests/test_config_surface.py (an `ast` scan for `settings.<field>`), which is
+# why the surface carries no exemption list. Inherited `KitSettings` fields are
+# Kit's surface, not this one's.
+#
+# Eight knobs were deleted rather than wired, none of which ever had a reader in
+# this engine or in the TypeScript engine it was ported from (so the port
+# carried the shape, not any behaviour): `triage_max_files`, `max_agent_turns`,
+# `investigation_enabled`, `test_gen_model`, `test_gen_mode`,
+# `max_findings_to_prove`, `verify_timeout_sec`, `max_docker_exec_timeout_sec`.
+# Two of them named bounds the code contradicts — `max_docker_exec_timeout_sec`
+# defaulted to 30s beside a 180s `docker_exec` npm install (deps.py), and
+# `max_agent_turns` defaulted to 30 above the agent's own [10, 24] budget
+# (hypothesis_agent.py). A bound lands here together with its reader, never
+# ahead of it. `extra="ignore"` means a stale `NPMGUARD_*` left in a deployed
+# `.env` is inert rather than a boot failure.
 class Settings(KitSettings):
     model_config = SettingsConfigDict(
         env_file=(REPO_ROOT / ".env", Path.cwd() / ".env"),
@@ -48,20 +67,12 @@ class Settings(KitSettings):
     shutdown_deadline_seconds: float = Field(default=10, gt=0)
 
     triage_model: str = "claude-haiku-4-5-20251001"
-    triage_max_files: int = Field(default=80, ge=1, le=1000)
     investigation_model: str = "claude-sonnet-4-6"
-    max_agent_turns: int = Field(default=30, ge=1, le=200)
-    investigation_enabled: bool = True
-    test_gen_model: str = "claude-sonnet-4-6"
-    test_gen_mode: Literal["openclaw", "direct"] = "direct"
-    max_findings_to_prove: int = Field(default=0, ge=0)
-    verify_timeout_sec: int = Field(default=60, ge=10, le=300)
 
     sandbox_image: str = "npmguard-sandbox:v1"
     sandbox_memory_mb: int = Field(default=512, ge=64, le=4096)
     sandbox_cpus: float = Field(default=1, gt=0, le=4)
     sandbox_network: str = "none"
-    max_docker_exec_timeout_sec: int = Field(default=30, ge=5, le=300)
 
     base_sepolia_rpc_url: str | None = None
     base_sepolia_contract: str | None = None
