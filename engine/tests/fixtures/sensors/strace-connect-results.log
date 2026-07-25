@@ -1,0 +1,5 @@
+595206 1784984047.476140 connect(4, {sa_family=AF_INET, sin_port=htons(9999), sin_addr=inet_addr("127.0.0.1")}, 16) = 0
+595206 1784984047.476430 connect(5, {sa_family=AF_INET, sin_port=htons(9999), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS (Operation now in progress)
+595206 1784984047.476747 connect(3, {sa_family=AF_INET, sin_port=htons(9999), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 ECONNREFUSED (Connection refused)
+595395 1784984069.092528 openat(AT_FDCWD, "/etc/localtime", O_RDONLY|O_CLOEXEC) = 3
+595395 1784984069.092970 connect(3, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 23) = -1 ENOENT (No such file or directory)

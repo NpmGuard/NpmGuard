@@ -18,38 +18,102 @@
 #  C12 compute_event_summary buckets hosts / syscalls / files / dns from
 #      normalized events
 #  C13 a captured request body renders bounded, with its true size, and names the
-#      planted env canaries it carries; no body renders no body clause
+#      MINTED canary it carries; no body renders no body clause
+# C13b a request that coincidentally contains a planted value — the recorded
+#      corpus's own `HOME=/home/node` and `MYAPP_DB_HOST=localhost` — is NOT
+#      reported as carrying bait, while a minted canary in the same run still is
 #  C14 an L1 connect renders the peer host:port it dialled, not "socket"
-# C14b …and never a FILE inherited from a recycled fd (xfail PIN — open finding,
-#      the fix needs a fixture re-record; see the marker's reason)
+# C14b …and never a FILE inherited from a recycled fd; a named AF_UNIX peer
+#      renders as the socket path it actually dialled
+# C14c a syscall's RESULT is rendered, so `= 0`, `= -1 EINPROGRESS` (a non-blocking
+#      connect that SUCCEEDED) and `= -1 ECONNREFUSED` are three distinguishable
+#      rows that _collapse does not merge
+# C14d a recvfrom names the peer it read FROM, and a failed socket read says so
+# C14e a legacy artifact's `-1` with no recorded errno states its own coverage
+#      instead of claiming a failure it cannot support
 #  C15 parse_l4_trace refuses a trace attributing an INSTRUMENT require to the
 #      package; a parentless (node-bootstrap) require is named, never dropped
 #  C16 a stub whose responseHash is null (nothing served) is named in the setup
 #      header; a stub that served changes nothing about the header
 #  C17 a setup_bypass event renders WHY the manipulation did not hold
+#  C18 a sealed artifact carries no field asserting a bound or a hash the run did
+#      not produce (xfail PIN — deleting a sealed field rehashes every recorded
+#      artifact; see the marker's reason)
 # Adversarial pass: 2026-07-23/W6 — added the artifact-integrity and timeline
 # axes (previously only the pure canonicalization half of the module was mapped).
 # Evidence-fidelity pass: C13-C15 close the rendering-loss classes that made real
 # malware refute — the timeline said less than the run did. The JS half of the
 # same axis (what the instrument EMITS) is proven in test_instrumentation_l4.py;
 # these classes prove what the renderer does with it.
+# Manufactured-evidence pass: 2026-07-25 — the missing dimension was the
+# NEGATIVE direction of C13. Every canary class asserted that a real exfil is
+# named; none asserted that an ordinary string is not, and under a length floor
+# two values the recorded corpus actually plants (`/home/node`, `localhost`)
+# manufactured a citation for a benign request. C13b is that axis.
+# Parser-input pass: 2026-07-25 — C10/C14/C14b's strace `raw` values were written
+# by hand (two real forms with the errno stripped, one with no sa_family at all,
+# one plausible and unverified). They now come from committed captures through
+# the real `parse_strace_log`, so the sensor→renderer seam is closed end to end
+# and the shapes are the producer's rather than ours.
 import math
+from pathlib import Path
 
 import pytest
 
-from npmguard.contract.models import EvidenceEvent
+from npmguard.contract.models import EvidenceEvent, RunArtifact
 from npmguard.evidence import (
+    CANARY_PATTERN,
     ArtifactStore,
     canonicalize,
     compute_event_summary,
     content_hash_of,
     merkle_root,
+    mint_canary,
     parse_l4_trace,
     render_timeline,
     seal_run_artifact,
     sha256_hex,
     synthetic_event,
 )
+from npmguard.sensors import parse_strace_log
+
+SENSOR_FIXTURES = Path(__file__).parent / "fixtures" / "sensors"
+# One second before the first line of each capture, so relative stamps stay positive.
+CONNECT_LOG, CONNECT_RUN_START = "strace-connect-results.log", 1784984047.0
+NODE_LOG, NODE_RUN_START = "strace-node.log", 1784974617.0
+# The instrument keeps min(_BODY_CAP, total) bytes of a request body
+# (assets/instrumentation-monkey.js), so a body whose true size exceeds the cap is
+# captured at EXACTLY this length. A test asserting any other pair asserts a shape
+# the producer cannot emit.
+BODY_CAP = 2048
+
+
+def _captured_l1(filename: str, *needles: str, run_start: float) -> list[EvidenceEvent]:
+    """Real captured strace lines, parsed by the real sensor.
+
+    The renderer consumes whatever `parse_strace_log` produces, so driving these
+    classes through it closes the seam: a rendering test cannot pass against a
+    normalized shape the parser never emits. Every literal below is a needle into a
+    committed capture (`tests/fixtures/sensors/`, provenance in `PROVENANCE.json`) —
+    never a line this file invented, which is how `sin_addr="1.2.3.4"` kept a dead
+    regex green for the life of `sensors.py`.
+    """
+    lines = [
+        line
+        for line in SENSOR_FIXTURES.joinpath(filename)
+        .read_text(errors="surrogateescape")
+        .splitlines()
+        if any(needle in line for needle in needles)
+    ]
+    assert len(lines) == len(needles), f"{needles} selected {len(lines)} captured lines"
+    return parse_strace_log("\n".join(lines), run_start)
+
+
+def _row(text: str, *needles: str) -> str:
+    """The single rendered row containing every needle."""
+    hits = [line for line in text.splitlines() if all(needle in line for needle in needles)]
+    assert len(hits) == 1, f"{needles} matched {len(hits)} rendered rows:\n{text}"
+    return hits[0]
 
 
 def _artifact_draft(events: list[EvidenceEvent], **changes):
@@ -176,20 +240,13 @@ def test_render_timeline_sections_ids_and_collapse() -> None:
         _l4("env_access", {"key": "NPM_TOKEN"}, timestamp=1),
         _l4("env_access", {"key": "NPM_TOKEN"}, timestamp=2),  # collapses into e1 [x2]
         _l4("network", {"method": "GET", "url": "https://evil.test/x"}, timestamp=3),
-        EvidenceEvent(
-            stream="L1:seccomp",
-            timestamp=1_000_000_000,
-            pid=7,
-            kind="connect",
-            raw='connect(7, {sin_port=htons(443)}) = 0',
-            normalized={"ret": "0", "addr": "1.2.3.4", "port": 443},
-        ),
+        *_captured_l1(CONNECT_LOG, "ECONNREFUSED", run_start=CONNECT_RUN_START),
     ]
     timeline = render_timeline(seal_run_artifact(_artifact_draft(events)))
     assert timeline.ids == {"e1", "e2", "e3"}
     assert "[x2]" in timeline.text  # the two identical env reads collapsed
     assert "NPM_TOKEN" in timeline.text  # node row target
-    assert "1.2.3.4:443" in timeline.text  # clock row target
+    assert "127.0.0.1:9999" in timeline.text  # clock row target: the captured peer
     assert "# setup: env NPM_TOKEN" in timeline.text
     assert "── [L4] node calls" in timeline.text
     assert "── wall-clock t+" in timeline.text
@@ -207,35 +264,86 @@ def test_render_timeline_empty_run_and_error_note() -> None:
     assert "# note: run error — CrashError: Cannot find module 'x'" in timeline.text
 
 
-def test_captured_body_renders_bounded_and_names_planted_canaries() -> None:
-    """C13: the exfil line carries the payload and names which planted env canaries
-    are in it — the correlation hyp-0004 refuted for lacking ("the POST request is
-    recorded but its payload is not specified"). The displayed body is truncated,
-    the true submitted size is stated, and the canary match is computed over the
-    whole captured prefix, so a value past the display cut is still named."""
-    tail = "z" * 400
+def test_captured_body_renders_bounded_and_names_the_minted_canary() -> None:
+    """C13: the exfil line carries the payload and names which planted canary it
+    carries — the correlation hyp-0004 refuted for lacking ("the POST request is
+    recorded but its payload is not specified"). The displayed body is truncated, the
+    true submitted size is stated, and the match runs over the whole captured prefix,
+    so a canary past the display cut is still named. The planted value keeps a
+    realistic `npm_` shape and the match is on the minted token alone."""
+    canary = mint_canary()
+    planted = f"npm_{canary}"
+    # A body whose true size exceeds the instrument's cap is captured at exactly the
+    # cap — the pair (len(body), bodyBytes) is not free (see BODY_CAP).
+    head, tail = '{"pad":"', f'","tok":"{planted}"}}'
+    body = head + "z" * (BODY_CAP - len(head) - len(tail)) + tail
+    assert len(body) == BODY_CAP
     events = [
         _l4(
             "network",
             {
                 "method": "POST",
                 "url": "http://localhost:9999/exfil",
-                "body": '{"pad":"' + tail + '","tok":"npm_12345secrettoken"}',
+                "body": body,
                 "bodyBytes": 4096,
             },
         )
     ]
-    draft = _artifact_draft(
-        events, setupApplied={"env": {"NPM_TOKEN": "npm_12345secrettoken", "CI": "1"}}
-    )
-    line = next(
-        row for row in render_timeline(seal_run_artifact(draft)).text.splitlines() if " net " in row
-    )
+    draft = _artifact_draft(events, setupApplied={"env": {"NPM_TOKEN": planted, "CI": "1"}})
+    line = _row(render_timeline(seal_run_artifact(draft)).text, " net ")
     assert "POST http://localhost:9999/exfil" in line
     assert "body[4096b]" in line  # the size the package submitted, not the kept size
-    assert tail not in line  # bounded display
+    assert body not in line and "…" in line  # bounded display, visibly cut
+    assert planted not in line  # the canary itself is past the cut
     assert "carries planted env NPM_TOKEN" in line  # matched past the display cut
-    assert "CI" not in line.split("carries planted env")[1]  # too short to be a canary
+    assert "CI" not in line.split("carries planted env")[1]  # not minted, so not bait
+
+
+def test_a_coincidental_planted_value_is_never_reported_as_carried_bait() -> None:
+    """C13b: bait is what the engine MINTED, not what the model happened to plant.
+    Both env values here are real, copied from the recorded corpus's own experiments,
+    and under the old 8-character length floor both manufactured a citation: a benign
+    crash report whose stack trace contains `/home/node` "carried planted env HOME",
+    and a GET with no body at all "carried planted env MYAPP_DB_HOST" because
+    `localhost` occurs in its own URL. That clause is written to be cited, one CONFIRM
+    is DANGEROUS, and DANGEROUS blocks an install — so the negative direction is the
+    expensive one. Paired with the positive probe in the same run, because "no clause"
+    must not be provable by breaking the clause."""
+    canary = mint_canary()
+    crash = '{"stack":"Error: ENOENT at /home/node/app/index.js:3:11"}'
+    exfil = f'{{"tok":"{canary}"}}'
+    events = [
+        _l4("network", {"method": "POST", "url": "https://sentry.example.com/api/store",
+                        "body": crash, "bodyBytes": len(crash)}, timestamp=0),
+        _l4("network", {"method": "GET", "url": "http://localhost:9999/health",
+                        "body": "", "bodyBytes": 0}, timestamp=1),
+        _l4("network", {"method": "POST", "url": "https://evil.test/collect",
+                        "body": exfil, "bodyBytes": len(exfil)}, timestamp=2),
+    ]
+    draft = _artifact_draft(
+        events,
+        setupApplied={
+            "env": {"HOME": "/home/node", "MYAPP_DB_HOST": "localhost", "NPM_TOKEN": canary}
+        },
+    )
+    text = render_timeline(seal_run_artifact(draft)).text
+    carried = [row for row in text.splitlines() if "carries planted env" in row]
+    assert len(carried) == 1, f"exactly one request carried the canary:\n{text}"
+    assert "evil.test/collect" in carried[0]
+    assert carried[0].split("carries planted env")[1].split() == ["NPM_TOKEN"]
+
+
+def test_a_minted_canary_is_unguessable_and_recognisable() -> None:
+    """C13b: the two properties the clause's soundness rests on — a fresh 128-bit
+    token every call (so no coincidental preimage exists inside the container), and a
+    format the renderer recognises (so a value the engine did not mint cannot enter
+    the bait set). Length was neither."""
+    tokens = {mint_canary() for _ in range(64)}
+    assert len(tokens) == 64
+    for token in tokens:
+        assert CANARY_PATTERN.fullmatch(token)
+    for ordinary in ("/home/node", "localhost", "npm_12345secrettoken", "AKIA123456789", "1"):
+        assert not CANARY_PATTERN.search(ordinary)
 
 
 def test_a_bodyless_network_event_renders_no_body_clause() -> None:
@@ -250,58 +358,80 @@ def test_a_bodyless_network_event_renders_no_body_clause() -> None:
 
 
 def test_connect_renders_the_peer_it_dialled() -> None:
-    """C14: a connect whose normalized addr/port survived the strace parse renders
-    the peer, not "socket" — the hypothesis-matching detail three judges said was
-    missing ("No event matches the suspected endpoint")."""
-    events = [
-        EvidenceEvent(
-            stream="L1:seccomp",
-            timestamp=1,
-            pid=9,
-            kind="connect",
-            raw='connect(19, {sa_family=AF_INET, sin_port=htons(9999), sin_addr=inet_addr("127.0.0.1")}, 16) = -1',
-            normalized={"ret": "-1", "addr": "127.0.0.1", "port": 9999},
-        )
-    ]
+    """C14: a connect whose peer survived the strace parse renders that peer, not
+    "socket" — the hypothesis-matching detail three judges said was missing ("No event
+    matches the suspected endpoint")."""
+    events = _captured_l1(CONNECT_LOG, "EINPROGRESS", run_start=CONNECT_RUN_START)
     text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
     assert "connect  127.0.0.1:9999" in text
     assert "socket" not in text
 
 
-@pytest.mark.xfail(
-    reason="OPEN FINDING: a connect on an fd last bound to a FILE inherits that "
-    "file as its peer, so live timelines say 'connect /etc/localtime'. The fd table "
-    "already carries the is-socket flag the fix needs, but honouring it re-collapses "
-    "rows and shifts 9 of 14 recorded test-pkg-dns-exfil event ids, invalidating that "
-    "bundle's judge citations — a re-record is an owner decision. The assertion below "
-    "is the CORRECT contract and flips green when the fix lands.",
-    strict=True,
-)
 def test_connect_never_claims_a_file_as_its_peer() -> None:
-    """C14b: you cannot connect(2) to a file. An AF_UNIX connect on a recycled fd
-    must not inherit the path a previous openat left in the fd table — a false target
-    is worse than a vague one, because a judge can cite it."""
-    events = [
-        EvidenceEvent(
-            stream="L1:seccomp",
-            timestamp=1,
-            pid=9,
-            kind="openat",
-            raw='openat(AT_FDCWD, "/etc/localtime", O_RDONLY) = 17',
-            normalized={"ret": "17", "path": "/etc/localtime"},
-        ),
-        EvidenceEvent(
-            stream="L1:seccomp",
-            timestamp=2,
-            pid=9,
-            kind="connect",
-            raw='connect(17, {sa_family=AF_UNIX, sun_path="/var/run/nscd/socket"}, 110) = -1',
-            normalized={"ret": "-1", "addr": None, "port": None},
-        ),
-    ]
+    """C14b: you cannot connect(2) to a file. In this captured pair a descriptor is
+    recycled from a FILE to a unix socket — python opens /etc/localtime as fd 3,
+    closes it, and the AF_UNIX socket it then creates gets fd 3 back — so ignoring the
+    fd table's is-socket flag rendered "connect /etc/localtime". A false target is
+    worse than a vague one, because a judge can cite it. The peer strace printed is
+    the sun_path, so the row names the socket it actually dialled."""
+    events = _captured_l1(CONNECT_LOG, "AT_FDCWD", "sun_path=", run_start=CONNECT_RUN_START)
     text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "open     /etc/localtime" in text  # the file is still rendered as a file
     assert "connect  /etc/localtime" not in text
-    assert "connect  socket" in text
+    assert "connect  /var/run/nscd/socket" in text
+
+
+def test_the_three_connect_outcomes_are_distinguishable_and_do_not_collapse() -> None:
+    """C14c: three captured connects to the SAME peer, in one capture, with the three
+    results that matter: `= 0`, `= -1 EINPROGRESS` (a non-blocking connect the kernel
+    ACCEPTED — it succeeded) and `= -1 ECONNREFUSED`. Without the result rendered they
+    are one row, `connect 127.0.0.1:9999 [x3]`, because the result is not in the
+    collapse key — so an established exfiltration channel and a refused one were the
+    same evidence, and 113 of the 157 connects in the committed corpus are `-1`."""
+    events = _captured_l1(
+        CONNECT_LOG, "= 0", "EINPROGRESS", "ECONNREFUSED", run_start=CONNECT_RUN_START
+    )
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    rows = [row for row in text.splitlines() if "connect" in row]
+    assert len(rows) == 3, f"the three outcomes must not merge:\n{text}"
+    assert "[x3]" not in text
+    assert "[connected]" in rows[0]
+    assert "EINPROGRESS" in rows[1] and "SUCCEEDED" in rows[1]
+    assert "[failed: ECONNREFUSED]" in rows[2]
+
+
+def test_a_recvfrom_names_its_peer_and_a_failed_socket_read_says_so() -> None:
+    """C14d: a `recvfrom` carries the peer it read FROM in its own sockaddr, which for
+    an unconnected socket is the only place that peer appears — 221 of them sit in the
+    committed corpus recoverable from nothing else. The EAGAIN line from the same
+    capture is the negative half: a socket read that returned nothing must not render
+    as one that returned data."""
+    events = _captured_l1(NODE_LOG, "127.0.0.53", "EAGAIN", run_start=NODE_RUN_START)
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "read     127.0.0.53:53" in _row(text, "127.0.0.53")
+    assert "[failed: EAGAIN]" in _row(text, "EAGAIN")
+
+
+def test_a_legacy_recorded_minus_one_states_its_own_coverage() -> None:
+    """C14e: the 31 committed runartifacts were sealed before the parser kept the
+    errno beside a `-1`, so their connects record `ret: "-1"` and nothing else. Both a
+    refusal and an async success land there, so the row states the gap rather than
+    asserting a failure the artifact cannot support. This class inverts when that
+    bundle is re-recorded: the errno will be present and the rows become
+    `[failed: …]`/`[in progress: …]`."""
+    path = (
+        Path(__file__).parent
+        / "fixtures/llm/test-pkg-env-exfil@2.0.1/sandbox/hyp-0009.runartifact.json"
+    )
+    artifact = RunArtifact.model_validate_json(path.read_text())
+    assert not any(
+        "error" in (event.normalized or {}) for event in artifact.events
+    ), "this artifact predates errno capture — that is what the class is about"
+    rows = [row for row in render_timeline(artifact).text.splitlines() if "connect " in row]
+    assert any("[-1, errno not recorded — refused or async in progress]" in row for row in rows)
+    # Nothing in this artifact may be reported as a failure: no errno was recorded, and
+    # EINPROGRESS — a SUCCESS — is in the same `-1` bucket as ECONNREFUSED.
+    assert "[failed:" not in "\n".join(rows)
 
 
 def test_parse_l4_trace_refuses_an_instrument_require_attributed_to_the_package() -> None:
@@ -399,6 +529,35 @@ def test_a_stub_that_served_leaves_the_setup_header_untouched() -> None:
     ).text
     assert "stubs" not in text
     assert text.splitlines()[1] == "# setup: env NPM_TOKEN"
+
+
+@pytest.mark.xfail(
+    reason="OPEN FINDING: `inspectorLogHash` is null in every artifact ever sealed and "
+    "is structurally unfillable (the inspector's output is merged into the same stdout "
+    "blob `stdoutHash` already covers), and `Budget.maxSyscalls`/`maxBytesCapture` are "
+    "read by nothing while the caps that exist are unrelated (docker_exec 10MiB, "
+    "deps._stream_tar 256MiB) — so a sealed artifact asserts a capture bound the run "
+    "never applied. Deleting them is the fix and it is written up at "
+    "shared/src/evidence.ts. The blocker is not the code: REMOVING a sealed field "
+    "changes the canonical form, hence the contentHash, of every artifact ever sealed, "
+    "and the orchestrator cross-checks that hash against an independent recomputation "
+    "(step D) — so all 31 committed runartifacts fail it and three slice replays go "
+    "red. The migration is free and mechanical rather than a paid re-record (re-seal "
+    "each fixtures/llm/*/sandbox/*.runartifact.json under the new schema, update its "
+    "sha256 in the bundle manifest), but editing recorded fixtures is an owner "
+    "decision. The assertion below is the CORRECT contract.",
+    strict=True,
+)
+def test_a_sealed_artifact_asserts_no_bound_or_hash_the_run_did_not_produce() -> None:
+    """C18: every field of a sealed artifact is a statement about the run, so a field
+    the run cannot fill is false evidence — the same class as a `responseHash` for a
+    response no stub served. Asserted on the sealed value rather than the draft,
+    because the sealed value is what the judge and the store see."""
+    sealed = seal_run_artifact(
+        _artifact_draft([], budget={"wallMs": 20000, "maxSyscalls": None, "maxBytesCapture": 1e6})
+    ).model_dump(mode="json", exclude_none=False)
+    assert "inspectorLogHash" not in sealed
+    assert set(sealed["budget"]) == {"wallMs"}
 
 
 def test_a_setup_bypass_event_renders_its_reason() -> None:
