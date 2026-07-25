@@ -24,6 +24,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from contextlib import aclosing
 
 import httpx
 import pytest
@@ -60,9 +62,29 @@ STALL_LLM_TIMEOUT_SECONDS = 180.0
 # S32: long enough that the executing audit is reliably in-flight at SIGKILL, short
 # enough that the RE-ENQUEUED audits complete well within AUDIT_DEADLINE_SECONDS.
 SHORT_STALL_DELAY_MS = 5_000
-# S31: harness grace for observing the bounded graceful close; the engine's own
-# NPMGUARD_SHUTDOWN_DEADLINE_SECONDS is set below this so close() returns first.
-SHUTDOWN_STALL_GRACE_SECONDS = 4.0
+# S31. SHUTDOWN_DEADLINE_SECONDS is the knob under test (audits.close's own
+# bound). The other two are the OBSERVATION window and must not be tuned down to
+# hug it — a stopwatch race is what this scenario is not about.
+#
+# What SIGTERM -> exit actually costs, measured at 67f830f (n=6 each):
+#     0.10s  uvicorn's fixed pre-drain sleep            (server.py:281)
+#   + 0.00s  connection drain — nothing left open, because _first_frame_of_type
+#            aclose()s its stream. A LEAKED stream costs the full
+#            --timeout-graceful-shutdown instead (2.00s, harness.py:339)
+#   + 1.50s  audits.close(NPMGUARD_SHUTDOWN_DEADLINE_SECONDS), burnt in full
+#            because the in-flight audit is stalled STALL_DELAY_MS
+#   + 0.22s  llm/notifier/engine dispose, interpreter + `uv` wrapper exit
+#   = 1.82s  observed 1.82-1.83; 3.83-3.93 when the stream was leaked
+#
+# SHUTDOWN_MAX_SECONDS discriminates the three outcomes that matter and leaves
+# 3.3x headroom over the measured cost: honors the 1.5s deadline (1.8s) < 6.0s <
+# silently fell back to the 10s config default (10.1s) < never bounded at all
+# (STALL_DELAY_MS = 120s, the old unbounded await). GRACE is only the harness's
+# SIGKILL fallback and is deliberately far above both, so a slow machine makes
+# this scenario FAIL ON ITS OWN ASSERTION with a measured number in the message
+# rather than on a SIGKILL that also destroys the row evidence below.
+SHUTDOWN_STALL_GRACE_SECONDS = 30.0
+SHUTDOWN_MAX_SECONDS = 6.0
 SHUTDOWN_DEADLINE_SECONDS = 1.5
 
 INTERRUPTED_CODE = "NPMGUARD-0031"
@@ -112,8 +134,24 @@ async def _get(url: str, **kwargs) -> httpx.Response:
 async def _first_frame_of_type(
     base_url: str, audit_id: str, event_type: str, deadline: float = EVENT_WAIT_SECONDS
 ) -> SseFrame:
-    async with asyncio.timeout(deadline):
-        async for frame in iter_frames(base_url, audit_id, deadline=deadline):
+    """Read until `event_type`, then CLOSE the stream before returning.
+
+    `aclosing` is load-bearing, not tidiness. Returning straight out of the
+    `async for` abandons the generator with its httpx client — and therefore its
+    socket — open; the actual close is deferred to asyncio's async-generator
+    finalizer, which needs the event loop to run. Every caller here follows this
+    with a SYNCHRONOUS process control (`engine.close()` / `engine.restart()`,
+    both of which block the loop in `proc.wait()`), so that finalizer cannot run
+    and the connection is still ESTABLISHED when the signal lands. For SIGTERM
+    that made the engine pay uvicorn's full `--timeout-graceful-shutdown` (2s,
+    harness.py) waiting for a peer whose event loop was blocked in this process
+    — measured: 3.88s of shutdown vs 1.82s with the stream closed. See S31.
+    """
+    async with (
+        asyncio.timeout(deadline),
+        aclosing(iter_frames(base_url, audit_id, deadline=deadline)) as frames,
+    ):
+        async for frame in frames:
             if frame.type == event_type:
                 return frame
     raise AssertionError(f"stream for {audit_id} closed without a {event_type} frame")
@@ -254,6 +292,13 @@ async def test_shutdown_with_inflight_audit_is_graceful(engine_factory, mock_llm
     bounds connection draining), so close() must return within the harness grace on its
     own. With NPMGUARD_SHUTDOWN_DEADLINE_SECONDS below the grace, it does — and it
     finalizes the interrupted session as a retryable 0031 instead of orphaning it.
+
+    The BOUND is what is asserted, not a stopwatch photo-finish: the deciding
+    number is `elapsed`, reported in the failure message, against a
+    SHUTDOWN_MAX_SECONDS with 3.3x headroom (see the constant for the
+    cost breakdown). Boundedness itself is proved deterministically and
+    in-process by test_service_queue.py C13/C13b/C15 — this scenario adds only
+    that a REAL uvicorn under a REAL SIGTERM honors it end to end.
     """
     mock_llm.load(scripted_roles=_stalling_roles())
     engine = engine_factory(
@@ -264,9 +309,19 @@ async def test_shutdown_with_inflight_audit_is_graceful(engine_factory, mock_llm
     started = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION)
     await _first_frame_of_type(engine.base_url, started["auditId"], "audit_started")
 
+    signalled = time.monotonic()
     graceful = engine.close(grace=SHUTDOWN_STALL_GRACE_SECONDS)
+    elapsed = time.monotonic() - signalled
     assert graceful is True, engine.stderr_tail()
     assert engine.is_running is False
+    # Bounded, and bounded by OUR deadline: an unbounded await would have waited
+    # out the STALL_DELAY_MS intent stall (120s), and ignoring the env knob would
+    # have cost the 10s config default.
+    assert elapsed < SHUTDOWN_MAX_SECONDS, (
+        f"SIGTERM -> exit took {elapsed:.2f}s with a "
+        f"{SHUTDOWN_DEADLINE_SECONDS}s shutdown deadline "
+        f"(bound {SHUTDOWN_MAX_SECONDS}s)\n{engine.stderr_tail()}"
+    )
 
     # close() finalized the interrupted audit (never left it 'running'): status=error
     # with an interruption message; the retryable 0031 rode the audit_error event.
