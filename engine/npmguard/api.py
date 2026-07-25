@@ -98,6 +98,7 @@ from .report_store import (
     extract_report_version,
     list_reports,
     load_report,
+    public_package,
 )
 from .resolve import resolve_tarball_url
 from .service import AuditService
@@ -764,7 +765,13 @@ def _replay_entry(session: AuditSession) -> ReplayEntry | None:
     and then dies on the client's first missing v2 field.
     """
     assert session.report is not None, f"replayable() yielded {session.audit_id} with no report"
-    if session.local_path is not None:
+    # `local_path` is the recorded fact; `public_package` is a legacy screen over
+    # rows written BEFORE the column existed, where the source lived only in the
+    # naming convention. Backfilling them would mean inventing an absolute path
+    # this process cannot know, so the old predicate keeps its narrow job here —
+    # exactly as it does in `report_store.list_reports`, and for the same reason:
+    # an invariant on new writes cannot retroact over rows already written.
+    if session.local_path is not None or not public_package(session.package_name):
         return None
     schema_version, verdict = session.report.get("schemaVersion"), session.report.get("verdict")
     if schema_version not in REPORT_SCHEMA_VERSIONS or verdict not in REPORT_VERDICTS:

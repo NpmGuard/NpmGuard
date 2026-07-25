@@ -148,9 +148,9 @@ def test_listed_audit_id_is_a_working_permalink(make_app, tmp_path) -> None:
     resolves to that audit's stored report and replays its durable event log. This is
     what makes /audit/{id} a permalink rather than a link that merely looks like one.
 
-    The audited package is staged from a local path, so the row is cleared of that
-    fact after the run: the only thing standing between a staged audit and a gallery
-    row is `local_path`, and this is the permalink's test, not the filter's."""
+    The audited package is staged from a local path under a fixture name, so the
+    row is re-homed as a registry audit after the run — both screens cleared,
+    because this is the permalink's test, not the filter's."""
     fixture = REPO_ROOT / "sandbox" / "test-fixtures" / "test-pkg-child-success"
     with TestClient(make_app(NPMGUARD_LOCAL_PACKAGE_AUDITS="true")) as client:
         started = client.post(
@@ -167,8 +167,9 @@ def test_listed_audit_id_is_a_working_permalink(make_app, tmp_path) -> None:
 
         with contextlib.closing(sqlite3.connect(tmp_path / "api.sqlite3")) as connection:
             connection.execute(
-                "UPDATE audit_sessions SET local_path = NULL WHERE audit_id = ?",
-                (audit_id,),
+                "UPDATE audit_sessions SET local_path = NULL, package_name = ? "
+                "WHERE audit_id = ?",
+                ("npm-telemetry-helper", audit_id),
             )
             connection.commit()
 
@@ -221,8 +222,25 @@ def test_staged_audits_are_absent_whatever_they_are_named(
         _insert(
             tmp_path, "staged", package_name, report=_report(), local_path="/srv/corpus/pkg"
         )
-        _insert(tmp_path, "registry", "test-pkg-shaped-but-real", report=_report())
+        _insert(tmp_path, "registry", "shaped-like-nothing-special", report=_report())
         assert [row["auditId"] for row in _replays(client)] == ["registry"]
+
+
+def test_legacy_fixture_rows_predating_the_column_stay_absent(make_app, tmp_path) -> None:
+    """C6b: rows written before `local_path` existed carry NULL, so the recorded
+    fact cannot speak for them and the retired naming convention still has to.
+
+    Without this screen the migration would silently PUBLISH history: every
+    fixture audit already in `audit_sessions` would read as a registry audit and
+    appear on the gallery."""
+    with TestClient(make_app()) as client:
+        for audit_id, name in (
+            ("legacy-fixture", "test-pkg-env-exfil"),
+            ("legacy-testpkg", "test-package-thing"),
+            ("legacy-bench", "npm-bench-dd-01"),
+        ):
+            _insert(tmp_path, audit_id, name, report=_report())
+        assert _replays(client) == []
 
 
 def test_unreadable_reports_are_dropped(make_app, tmp_path) -> None:
