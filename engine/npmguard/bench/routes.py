@@ -3,7 +3,10 @@
 **There is no HTTP write surface, and that is a security property rather than a
 simplification.** Runs are produced only by ``npmguard-ops bench run``, which
 drives the corpus through the ordinary admission path
-(`shared/src/bench.ts:95-97`). No bench route may enqueue work, so a bench run can
+(`BenchRunSchema`'s "There is NO HTTP write surface" note in `shared/src/bench.ts`
+— cited by SYMBOL, because a line number into a hand-edited file goes stale the
+first time that file is touched, and a stale pointer is worse than none).
+No bench route may enqueue work, so a bench run can
 never bypass the capacity owner and there is no auth story to get wrong.
 
 Every payload here is a projection over stored observations. Nothing is read from
@@ -82,80 +85,92 @@ async def bench_run_rows(run_id: int, request: Request) -> Any:
     return contract.BenchRunRowsResponse(runId=run_id, rows=run.as_row_wires())
 
 
-def metrics_payload(run: LoadedRun) -> dict[str, Any]:
+def metrics_payload(run: LoadedRun) -> contract.BenchRunMetrics:
     """G23's payload: rates with CIs, latency percentiles, and a dollar cost.
 
-    THE ONE HAND-SHAPED PAYLOAD IN THIS DOMAIN, and it is deliberate. Phase 0
-    authored ``BenchRunDetailResponse`` as ``{corpus, run, rows}`` and deliberately
-    omitted every outcome value and rate "because the scoring rule itself is
-    UNRESOLVED (O-2)" (`shared/src/bench.ts:19-21`). O-2 is now answered (D-6), so
-    the contract needs a ``BenchRunMetricsSchema`` — a change to ``shared/**``,
-    which is not this agent's to make. The exact patch is in the handoff; when it
-    lands this becomes a generated model and folds into the detail response.
+    A GENERATED MODEL, no longer hand-shaped. Phase 0 authored
+    ``BenchRunDetailResponse`` as ``{corpus, run, rows}`` and omitted every outcome
+    value and rate "because the scoring rule itself is UNRESOLVED (O-2)"; O-2 is
+    answered (D-6) and ``BenchRunMetricsSchema`` now declares this shape. The
+    contract is left as a SEPARATE payload rather than folded into the detail
+    response, and `shared/src/bench.ts` argues why.
 
-    Every field below is derived at read time. Rates render as ``{k, n, point,
-    lower, upper}`` and never as a bare ``p``: §5.4 requires the denominator to
-    travel with the rate, and the headline is the Wilson LOWER BOUND.
+    Constructing the contract model here rather than returning a dict is what makes
+    the rate invariant the PRODUCER's problem: ``BenchRate`` is
+    ``BenchMeasuredRate | BenchEmptyRate``, so a rate with ``n == 0`` and a non-null
+    ``point`` fails to validate in this process, before it can reach a page that
+    would render an empty corpus as 0%.
+
+    Every field is derived at read time. Rates render as ``{k, n, point, lower,
+    upper}`` and never as a bare ``p``: §5.4 requires the denominator to travel with
+    the rate, and the headline is the Wilson LOWER BOUND.
     """
     m = run.metrics
-    return {
-        "runId": run.run_id,
-        "engineSha": m.engine_sha,
-        # B-13: the sha is part of the measurement, not metadata about it. Two runs
-        # may not be pooled across it, and the projector refuses to.
-        "observedModels": [{"role": role, "model": model} for role, model in run.models],
-        "runsPerEntry": m.runs_per_entry,
-        "stabilityMeasured": m.stability_measured,
-        "publishable": m.publishable,
-        "detection": {
-            "reliable": m.detection_reliable.as_dict(),
-            "optimistic": m.detection_optimistic.as_dict(),
-        },
-        "missRate": m.miss_rate.as_dict(),
-        "abstentionRate": m.abstention_rate.as_dict(),
-        "neverCaughtMixed": m.never_caught_mixed,
-        "specificity": m.specificity.as_dict(),
-        "falseAlarmRate": m.false_alarm_rate.as_dict(),
-        # §4.4: detection without the dealbreaker share is uninterpretable — a
-        # corpus rich in shell-pipe install scripts scores well at almost no cost.
-        "proofShare": m.proof_share.as_dict(),
-        "dealbreakerShare": m.dealbreaker_share.as_dict(),
-        # §4.5: a run whose VOID share exceeds 5% is not a result. Reported with
-        # causes so a reader can re-bucket a boundary call themselves.
-        "attempted": m.attempted,
-        "voidCount": m.void_count,
-        "voidShare": m.void_share,
-        "voidCauses": m.void_causes,
-        "unobservedEntries": m.unobserved,
-        "unanimity": m.unanimity.as_dict(),
-        "flips": list(m.flips),
-        "latencyMs": {"p50": m.latency_p50, "p95": m.latency_p95, "p99": m.latency_p99},
-        "tokensPrompt": m.tokens_prompt,
-        "tokensCompletion": m.tokens_completion,
-        "tokenCostUsd": m.token_cost_usd,
-        # §3.4/B-12: a detection rate published without its evidentiary-coverage
-        # counts is a rate with an unquantified leak. Null — never 0 — while the
-        # artifact tier is unreachable for a run (see fidelity.find_artifacts).
-        "coverage": None,
-        "coveragePredicate": PREDICATE_VERSION,
-        "ledger": [
-            {
-                "fixtureName": result.entry.fixture_name,
-                "packageName": result.entry.package_name,
-                "version": result.entry.version,
-                "category": result.entry.category,
-                "discoveryDate": result.entry.discovery_date,
-                "expectedVerdict": result.entry.expected_verdict,
-                "outcomes": [str(outcome) for outcome in result.outcomes],
-                "bucket": str(result.bucket),
-                "auditIds": list(result.audit_ids),
-            }
-            # F-G3 / §9: the per-entry ledger IS the primary object, sorted so the
-            # failures are above the fold by construction rather than by editorial
-            # choice.
-            for result in sorted(run.metrics.results, key=_ledger_rank)
-        ],
-    }
+    return contract.BenchRunMetrics.model_validate(
+        {
+            "runId": run.run_id,
+            # B-13: these three are part of the MEASUREMENT, not metadata about it.
+            # Two runs may not be pooled across an engineSha boundary (the projector
+            # refuses to) nor across a corpus boundary, and this payload is meant to
+            # travel alone — so it names all three itself.
+            "engineSha": m.engine_sha,
+            "datasetVersion": run.corpus.dataset_version,
+            "manifestSha": run.corpus.manifest_sha,
+            "observedModels": [{"role": role, "model": model} for role, model in run.models],
+            "runsPerEntry": m.runs_per_entry,
+            "stabilityMeasured": m.stability_measured,
+            "publishable": m.publishable,
+            "detection": {
+                "reliable": m.detection_reliable.as_dict(),
+                "optimistic": m.detection_optimistic.as_dict(),
+            },
+            "missRate": m.miss_rate.as_dict(),
+            "abstentionRate": m.abstention_rate.as_dict(),
+            "neverCaughtMixed": m.never_caught_mixed,
+            "specificity": m.specificity.as_dict(),
+            "falseAlarmRate": m.false_alarm_rate.as_dict(),
+            # §4.4: detection without the dealbreaker share is uninterpretable — a
+            # corpus rich in shell-pipe install scripts scores well at almost no cost.
+            "proofShare": m.proof_share.as_dict(),
+            "dealbreakerShare": m.dealbreaker_share.as_dict(),
+            # §4.5: a run whose VOID share exceeds 5% is not a result. Reported with
+            # causes so a reader can re-bucket a boundary call themselves.
+            "attempted": m.attempted,
+            "voidCount": m.void_count,
+            "voidShare": m.void_share,
+            "voidCauses": m.void_causes,
+            "unobservedEntries": m.unobserved,
+            "unanimity": m.unanimity.as_dict(),
+            "flips": list(m.flips),
+            "latencyMs": {"p50": m.latency_p50, "p95": m.latency_p95, "p99": m.latency_p99},
+            "tokensPrompt": m.tokens_prompt,
+            "tokensCompletion": m.tokens_completion,
+            "tokenCostUsd": m.token_cost_usd,
+            # §3.4/B-12: a detection rate published without its evidentiary-coverage
+            # counts is a rate with an unquantified leak. Null — never a zeroed
+            # record — while the artifact tier is unreachable for a run (see
+            # fidelity.find_artifacts).
+            "coverage": None,
+            "coveragePredicate": PREDICATE_VERSION,
+            "ledger": [
+                {
+                    "fixtureName": result.entry.fixture_name,
+                    "packageName": result.entry.package_name,
+                    "version": result.entry.version,
+                    "category": result.entry.category,
+                    "discoveryDate": result.entry.discovery_date,
+                    "expectedVerdict": result.entry.expected_verdict,
+                    "outcomes": [str(outcome) for outcome in result.outcomes],
+                    "bucket": str(result.bucket),
+                    "auditIds": list(result.audit_ids),
+                }
+                # F-G3 / §9: the per-entry ledger IS the primary object, sorted so the
+                # failures are above the fold by construction rather than by editorial
+                # choice.
+                for result in sorted(run.metrics.results, key=_ledger_rank)
+            ],
+        }
+    )
 
 
 _LEDGER_ORDER = (

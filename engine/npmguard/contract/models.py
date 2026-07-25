@@ -25,45 +25,49 @@ class AppNotConfigured(BaseModel):
     error: str
 
 
-class AttackPathway(
-    RootModel[
-        Literal[
-            'DEP_INJECT_ENCRYPTED',
-            'LIFECYCLE_BINARY_DROP',
-            'MAINTAINER_SABOTAGE',
-            'GEO_GATED_WIPER',
-            'WORM_PROPAGATION',
-            'ACCOUNT_TAKEOVER_CRYPTO',
-            'CDN_DOM_DRAINER',
-            'MULTI_STAGE_DNS',
-            'TELEMETRY_RAT',
-            'BUILD_PLUGIN_EXFIL',
-        ]
-    ]
-):
-    root: Annotated[
-        Literal[
-            'DEP_INJECT_ENCRYPTED',
-            'LIFECYCLE_BINARY_DROP',
-            'MAINTAINER_SABOTAGE',
-            'GEO_GATED_WIPER',
-            'WORM_PROPAGATION',
-            'ACCOUNT_TAKEOVER_CRYPTO',
-            'CDN_DOM_DRAINER',
-            'MULTI_STAGE_DNS',
-            'TELEMETRY_RAT',
-            'BUILD_PLUGIN_EXFIL',
-        ],
-        Field(title='AttackPathway'),
-    ]
-
-
 class AuditEnqueuedEvent(BaseModel):
     auditId: str
     timestamp: str
     seq: Annotated[int, Field(ge=0)]
     type: Literal['audit_enqueued']
     queuePosition: Annotated[int, Field(ge=0)]
+
+
+class BenchCoverage(BaseModel):
+    describedEvents: Annotated[int, Field(ge=0)]
+    renderedRows: Annotated[int, Field(ge=0)]
+    anonymousRows: Annotated[int, Field(ge=0)]
+    fidelityDefects: Annotated[int, Field(ge=0)]
+    falseTargetEvents: Annotated[int, Field(ge=0)]
+    falseTargetRows: Annotated[int, Field(ge=0)]
+    predicateVersion: str
+
+
+class BenchEmptyRate(BaseModel):
+    k: Literal[0]
+    n: Literal[0]
+    point: None
+    lower: None
+    upper: None
+
+
+class BenchLatency(BaseModel):
+    p50: int | None
+    p95: int | None
+    p99: int | None
+
+
+class BenchMeasuredRate(BaseModel):
+    k: Annotated[int, Field(ge=0)]
+    n: Annotated[int, Field(gt=0)]
+    point: Annotated[float, Field(ge=0.0, le=1.0)]
+    lower: Annotated[float, Field(ge=0.0, le=1.0)]
+    upper: Annotated[float, Field(ge=0.0, le=1.0)]
+
+
+class BenchObservedModel(BaseModel):
+    role: str
+    model: str
 
 
 class BillingCheckoutResponse(BaseModel):
@@ -171,31 +175,6 @@ class FileVerdict(BaseModel):
     riskContribution: Annotated[int, Field(ge=0, le=10)]
 
 
-class Finding(BaseModel):
-    capability: Annotated[
-        str | None, Field(description="CapabilityEnum value, e.g. 'NETWORK'")
-    ] = 'UNKNOWN'
-    confidence: Annotated[
-        Literal['SUSPECTED', 'LIKELY', 'CONFIRMED'] | None, Field(title='Confidence')
-    ] = 'SUSPECTED'
-    fileLine: Annotated[str | None, Field(description="e.g. 'lib/index.js:42-67'")] = ''
-    problem: Annotated[
-        str | None, Field(description='Human-readable description of the threat')
-    ] = ''
-    evidence: Annotated[
-        str | None, Field(description='Concrete data or observation')
-    ] = ''
-    reproductionStrategy: Annotated[
-        str | None, Field(description='How to prove this in a reproducible test')
-    ] = ''
-
-
-class FocusArea(BaseModel):
-    file: str
-    lines: str | None = None
-    reason: str
-
-
 class FocusRange(BaseModel):
     file: str
     range: str
@@ -291,62 +270,6 @@ class PlantedFileRef(BaseModel):
 class ProcessSpawn(BaseModel):
     cmd: str
     args: list[str] | None = []
-
-
-class Proof(BaseModel):
-    capability: (
-        Literal[
-            'NETWORK',
-            'DATA_EXFILTRATION',
-            'DNS_EXFIL',
-            'DOM_INJECT',
-            'FILESYSTEM',
-            'BINARY_DOWNLOAD',
-            'PROCESS_SPAWN',
-            'ENV_VARS',
-            'CREDENTIAL_THEFT',
-            'EVAL',
-            'OBFUSCATION',
-            'ENCRYPTED_PAYLOAD',
-            'DOS_LOOP',
-            'ANTI_AI_PROMPT',
-            'GEO_GATING',
-            'LIFECYCLE_HOOK',
-            'WORM_PROPAGATION',
-            'CLIPBOARD_HIJACK',
-            'TELEMETRY_RAT',
-            'BUILD_PLUGIN_EXFIL',
-            'NPM_TOKEN_ABUSE',
-        ]
-        | None
-    ) = None
-    attackPathway: str | None = ''
-    confidence: Annotated[
-        Literal['SUSPECTED', 'LIKELY', 'CONFIRMED'] | None, Field(title='Confidence')
-    ] = 'SUSPECTED'
-    fileLine: str
-    problem: str
-    evidence: str
-    kind: Annotated[
-        Literal[
-            'STRUCTURAL',
-            'AI_STATIC',
-            'AI_DYNAMIC',
-            'TEST_CONFIRMED',
-            'TEST_UNCONFIRMED',
-        ]
-        | None,
-        Field(title='ProofKind'),
-    ] = 'STRUCTURAL'
-    contentHash: str | None = None
-    reproducible: bool | None = False
-    reproductionCmd: str | None = None
-    testFile: str | None = None
-    testHash: str | None = None
-    testCode: str | None = None
-    verifyError: str | None = None
-    reasoningHash: str | None = None
-    teeAttestationId: str | None = None
 
 
 class PublicRepoScanRequest(BaseModel):
@@ -458,12 +381,6 @@ class TriageHypothesis(BaseModel):
     description: str
 
 
-class TriageResult(BaseModel):
-    riskScore: Annotated[int, Field(ge=0, le=10)]
-    riskSummary: str
-    focusAreas: Annotated[list[FocusArea] | None, Field(validate_default=True)] = []
-
-
 class Trigger(BaseModel):
     kind: Annotated[
         Literal['entrypoint', 'lifecycle', 'bin', 'subpath'], Field(title='TriggerKind')
@@ -477,6 +394,11 @@ class UsageBucket(BaseModel):
     used: Annotated[int, Field(ge=0)]
     limit: Annotated[int, Field(ge=0)]
     remaining: int | None
+
+
+class ValidationIssue(BaseModel):
+    field: str
+    message: str
 
 
 class AccountEntitlements(BaseModel):
@@ -587,6 +509,11 @@ class BenchCorpus(BaseModel):
     entryCount: Annotated[int, Field(ge=0)]
 
 
+class BenchDetectionBand(BaseModel):
+    reliable: Annotated[BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')]
+    optimistic: Annotated[BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')]
+
+
 class BenchEntry(BaseModel):
     id: int
     corpusId: int
@@ -598,6 +525,43 @@ class BenchEntry(BaseModel):
     discoveryDate: str | None
     rationale: str | None
     sourceId: str | None
+
+
+class BenchLedgerRow(BaseModel):
+    fixtureName: str
+    packageName: str
+    version: str
+    category: str
+    discoveryDate: str | None
+    expectedVerdict: Annotated[Literal['SAFE', 'DANGEROUS'], Field(title='Verdict')]
+    outcomes: list[
+        Literal[
+            'CAUGHT_PROVED',
+            'CAUGHT_STRUCTURAL',
+            'MISSED',
+            'CLEARED',
+            'FALSE_ALARM_PROVED',
+            'FALSE_ALARM_STRUCTURAL',
+            'ABSTAINED',
+            'VOID',
+        ]
+    ]
+    bucket: Annotated[
+        Literal[
+            'UNOBSERVED',
+            'CAUGHT_ALWAYS',
+            'CAUGHT_SOMETIMES',
+            'MISSED_ALWAYS',
+            'ABSTAINED_ALWAYS',
+            'NEVER_CAUGHT_MIXED',
+            'CLEARED_ALWAYS',
+            'CLEARED_SOMETIMES',
+            'FALSE_ALARM_ALWAYS',
+            'MIXED',
+        ],
+        Field(title='BenchEntryBucket'),
+    ]
+    auditIds: list[str | None]
 
 
 class BenchRunItem(BaseModel):
@@ -614,6 +578,45 @@ class BenchRunItem(BaseModel):
     tokensCompletion: int | None
 
 
+class BenchRunMetrics(BaseModel):
+    runId: int
+    engineSha: str
+    datasetVersion: str
+    manifestSha: str
+    observedModels: list[BenchObservedModel]
+    runsPerEntry: Annotated[int, Field(ge=0)]
+    stabilityMeasured: bool
+    publishable: bool
+    detection: BenchDetectionBand
+    missRate: Annotated[BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')]
+    abstentionRate: Annotated[
+        BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')
+    ]
+    neverCaughtMixed: Annotated[int, Field(ge=0)]
+    specificity: Annotated[BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')]
+    falseAlarmRate: Annotated[
+        BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')
+    ]
+    proofShare: Annotated[BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')]
+    dealbreakerShare: Annotated[
+        BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')
+    ]
+    attempted: Annotated[int, Field(ge=0)]
+    voidCount: Annotated[int, Field(ge=0)]
+    voidShare: float | None
+    voidCauses: dict[str, int]
+    unobservedEntries: Annotated[int, Field(ge=0)]
+    unanimity: Annotated[BenchMeasuredRate | BenchEmptyRate, Field(title='BenchRate')]
+    flips: list[str]
+    latencyMs: BenchLatency
+    tokensPrompt: int | None
+    tokensCompletion: int | None
+    tokenCostUsd: float | None
+    coverage: BenchCoverage | None
+    coveragePredicate: str
+    ledger: list[BenchLedgerRow]
+
+
 class BenchRunRow(BaseModel):
     entry: BenchEntry
     items: list[BenchRunItem]
@@ -628,7 +631,8 @@ class BenchRun(BaseModel):
     id: int
     corpusId: int
     engineSha: str
-    modelId: str
+    observedModels: list[BenchObservedModel]
+    modelId: str | None
     sandboxImageDigest: str
     runsPerEntry: Annotated[int, Field(gt=0)]
     set: AuditSet
@@ -1039,6 +1043,11 @@ class TriageProgressEvent(BaseModel):
     current: Annotated[int, Field(ge=0)]
     total: Annotated[int, Field(ge=0)]
     file: str
+
+
+class ValidationFailed(BaseModel):
+    error: str
+    details: list[ValidationIssue]
 
 
 class VerdictReachedEvent(BaseModel):

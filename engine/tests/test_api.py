@@ -9,10 +9,12 @@
 #   C3 payment gate                   — no proof + PAYMENT_REQUIRED → 402, no launch
 #   C4 CRE 202                        — x-api-key → {status:accepted, auditId, queuePosition}
 #   C5 wrong CRE key                  — falls through to the 402 gate
-#   C6 invalid JSON body              → 400 {"error": "Invalid JSON body"}
+#   C6 invalid JSON body              → 400 ValidationFailed with details == []
 #   C7 invalid AuditRequest matrix    — traversal/uppercase/empty/overlong names,
-#      bad semver → 400 "Invalid request" (pydantic details, no launch)
+#      bad semver → 400 ValidationFailed, every issue naming its field, no launch
 #   C8 unknown audit id               → 404 report
+#   C9 the 400 body is EXACTLY the declared shape — no undeclared key, and none of
+#      pydantic's own error keys (`type`, `input`) inside an issue
 # Residue: conftest pins NPMGUARD_DATA_DIR/NPMGUARD_AUDIT_LOG_DIR to a temp dir at
 # import; this file re-points both knobs to tmp_path per test (report_store's is an
 # import-time constant, so its module value is re-pointed to the same tmp target).
@@ -27,6 +29,7 @@ from fastapi.testclient import TestClient
 
 from npmguard.api import create_app
 from npmguard.config import get_settings
+from npmguard.contract import models as contract
 
 REPORT_DEADLINE_SECONDS = 30.0
 BASES = ["", "/api"]
@@ -150,23 +153,73 @@ def test_payment_gate_and_cre_paths(make_app, tmp_path) -> None:
 
 @pytest.mark.parametrize("base", BASES)
 def test_invalid_json_body_is_a_400(make_app, base) -> None:
-    """C6+C2: malformed JSON is rejected uniformly on both bases."""
+    """C6+C2: malformed JSON is rejected uniformly on both bases, as the contract's
+    ValidationFailed with an EMPTY issue list — the one reachable way `details` is
+    empty, since pydantic never reports a validation failure with zero issues. That
+    is what lets a client tell "your JSON is malformed" from "your fields are wrong"
+    without reading the prose in `error`."""
     with TestClient(make_app()) as client:
         invalid = client.post(f"{base}/audit", content="not-json")
         assert invalid.status_code == 400
-        assert invalid.json() == {"error": "Invalid JSON body"}
+        body = invalid.json()
+        assert body == {"error": "Invalid JSON body", "details": []}
+        assert contract.ValidationFailed.model_validate(body).details == []
 
 
 @pytest.mark.parametrize("payload", BAD_AUDIT_PAYLOADS)
 @pytest.mark.parametrize("base", BASES)
 def test_invalid_audit_request_matrix(make_app, tmp_path, base, payload) -> None:
-    """C7+C2: bad package names and versions 400 with pydantic details on both
-    /audit and /audit/stream, and no audit is launched — proven by zero session
-    rows in the DB, not just the absence of an auditId in the response."""
+    """C7+C2: bad package names and versions 400 with the contract's ValidationFailed
+    on both /audit and /audit/stream, and no audit is launched — proven by zero
+    session rows in the DB, not just the absence of an auditId in the response."""
     with TestClient(make_app()) as client:
         for route in ("/audit", "/audit/stream"):
             response = client.post(f"{base}{route}", json=payload)
             assert response.status_code == 400, (route, payload, response.text)
-            assert response.json()["error"] == "Invalid request"
-            assert "auditId" not in response.json()
+            body = response.json()
+            assert body["error"] == "Invalid request"
+            assert "auditId" not in body
+            parsed = contract.ValidationFailed.model_validate(body)
+            # Non-empty — the empty list is reserved for unparseable JSON — and each
+            # issue carries a MESSAGE naming the rule that failed. That message is what
+            # distinguishes "invalid npm package name" from "invalid semver" from
+            # "invalid txHash", since `error` is the fixed string asserted above; a
+            # client that had to tell them apart without `details` would have to sniff
+            # prose, which this contract forbids.
+            assert parsed.details
+            assert all(issue.message for issue in parsed.details)
+            # FINDING, pinned rather than blessed: `field` is `""` for most of this
+            # matrix. `validation.py` enforces the package-name and semver rules in a
+            # `model_validator(mode="after")`, which pydantic reports with an empty
+            # `loc` because the rule is declared about the body rather than about a
+            # key — so only the `Field(min_length/max_length)` rules name their field.
+            # This was equally true of the raw pydantic `details` that used to be
+            # emitted, so nothing was lost in declaring the shape; moving those two
+            # rules to `field_validator`s would populate `field` for the whole matrix.
+            assert {issue.field for issue in parsed.details} <= {"", "packageName", "version"}
         assert _session_count(tmp_path) == 0  # a launch-despite-400 would fail here
+
+
+def test_a_field_level_rule_names_its_field(make_app) -> None:
+    """C7: the half of `details` that already works — a bound declared with `Field`
+    reports the key it is about, so `field` is a real path and not decoration."""
+    with TestClient(make_app()) as client:
+        body = client.post("/audit", json={"packageName": "a" * 215}).json()
+        parsed = contract.ValidationFailed.model_validate(body)
+        assert [issue.field for issue in parsed.details] == ["packageName"]
+
+
+@pytest.mark.parametrize("base", BASES)
+def test_the_400_body_carries_no_undeclared_key(make_app, base) -> None:
+    """C9: the wire carries exactly what the contract declares. `_body` used to emit
+    an undeclared `details` holding `PydanticValidationError.errors()` verbatim —
+    invisible to a generated consumer, and available to be depended on by one
+    hand-reading JSON. Asserted as key-set EQUALITY, because "no schema mentions it"
+    is precisely the failure a key-membership check would let through again; and
+    pydantic's own `type` / `input` keys must not reappear inside an issue, the
+    latter because it echoes submitted values back out."""
+    with TestClient(make_app()) as client:
+        body = client.post(f"{base}/audit", json={"packageName": "../evil"}).json()
+        assert set(body) == set(contract.ValidationFailed.model_fields)
+        for issue in body["details"]:
+            assert set(issue) == set(contract.ValidationIssue.model_fields)

@@ -27,7 +27,7 @@ class BenchCorpusDrift(Exception):
 
     Raised rather than tolerated: ``manifestSha`` exists so that "a corpus whose
     content changed under a fixed (name, version) is caught rather than silently
-    compared" (`shared/src/bench.ts:44-46`). Rendering the run against today's
+    compared" (`BenchCorpusSchema.manifestSha`). Rendering the run against today's
     entries would be a comparison between two different corpora reported as one.
     """
 
@@ -110,26 +110,38 @@ class LoadedRun:
     set_row: Any
 
     @property
-    def model_id(self) -> str:
-        """The OBSERVED reproducibility identifier (B-11).
+    def observed_models(self) -> list[contract.BenchObservedModel]:
+        """The ``(role, actual_model)`` pairs the run ACTUALLY billed against (B-11).
 
-        ``BenchRunSchema.modelId`` is a single non-nullable string, which cannot
-        describe a run that splits roles across two configured models and carries a
-        fallback tail per role. Until the contract gains an observed
-        ``models: {role, model}[]`` (reported), this renders the observed set as a
-        stable label — and the EMPTY string when no LLM attempt was recorded at
-        all, which is the honest reading of "this run has no observed model and
-        therefore cannot be compared to another". It is never filled from
-        configuration: a declared model that a fallback overrode is exactly the
-        comparability failure this field is supposed to expose.
+        The truth about which models produced these numbers. ``model_id`` below is
+        only a label over this list; a reader who needs to compare two runs reads
+        the list.
         """
-        return "|".join(f"{role}={model}" for role, model in self.models)
+        return [contract.BenchObservedModel(role=role, model=model) for role, model in self.models]
+
+    @property
+    def model_id(self) -> str | None:
+        """The OBSERVED reproducibility identifier, as a derived label (B-11).
+
+        A single ``modelId`` cannot describe a run that splits roles across two
+        configured models and carries a fallback tail per role, so
+        ``observedModels`` is the real field and this is a stable label over it —
+        ``None``, not ``""``, when no LLM attempt was recorded at all.
+
+        Null rather than empty for the reason ``tokenCostUsd`` is null rather than
+        0: an empty string is a zero-value stand-in for "unknown", and this domain
+        refuses those everywhere else. It is never filled from configuration —
+        a declared model that a fallback overrode is exactly the comparability
+        failure this field exists to expose.
+        """
+        return "|".join(f"{role}={model}" for role, model in self.models) or None
 
     def as_run_wire(self) -> contract.BenchRun:
         return contract.BenchRun(
             id=self.run_id,
             corpusId=self.corpus.id,
             engineSha=self.descriptor.engine_sha,
+            observedModels=self.observed_models,
             modelId=self.model_id,
             sandboxImageDigest=self.descriptor.sandbox_image_digest,
             runsPerEntry=self.descriptor.runs_per_entry,
