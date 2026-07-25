@@ -19,6 +19,7 @@ the job back to ``queued`` (no attempt consumed) and backs off — the durable
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 
@@ -287,6 +288,22 @@ class PanelScanWorker:
         self._on_dangerous = on_dangerous
         self._queue_full_backoff = queue_full_backoff
         self._idle_poll = idle_poll
+        self._stop = asyncio.Event()
+
+    def stop(self) -> None:
+        """Ask the loop to exit at its next boundary (idempotent, sync)."""
+        self._stop.set()
+
+    async def _idle(self) -> None:
+        """Sleep out the idle poll, but wake immediately on stop().
+
+        A plain ``asyncio.sleep`` would keep shutdown waiting a full poll
+        interval, which is what pushes an impatient caller into cancelling the
+        worker mid-query.
+        """
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(self._idle_poll):
+                await self._stop.wait()
 
     async def process(self, job: PanelJob) -> None:
         """Run one claimed job to a settle. Safe to drive directly in tests."""
@@ -339,10 +356,14 @@ class PanelScanWorker:
         await self._notify(job)
 
     async def run_forever(self) -> None:
-        while True:
+        # INVARIANT: the loop only exits between jobs, never inside a DB
+        # session. Cancelling a worker parked in `claim_next` kills it while it
+        # holds a pooled connection, and that connection is never returned — it
+        # leaked one per worker on every shutdown (see PanelWorkerPool.close).
+        while not self._stop.is_set():
             job = await self._queue.claim_next()
             if job is None:
-                await asyncio.sleep(self._idle_poll)
+                await self._idle()
                 continue
             try:
                 await self.process(job)
@@ -369,6 +390,7 @@ class PanelWorkerPool:
         load_report: LoadReport = default_load_report,
         on_scans_touched: ScansTouched | None = None,
         on_dangerous: OnDangerous | None = None,
+        idle_poll: float = 1.0,
     ) -> None:
         self._workers = [
             PanelScanWorker(
@@ -378,6 +400,7 @@ class PanelWorkerPool:
                 load_report=load_report,
                 on_scans_touched=on_scans_touched,
                 on_dangerous=on_dangerous,
+                idle_poll=idle_poll,
             )
             for _ in range(count)
         ]
@@ -392,10 +415,28 @@ class PanelWorkerPool:
         ]
         log.info("panel worker pool started", count=len(self._tasks))
 
-    async def close(self) -> None:
-        for task in self._tasks:
-            task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+    async def close(self, deadline: float = 5.0) -> None:
+        """Stop the workers gracefully, cancelling only stragglers.
+
+        Ask first, cancel second. A worker cancelled while parked in
+        ``claim_next`` dies holding a checked-out DB session, and the engine's
+        later ``dispose()`` cannot reclaim a connection that was never returned
+        — measurably one leak per worker per shutdown. Setting the stop event
+        lets each loop exit at a boundary where it holds nothing.
+
+        The cancel path is kept as a backstop for a worker wedged inside a job
+        (``process`` can be waiting on an admit future); losing a connection
+        beats hanging shutdown forever.
+        """
+        for worker in self._workers:
+            worker.stop()
+        if self._tasks:
+            _, pending = await asyncio.wait(self._tasks, timeout=deadline)
+            for task in pending:
+                task.cancel()
+            if pending:
+                log.warning("panel workers did not stop in time", count=len(pending))
+                await asyncio.gather(*pending, return_exceptions=True)
         self._tasks = []
 
 

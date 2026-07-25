@@ -21,6 +21,7 @@ from tests.support.harness import (
     sandbox_image_available,
     sqlite_url,
 )
+from tests.support.panel import write_app_private_key
 from tests.support.stubs import (
     FakeChainRpc,
     GitHubStub,
@@ -195,3 +196,14 @@ def db_url(db_backend: str, tmp_path, request: pytest.FixtureRequest) -> str:
         return sqlite_url(tmp_path / "axis-db.sqlite3")
     provisioner: PostgresProvisioner = request.getfixturevalue("pg_provisioner")
     return provisioner.fresh_database()
+
+
+@pytest.fixture
+def app_private_key(tmp_path) -> str:
+    """A throwaway RSA private key on disk for the App-JWT signing path.
+
+    Lives here rather than in each panel module: the GitHub stub trusts any
+    Bearer and never verifies the signature, so every panel test wants exactly
+    the same throwaway key.
+    """
+    return write_app_private_key(tmp_path)

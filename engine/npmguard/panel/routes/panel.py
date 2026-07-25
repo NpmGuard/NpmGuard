@@ -38,6 +38,7 @@ from npmguard.panel.routes._common import (
 from npmguard.panel.scan.repo_scan import LockfileNotFoundError, compute_rollup
 from npmguard.panel.tables import (
     alerts,
+    installations,
     package_verdicts,
     panel_jobs,
     repo_deps,
@@ -316,6 +317,46 @@ async def _repo_by_full_name(
             return None
         allowed = await _user_has_installation(session, user_id, repo["installation_id"])
     return dict(repo) if allowed else None
+
+
+def _user_orgs(user_id: int) -> Any:
+    """Subquery: the ``installations.account_login`` values the user can access.
+
+    ``alerts.org`` stores the account login while authorization is held against
+    installation ids, so every org-scoped alerts query joins through
+    ``user_installations`` to translate. A user whose cache is empty gets an
+    empty set — the correct answer, not an error; ``/panel/orgs`` builds it.
+    """
+    return (
+        sa.select(installations.c.account_login)
+        .select_from(
+            installations.join(
+                user_installations,
+                user_installations.c.installation_id == installations.c.id,
+            )
+        )
+        .where(user_installations.c.user_id == user_id)
+    )
+
+
+def _alert_wire(row: Any) -> dict[str, Any]:
+    """The one wire projection for an alert row.
+
+    Both the dashboard feed and the repo-detail payload render through this, so
+    the two views cannot drift into different shapes for the same record.
+    """
+    return {
+        "id": row["id"],
+        "org": row["org"],
+        "repoId": row["repo_id"],
+        "packageName": row["package_name"],
+        "version": row["version"],
+        "verdict": row["verdict"],
+        "kind": row["kind"],
+        "message": row["message"],
+        "seen": bool(row["seen"]),
+        "createdAt": row["created_at"],
+    }
 
 
 async def _user_has_installation(session: Any, user_id: int, installation_id: int) -> bool:
@@ -649,21 +690,7 @@ async def panel_repo_detail(owner: str, name: str, request: Request) -> Response
             "deps": deps,
             "rollup": rollup,
             "scan": _scan_summary(last_scan, rollup["verdict"]) if last_scan else None,
-            "alerts": [
-                {
-                    "id": a["id"],
-                    "org": a["org"],
-                    "repoId": a["repo_id"],
-                    "packageName": a["package_name"],
-                    "version": a["version"],
-                    "verdict": a["verdict"],
-                    "kind": a["kind"],
-                    "message": a["message"],
-                    "seen": bool(a["seen"]),
-                    "createdAt": a["created_at"],
-                }
-                for a in alert_rows
-            ],
+            "alerts": [_alert_wire(a) for a in alert_rows],
         }
     )
 
@@ -787,3 +814,70 @@ async def panel_scan_events(scan_id: int, request: Request) -> Response:
     response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Accel-Buffering"] = "no"
     return response
+
+
+# ---------------------------------------------------------------------------
+# Alerts feed — across every org the user can access
+# ---------------------------------------------------------------------------
+# Org-scoped, NOT repo-scoped. ``alerts.repo_id`` is nullable with an ON DELETE
+# SET NULL FK, and the registry watcher raises alerts for a *package* rather
+# than a repo — so a repo-only feed would drop exactly the alerts the watcher
+# exists to raise. The repo-detail payload carries its own repo-scoped slice.
+
+ALERTS_FEED_LIMIT = 50
+
+
+@router.get("/panel/alerts")
+async def panel_alerts(request: Request) -> Response:
+    runtime = runtime_of(request)
+    if (disabled := require_enabled(runtime)) is not None:
+        return disabled
+    user = await current_user(request, runtime)
+    if user is None:
+        return _not_signed_in()
+
+    async with runtime.sessionmaker() as session:
+        rows = (
+            (
+                await session.execute(
+                    sa.select(alerts)
+                    .where(alerts.c.org.in_(_user_orgs(user["id"])))
+                    # created_at is a string timestamp with second-or-better
+                    # resolution; id breaks ties so a burst of alerts written in
+                    # the same instant still has one stable order.
+                    .order_by(alerts.c.created_at.desc(), alerts.c.id.desc())
+                    .limit(ALERTS_FEED_LIMIT)
+                )
+            )
+            .mappings()
+            .all()
+        )
+    return JSONResponse({"alerts": [_alert_wire(row) for row in rows]})
+
+
+@router.post("/panel/alerts/seen")
+async def panel_alerts_seen(request: Request) -> Response:
+    """Acknowledge every unseen alert in the user's orgs.
+
+    Whole-feed ack rather than per-id: the UI is a single "dismiss" on the
+    banner. Idempotent — a second call matches nothing and still returns ok, so
+    a double-click cannot 500.
+    """
+    runtime = runtime_of(request)
+    if (disabled := require_enabled(runtime)) is not None:
+        return disabled
+    user = await current_user(request, runtime)
+    if user is None:
+        return _not_signed_in()
+
+    async with runtime.sessionmaker() as session:
+        result = await session.execute(
+            alerts.update()
+            .where(
+                alerts.c.seen == sa.false(),
+                alerts.c.org.in_(_user_orgs(user["id"])),
+            )
+            .values(seen=True)
+        )
+        await session.commit()
+    return JSONResponse({"ok": True, "updated": result.rowcount or 0})

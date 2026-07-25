@@ -23,6 +23,14 @@
 #   C10 on_dangerous seam: a landed DANGEROUS verdict fires the injected alert
 #       hook with (pkg, version, source); a SAFE verdict does NOT
 #   C11 source is derived from the job: scan_id set -> 'scan', None -> 'watch'
+# PanelWorkerPool shutdown:
+#   C12 close() stops idle workers gracefully — the loops exit BETWEEN jobs, so
+#       no worker is killed while holding a checked-out DB session (that leaked
+#       one pooled connection per worker per shutdown)
+#   C13 close() wakes an idling worker immediately rather than waiting out the
+#       full idle_poll — a slow stop is what tempts a caller into cancelling
+#   C14 close() still terminates when a worker is wedged inside a job: the
+#       cancel backstop fires after the timeout rather than hanging forever
 import asyncio
 
 import pytest
@@ -32,7 +40,12 @@ from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard.errors import QueueFullError
 from npmguard.panel import tables
-from npmguard.panel.jobs import MAX_ATTEMPTS, PanelJobQueue, PanelScanWorker
+from npmguard.panel.jobs import (
+    MAX_ATTEMPTS,
+    PanelJobQueue,
+    PanelScanWorker,
+    PanelWorkerPool,
+)
 from npmguard.panel.verdict_index import VerdictIndex
 from npmguard.service import SubmitResult
 
@@ -354,3 +367,81 @@ async def test_worker_watch_job_source_is_watch(db) -> None:
     job = await queue.claim_next()
     await worker.process(job)
     assert fired == [("watched", "3.0.0", "watch")]
+
+
+# --------------------------------------------------------------------------
+# PanelWorkerPool — graceful shutdown
+# --------------------------------------------------------------------------
+
+
+async def test_pool_close_stops_idle_workers_between_jobs(db) -> None:
+    """C12: idle workers exit their loop instead of being cancelled mid-session.
+
+    The observable is the CancelledError: a hard cancel propagates out of the
+    gathered task, a graceful stop returns normally. That distinction is the
+    whole bug — a worker cancelled inside `claim_next` never returns its pooled
+    connection, and `engine.dispose()` cannot reclaim what was never returned.
+    """
+    pool = PanelWorkerPool(
+        PanelJobQueue(db),
+        _FakeAudits(),
+        VerdictIndex(db),
+        count=4,
+        idle_poll=30.0,  # long enough that a "stop" that merely waits would hang
+    )
+    pool.start()
+    tasks = list(pool._tasks)
+    await asyncio.sleep(0.05)  # let every worker reach its idle park
+
+    await asyncio.wait_for(pool.close(), timeout=5.0)
+
+    assert all(task.done() for task in tasks)
+    assert not any(task.cancelled() for task in tasks), (
+        "a worker was cancelled rather than stopped — it may have died holding a session"
+    )
+
+
+async def test_pool_close_does_not_wait_out_the_idle_poll(db) -> None:
+    """C13: stop wakes the idle sleep immediately."""
+    pool = PanelWorkerPool(
+        PanelJobQueue(db),
+        _FakeAudits(),
+        VerdictIndex(db),
+        count=2,
+        idle_poll=30.0,
+    )
+    pool.start()
+    await asyncio.sleep(0.05)
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    await pool.close()
+    elapsed = loop.time() - started
+
+    # Generous bound: the point is "does not wait out 30s", not a tight timing
+    # assertion (which would be flaky under load).
+    assert elapsed < 5.0, f"close() waited {elapsed:.2f}s — the idle poll was not woken"
+
+
+async def test_pool_close_cancels_a_wedged_worker(db) -> None:
+    """C14: a worker stuck inside a job is cancelled after the timeout.
+
+    Graceful-first must not become hang-forever: `process` can be parked on an
+    admit future that never resolves. Losing that one connection beats never
+    completing shutdown.
+    """
+
+    class _NeverAdmits:
+        async def admit(self, package_name, version=None):
+            await asyncio.Event().wait()  # never resolves
+
+    queue = PanelJobQueue(db)
+    await queue.enqueue("wedged", "1.0.0")
+    pool = PanelWorkerPool(queue, _NeverAdmits(), VerdictIndex(db), count=1)
+    pool.start()
+    await asyncio.sleep(0.05)  # let the worker claim the job and park
+
+    tasks = list(pool._tasks)
+    await asyncio.wait_for(pool.close(deadline=0.2), timeout=5.0)
+
+    assert all(task.done() for task in tasks)
