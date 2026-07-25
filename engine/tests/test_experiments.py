@@ -11,9 +11,25 @@
 #   C5 compose single-slot conflict — last preload wins the slot, both post_start
 #      hooks are kept, applied.preloadHash records the winner
 #   C6 merge_container_spec — setup envs override base envs, base-only keys
-#      survive, ld_preload backfills, cap_add dedupes
+#      survive, ld_preload backfills, cap_add dedupes, extra_hosts dedupe-merge
+#   C7 stub_intercept_target — which connection a stub pattern reaches: literal
+#      host+port, default port, IP literal, wildcard authority, and the patterns
+#      OUT of reach (https, other schemes, no scheme, IPv6, non-numeric port)
+#   C8 a compiled stubUrl asserts NOTHING about responses — responseHash is null
+#      until the proxy's ledger is read back, so the plan is never a fact
+#   C9 two stubUrl calls fold into ONE manipulation carrying every pattern (the
+#      stub list rides in a single env var, so a second manipulation would
+#      overwrite the first while applied.stubUrls still listed both)
+#  C10 a stub pattern naming a HOST pins it in the container's /etc/hosts; an IP
+#      literal and a wildcard authority pin nothing
 # Adversarial pass: 2026-07-23/W6 — added the arg-matrix, conflict, and merge
 # axes (only C1/C2 existed before).
+# Stub-fidelity pass: C7–C10 cover the stubUrl rework. The half that can only be
+# proven against a real sandbox — that the redirect actually intercepts, for every
+# client — is tests/e2e/test_stub_intercept.py; these classes prove what the
+# compiler decides before any container exists.
+import json
+
 import pytest
 
 from npmguard.contract.models import ToolCall
@@ -24,6 +40,7 @@ from npmguard.experiments import (
     compile_experiment,
     compose,
     merge_container_spec,
+    stub_intercept_target,
 )
 
 
@@ -164,7 +181,7 @@ def test_compose_preload_conflict_last_wins_slot_hooks_kept() -> None:
 
 def test_merge_container_spec_precedence() -> None:
     """C6: setup env wins on collision, base-only keys survive, ld_preload
-    backfills from setup, cap_add merges deduplicated."""
+    backfills from setup, cap_add and extra_hosts merge deduplicated."""
     base = ContainerSpec(
         image="npmguard-sandbox:v1",
         memory="512m",
@@ -172,11 +189,13 @@ def test_merge_container_spec_precedence() -> None:
         network_mode="none",
         envs={"BASE_ONLY": "yes", "FAKETIME": "base"},
         cap_add=["NET_RAW"],
+        extra_hosts=["evil.example:127.0.0.1"],
     )
     compiled = compile_experiment(
         [
             call("setEnv", env={"NPM_TOKEN": "canary"}),
             call("setDate", iso="2027-01-02T03:04:05Z"),
+            call("stubUrl", stubs=[{"pattern": "http://evil.example/a"}]),
             _trigger(),
         ]
     )
@@ -186,3 +205,101 @@ def test_merge_container_spec_precedence() -> None:
     assert merged.envs["FAKETIME"].startswith("@2027-01-02")  # setup overrode base
     assert merged.ld_preload == "/usr/lib/libfaketime.so.1"
     assert merged.cap_add == ["NET_RAW"]
+    assert merged.extra_hosts == ["evil.example:127.0.0.1"]  # base + setup, deduped
+
+
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [
+        # in reach: (redirect host or None for "any", port, /etc/hosts pin)
+        ("http://localhost:9999/exfil", ("127.0.0.1", 9999, "localhost:127.0.0.1")),
+        ("http://exfil.example.com/*", ("127.0.0.1", 80, "exfil.example.com:127.0.0.1")),
+        ("http://169.254.169.254/latest/meta-data/*", ("169.254.169.254", 80, None)),
+        ("http://10.0.0.5:8080/collect", ("10.0.0.5", 8080, None)),
+        ("http://*/collect", (None, 80, None)),
+        ("http://*:8080/collect", (None, 8080, None)),
+        # out of reach → a coverage gap, never a silent no-op
+        ("https://evil.example/collect", None),
+        ("*", None),
+        ("evil.example/collect", None),
+        ("ftp://evil.example/x", None),
+        ("http://[::1]:9999/x", None),
+        ("http://localhost:*/exfil", None),
+        ("http:///nohost", None),
+    ],
+)
+def test_stub_intercept_target_matrix(pattern: str, expected: tuple | None) -> None:
+    """C7: the pattern → connection oracle. A pattern the redirect cannot reach
+    returns None, which the run reports as a coverage gap — the only two honest
+    answers are "redirected" and "not covered", never "assumed applied"."""
+    target = stub_intercept_target(pattern)
+    if expected is None:
+        assert target is None
+    else:
+        assert target is not None
+        assert (target.host, target.port, target.add_host) == expected
+
+
+def test_compiled_stub_asserts_nothing_about_responses() -> None:
+    """C8: the compiled record carries the pattern and a NULL responseHash. Hashing
+    the planned response here is what let a sealed artifact attest a canned reply for
+    a stub that never intercepted anything (explainer §24.0); the hash can only come
+    from the proxy's ledger after the run."""
+    compiled = compile_experiment(
+        [
+            call(
+                "stubUrl",
+                stubs=[{"pattern": "http://localhost:9999/exfil", "responseBody": "ok"}],
+            ),
+            _trigger(),
+        ]
+    )
+    setup = compose(compiled.setup)
+    assert [(ref.pattern, ref.responseHash) for ref in setup.applied.stubUrls] == [
+        ("http://localhost:9999/exfil", None)
+    ]
+    assert len(setup.observers) == 1  # the ledger read-back is armed
+
+
+def test_two_stub_calls_fold_into_one_manipulation() -> None:
+    """C9: both patterns reach the proxy. The stub list rides in ONE env var, so two
+    stub manipulations would have compose's envs.update drop the first while
+    applied.stubUrls still named it — an artifact listing a stub the proxy never
+    loaded. Folding removes that state instead of detecting it."""
+    compiled = compile_experiment(
+        [
+            call("stubUrl", stubs=[{"pattern": "http://a.example/1"}]),
+            call("setEnv", env={"NPM_TOKEN": "canary"}),
+            call("stubUrl", stubs=[{"pattern": "http://b.example/2"}]),
+            _trigger(),
+        ]
+    )
+    setup = compose(compiled.setup)
+    assert [ref.pattern for ref in setup.applied.stubUrls] == [
+        "http://a.example/1",
+        "http://b.example/2",
+    ]
+    loaded = [stub["pattern"] for stub in json.loads(setup.envs["NPMGUARD_STUBS"])]
+    assert loaded == ["http://a.example/1", "http://b.example/2"]
+    assert len(setup.post_starts) == 1 and len(setup.observers) == 1
+    assert setup.extra_hosts == ["a.example:127.0.0.1", "b.example:127.0.0.1"]
+
+
+def test_only_named_stub_hosts_are_pinned_in_etc_hosts() -> None:
+    """C10: a name is pinned to loopback (a nonexistent exfil host otherwise dies at
+    DNS and the stub never sees the request); an IP literal and a wildcard authority
+    need no pin, and pinning them would be wrong."""
+    compiled = compile_experiment(
+        [
+            call(
+                "stubUrl",
+                stubs=[
+                    {"pattern": "http://exfil.example.com/*"},
+                    {"pattern": "http://169.254.169.254/latest/*"},
+                    {"pattern": "http://*/collect"},
+                ],
+            ),
+            _trigger(),
+        ]
+    )
+    assert compose(compiled.setup).extra_hosts == ["exfil.example.com:127.0.0.1"]

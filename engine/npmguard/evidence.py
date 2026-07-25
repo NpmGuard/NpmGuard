@@ -332,8 +332,19 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
     trigger = artifact.triggerUsed
     env_keys = list((artifact.setupApplied.env or {}).keys())
     planted = [shorten(file.path) for file in artifact.setupApplied.plantFiles or []]
-    setup = ([f"env {', '.join(env_keys)}"] if env_keys else []) + (
-        [f"planted {', '.join(planted)}"] if planted else []
+    # A stub that answered nothing is named, because "the endpoint you were told is
+    # stubbed was never contacted" is evidence about the run — and without it a
+    # timeline is silent on whether the experiment's central manipulation ever fired.
+    # `responseHash is None` is reachable only for artifacts produced by the stub
+    # ledger: every recorded artifact carries the old plan hash, so no committed
+    # timeline gains a line here (and no event id shifts either way — this is header).
+    unserved = [
+        stub.pattern for stub in artifact.setupApplied.stubUrls or [] if stub.responseHash is None
+    ]
+    setup = (
+        ([f"env {', '.join(env_keys)}"] if env_keys else [])
+        + ([f"planted {', '.join(planted)}"] if planted else [])
+        + ([f"stubs never served: {', '.join(unserved)}"] if unserved else [])
     )
     lines = [
         f"# Timeline — {artifact.runId} · trigger={trigger.kind}:{trigger.target}",
@@ -494,7 +505,11 @@ def _describe(
     elif event.kind == "clone":
         verb = "clone"
     elif event.kind == "setup_bypass":
-        verb = "bypass"
+        # The reason is the whole content of a bypass event — a bare "bypass" row told
+        # the judge that something in the setup did not hold without saying what, which
+        # is worse than not mentioning it. No recorded artifact carries this kind, so
+        # naming the detail costs nothing at replay.
+        verb, target = "bypass", _truncate(value("detail") or str(event.raw))
     elif event.kind == "truncated":
         verb = "truncated"
     elif event.kind == "error":

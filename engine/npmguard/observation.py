@@ -149,6 +149,10 @@ async def run_under_observation(
         + ([] if not observed.network else ["NET_RAW", "SETUID", "SETGID"]),
     )
     setup = compose(compiled.setup)
+    # The setup record starts as what the experiment ASKED for and is replaced, after
+    # the run, by what each manipulation turns out to have done (`setup.observers`).
+    # Nothing between here and the seal may treat this as an account of the run.
+    applied = setup.applied
     spec = merge_container_spec(base, setup)
     container = f"npmguard-run-{run_id[4:16]}"
     created_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -312,6 +316,27 @@ async def run_under_observation(
             except Exception as exc:
                 if error is None:
                     error = RunError(kind="SensorError", detail=f"pcap stop/parse failed: {exc}")
+
+        # Read back what the setup actually DID, while the container is still alive —
+        # last, so a coverage gap discovered here cannot gate the sensor collection
+        # above out of the artifact (both fs-diff and pcap skip on a SetupError).
+        # Skipped only when setup itself failed: then no trigger ran, nothing was
+        # manipulated, and the compile-time record — which asserts nothing — is
+        # already the truth. A `gap` is a manipulation that did not apply; the run
+        # happened and its evidence can still CONFIRM, but SetupError bars the
+        # orchestrator from REFUTING, so a coverage gap can never become SAFE.
+        if error is None or error.kind != "SetupError":
+            for observe_setup in setup.observers:
+                try:
+                    observation = await observe_setup(container, applied)
+                except Exception as exc:
+                    if error is None:
+                        error = RunError(kind="SetupError", detail=f"setup read-back failed: {exc}")
+                    continue
+                applied = observation.applied
+                events.extend(observation.events)
+                if observation.gap and error is None:
+                    error = RunError(kind="SetupError", detail=observation.gap)
     finally:
         with contextlib.suppress(Exception):
             await docker_exec(["rm", "-f", container], 10_000)
@@ -321,7 +346,7 @@ async def run_under_observation(
         {
             "runId": run_id,
             "triggerUsed": compiled.trigger,
-            "setupApplied": setup.applied,
+            "setupApplied": applied,
             "observe": observed,
             "budget": limits,
             "wallMs": round((time.monotonic() - started) * 1000),
