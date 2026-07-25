@@ -17,10 +17,23 @@ the per-change gate (minutes), opt-in via `-m e2e`.
 | unit | `uv run pytest` | nothing (default excludes `e2e` and `llm_live`) |
 | slice (recorded replay) | included in the default run (`tests/slice/`) | nothing — committed bundles |
 | e2e sqlite | `uv run pytest -m "e2e and not docker and not postgres and not cli"` | nothing beyond deps |
-| e2e + docker | `uv run pytest -m "e2e and docker"` | docker daemon + `npmguard-sandbox:v1` image; `NPMGUARD_TEST_DOCKER=0` forces off |
+| e2e + docker | `uv run pytest -m "e2e and docker"` | docker daemon + a **current** `npmguard-sandbox:v1`; `NPMGUARD_TEST_DOCKER=0` forces off |
 | e2e + postgres | `uv run pytest -m "e2e and postgres"` | `NPMGUARD_TEST_PG_DSN`, else a throwaway `postgres:17-alpine` container via docker, else loud skip |
 | cli | `uv run pytest -m "e2e and cli"` | `cli/dist/` built (+ node on PATH; the DANGEROUS-verdict test also needs docker) |
 | llm_live | `uv run pytest -m llm_live` | `NPMGUARD_TEST_LLM_LIVE=1` + a real key. Opt-in smoke, **never the gate**. Tier reserved; no tests exist yet |
+
+"Current" image matters: `stubUrl` installs its redirect with `iptables` from
+the sandbox image, so a `Dockerfile.sandbox` change needs
+`docker build -t npmguard-sandbox:v1 -f sandbox/docker/Dockerfile.sandbox .`.
+`engine/run.sh` builds only when the image is **absent**, so a stale one survives
+a pull; the engine then DEFERs every stub experiment with a `SetupError` naming
+the rebuild, rather than running an experiment whose manipulation is missing.
+
+Two tiers exist purely because the unit under test is JavaScript running next to
+hostile code, and its defects were in what it emits or matches — nothing short of
+executing it could falsify them: `test_instrumentation_l4.py` (the L4 instrument)
+and `test_stub_proxy.py` (the stub proxy's matcher and served ledger). Both need
+only `node` on PATH and run in the default suite.
 
 Unit-tier postgres classes (`tests/test_payments.py`, `tests/test_events_sse.py`,
 `tests/test_persistence.py`) gate on `NPMGUARD_TEST_PG_DSN` only — no docker
@@ -133,6 +146,80 @@ without the pin, drift would surface as an opaque wall of unmatched 500s.
    reproduce its pinned verdict with zero unmatched.
 7. Commit the bundle and `PINNED.json` together.
 
+## Parsers of external formats — the input must be captured
+
+> A test for a parser of an **external** format must use input captured from the
+> real producer, committed as a fixture. A hand-authored example is acceptable
+> only for shapes we emit ourselves.
+
+External means the bytes are produced by something outside this repo: strace,
+tshark, `find`, `docker`, `npm`, the npm registry, a GitHub webhook, a package's
+own `package.json`. For those, a hand-written example asserts what we *imagine*
+the producer emits, and the parser was written from the same imagination — so the
+test and the code share one wrong belief and agree with each other forever. That
+is not a test; it is the same assumption stated twice, and it is invisible to
+review because both halves look right.
+
+It is not hypothetical. `sensors.py` read the peer address of an strace `connect`
+with `sin_addr="([^"]+)"`. strace emits `sin_addr=inet_addr("127.0.0.1")`. The
+regex matched **nothing, ever**: every inet connect in the committed corpus
+carried its peer in `raw` while `addr` stayed null, the timeline printed a bare
+`connect socket`, and three judges refuted a credential-exfiltration hypothesis
+partly because no layer could show them the endpoint. It survived behind a green
+suite for the module's entire life because `test_sensors.py` asserted the same
+imagined shape — and when the regex was fixed, it was *widened* with an optional
+`(?:\w+\()?` group so that fabricated test would keep passing, defended by a
+comment citing strace's `-yy`. Measured: `-y` and `-yy` annotate the file
+**descriptor** (`connect(21<TCP:[2422430]>, …`) and leave the sockaddr untouched.
+A regex loosened to satisfy a fabricated fixture is the same defect as a fixture
+written to satisfy a wrong regex, and it is worse for having a citation attached.
+
+**Where the captures live.** `tests/fixtures/sensors/`, each file with an entry in
+its `PROVENANCE.json` recording the producer, its exact command line, the capture
+date, the shapes the file is kept for, and every redaction made. Redact anything
+environmental a capture picks up (a LAN resolver, a hostname) and *name the
+substitution* — never a real secret, never a bench-dd fixture. Registry documents
+and real npm tarballs are already committed under `tests/fixtures/registry/`.
+
+**Enforced, not advisory:** `tools/parser_fixture_lint.py`, run by
+`tests/test_parser_fixture_lint.py` in the default suite. It walks every string
+literal in `tests/` with `ast`, flags any containing a marker token that occurs
+only inside an external format (`sa_family=`, `<unfinished ...>`,
+`"dns.qry.name"`, …), and requires each of its lines to appear in a committed
+fixture. Docstrings and comments are prose and are not scanned — otherwise the
+class map that *records* a bad shape would fail the rule forbidding it. Marker
+tokens are the JSON-quoted form where a bare one would collide with ordinary code
+(`http.request(` is a Node call, not tshark output). Adding a parser for a new
+external format means adding its markers; a format with no marker is an
+unenforced gap, not a licence.
+
+**The escape hatch, and its price.** A function may opt out with
+`NOT-A-CAPTURED-SHAPE` in its docstring. There are two honest uses, both of which
+make the admission part of the assertion:
+
+- the shape is one the producer **cannot** emit, and rejecting it is the point —
+  committing it as a fixture would be a category error, since a fixture claims
+  "the real producer wrote this";
+- we **tried to capture it and failed**, in which case the docstring says how it
+  was attempted and why handling it still beats dropping it. `test_sensors.py`'s
+  dangling-`<unfinished ...>` class is the worked example: producing one needs a
+  thread interleave *and* process death in the same instant; a blocked read killed
+  with SIGKILL emitted no unfinished line at all.
+
+**Two habits that made the captures pay for themselves.** Take the captured input
+first and work out what the correct parse *is* before looking at what the parser
+does — the other order is how the original defect got its test. And replay the
+whole committed corpus through the parser as a falsification pass: every L1 `raw`
+in the 31 runartifacts is 3900+ real syscall lines, and running them through the
+new asserts is what turned "these invariants look right" into "nothing in three
+years of captured production evidence trips them".
+
+**A parse that silently yields nothing is the failure mode to hunt.** `addr: null`
+read as "no address available" and meant "the regex is wrong". Wherever a parser
+can return empty on well-formed input, make the two cases distinguishable —
+`family` now separates a unix-path peer from a NULL sockaddr from a parse failure,
+and the third is an assertion rather than a value.
+
 ## Judge determinism — why two tiers
 
 Replaying a recorded judge exchange against a **live** docker run is
@@ -218,6 +305,67 @@ test encodes the wrong convention, change the convention's document first.
 
 Open (report-only; tracked here, not silently fixed):
 
+- **`test_evidence.py` hand-builds `EvidenceEvent.raw`** (evidence-work scope, not
+  the parser sweep): four literals are strace shapes that never came from strace.
+  Two are real forms with the errno tail stripped — a shape `parse_strace_log` no
+  longer emits, now that `raw` is the verbatim line minus its prefix; one
+  (`connect(7, {sin_port=htons(443)}) = 0`) has no `sa_family=` and strace cannot
+  print it; one (`openat(AT_FDCWD, "/etc/localtime", O_RDONLY) = 17`) is entirely
+  plausible and still unverified, which is the trap the rule above exists for. The
+  tests pass either way, so this is fixture fidelity, not a live defect. Pinned by
+  filename in `test_parser_fixture_lint.py::PINNED_UNFIXED` so that fixing it turns
+  the suite red and the exemption is deleted rather than left to rot.
+- **`_describe` does not render a syscall's result**, so `connect … = 0` and
+  `connect … = -1 ECONNREFUSED` produce the identical timeline row and `_collapse`
+  merges them into one `[x2]`. The sensor now records the errno (`normalized.error`)
+  and the parsed peer for `recvfrom`; rendering them is the other half, in
+  `evidence.py`. Until then a judge cannot tell an established exfil channel from a
+  refused connection.
+- **Committed `.timeline.txt` files are stale** relative to the current renderer:
+  all 31 differ by the `[no requiring module …]` annotation. Confirmed pre-existing
+  at HEAD and unrelated to the parsers (rendering is byte-identical with and
+  without the parser changes). `fixture_lint` checks judge citations against the
+  *rendered* timeline, not these files, so nothing gates on them.
+- **`_deep_field` collapses a repeated dissected field to its first value**, so if
+  tshark ever files a layer as a LIST (two pipelined HTTP requests in one segment
+  is the candidate), the second request is dropped. Not reproduced: pipelining two
+  requests into one segment made tshark emit a single `http` layer holding only the
+  *second* request, so the first was lost upstream of us, inside tshark's
+  reassembly. Left alone deliberately — there is no captured input showing the list
+  form, and speculatively restructuring the parser is the mistake this section is
+  about.
+- **A semver range resolves to the wrong error.** `resolve_tarball_url` asks
+  `GET /{name}/{version}`, which the real registry 404s for a range
+  (`/chalk/%5E5.0.0` → 404, verified), so `chalk@^5.0.0` raises
+  `PackageNotFoundError("chalk")` — a true 404 reported as a false statement about
+  the package. Loud but mislabelled, so it is a message defect rather than a silent
+  one; changing the error type touches the e2e S18 contract.
+- **`docker_exec` truncates stdout at 10MiB silently** (`docker.py`, not the parser
+  sweep's scope). Two collectors read evidence through it. `cat /tmp/strace.log` on
+  a chatty run returns a prefix ending mid-line — now a loud `AssertionError` naming
+  the cap, rather than a syscall quietly dropped, so the truncation DEFERs the
+  hypothesis instead of shrinking the timeline. Worse is `base64 -w0` of the pcap:
+  base64 inflates 4/3, so a capture over ~7.5MB is truncated with `base64` still
+  exiting 0, and `b64decode` then yields either a raise or a **short pcap that is
+  hashed and stored as if complete**. The fix belongs at the seam — stream to a file,
+  or fail when output hits the cap — because a limit that silently changes the data
+  is indistinguishable from the data.
+- **The panel's lockfile parsers are correct but untested against real input.**
+  `test_panel_lockfile.py` has a thorough C1-C20 map and an adversarial pass, and
+  every one of its inputs is hand-written — the exact provenance gap that hid the
+  sensor defect, in a parser covering eight format variants that feeds dependency
+  alerts. Falsified rather than assumed: real lockfiles generated with npm 10
+  (`package-lock.json` v3), pnpm 9.15 and yarn 1 all parse, with identical and
+  correct direct/transitive classification and ranges. So no live bug — but pnpm
+  v5/v6 and yarn berry remain unverified, and nothing stops the next regex from
+  being written against an imagined shape. Committing those three captures under
+  `tests/fixtures/lockfiles/` would close it cheaply.
+- **strace escapes are not unescaped.** `_quoted` returns strace's own C escaping,
+  so a committed artifact renders `require(\"/pkg/…\")` and a non-ASCII path would
+  reach the judge as `\303\251`. Faithful but noisy. Not fixed here because execve
+  `argv` IS rendered, so unescaping shifts timeline text and needs the same
+  re-record budget as the pinned C14b unix-socket fix.
+
 - **CLI exit-0-on-CLOSED hazard** (`cli/` scope, out of engine): `es.onerror`
   resolves verdict UNKNOWN / exit 0 when EventSource reaches readyState CLOSED
   (e.g. a 404 events URL) — a missing audit session exits 0. Untested: no
@@ -239,6 +387,29 @@ The default is **4** (`config.py:47`) — set it to the number of concurrent
 full-oracle sandboxes the deployment's RAM allows.
 
 Fixed since first tracked (regression-enforced, no longer open):
+
+- **Parsers tested against imagined formats.** One root cause, five silent evidence
+  losses, none of which a green suite could see, all found by capturing the real
+  producer first: strace `<unfinished ...>`/`<... resumed>` halves were both
+  dropped, so a syscall split by a thread interleave vanished entirely (a real
+  `execve("/bin/echo", …)` process spawn disappeared from a 165-line capture); the
+  errno beside a `-1` was discarded, making a connect that succeeds asynchronously
+  (`-1 EINPROGRESS`) identical to a refusal; `recvfrom`'s peer sockaddr was never
+  read, discarding 221 real peers in the committed corpus; `parse_tshark_json`
+  looked its fields up under hardcoded layer names, so 6 of 13 packets tshark's own
+  filter selected produced zero events (`mdns`, `llmnr`, and `ssdp` all carry
+  `dns.qry.name`/`http.request`); and the fs snapshot's `path\tsize\tmtime`
+  newline-delimited format silently skipped any filename containing a tab or a
+  newline, which is a free evasion. Also: `tar c` of a missing directory exits 2
+  while writing a valid EMPTY archive, and the unchecked exit code turned that into
+  `installed=True, package_count=0`; a UTF-8 BOM in `package.json` (which npm
+  strips) made a package's dependencies read as absent; and `resolve_package`'s
+  `except Exception` missed `CancelledError`, leaking the whole extracted tree on
+  the phase timeout or shutdown. Enforced: `test_sensors.py` (C1-C10, driven by
+  committed captures), `test_deps.py`, `test_resolve.py` C9-C11,
+  `test_parser_fixture_lint.py`. Fixture cost zero, proven rather than assumed: the
+  31 committed runartifacts render byte-identically with and without the change,
+  because artifacts store parsed events and are never re-parsed.
 
 - **Launch-lifecycle cluster → single execution owner.** Paid audits bypassing
   the session cap, `enqueue` check-then-act, `close()` orphaning the queued

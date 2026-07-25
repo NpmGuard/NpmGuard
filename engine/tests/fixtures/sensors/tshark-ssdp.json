@@ -1,0 +1,97 @@
+[
+ {
+  "_index": "packets-2026-07-25",
+  "_type": "doc",
+  "_score": null,
+  "_source": {
+   "layers": {
+    "frame": {
+     "frame.encap_type": "210",
+     "frame.time": "Jul 25, 2026 10:48:44.840091000 UTC",
+     "frame.offset_shift": "0.000000000",
+     "frame.time_epoch": "1784976524.840091000",
+     "frame.time_delta": "0.172330000",
+     "frame.time_delta_displayed": "0.172330000",
+     "frame.time_relative": "0.422722000",
+     "frame.number": "18",
+     "frame.len": "221",
+     "frame.cap_len": "221",
+     "frame.marked": "0",
+     "frame.ignored": "0",
+     "frame.protocols": "sll:ethertype:ip:udp:ssdp"
+    },
+    "sll": {
+     "sll.etype": "0x0800",
+     "sll.ifindex": "2",
+     "sll.hatype": "1",
+     "sll.pkttype": "2",
+     "sll.halen": "6",
+     "sll.src.eth": "72:d7:ae:26:88:da",
+     "sll.unused": "00:00"
+    },
+    "ip": {
+     "ip.version": "4",
+     "ip.hdr_len": "20",
+     "ip.dsfield": "0x00",
+     "ip.dsfield_tree": {
+      "ip.dsfield.dscp": "0",
+      "ip.dsfield.ecn": "0"
+     },
+     "ip.len": "201",
+     "ip.id": "0x41ed",
+     "ip.flags": "0x02",
+     "ip.flags_tree": {
+      "ip.flags.rb": "0",
+      "ip.flags.df": "1",
+      "ip.flags.mf": "0"
+     },
+     "ip.frag_offset": "0",
+     "ip.ttl": "1",
+     "ip.proto": "17",
+     "ip.checksum": "0x9b2a",
+     "ip.checksum.status": "2",
+     "ip.src": "172.17.0.1",
+     "ip.addr": "239.255.255.250",
+     "ip.src_host": "172.17.0.1",
+     "ip.host": "239.255.255.250",
+     "ip.dst": "239.255.255.250",
+     "ip.dst_host": "239.255.255.250"
+    },
+    "udp": {
+     "udp.srcport": "38155",
+     "udp.dstport": "1900",
+     "udp.port": "1900",
+     "udp.length": "181",
+     "udp.checksum": "0x9cd3",
+     "udp.checksum.status": "2",
+     "udp.stream": "4",
+     "Timestamps": {
+      "udp.time_relative": "0.000000000",
+      "udp.time_delta": "0.000000000"
+     },
+     "udp.payload": "4d:2d:53:45:41:52:43:48:20:2a:20:48:54:54:50:2f:31:2e:31:0d:0a:48:4f:53:54:3a:20:32:33:39:2e:32:35:35:2e:32:35:35:2e:32:35:30:3a:31:39:30:30:0d:0a:4d:41:4e:3a:20:22:73:73:64:70:3a:64:69:73:63:6f:76:65:72:22:0d:0a:4d:58:3a:20:31:0d:0a:53:54:3a:20:75:72:6e:3a:64:69:61:6c:2d:6d:75:6c:74:69:73:63:72:65:65:6e:2d:6f:72:67:3a:73:65:72:76:69:63:65:3a:64:69:61:6c:3a:31:0d:0a:55:53:45:52:2d:41:47:45:4e:54:3a:20:47:6f:6f:67:6c:65:20:43:68:72:6f:6d:65:2f:31:35:30:2e:30:2e:37:38:37:31:2e:31:38:32:20:4c:69:6e:75:78:0d:0a:0d:0a"
+    },
+    "ssdp": {
+     "M-SEARCH * HTTP/1.1\\r\\n": {
+      "_ws.expert": {
+       "http.chat": "",
+       "_ws.expert.message": "M-SEARCH * HTTP/1.1\\r\\n",
+       "_ws.expert.severity": "2097152",
+       "_ws.expert.group": "33554432"
+      },
+      "http.request.method": "M-SEARCH",
+      "http.request.uri": "*",
+      "http.request.version": "HTTP/1.1"
+     },
+     "http.host": "239.255.255.250:1900",
+     "http.request.line": "USER-AGENT: Google Chrome/150.0.7871.182 Linux\r\n",
+     "http.user_agent": "Google Chrome/150.0.7871.182 Linux",
+     "\\r\\n": "",
+     "http.request.full_uri": "http://239.255.255.250:1900*",
+     "http.request": "1",
+     "http.request_number": "1"
+    }
+   }
+  }
+ }
+]

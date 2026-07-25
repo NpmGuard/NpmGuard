@@ -1,0 +1,128 @@
+{
+  "_why": [
+    "Every file here is output captured from the REAL producer the sensor parses,",
+    "committed so a test can never assert a format we merely imagined. The rule is",
+    "in TESTING.md ('Parsers of external formats'); tools/fixture_lint.py enforces",
+    "that each file listed here exists and that each file here is listed."
+  ],
+  "fixtures": {
+    "strace-node.log": {
+      "producer": "strace 7.0 (host) and strace 6.1 (npmguard-sandbox:v1)",
+      "command": "strace -f -ttt -s 4096 -o <log> -e trace=<TRACED_SYSCALLS> node <benign probe>",
+      "captured": "2026-07-25",
+      "note": [
+        "38 lines, each copied VERBATIM from one of four captures; nothing is",
+        "hand-authored. One capture ran the sandbox image under the engine's own",
+        "docker flags (--cap-drop=ALL --cap-add=SYS_PTRACE ... --user 1000:1000),",
+        "the rest ran on the host to reach shapes the container run did not produce",
+        "(unfinished/resumed splits, accept4, rename/link/unlink, AF_NETLINK, and",
+        "an unnamed AF_UNIX peer). The last nine lines are one complete unix-socket",
+        "trace in which TWO pids each hold an outstanding unfinished syscall at the",
+        "same instant — the case a single-slot rejoin would splice wrongly.",
+        "Every probe is a benign script (net/dns/fs/child_process); no bench-dd",
+        "fixture was executed and no real credential appears."
+      ],
+      "shapes": [
+        "pid-prefixed line, space-padded pid column",
+        "execve with argv containing a space, an escaped quote and an escaped backslash",
+        "openat success and -1 ENOENT",
+        "clone (thread create)",
+        "connect AF_INET -> -1 EINPROGRESS (a SUCCESSFUL async connect)",
+        "connect AF_INET6 via inet_pton(AF_INET6, ..., &sin6_addr)",
+        "connect AF_UNIX with sun_path",
+        "accept4 returning a bare {sa_family=AF_UNIX} — an UNNAMED unix peer, so a null path is real",
+        "three interleaved unfinished/resumed pairs across two concurrently-blocked pids",
+        "recvfrom(fd, buf, len, 0, NULL, NULL) — the NULL-peer form",
+        "measured for the -y/-yy question: both annotate the DESCRIPTOR (21<TCP:[2422430]>) and leave sin_addr=inet_addr(\"...\") untouched, so a bare sin_addr=\"...\" is emitted by no flag combination",
+        "connect AF_INET success (= 0)",
+        "sendto with dest_addr NULL and a payload string that begins with '{'",
+        "sendto AF_NETLINK (RTM_GETLINK / RTM_GETADDR)",
+        "recvfrom with an AF_INET peer sockaddr and [128 => 16] length",
+        "recvfrom -1 EAGAIN with undecoded pointer arguments",
+        "accept4 with a NULL peer sockaddr",
+        "read/write with an fd, and a write truncated by -s 4096 (\"...\"...)",
+        "read and execve split across <unfinished ...> / <... name resumed>",
+        "--- SIGTERM {...} --- and +++ killed by SIGTERM +++ / +++ exited with 0 +++"
+      ],
+      "redactions": {
+        "192.168.1.254": "198.51.100.53",
+        "_reason": "the capture host's LAN DNS resolver is environment, not evidence; replaced with an RFC 5737 TEST-NET-2 address of the same shape"
+      }
+    },
+    "tshark-node.json": {
+      "producer": "TShark (Wireshark) 4.0.17 inside npmguard-sandbox:v1",
+      "command": "tcpdump -i any -U -Z root -w <pcap>; tshark -r <pcap> -T json -Y 'dns.qry.name or http.request or tls.handshake.extensions_server_name' -2",
+      "captured": "2026-07-25",
+      "note": [
+        "The engine's exact stop_pcap command line, unmodified. All 13 packets the",
+        "-Y filter admitted are kept, including the six the parser used to drop.",
+        "Traffic is benign loopback: two HTTP requests to a local node server, two",
+        "DNS lookups, one TLS ClientHello (openssl s_client -servername), plus the",
+        "mDNS/LLMNR packets the -i any capture picked up from the host segment.",
+        "Re-indented with json.dumps(indent=1); key order and values are unchanged."
+      ],
+      "shapes": [
+        "http layer with the request line as a NESTED key holding http.request.method / http.request.uri",
+        "dns layer with dns.qry.name nested under Queries.<question>",
+        "a DNS response that also carries Queries.<question>.dns.qry.name (so one lookup yields two packets)",
+        "tls layer with tls.handshake.extensions_server_name nested under tls.record.tls.handshake",
+        "mdns and llmnr layers that carry dns.qry.name under a layer key that is NOT 'dns'",
+        "frame.time_relative as a nanosecond-precision string"
+      ],
+      "redactions": {
+        "PipeKiller": "probe-host",
+        "_reason": "the capture host's hostname leaked into the mDNS/LLMNR queries; replaced with a synthetic name of the same shape"
+      }
+    },
+    "tshark-ssdp.json": {
+      "producer": "TShark (Wireshark) 4.0.17 inside npmguard-sandbox:v1",
+      "command": "tcpdump -i any -U -Z root -w <pcap>; tshark -r <pcap> -T json -Y 'dns.qry.name or http.request or tls.handshake.extensions_server_name' -2",
+      "captured": "2026-07-25",
+      "note": [
+        "One packet, kept because it is a THIRD instance of the layer-naming trap:",
+        "SSDP is HTTP over UDP, so tshark dissects it with the HTTP dissector, it",
+        "matches an http.request filter, and it is filed under the layer key `ssdp`.",
+        "Its method is `M-SEARCH` and its URI is `*`, which is also why defaulting a",
+        "missing method to \"GET\" and a missing URI to \"/\" would have misreported a",
+        "real request rather than merely blurred it."
+      ],
+      "shapes": [
+        "an ssdp layer carrying http.request / http.request.method / http.request.uri",
+        "http.host holding an authority WITH a port (239.255.255.250:1900)"
+      ],
+      "redactions": {}
+    },
+    "tar-missing-dir.bin": {
+      "producer": "GNU tar 1.34 inside npmguard-sandbox:v1",
+      "command": "tar c -C /work node_modules   # with /work an EMPTY tmpfs",
+      "captured": "2026-07-25",
+      "note": [
+        "tar exits 2 (\"node_modules: Cannot stat: No such file or directory\") and",
+        "still writes these 10240 bytes — all NUL, which is a well-formed EMPTY tar",
+        "archive that Python's tarfile opens and extracts without complaint. That is",
+        "the input which turned an unchecked exit code into",
+        "DependencyProvision(installed=True, package_count=0)."
+      ],
+      "shapes": ["10240 NUL bytes: a valid tar archive with zero members"],
+      "redactions": {}
+    },
+    "find-snapshot.bin": {
+      "producer": "GNU findutils 4.9.0 + GNU coreutils sort 9.1 inside npmguard-sandbox:v1",
+      "command": "find /pkg /home/node -type f -printf '%s\\t%T@\\t%p\\0' 2>/dev/null | sort -z",
+      "captured": "2026-07-25",
+      "note": [
+        "_snapshot_command's exact output. Contains filenames holding a TAB, a",
+        "NEWLINE and a double quote — find -printf prints %p raw, so those are the",
+        "inputs that silently vanished under the previous path-first, tab-separated,",
+        "newline-delimited format."
+      ],
+      "shapes": [
+        "NUL-terminated records, size and mtime first, raw path last",
+        "a path containing a literal tab",
+        "a path containing a literal newline",
+        "a path containing a double quote"
+      ],
+      "redactions": {}
+    }
+  }
+}

@@ -1,6 +1,11 @@
 # CLASS MAP — resolve (seam: REPO_ROOT monkeypatched to a synthetic fixture tree;
-# no network — the registry path is exercised only through its pure helpers)
-# Axes: fixture staging, workdir ownership, cleanup, package-root detection
+# no network — the registry path is exercised through its pure helpers plus the
+# COMMITTED captures of real registry responses and real npm tarballs under
+# tests/fixtures/registry/, per TESTING.md's parser-input rule: the npm registry
+# and npm's tarball layout are external formats, so nothing here asserts a
+# document shape we composed ourselves.)
+# Axes: fixture staging, workdir ownership, cleanup (normal / raised / CANCELLED),
+#       package-root detection, registry response shape
 #   C1 fixture resolve stages a private COPY — path is under workdir, not the
 #      fixture tree, and content matches the source
 #   C2 INVARIANT (was pipeline-phases[1], UNENFORCED before): mutating the
@@ -21,18 +26,34 @@
 #      are live malware) is a checked ValueError and leaks no tmpdir — the
 #      fixture path enforces the same link boundary _safe_extract gives
 #      tarballs; internal relative symlinks stay allowed
+#   C9 INVARIANT: resolve_package either returns an owner for its workdir or
+#      leaves none behind. CANCELLATION is the third case that used to escape:
+#      CancelledError is a BaseException, so `except Exception` missed the phase
+#      timeout and engine shutdown, leaking the whole extracted tree
+#   C10 the real committed npm registry response parses: resolve_tarball_url
+#      reads the concrete version and dist.tarball off a captured version
+#      document, and a document missing either is a checked ValueError
+#   C11 _package_root over REAL npm tarballs (committed .tgz captures): npm's
+#      package/ convention is found, not assumed
+import json
+import tarfile
 import tempfile
 from pathlib import Path
 
+import httpx
 import pytest
 
 from npmguard.config import REPO_ROOT
 from npmguard.resolve import (
     ResolvedPackage,
     _package_root,
+    _safe_extract,
     cleanup_package,
     resolve_package,
+    resolve_tarball_url,
 )
+
+REGISTRY_FIXTURES = Path(__file__).parent / "fixtures" / "registry"
 
 
 def _leaked_workdirs() -> list[Path]:
@@ -189,6 +210,94 @@ async def test_escaping_fixture_symlink_is_rejected(fixture_tree, tmp_path) -> N
         assert (resolved.path / "alias.js").read_text() == "module.exports = 1;\n"
     finally:
         cleanup_package(resolved)
+
+
+async def test_cancelled_resolve_leaves_no_workdir(monkeypatch, tmp_path) -> None:
+    """C9 — INVARIANT: resolve_package either returns a ResolvedPackage that OWNS
+    its workdir, or leaves no workdir at all. `except Exception` created a third
+    state: asyncio.CancelledError is a BaseException, so the two cancellations that
+    actually happen — the resolve phase's own timeout and engine shutdown — skipped
+    the cleanup and leaked the entire extracted package tree into /tmp."""
+    import asyncio
+
+    inside = asyncio.Event()
+
+    async def never(package_name, version="latest"):
+        # Reached only after the workdir exists, so the cancel lands INSIDE the try.
+        inside.set()
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr("npmguard.resolve.resolve_tarball_url", never)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    before = set(tmp_path.glob("npmguard-*"))
+    task = asyncio.create_task(resolve_package("chalk", "5.6.2"))
+    await asyncio.wait_for(inside.wait(), timeout=5)
+    assert set(tmp_path.glob("npmguard-*")) - before  # the workdir to be leaked
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert set(tmp_path.glob("npmguard-*")) == before
+
+
+async def test_captured_registry_response_yields_version_and_tarball() -> None:
+    """C10: the npm registry is an external producer, so this asserts against the
+    committed capture of a real `GET /{name}/{version}` document (its
+    `_recordedTarballUrl` records the URL it was captured from) rather than a
+    document shape we invented. A response missing `version` or `dist.tarball` is a
+    checked ValueError — never a silent None that would resolve to nothing."""
+    captured = [
+        json.loads(path.read_text())
+        for path in sorted(REGISTRY_FIXTURES.glob("*/packument-subset.json"))
+    ]
+    assert captured, "the committed registry captures are the point of this test"
+    served: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=served)
+
+    transport = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    class Patched(original):  # the seam: resolve_tarball_url builds its own client
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **{**kwargs, "transport": transport})
+
+    for document in captured:
+        served = document
+        httpx.AsyncClient = Patched
+        try:
+            version, tarball = await resolve_tarball_url(document["name"], document["version"])
+        finally:
+            httpx.AsyncClient = original
+        assert version == document["version"]
+        assert tarball == document["dist"]["tarball"]
+        # Real registry documents resolve a concrete version even for /latest.
+        assert version and not version.startswith(("^", "~", "latest"))
+
+    for broken in ({"version": "1.0.0"}, {"dist": {"tarball": "http://x/y.tgz"}}, {}):
+        served = broken
+        httpx.AsyncClient = Patched
+        try:
+            with pytest.raises(ValueError, match="malformed metadata"):
+                await resolve_tarball_url("chalk", "5.6.2")
+        finally:
+            httpx.AsyncClient = original
+
+
+def test_package_root_over_real_npm_tarballs(tmp_path) -> None:
+    """C11: npm's `package/` convention is a fact about real tarballs, so it is
+    proven by extracting the committed .tgz captures rather than by building a
+    directory that matches what we believe npm does."""
+    tarballs = sorted(REGISTRY_FIXTURES.glob("*/*.tgz"))
+    assert tarballs, "the committed tarball captures are the point of this test"
+    for index, archive_path in enumerate(tarballs):
+        destination = tmp_path / str(index)
+        destination.mkdir()
+        with tarfile.open(archive_path, "r:gz") as archive:
+            _safe_extract(archive, destination)
+        root = _package_root(destination, archive_path.stem)
+        assert root == destination / "package"
+        assert json.loads((root / "package.json").read_text())["name"]
 
 
 async def test_real_committed_fixture_resolves_outside_repo() -> None:
