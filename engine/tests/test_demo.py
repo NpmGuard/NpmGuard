@@ -47,11 +47,19 @@
 #
 # LOAD
 #   C1  both committed recordings load, keyed by packageName — the list the
-#       /demo/packages surface serves
+#       /demo/packages surface serves — each carrying the version its audit was OF
 #   C2  an unknown package raises KeyError naming it, and creates NO row
-#   C3  FINDING (pin): a recording that is unreadable, not JSON, not an object, or
-#       missing a required key is skipped with only a log line — the sibling
-#       recordings still load and the gallery silently loses an entry
+#   C3  a recording that is unreadable, not JSON, not an object, or missing a
+#       required key raises DemoRecordingError NAMING THE FILE, and takes the whole
+#       load with it. Was a FINDING (skip + one log line, so a malformed gallery
+#       entry vanished and an operator saw a missing demo rather than an error);
+#       DemoService is built in the lifespan, so the gallery is now all-or-nothing
+#       at boot — the treatment config.py gives a bad NPMGUARD_* value
+#   C3b INVARIANT: a recording's LAST frame is its ONLY terminal frame. No terminal
+#       frame leaves the row 'running' for ever and an SSE follower hanging (
+#       sse_events returns on a terminal frame); frames after it are frames no
+#       follower can see. Neither is a shape the real path can produce, and C16
+#       depends on this being total
 # REPLAY — what the viewer receives
 #   C4  every recorded frame is re-emitted, in order, with its payload VERBATIM
 #       (the recorded event minus the four envelope keys), for the 68-frame
@@ -86,21 +94,32 @@
 # THE HYBRID, AND THE TRAP IT SETS
 #   C14 the curated-vs-engine divergence pin described above, computed from the
 #       engine's own code over the committed test-pkg-env-exfil source tree
-#   C15 the save_report trap (§24.1): every trace[].output is {}, so
-#       extract_report_version returns None for the recorded report; a caller that
-#       routed it through save_report with "latest" (or no version) raises
-#       UnversionedReportError, and one that passes a version writes the report
-#       under the caller's GUESS — the recording's own top-level `version` is not
-#       even loaded into DemoRecording, so there is nothing honest to pass.
-#       Nothing breaks today only because DemoService finalises the row itself
-#   C16 FINDING (pin): the recorded verdict_reached is durable BEFORE the report
-#       row is written — the inverse of the real path's invariant (AuditService.
-#       _finish: report on disk, then row + terminal event in one transaction). A
-#       gallery that fetches the report when the terminal frame arrives can see a
-#       non-terminal row
+#   C15 the save_report trap (§24.1), half closed: every trace[].output is {}, so
+#       extract_report_version still returns None for the recorded report — a caller
+#       routing it through save_report with "latest" raises UnversionedReportError,
+#       and one passing a version files the report under whatever it passed. What
+#       changes is that DemoRecording now loads the recording's own `version`, so a
+#       future demo -> save_report route has an honest value to pass instead of a
+#       guess — checked against the audited source tree's package.json, not blessed
+#       from the recording
+#   C16 the terminal frame and the report row commit TOGETHER, and the row is
+#       written first inside that transaction — the real path's ordering
+#       (AuditService._finish: report durable, then row + terminal event in one
+#       transaction), so a gallery that fetches the report on verdict_reached always
+#       finds it. Was a FINDING: every frame was emitted and only then was the row
+#       finalised, so the terminal frame could be seen while the row was still
+#       'running' with no report
+#   C16b the two writes are one UNIT, not merely ordered: an append that fails rolls
+#       the row back to non-terminal, where restart recovery repairs it. This is
+#       what a plain finalize()-then-emit() would fail — it satisfies C16's ordering
+#       while leaving a terminal row no consumer is ever told about
 # Adversarial pass: 2026-07-25/demo — "which dimension is missing?" -> the
 # recording-count axis (C7: every replay class ran on one file), the queue-
 # visibility axis (C8), and write ORDERING as distinct from write content (C16).
+# Invariant pass: 2026-07-25/demo-gallery — C3, C15 and C16 were FINDINGS pinned as
+# they stood; Phase 5 promotes this path to a product surface, so each is now the
+# contract instead: loud located loading (C3, C3b), the recording's own version
+# loaded (C15), and the real path's terminal ordering and atomicity (C16, C16b).
 from __future__ import annotations
 
 import asyncio
@@ -125,7 +144,7 @@ from npmguard import demo as demo_module
 from npmguard import report_store
 from npmguard.config import REPO_ROOT, ConfigError, Settings
 from npmguard.deps import provision_dependencies
-from npmguard.events import sse_events
+from npmguard.events import TERMINAL_EVENTS, sse_events
 from npmguard.inventory import EXTENSION_TYPE_MAP, classify_files
 from npmguard.persistence import AuditSessionStore
 from npmguard.pipeline import SEVERITY_SCORE
@@ -254,6 +273,20 @@ def _write_recordings(root: Path, files: dict[str, str]) -> Path:
     return root
 
 
+def _valid(**changes: Any) -> str:
+    """The minimum a loadable recording carries: the five required keys, and a last
+    frame that is terminal (C3b). Written out once here so every synthetic recording
+    below states only the thing it is actually about."""
+    recording: dict[str, Any] = {
+        "packageName": "good",
+        "version": "1.0.0",
+        "events": [{"type": "verdict_reached", "timestamp": "2026-01-01T00:00:00Z"}],
+        "files": {"a.js": "1"},
+        "report": {"verdict": "SAFE"},
+    }
+    return json.dumps({**recording, **changes})
+
+
 # --------------------------------------------------------------------------- #
 # Load
 # --------------------------------------------------------------------------- #
@@ -261,12 +294,13 @@ def _write_recordings(root: Path, files: dict[str, str]) -> Path:
 
 def test_committed_recordings_load_keyed_by_package_name(rig) -> None:
     """C1: the gallery's index. Both committed recordings load, and each carries
-    the three things a replay needs: frames, sources, and a report."""
+    the four things a replay needs: frames, sources, a report, and the version the
+    audit was OF."""
     service = demo_module.DemoService(rig.sessions, rig.stream)
     assert set(service.recordings) == {"chalk", "test-pkg-env-exfil"}
     for name, recording in service.recordings.items():
         assert recording.package_name == name
-        assert recording.events and recording.files and recording.report
+        assert recording.events and recording.files and recording.report and recording.version
 
 
 async def test_unknown_package_raises_and_creates_no_row(rig) -> None:
@@ -280,29 +314,86 @@ async def test_unknown_package_raises_and_creates_no_row(rig) -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "body"),
+    ("name", "body", "cause"),
     [
-        ("not-json.json", "{"),
-        ("not-an-object.json", "[]"),
-        ("missing-report.json", '{"packageName": "x", "events": [], "files": {}}'),
+        ("not-json.json", "{", "JSONDecodeError"),
+        ("not-an-object.json", "[]", "TypeError"),
+        ("missing-report.json", '{"packageName": "x", "events": [], "files": {}}', "KeyError"),
+        ("missing-version.json", _valid(version=None).replace('"version": null, ', ""), "KeyError"),
+        ("no-type.json", _valid(events=[{"timestamp": "2026-01-01T00:00:00Z"}]), "KeyError"),
     ],
 )
-def test_a_broken_recording_is_skipped_and_siblings_still_load(
-    rig, tmp_path, monkeypatch, name: str, body: str
+def test_a_broken_recording_fails_the_load_and_names_the_file(
+    rig, tmp_path, monkeypatch, name: str, body: str, cause: str
 ) -> None:
-    """C3: FINDING, pinned rather than blessed. _load swallows OSError / KeyError /
-    TypeError / JSONDecodeError per file, so a malformed gallery entry vanishes
-    with nothing but a log line — on a product surface, an operator sees a missing
-    demo rather than an error. The sibling still loading is the other half: one bad
-    file must not take the gallery down."""
-    good = json.dumps(
-        {"packageName": "good", "events": [], "files": {"a.js": "1"}, "report": {"verdict": "SAFE"}}
-    )
+    """C3: was a FINDING (skipped with one log line, so the gallery silently lost an
+    entry); now the contract. The same four causes — OSError / JSONDecodeError /
+    TypeError / KeyError — are re-raised as DemoRecordingError naming the FILE and
+    the cause, and one bad file takes the whole load with it: the sibling written
+    alongside becomes unreachable too, because a gallery missing an exhibit is a
+    broken product surface, not a warning. DemoService is constructed in the
+    lifespan, so this is a boot failure — and recordings are committed files the
+    suite loads, so it can only fire on a bad commit."""
     monkeypatch.setattr(
-        demo_module, "REPO_ROOT", _write_recordings(tmp_path, {name: body, "good.json": good})
+        demo_module,
+        "REPO_ROOT",
+        _write_recordings(tmp_path, {name: body, "sibling.json": _valid()}),
     )
-    service = demo_module.DemoService(rig.sessions, rig.stream)
-    assert set(service.recordings) == {"good"}
+    with pytest.raises(demo_module.DemoRecordingError) as excinfo:
+        demo_module.DemoService(rig.sessions, rig.stream)
+    message = str(excinfo.value)
+    assert name in message  # located: which file
+    assert cause in message  # and why
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        pytest.param([], id="no-frames"),
+        pytest.param(
+            [{"type": "phase_started", "timestamp": "2026-01-01T00:00:00Z"}], id="no-terminal"
+        ),
+        pytest.param(
+            [
+                {"type": "verdict_reached", "timestamp": "2026-01-01T00:00:00Z"},
+                {"type": "phase_completed", "timestamp": "2026-01-01T00:00:01Z"},
+            ],
+            id="terminal-not-last",
+        ),
+        pytest.param(
+            [
+                {"type": "audit_error", "timestamp": "2026-01-01T00:00:00Z"},
+                {"type": "verdict_reached", "timestamp": "2026-01-01T00:00:01Z"},
+            ],
+            id="two-terminals",
+        ),
+    ],
+)
+def test_a_recording_must_end_with_exactly_one_terminal_frame(
+    rig, tmp_path, monkeypatch, events: list[dict[str, Any]]
+) -> None:
+    """C3b: the invariant C16 rests on. A recording with no terminal frame never
+    finalises its row (leaving it 'running', and an SSE follower waiting for a frame
+    that never comes), and frames after the terminal one are frames no follower can
+    receive — sse_events returns on it. Neither shape can come out of a real audit,
+    so neither loads, and the refusal names the file and the offending indices."""
+    monkeypatch.setattr(
+        demo_module, "REPO_ROOT", _write_recordings(tmp_path, {"paced.json": _valid(events=events)})
+    )
+    with pytest.raises(demo_module.DemoRecordingError, match="paced.json.*terminal frames at"):
+        demo_module.DemoService(rig.sessions, rig.stream)
+
+
+def test_two_recordings_cannot_claim_one_package_name(rig, tmp_path, monkeypatch) -> None:
+    """C3: the other silent loss in the same three lines — the index is keyed by
+    packageName, so a collision simply dropped whichever file globbed first."""
+    monkeypatch.setattr(
+        demo_module,
+        "REPO_ROOT",
+        _write_recordings(tmp_path, {"a.json": _valid(), "b.json": _valid()}),
+    )
+    with pytest.raises(demo_module.DemoRecordingError, match="already occupies"):
+        demo_module.DemoService(rig.sessions, rig.stream)
 
 
 # --------------------------------------------------------------------------- #
@@ -439,10 +530,30 @@ def test_a_non_numeric_speed_breaks_the_import(at_speed) -> None:
     [
         # agent_reasoning floors at 800 ms; the recorded gap is 1 ms. At speed 4
         # the floor is 200 ms, while the recorded delta alone would be 0.25 ms.
-        ("floor", "4", [("agent_reasoning", "00.000"), ("agent_reasoning", "00.001")], 0.1, None),
+        (
+            "floor",
+            "4",
+            [
+                ("agent_reasoning", "00.000"),
+                ("agent_reasoning", "00.001"),
+                ("verdict_reached", "00.002"),
+            ],
+            0.1,
+            None,
+        ),
         # A 600 s recorded gap caps at MAX_DELAY_MS (4 s). At speed 40 that is
         # 100 ms; uncapped it would be 15 s, so the upper bound falsifies the cap.
-        ("cap", "40", [("file_list", "00.000"), ("file_list", "10:00.000")], 0.02, 1.0),
+        (
+            "cap",
+            "40",
+            [
+                ("file_list", "00.000"),
+                ("file_list", "10:00.000"),
+                ("verdict_reached", "10:00.001"),
+            ],
+            0.02,
+            1.0,
+        ),
     ],
 )
 async def test_throttle_floor_and_cap(
@@ -451,22 +562,21 @@ async def test_throttle_floor_and_cap(
     """C13: the two bounds that make a replay watchable. The floor keeps frames
     from flying past faster than a human reads; the cap keeps a long pause in a
     recording from stalling the gallery. Both are observed as elapsed time over a
-    two-frame recording, at a scaled speed so the test costs milliseconds."""
-    recording = {
-        "packageName": "paced",
-        "events": [
+    three-frame recording, at a scaled speed so the test costs milliseconds. The
+    last frame is the terminal one every recording must end with (C3b), one
+    millisecond after the frame being measured, so it adds only its own floor
+    (800 ms / speed — 200 ms and 20 ms) and cannot reach either bound."""
+    recording = _valid(
+        packageName="paced",
+        events=[
             {"type": kind_, "timestamp": f"2026-01-01T00:{stamp}Z", "files": []}
             for kind_, stamp in events
         ],
-        "files": {"a.js": "1"},
-        "report": {"verdict": "SAFE"},
-    }
-    module = at_speed(speed)
-    monkeypatch.setattr(
-        module, "REPO_ROOT", _write_recordings(tmp_path, {"paced.json": json.dumps(recording)})
     )
+    module = at_speed(speed)
+    monkeypatch.setattr(module, "REPO_ROOT", _write_recordings(tmp_path, {"paced.json": recording}))
     result = await _replay(rig, module, package="paced")
-    assert len(result.frames) == 2
+    assert len(result.frames) == len(events)
     assert result.elapsed > lower
     if upper is not None:
         assert result.elapsed < upper
@@ -550,16 +660,19 @@ def test_recorded_index_risk_contribution_contradicts_the_recorded_severities() 
     assert frame["verdict"]["riskContribution"] == 3 != computed
 
 
-def test_recorded_report_has_no_extractable_version(tmp_path, monkeypatch) -> None:
-    """C15: the latent trap, made visible. Every trace[].output in the recording is
-    {} (curated), so the store cannot recover a version from the report:
+def test_recorded_report_has_no_extractable_version(rig, tmp_path, monkeypatch) -> None:
+    """C15: the trap, and the half of it that is now closed. Every trace[].output in
+    the recording is {} (curated), so the store still cannot recover a version from
+    the report itself:
       * extract_report_version -> None;
       * save_report with "latest" or "" raises UnversionedReportError;
-      * save_report with a version SUCCEEDS, filing the recorded report under the
-        caller's guess — and DemoRecording does not even load the recording's own
-        top-level `version`, so a caller has nothing honest to pass.
-    Nothing breaks today only because DemoService finalises the row directly and
-    never calls save_report. This class fails the moment that changes."""
+      * save_report with a version SUCCEEDS, filing the report under whatever the
+        caller passed — the store cannot tell an honest version from a guess.
+    What changed is that there is now something honest to pass: DemoRecording loads
+    the recording's own `version`. Checked against the package.json of the source
+    tree the recording is an audit OF, so this asserts AGREEMENT with the audited
+    package rather than blessing a curated value — a re-record that moved the
+    version would have to move both."""
     recorded = _recording(DANGEROUS_RECORDING)
     report = recorded["report"]
     assert [phase["output"] for phase in report["trace"]] == [{}] * len(report["trace"])
@@ -569,23 +682,70 @@ def test_recorded_report_has_no_extractable_version(tmp_path, monkeypatch) -> No
     for requested in ("latest", ""):
         with pytest.raises(report_store.UnversionedReportError):
             report_store.save_report("test-pkg-env-exfil", requested, report)
-    guessed = report_store.save_report("test-pkg-env-exfil", "2.0.1", report)
-    assert guessed == "2.0.1"  # the caller's version, not the report's
-    assert not hasattr(demo_module.DemoRecording, "version")
-    assert "version" not in demo_module.DemoRecording.__dataclass_fields__
-    assert recorded["version"] == "2.0.1"  # present in the file, loaded by nothing
+    guessed = report_store.save_report("test-pkg-env-exfil", "9.9.9-a-guess", report)
+    assert guessed == "9.9.9-a-guess"  # the caller's version, not the report's
+
+    recording = demo_module.DemoService(rig.sessions, rig.stream).recordings["test-pkg-env-exfil"]
+    audited = json.loads((EXFIL_SOURCES / "package.json").read_text(encoding="utf-8"))
+    assert recording.version == audited["version"]
+    assert report_store.save_report("test-pkg-env-exfil", recording.version, report) == "2.0.1"
 
 
-async def test_terminal_frame_is_durable_before_the_report_row(rig, at_speed) -> None:
-    """C16: FINDING, pinned. The recorded verdict_reached is emitted inside the
-    replay loop, and only then does finalize write the row — the inverse of the
-    real path, where AuditService._finish makes a terminal frame imply a durable
-    report. Observed at the store seam: when finalize runs, the terminal frame is
-    already in the durable log. A gallery that requests the report on the terminal
-    frame can therefore observe a non-terminal row."""
+async def test_the_report_row_is_durable_no_later_than_the_terminal_frame(rig, at_speed) -> None:
+    """C16: was a FINDING (every frame emitted, then finalize — so the terminal frame
+    could be durable while the row was still 'running' with no report, and a gallery
+    that fetches on verdict_reached could get nothing). Now the real path's ordering:
+    finalize runs INSIDE the transaction that appends the terminal frame, before the
+    append. Observed at the store seam — when finalize runs, every non-terminal frame
+    is already durable and the terminal one is not — plus the end state: the frame is
+    there and the row is done, so nothing was merely dropped."""
     module = at_speed("0")
     result = await _replay(rig, module, package="chalk")
     observed = rig.sessions.frames_at_finalize
     assert observed is not None
-    assert observed[-1]["type"] == "verdict_reached"
-    assert len(observed) == len(result.frames)
+    assert [frame["type"] for frame in observed] == [
+        frame["type"] for frame in result.frames[:-1]
+    ]
+    assert not [frame for frame in observed if frame["type"] in TERMINAL_EVENTS]
+    assert result.frames[-1]["type"] == "verdict_reached"
+    assert result.row.status == "done" and result.row.report is not None
+
+
+async def test_a_failed_terminal_append_rolls_the_report_row_back(
+    rig, at_speed, monkeypatch
+) -> None:
+    """C16b: the two writes are one unit, not two ordered ones. With the append
+    failing, the row must not be terminal and must hold no report — a terminal row
+    whose terminal event never landed strands every follower for ever, since
+    sse_events only returns on that event. kit_stream's append(session=…) joins the
+    caller's transaction precisely so this rolls back. A finalize()-then-emit()
+    ordering fix satisfies C16 and fails here.
+    (A demo row left non-terminal is NOT repaired by restart recovery — the
+    file_contents tag deliberately hides it from queued()/running() — so what this
+    buys is only the direction of the failure: a replay that visibly stops, never a
+    terminal frame promising a report that is not there.)"""
+    module = at_speed("0")
+    service = module.DemoService(rig.sessions, rig.stream)
+    original = rig.stream.append
+
+    async def failing_append(channel, type, data=None, *, session=None):
+        if type in TERMINAL_EVENTS:
+            raise RuntimeError("stream is down")
+        return await original(channel, type, data, session=session)
+
+    monkeypatch.setattr(rig.stream, "append", failing_append)
+    handle = await service.start("chalk")
+    audit_id = handle["auditId"]
+    task = next(
+        task for task in asyncio.all_tasks() if task.get_name() == f"npmguard-demo-{audit_id}"
+    )
+    with pytest.raises(RuntimeError, match="stream is down"):
+        await asyncio.wait_for(task, REPLAY_DEADLINE_SECONDS)
+
+    monkeypatch.setattr(rig.stream, "append", original)
+    row = await rig.sessions.get(audit_id)
+    assert row is not None
+    assert row.status not in ("done", "error")
+    assert row.report is None
+    frames = await _frames(rig.stream, audit_id)
+    assert frames and not [frame for frame in frames if frame["type"] in TERMINAL_EVENTS]
