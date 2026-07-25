@@ -108,9 +108,23 @@ function DepStatusPill({ dep }: { dep: AuditSetItem }) {
   return <ProgressStamp state="queued">Queued</ProgressStamp>;
 }
 
-/** One row of the review queue. A real `<Link>`, not a `<button onClick={navigate}>`:
- * these go to a canonical report URL, and a button that navigates cannot be
- * middle-clicked, opened in a new tab, or announced as a link. */
+/** Where a dep's report lives, or null when it has none.
+ *
+ * A report page exists only where an audit CONCLUDED with a verdict: an ERROR
+ * dep ("we tried and failed") has nothing to link to, and a link into a 404 is
+ * worse than plain text. ONE predicate, because the review queue and the
+ * inventory table render the same dep and must not disagree about whether it is
+ * navigable — they did, and the queue sent every ERROR dep to a 404. */
+function reportHref(pkg: { name: string; outcome: string | null }): string | null {
+  return pkg.outcome === "SAFE" || pkg.outcome === "DANGEROUS"
+    ? `/package/${pkg.name}`
+    : null;
+}
+
+/** One row of the review queue. A real `<Link>` where there is a report, not a
+ * `<button onClick={navigate}>`: these go to a canonical report URL, and a button
+ * that navigates cannot be middle-clicked, opened in a new tab, or announced as a
+ * link. With no report it is not a link at all — see `reportHref`. */
 function QueueRow({
   to,
   name,
@@ -119,37 +133,43 @@ function QueueRow({
   meta,
   severity,
 }: {
-  to: string;
+  to: string | null;
   name: string;
   version: string;
   stamp: ReactNode;
   meta: string;
   severity: "danger" | "error" | undefined;
 }) {
-  return (
-    <Link
-      to={to}
-      className={cn(
-        "flex items-center gap-3 border-b border-border-faint px-4 py-2.5 text-sm last:border-b-0",
-        "transition-colors duration-fast hover:bg-sunken",
-        // §2.8's 3px rule, with a transparent one on unruled rows so nothing
-        // shifts 3px when severity changes.
-        "border-l-[length:var(--ng-border-rule)]",
-        severity === "danger"
-          ? "border-l-danger"
-          : severity === "error"
-            ? "border-l-error"
-            : "border-l-transparent",
-      )}
-    >
+  const className = cn(
+    "flex items-center gap-3 border-b border-border-faint px-4 py-2.5 text-sm last:border-b-0",
+    // §2.8's 3px rule, with a transparent one on unruled rows so nothing
+    // shifts 3px when severity changes.
+    "border-l-[length:var(--ng-border-rule)]",
+    to && "transition-colors duration-fast hover:bg-sunken",
+    severity === "danger"
+      ? "border-l-danger"
+      : severity === "error"
+        ? "border-l-error"
+        : "border-l-transparent",
+  );
+  const body = (
+    <>
       <span className="min-w-0 truncate font-mono text-sm text-text">
         {name}@{version}
       </span>
       {stamp}
       <span className="ms-auto flex items-center gap-1 whitespace-nowrap text-2xs text-text-3">
         {meta}
-        <ChevronRight aria-hidden="true" className="size-icon-sm" />
+        {/* The chevron is the affordance, so it goes when the row does not
+            navigate — a row that looks clickable and is not is its own lie. */}
+        {to && <ChevronRight aria-hidden="true" className="size-icon-sm" />}
       </span>
+    </>
+  );
+  if (to === null) return <div className={className}>{body}</div>;
+  return (
+    <Link to={to} className={className}>
+      {body}
     </Link>
   );
 }
@@ -525,7 +545,7 @@ export function RepoDetail() {
               ? alerts.slice(0, 4).map((alert) => (
                   <QueueRow
                     key={alert.id}
-                    to={`/package/${alert.packageName}`}
+                    to={reportHref({ name: alert.packageName, outcome: alert.outcome })}
                     name={alert.packageName}
                     version={alert.version}
                     stamp={<VerdictStamp outcome={alert.outcome} />}
@@ -536,7 +556,7 @@ export function RepoDetail() {
               : queueDeps.map((dep) => (
                   <QueueRow
                     key={`${dep.name}@${dep.version}`}
-                    to={`/package/${dep.name}`}
+                    to={reportHref(dep)}
                     name={dep.name}
                     version={dep.version}
                     stamp={dep.outcome ? <VerdictStamp outcome={dep.outcome} /> : null}
@@ -650,10 +670,10 @@ export function RepoDetail() {
                                 {/* A report page exists only where an audit
                                     CONCLUDED with a verdict — an ERROR dep has
                                     no report to link to. */}
-                                {dep.outcome === "SAFE" || dep.outcome === "DANGEROUS" ? (
+                                {reportHref(dep) ? (
                                   <Link
                                     className="font-mono text-sm text-accent-text hover:underline"
-                                    to={`/package/${dep.name}`}
+                                    to={reportHref(dep)!}
                                   >
                                     {dep.name}
                                   </Link>

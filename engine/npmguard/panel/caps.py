@@ -2,9 +2,13 @@
 
 An installation is the billing account shared by every member who can access it, so caps are enforced per ``installation_id``.
 
-Plan resolution: ``plan='pro'`` iff the installation's
-``billing_accounts.subscription_status`` is ``active`` or ``trialing`` — every
-other status (including the ``inactive`` default and a missing row) is ``free``.
+Plan resolution: an installation whose ``billing_accounts.subscription_status``
+is ``active`` or ``trialing`` is granted the top offer in :meth:`CapsStore.offers`;
+every other status (including the ``inactive`` default and a missing row) gets the
+baseline. The projection this module returns is the AUTHORITY (F-E2) — ``plan`` on
+it is the granting offer's display label and nothing downstream may branch on it
+(F-E5). A consumer asking "can this account buy something?" reads ``upgradeOffers``;
+one asking "is it paying?" reads ``subscriptionActive``.
 
 Limit semantics: a limit of ``0`` means UNLIMITED — the matching
 ``UsageBucket.remaining`` is ``None`` (the wire contract's "no cap" signal),
@@ -39,10 +43,10 @@ from .tables import (
     repos,
 )
 
-AccountPlan = Literal["free", "pro"]
 CapResource = Literal["protected_repos", "monthly_audits"]
 
-# Only these subscription statuses grant the Pro plan; everything else is free.
+# Only these subscription statuses grant a paid offer; everything else falls back
+# to the baseline.
 _ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
 
 
@@ -50,6 +54,27 @@ _ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
 class PlanLimits:
     protected_repos: int
     monthly_audits: int
+
+
+@dataclass(frozen=True)
+class PlanOffer:
+    """One purchasable tier. ``rank`` orders the catalog: an account may upgrade
+    to any offer ranking above the one currently granting its entitlements."""
+
+    id: str
+    label: str
+    rank: int
+    limits: PlanLimits
+
+    def wire(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "limits": {
+                "protectedRepos": self.limits.protected_repos,
+                "monthlyAudits": self.limits.monthly_audits,
+            },
+        }
 
 
 class CapExceededError(Exception):
@@ -88,26 +113,40 @@ class CapsStore:
         self._sessions = sessions
         self._settings = settings
 
-    def plan_limits(self, plan: AccountPlan) -> PlanLimits:
+    def offers(self) -> list[PlanOffer]:
+        """Every tier this deployment sells, ascending. Limits come from
+        ``Settings`` so a deployment retunes quotas without a code change; a new
+        product is one more record here and one more bucket in
+        :meth:`entitlements`, and no consumer changes."""
         s = self._settings
-        if plan == "pro":
-            return PlanLimits(
-                protected_repos=s.pro_max_protected_repos,
-                monthly_audits=s.pro_max_audits_month,
-            )
-        return PlanLimits(
-            protected_repos=s.free_max_protected_repos,
-            monthly_audits=s.free_max_audits_month,
-        )
+        return [
+            PlanOffer(
+                id="free",
+                label="Free",
+                rank=0,
+                limits=PlanLimits(
+                    protected_repos=s.free_max_protected_repos,
+                    monthly_audits=s.free_max_audits_month,
+                ),
+            ),
+            PlanOffer(
+                id="pro",
+                label="Pro",
+                rank=1,
+                limits=PlanLimits(
+                    protected_repos=s.pro_max_protected_repos,
+                    monthly_audits=s.pro_max_audits_month,
+                ),
+            ),
+        ]
 
-    def plan_catalog(self) -> dict[str, dict[str, int]]:
-        def _shape(limits: PlanLimits) -> dict[str, int]:
-            return {
-                "protectedRepos": limits.protected_repos,
-                "monthlyAudits": limits.monthly_audits,
-            }
-
-        return {"free": _shape(self.plan_limits("free")), "pro": _shape(self.plan_limits("pro"))}
+    def _granted_offer(self, subscription_status: str) -> PlanOffer:
+        """The offer currently granting an account's entitlements. A paid
+        subscription grants the top tier; everything else is the baseline."""
+        catalog = self.offers()
+        if subscription_status in _ACTIVE_SUBSCRIPTION_STATUSES:
+            return max(catalog, key=lambda offer: offer.rank)
+        return min(catalog, key=lambda offer: offer.rank)
 
     async def entitlements(self, installation_id: int) -> dict[str, Any]:
         """The full ``AccountEntitlements``-shaped dict for one installation."""
@@ -117,15 +156,17 @@ class CapsStore:
             protected = await self._protected_repo_count(session, installation_id)
             monthly = await self._audits_used_this_month(session, installation_id)
 
-        plan: AccountPlan = (
-            "pro" if subscription_status in _ACTIVE_SUBSCRIPTION_STATUSES else "free"
-        )
-        limits = self.plan_limits(plan)
+        granted = self._granted_offer(subscription_status)
+        limits = granted.limits
         return {
             "installationId": installation_id,
             "accountLogin": account_login,
-            "plan": plan,
+            "plan": granted.label,
             "subscriptionStatus": subscription_status,
+            "subscriptionActive": subscription_status in _ACTIVE_SUBSCRIPTION_STATUSES,
+            "upgradeOffers": [
+                offer.wire() for offer in self.offers() if offer.rank > granted.rank
+            ],
             "protectedRepos": {
                 "used": protected,
                 "limit": limits.protected_repos,
@@ -145,7 +186,7 @@ class CapsStore:
         if limit > 0 and used >= limit:
             raise CapExceededError(
                 f"{entitlements['accountLogin']} has used all {limit} "
-                f"{entitlements['plan'].upper()} protected repositories",
+                f"{entitlements['plan']} protected repositories",
                 installation_id,
                 "protected_repos",
                 entitlements,
@@ -243,9 +284,9 @@ class CapsStore:
 
 
 __all__ = [
-    "AccountPlan",
     "CapResource",
     "CapExceededError",
     "CapsStore",
     "PlanLimits",
+    "PlanOffer",
 ]

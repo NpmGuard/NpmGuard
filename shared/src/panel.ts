@@ -421,27 +421,6 @@ export const UsageBucketSchema = z.object({
 });
 export type UsageBucket = z.infer<typeof UsageBucketSchema>;
 
-// A DERIVED display label — "pro" iff `subscriptionStatus` is active|trialing.
-// The authority is the entitlements projection below; no wire shape, table or
-// component may branch on this two-valued fact (F-E5).
-export const AccountPlanSchema = z.enum(["free", "pro"]);
-export type AccountPlan = z.infer<typeof AccountPlanSchema>;
-
-// The resource-keyed projection everything downstream of the billing seam
-// consumes (F-E2). A new product — per-audit credits — is a new bucket here,
-// never a new branch in a consumer.
-export const AccountEntitlementsSchema = z.object({
-  installationId: z.number().int(),
-  accountLogin: z.string(),
-  plan: AccountPlanSchema,
-  // Stripe's own vocabulary, passed through verbatim ("inactive" when there is
-  // no billing row). Deliberately not an enum: it is the provider's fact.
-  subscriptionStatus: z.string(),
-  protectedRepos: UsageBucketSchema,
-  monthlyAudits: UsageBucketSchema,
-});
-export type AccountEntitlements = z.infer<typeof AccountEntitlementsSchema>;
-
 // Deployment-tuned ceilings (Settings), same 0-means-unlimited rule as above.
 export const PlanLimitsSchema = z.object({
   protectedRepos: z.number().int().nonnegative(),
@@ -449,11 +428,45 @@ export const PlanLimitsSchema = z.object({
 });
 export type PlanLimits = z.infer<typeof PlanLimitsSchema>;
 
-export const PlanCatalogSchema = z.object({
-  free: PlanLimitsSchema,
-  pro: PlanLimitsSchema,
+// One purchasable tier. `id` is opaque on the wire: consumers pass it back, and
+// none may branch on its value. That is the whole of F-E5 — a catalog keyed
+// `{free, pro}` made every consumer spell a tier name to read a limit, so a
+// third product could not be added without editing all of them.
+export const PlanOfferSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  limits: PlanLimitsSchema,
 });
-export type PlanCatalog = z.infer<typeof PlanCatalogSchema>;
+export type PlanOffer = z.infer<typeof PlanOfferSchema>;
+
+// The resource-keyed projection everything downstream of the billing seam
+// consumes (F-E2), and the AUTHORITY on what an account may do. A new product —
+// per-audit credits — is a new bucket and a new offer here, never a new branch
+// in a consumer.
+export const AccountEntitlementsSchema = z.object({
+  installationId: z.number().int(),
+  accountLogin: z.string(),
+  // A DERIVED display label, and only that: the offer's `label` for whatever is
+  // currently granting these entitlements. Deliberately an unconstrained string
+  // — an enum here is exactly the two-valued wire shape F-E5 forbids, and every
+  // decision that used to read it now reads `upgradeOffers` or
+  // `subscriptionActive` instead.
+  plan: z.string(),
+  // Stripe's own vocabulary, passed through verbatim ("inactive" when there is
+  // no billing row). Deliberately not an enum: it is the provider's fact.
+  subscriptionStatus: z.string(),
+  // Whether a live subscription is granting these entitlements. Derived from
+  // `subscriptionStatus` server-side so no client re-derives which of Stripe's
+  // statuses count as paid.
+  subscriptionActive: z.boolean(),
+  protectedRepos: UsageBucketSchema,
+  monthlyAudits: UsageBucketSchema,
+  // What this account can buy right now, resolved server-side and ordered by
+  // ascending tier. Empty when it already holds the top offer. A UI renders one
+  // control per entry; it never asks "is this account free?".
+  upgradeOffers: z.array(PlanOfferSchema),
+});
+export type AccountEntitlements = z.infer<typeof AccountEntitlementsSchema>;
 
 // Read best-effort from Stripe; each field is null when the price omits it.
 export const SubscriptionPriceSchema = z.object({
@@ -465,7 +478,9 @@ export type SubscriptionPrice = z.infer<typeof SubscriptionPriceSchema>;
 
 export const BillingResponseSchema = z.object({
   accounts: z.array(AccountEntitlementsSchema),
-  plans: PlanCatalogSchema,
+  // Every tier this deployment sells, baseline first. A consumer that wants
+  // "what an account can buy" reads that account's `upgradeOffers`, not this.
+  offers: z.array(PlanOfferSchema),
   checkoutEnabled: z.boolean(),
   // Null when checkout is not configured or Stripe could not be reached —
   // pricing is display-only, so its absence never blocks the page.

@@ -28,14 +28,15 @@
 #     - an SSRF reference (wrong host) → 400; a PRIVATE repo → 403 [C3]
 #
 #   S-bill-1  Stripe subscription billing lifts a cap [C4-C6]:
-#     - FREE plan capped at ONE protected repo: protect acme/web → 200, protect a
-#       SECOND repo acme/api → 402 {cap:true, resource:'protected_repos'} [C4]
+#     - BASELINE plan capped at ONE protected repo: protect acme/web → 200, protect
+#       a SECOND repo acme/api → 402 {cap:true, resource:'protected_repos'} [C4]
 #     - POST /panel/billing/checkout {installationId:500} → 200 {url, sessionId}
 #       (a mode='subscription' checkout created through the Stripe stub) [C5]
 #     - POST a signed customer.subscription.created (metadata.kind=
 #       'repo_pro_subscription', installationId=500, status='active') to
-#       /webhooks/stripe → 200; GET /panel/billing shows the account flipped to
-#       plan 'pro'; the capped SECOND protect then SUCCEEDS (200) [C6]
+#       /webhooks/stripe → 200; GET /panel/billing shows the account's projection
+#       flipped — subscriptionActive true, upgradeOffers now empty — and the
+#       capped SECOND protect then SUCCEEDS (200) [C6]
 #     - the one-off audit webhook branch is untouched (its tests stay green in the
 #       default suite; here we exercise only the subscription branch)
 #
@@ -54,12 +55,11 @@ import hashlib
 import hmac
 import json
 import time
-from pathlib import Path
 
 import httpx
 import pytest
 
-from tests.support.panel import github_env
+from tests.support.panel import github_env, seed_report
 
 pytestmark = pytest.mark.e2e
 
@@ -95,14 +95,6 @@ PROTECT_LOCKFILE = json.dumps(
         },
     }
 )
-
-
-def _seed_report(reports_dir: Path, name: str, version: str, report: dict) -> None:
-    directory = reports_dir / name
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{version}.json").write_text(
-        json.dumps(report) + "\n", encoding="utf-8"
-    )
 
 
 def _safe() -> dict:
@@ -206,8 +198,8 @@ def test_s_pub_0_signed_in_visitor_with_no_installation_can_scan(
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-dep", "1.0.0", _safe())
-    _seed_report(reports, "danger-dep", "2.0.0", _dangerous())
+    seed_report(reports, "safe-dep", "1.0.0", _safe())
+    seed_report(reports, "danger-dep", "2.0.0", _dangerous())
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
@@ -275,8 +267,8 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-dep", "1.0.0", _safe())
-    _seed_report(reports, "danger-dep", "2.0.0", _dangerous())
+    seed_report(reports, "safe-dep", "1.0.0", _safe())
+    seed_report(reports, "danger-dep", "2.0.0", _dangerous())
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
@@ -393,7 +385,7 @@ def test_s_bill_1_subscription_webhook_flips_plan_and_lifts_cap(
         stripe_webhook_secret=WEBHOOK_SECRET,
     )
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-dep", "1.0.0", _safe())
+    seed_report(reports, "safe-dep", "1.0.0", _safe())
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
@@ -421,13 +413,15 @@ def test_s_bill_1_subscription_webhook_flips_plan_and_lifts_cap(
         assert cap_body["resource"] == "protected_repos"
         assert cap_body["installationId"] == 500
 
-        # billing starts on the free plan.
+        # billing starts on the baseline, with the paid tier still on offer.
         billing = client.get(f"{base}/api/panel/billing")
         assert billing.status_code == 200, billing.text
         payload = billing.json()
         assert payload["checkoutEnabled"] is True
+        assert [o["id"] for o in payload["offers"]] == ["free", "pro"]
         account = next(a for a in payload["accounts"] if a["installationId"] == 500)
-        assert account["plan"] == "free"
+        assert account["subscriptionActive"] is False
+        assert [o["id"] for o in account["upgradeOffers"]] == ["pro"]
 
         # C5: a subscription checkout is created through the Stripe stub.
         checkout = client.post(
@@ -458,8 +452,11 @@ def test_s_bill_1_subscription_webhook_flips_plan_and_lifts_cap(
         account_after = next(
             a for a in billing_after["accounts"] if a["installationId"] == 500
         )
-        assert account_after["plan"] == "pro", account_after
         assert account_after["subscriptionStatus"] == "active"
+        assert account_after["subscriptionActive"] is True, account_after
+        # The projection, not the label, is what lifts the cap below: nothing
+        # left to buy is what "on the top tier" means now.
+        assert account_after["upgradeOffers"] == [], account_after
 
         # The capped second protect succeeds on the Pro cap.
         lifted = client.post(f"{base}/api/panel/repo/1002/protect")
