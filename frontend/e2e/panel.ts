@@ -32,6 +32,14 @@ export async function signIn(page: Page): Promise<void> {
 /**
  * Fire the engine's own DANGEROUS-verdict fan-out for one pair.
  *
+ * ⚠ REVISIT IN PHASE 4 — this is the ONE synthetic trigger in the panel e2e
+ * tier, and it exists only because Phase 3 excludes docker and a live LLM.
+ * The moment Phase 4 has an audit that can genuinely conclude DANGEROUS
+ * (design §Phase 4, "turn the panel on for real"), delete this helper and let
+ * P4 drive a real scan whose worker raises the alert. Until then the alert
+ * FEED is proved and the alert TRIGGER is not — do not read P4 as covering
+ * `PanelScanWorker`'s hook.
+ *
  * The alert producer runs inside `PanelScanWorker` at the moment a real audit
  * lands a DANGEROUS verdict, and a real audit needs docker + a live LLM — both
  * out of scope for Phase 3, and under `NPMGUARD_MOCK_LLM` a concluding audit

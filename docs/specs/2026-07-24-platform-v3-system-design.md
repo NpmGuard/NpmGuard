@@ -1062,6 +1062,16 @@ Covers F-B*, F-C*, F-D1, F-E3, N-6, N-7, N-9.
 Register the OAuth callback; tunnel webhook delivery and prove a real `push`
 produces a push scan + check-run; configure billing so the upgrade path stops
 being an honest 501. Covers F-B1, F-D2, F-E4, N-14. **SMTP stays out (F-D5).**
+
+**Debt this phase inherits from Phase 3:** the alert *trigger* is the one thing
+the browser tier could not drive. `PanelScanWorker` raises an alert only when a
+real audit lands DANGEROUS, which needs docker + a live LLM (and under
+`NPMGUARD_MOCK_LLM` a concluding audit can only be SAFE), so `panel.spec.ts` P4
+fires the engine's own `handle_dangerous_verdict` from the harness process
+(`panel_e2e_server.py`'s `/fixture/dangerous-fanout`) and proves the feed
+downstream of it. **When an audit here can genuinely conclude DANGEROUS, delete
+that endpoint and its helper and let P4 drive a real scan.** Both sites carry a
+`REVISIT IN PHASE 4` marker.
 _Note:_ do **not** harden the plan model here (F-E). Get *a* payment path
 working behind the F-E1 seam and leave the shape changeable.
 
