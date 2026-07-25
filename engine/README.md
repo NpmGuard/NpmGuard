@@ -22,9 +22,16 @@ Or from the repository root:
 ./run.sh --dev
 ```
 
-Every route is served at the root AND under an `/api` mirror: `/audit`,
-`/audit/stream`, durable SSE events, reports, registry, Stripe/on-chain payment
-verification, demos, and benchmark-result reads.
+Every route answers under the `/api` mirror — `/audit`, `/audit/stream`, durable
+SSE events, reports, registry, Stripe/on-chain payment verification, demos, and
+benchmark-result reads — and most also answer at the root.
+
+The exceptions are the routes whose path is also a page in the frontend the
+engine serves: `/api/packages` and `/api/replays` have no root form, because a
+root route of that name wins the match and hands a browser JSON. `/audit/{id}`
+is likewise a page, while everything under it (`/events`, `/file`, `/report`) is
+API. `api.py::client_owned_router` is where that is decided; a new page whose
+path collides with a root route means moving the route there.
 
 ## Test and lint
 

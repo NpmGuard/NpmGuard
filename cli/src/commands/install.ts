@@ -155,7 +155,9 @@ function handleExistingReport(
 ): void {
   const verdict = extractVerdict(report);
   const rationale = extractRationale(report);
-  const reportUrl = `${apiUrl}/package/${encodeURIComponent(name)}/report`;
+  // The PAGE, not the JSON route it is built from: this is printed for a human
+  // to open. `/package/<name>/report` renders the report as a raw body.
+  const reportUrl = `${apiUrl}/package/${encodeURIComponent(name)}`;
 
   // Not a verdict the engine can produce — a version skew or a rewritten body.
   // Refused rather than prompted: an unreadable answer is not a weak yes.

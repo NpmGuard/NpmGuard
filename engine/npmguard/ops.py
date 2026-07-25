@@ -45,7 +45,10 @@ def _spec(value: str) -> tuple[str, str | None]:
 
 class Api:
     def __init__(self, base_url: str, cre_key: str | None) -> None:
-        self.client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=60)
+        # The /api mirror, not the root surface: the engine serves the SPA from
+        # the same origin, so root paths that are also client routes belong to
+        # the pages. /api addresses every route unambiguously.
+        self.client = httpx.AsyncClient(base_url=base_url.rstrip("/") + "/api", timeout=60)
         self.cre_key = cre_key
 
     async def close(self) -> None:
@@ -62,7 +65,7 @@ class Api:
         return response.json()
 
     async def summary(self, package_name: str, version: str | None = None) -> dict[str, Any] | None:
-        response = await self.client.get("/packages", headers={"accept": "application/json"})
+        response = await self.client.get("/packages")
         response.raise_for_status()
         return next(
             (

@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { GITHUB_STUB_PORT, GITHUB_STUB_URL, seedFixture } from "./e2e/panel-fixture.ts";
@@ -44,6 +45,13 @@ if (process.env.TEST_WORKER_INDEX === undefined) {
   // webServers before globalSetup runs and the panel's verdict index is built
   // from these files once, at engine boot. See panel-fixture.ts.
   seedFixture(E2E_DATA_DIR);
+  // Build dist/ before the engine boots. The `static-serving` project drives the
+  // engine's OWN static server, which is the shape production runs (nginx →
+  // engine → dist) and the one vite can never stand in for: vite answers every
+  // path with the SPA and proxies only /api, so a root API route shadowing a
+  // page is invisible to it. The engine also mounts /assets at app creation, so
+  // this must complete before the webServer below starts.
+  execFileSync("npm", ["run", "build"], { cwd: import.meta.dirname, stdio: "inherit" });
 }
 
 const SCENARIO_PATH = join(E2E_DATA_DIR, "github-scenario.json");
@@ -62,6 +70,16 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   expect: { timeout: 20_000 },
+  projects: [
+    { name: "app", testIgnore: /static-serving\.spec\.ts/ },
+    {
+      // Same engine, no vite in front of it: the browser talks to the artifact
+      // that ships. See static-serving.spec.ts for what only this project can fail on.
+      name: "static-serving",
+      testMatch: /static-serving\.spec\.ts/,
+      use: { baseURL: `http://localhost:${ENGINE_PORT}` },
+    },
+  ],
   webServer: [
     {
       // The GitHub App + OAuth stub, and the slow-404 npm registry that keeps a

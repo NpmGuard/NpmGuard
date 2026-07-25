@@ -55,7 +55,8 @@ export async function auditCommand(
       reportField(existing, "counts"),
     );
     console.log();
-    console.log(chalk.dim(`View full report: ${apiUrl}/package/${encodeURIComponent(parsed.name)}/report`));
+    // The PAGE, not the JSON route behind it — this line is for a human to open.
+    console.log(chalk.dim(`View full report: ${apiUrl}/package/${encodeURIComponent(parsed.name)}`));
     return done(verdict === "SAFE" ? 0 : 1);
   }
 

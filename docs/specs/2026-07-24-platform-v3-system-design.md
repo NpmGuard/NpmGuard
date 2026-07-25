@@ -756,10 +756,19 @@ generated-contract edit rather than a hand-mirrored one.
 | GET | `/audit/{id}/events` | SSE, named events, `Last-Event-ID` / `?since=` |
 | GET | `/audit/{id}/file/{path}` | source viewer |
 | GET | `/audit/{id}/report` | live report |
-| GET | `/packages` · `/package/{name}/report` · `/resolve/{name}` | registry |
+| GET | `/api/packages` · `/package/{name}/report` · `/resolve/{name}` | registry |
 | POST | `/checkout` · GET `/checkout/{id}/status` · POST `/webhooks/stripe` | payment |
 | GET | `/config/public` | chain, contract, fee, feature flags |
 | GET | `/demo/packages` · POST `/demo/start` | replay machinery (to be promoted, §5.3) |
+
+**Why two of those carry an explicit `/api`.** Every route answers under the
+`/api` mirror; most also answer at the root. `packages` and `replays` do **not**,
+because the SPA has a page at each of those paths and the engine serves
+`frontend/dist` itself in production — a root route of the same name wins the
+match, so a refresh or a pasted link returned JSON to a browser. Root and `/api`
+are one namespace shared with the client's route table, and where they collide
+the page owns the path (`api.py::client_owned_router`). The same rule makes
+`/audit/{id}` a page while everything below it stays API.
 
 ### 5.2 Existing — panel (built, gated on `github_app_enabled`)
 
@@ -783,7 +792,7 @@ generated-contract edit rather than a hand-mirrored one.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/replays` | gallery: auditId, package, version, verdict, duration, when it ran |
+| GET | `/api/replays` | gallery: auditId, package, version, verdict, duration, when it ran |
 
 There is no `start` counterpart. A row's `auditId` streams on
 `/audit/{id}/events`, the endpoint a live audit already uses, which is what makes
