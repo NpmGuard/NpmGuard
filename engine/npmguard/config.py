@@ -22,7 +22,13 @@ class Settings(KitSettings):
     api_port: int = Field(default=8000, ge=1, le=65535)
     cors_origin: str = "http://localhost:5173"
 
-    llm_backend: Literal["anthropic", "google", "openai_compatible"] = "anthropic"
+    # The inference switch. `openrouter` and `zerog` are one-variable presets —
+    # each resolves its own endpoint, model catalogue and adapter — so a demo can
+    # move between them by editing this line alone. `openai_compatible` stays the
+    # escape hatch for any other endpoint and still requires an explicit base URL.
+    llm_backend: Literal[
+        "anthropic", "google", "openai_compatible", "openrouter", "zerog"
+    ] = "anthropic"
     llm_base_url: str | None = None
     llm_api_key: str = ""
     llm_timeout_seconds: float = Field(default=60, gt=0)
@@ -63,10 +69,66 @@ class Settings(KitSettings):
     sandbox_network: str = "none"
     max_docker_exec_timeout_sec: int = Field(default=30, ge=5, le=300)
 
+    # 0G Compute Router — OpenAI-compatible, TEE-attested inference. Only the
+    # MAINNET router carries models usable for code audit (the testnet router
+    # serves two multimodal models); the Router is a metered service with its own
+    # balance, independent of which 0G chain the contracts live on, so pointing
+    # inference at mainnet while settling on Galileo testnet is coherent.
+    zerog_router_base_url: str = "https://router-api.0g.ai/v1"
+    # Role models are per-catalogue: `triage_model` / `investigation_model` name
+    # OpenRouter slugs that the 0G Router does not serve, so the zerog backend
+    # reads its own pair rather than silently reinterpreting those.
+    zerog_triage_model: str = "deepseek-v4-flash"
+    zerog_investigation_model: str = "deepseek-v4-flash"
+
     base_sepolia_rpc_url: str | None = None
     base_sepolia_contract: str | None = None
     base_rpc_url: str | None = None
     base_contract: str | None = None
+
+    # 0G Chain settlement. Same NpmGuardAuditRequest contract, another EVM chain
+    # — a chain is only offered once its contract address is set, so an unset
+    # address means the chain is simply absent rather than half-configured.
+    zerog_testnet_rpc_url: str | None = None
+    zerog_testnet_contract: str | None = None
+    zerog_rpc_url: str | None = None
+    zerog_contract: str | None = None
+
+    # 0G Storage + the relayer that pays for storage submissions and writes
+    # attestation rows. `zerog_relayer_key` is a SECRET (hex private key): it is
+    # never logged and never leaves the engine — the CLI has no private-key path.
+    zerog_network: Literal["testnet", "mainnet"] = "testnet"
+    zerog_storage_indexer_url: str | None = None
+    zerog_relayer_key: str | None = None
+    zerog_attestations_contract: str | None = None
+    # Best-effort mirror of each audit report to 0G Storage. Off by default: the
+    # filesystem report store stays the source of truth and an audit must never
+    # depend on a storage network being reachable.
+    zerog_mirror_reports: bool = False
+
+    # World ID publisher attestation. `world_signing_key` is a SECRET (the RP
+    # signing key) and is never logged. The whole feature is gated behind the
+    # computed `world_enabled` below: unset means every attestation route 503s
+    # and the engine behaves exactly as it does without it.
+    world_app_id: str | None = None
+    world_rp_id: str | None = None
+    world_signing_key: str | None = None
+    # The action scopes the nullifier. It MUST stay fixed forever: change it and
+    # every publisher gets a new pseudonym, which silently resets every
+    # continuity streak — the one thing this feature exists to measure.
+    world_action: str = "attest-npm-release"
+    world_environment: Literal["production", "staging", "sandbox"] = "staging"
+    world_api_base: str | None = None  # TEST-ONLY: point the verifier at a stub
+    # Minimum age asserted at enrolment. Requested as an Identity Check
+    # attribute; never stored as a value, only as a boolean assertion.
+    world_minimum_age: int = Field(default=18, ge=0, le=120)
+    # DEV ONLY — skip the GitHub push-access check so the World ID half of the
+    # flow can be exercised without a configured GitHub App. Mirrors the existing
+    # `payment_required=false` escape hatch. Refused outright when
+    # world_environment is "production" (see the validator below), and every
+    # attestation made this way records `ownership_proven: false`, so a bypassed
+    # record can never masquerade as a proven one.
+    attest_dev_trust_ownership: bool = False
 
     # GitHub App + repo panel. The whole panel is gated behind the computed
     # `github_app_enabled` property below: when any required credential is
@@ -99,6 +161,49 @@ class Settings(KitSettings):
     # it at the GitHub stub so no real raw host is ever reached.
     github_raw_base: str | None = None
 
+    # Indexer URLs per network (turbo tier). Source: the 0G storage SDK's own
+    # INDEXER_URLS table, which mirrors the TS starter kit.
+    _ZEROG_INDEXERS = {
+        "testnet": "https://indexer-storage-testnet-turbo.0g.ai",
+        "mainnet": "https://indexer-storage-turbo.0g.ai",
+    }
+
+    @property
+    def zerog_indexer_url(self) -> str:
+        return self.zerog_storage_indexer_url or self._ZEROG_INDEXERS[self.zerog_network]
+
+    @property
+    def zerog_storage_rpc_url(self) -> str:
+        """The chain RPC storage submissions are sent to — the same endpoint the
+        matching settlement chain uses, so one network choice moves both."""
+        if self.zerog_network == "mainnet":
+            return self.zerog_rpc_url or "https://evmrpc.0g.ai"
+        return self.zerog_testnet_rpc_url or "https://evmrpc-testnet.0g.ai"
+
+    @property
+    def zerog_storage_enabled(self) -> bool:
+        """Storage writes cost gas, so without a relayer key there is nothing to
+        pay with and every 0G write is skipped rather than half-attempted."""
+        return bool(self.zerog_relayer_key)
+
+    @property
+    def world_enabled(self) -> bool:
+        """Attestation needs an app, a relying-party id and the RP signing key.
+        Presence only — secret values are never inspected or logged."""
+        return all([self.world_app_id, self.world_rp_id, self.world_signing_key])
+
+    @property
+    def world_verify_url(self) -> str:
+        base = (self.world_api_base or "https://developer.world.org/api").rstrip("/")
+        return f"{base}/v4/verify/{self.world_rp_id}"
+
+    @property
+    def world_is_production(self) -> bool:
+        """False for staging/sandbox. Every surface that shows an attestation
+        must say so — a staging proof carries no real-world assurance and must
+        never be presentable as though it did."""
+        return self.world_environment == "production"
+
     @property
     def github_app_enabled(self) -> bool:
         return all(
@@ -110,6 +215,19 @@ class Settings(KitSettings):
                 self.encryption_key,
             ]
         )
+
+    @model_validator(mode="after")
+    def refuse_production_ownership_bypass(self) -> "Settings":
+        """The ownership bypass is a development affordance and must be
+        impossible to leave on against real World ID credentials. Fails at
+        construction — a misconfigured engine should not boot at all rather than
+        serve attestations nobody proved they were entitled to make."""
+        if self.attest_dev_trust_ownership and self.world_environment == "production":
+            raise ValueError(
+                "NPMGUARD_ATTEST_DEV_TRUST_OWNERSHIP cannot be enabled when "
+                "NPMGUARD_WORLD_ENVIRONMENT=production"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_llm_endpoint(self) -> "Settings":

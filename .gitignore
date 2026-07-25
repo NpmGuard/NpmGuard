@@ -41,3 +41,7 @@ sandbox/node_modules/
 
 # Agent worktrees (git worktree checkouts, never repo content).
 .claude/worktrees/
+
+# MCP server configs carry Authorization headers / API keys in plaintext.
+.mcp.json
+**/.mcp.json

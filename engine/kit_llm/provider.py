@@ -12,9 +12,9 @@ The SDK is constructed with max_retries=0: the chain walk owns retry
 semantics, and hidden SDK retries would both mask failures and multiply
 per-model timeouts."""
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
-import math
 from typing import Any, Protocol
 
 import httpx
@@ -283,6 +283,12 @@ class OpenAICompatAdapter:
     def _native_cost(self, response: Any) -> float | None:
         return None
 
+    async def _create(self, kwargs: dict[str, Any]) -> tuple[Any, str | None]:
+        """Issue one completion. Returns the parsed response plus an optional
+        provider-call-id override for routes that carry the id somewhere other
+        than the response body (a transport detail, not a response shape)."""
+        return await self._client.chat.completions.create(**kwargs), None
+
     def _result(
         self,
         response: Any,
@@ -311,7 +317,7 @@ class OpenAICompatAdapter:
         )
 
     async def complete(self, request: ProviderRequest) -> ProviderResult:
-        response = await self._client.chat.completions.create(**self._request_kwargs(request))
+        response, call_id = await self._create(self._request_kwargs(request))
         if not response.choices:  # a 200 with no choices (content filter, provider hiccup)
             error = (getattr(response, "model_extra", None) or {}).get("error")
             detail = error.get("message") if isinstance(error, dict) else error
@@ -328,7 +334,7 @@ class OpenAICompatAdapter:
             [call.model_dump() for call in message.tool_calls] if message.tool_calls else None
         )
         message_extra = getattr(message, "model_extra", None) or {}
-        return self._result(
+        result = self._result(
             response,
             message.content,
             tool_calls,
@@ -336,6 +342,9 @@ class OpenAICompatAdapter:
             refusal=getattr(message, "refusal", None),
             reasoning=message_extra.get("reasoning_details", message_extra.get("reasoning")),
         )
+        if call_id is None:
+            return result
+        return ProviderResult(**{**result.__dict__, "provider_call_id": call_id})
 
     async def stream(
         self, request: ProviderRequest, on_token: Callable[[str], None]
@@ -458,3 +467,42 @@ class OpenRouterAdapter(OpenAICompatAdapter):
             return None
         cost = response.json().get("data", {}).get("total_cost")
         return _validated_cost(cost, field="deferred cost") if cost is not None else None
+
+
+# The 0G Compute Router's header carrying the enclave chat id. Case-insensitive
+# lookup: httpx headers are case-insensitive, but the constant is the wire name.
+ZEROG_RESPONSE_KEY_HEADER = "ZG-Res-Key"
+
+
+class ZeroGAdapter(OpenAICompatAdapter):
+    """0G Compute Router — OpenAI-compatible, but inference runs inside a TEE and
+    the response is signed by an enclave-born key before it leaves the provider.
+
+    Verifying that signature needs the enclave *chat id*, which arrives in the
+    ``ZG-Res-Key`` response header with ``response.id`` as the documented
+    fallback. Both are exactly what ``provider_call_id`` already means, so the
+    identifier lands in the existing capture column and no schema change is
+    needed — reading the header only makes the id reliable when the body's id is
+    a router-side value instead of the provider's.
+
+    Router conformance is NOT assumed. When the header is absent this behaves as
+    a plain OpenAI-compatible route and nothing downstream may claim
+    verifiability for that call. Reports cost via static ModelSpec prices (the
+    Router publishes per-model pricing but does not return cost in `usage`), and
+    has no cache_control.
+    """
+
+    supports_cache_control = False
+
+    async def _create(self, kwargs: dict[str, Any]) -> tuple[Any, str | None]:
+        raw = await self._client.chat.completions.with_raw_response.create(**kwargs)
+        response = raw.parse()
+        return response, raw.headers.get(ZEROG_RESPONSE_KEY_HEADER)
+
+    def _result(self, response: Any, *args: Any, **kwargs: Any) -> ProviderResult:
+        result = super()._result(response, *args, **kwargs)
+        if result.provider:
+            return result
+        # attribute the call so a report can tell 0G-served inference apart from
+        # every other OpenAI-compatible route without re-deriving it from a URL
+        return ProviderResult(**{**result.__dict__, "provider": "0g"})
