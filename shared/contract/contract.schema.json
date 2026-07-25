@@ -2,6 +2,163 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$comment": "GENERATED from shared Zod schemas. Do not edit.",
   "$defs": {
+    "AccountEntitlements": {
+      "type": "object",
+      "properties": {
+        "installationId": {
+          "type": "integer"
+        },
+        "accountLogin": {
+          "type": "string"
+        },
+        "plan": {
+          "$ref": "#/$defs/AccountPlan"
+        },
+        "subscriptionStatus": {
+          "type": "string"
+        },
+        "protectedRepos": {
+          "$ref": "#/$defs/UsageBucket"
+        },
+        "publicRepoAudits": {
+          "$ref": "#/$defs/UsageBucket"
+        },
+        "monthlyAudits": {
+          "$ref": "#/$defs/UsageBucket"
+        }
+      },
+      "required": [
+        "installationId",
+        "accountLogin",
+        "plan",
+        "subscriptionStatus",
+        "protectedRepos",
+        "publicRepoAudits",
+        "monthlyAudits"
+      ],
+      "title": "AccountEntitlements"
+    },
+    "AccountPlan": {
+      "type": "string",
+      "enum": [
+        "free",
+        "pro"
+      ],
+      "title": "AccountPlan"
+    },
+    "Alert": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "org": {
+          "type": "string"
+        },
+        "repoId": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string",
+          "const": "DANGEROUS"
+        },
+        "origin": {
+          "$ref": "#/$defs/AuditSetOrigin"
+        },
+        "message": {
+          "type": "string"
+        },
+        "seen": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "org",
+        "repoId",
+        "packageName",
+        "version",
+        "outcome",
+        "origin",
+        "message",
+        "seen",
+        "createdAt"
+      ],
+      "title": "Alert"
+    },
+    "AlertsResponse": {
+      "type": "object",
+      "properties": {
+        "alerts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Alert"
+          }
+        }
+      },
+      "required": [
+        "alerts"
+      ],
+      "title": "AlertsResponse"
+    },
+    "AlertsSeenResponse": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        },
+        "updated": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "ok",
+        "updated"
+      ],
+      "title": "AlertsSeenResponse"
+    },
+    "ApiError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "title": "ApiError"
+    },
+    "AppNotConfigured": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "title": "AppNotConfigured"
+    },
     "AttackPathway": {
       "type": "string",
       "enum": [
@@ -206,6 +363,210 @@
       ],
       "title": "AuditReport"
     },
+    "AuditSetItem": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "direct": {
+          "type": "boolean"
+        },
+        "range": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Outcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verdictReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidenceCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "auditedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "jobState": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JobState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cached": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "direct",
+        "range",
+        "outcome",
+        "verdictReason",
+        "evidenceCount",
+        "auditedAt",
+        "jobState",
+        "cached"
+      ],
+      "title": "AuditSetItem"
+    },
+    "AuditSetOrigin": {
+      "type": "string",
+      "enum": [
+        "repo_scan",
+        "public_repo_scan",
+        "dep_tree",
+        "bench_run",
+        "watchlist"
+      ],
+      "title": "AuditSetOrigin"
+    },
+    "AuditSetRollup": {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Outcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "safe": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dangerous": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pending": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cached": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "outcome",
+        "total",
+        "safe",
+        "dangerous",
+        "error",
+        "pending",
+        "cached"
+      ],
+      "title": "AuditSetRollup"
+    },
+    "AuditSet": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "origin": {
+          "$ref": "#/$defs/AuditSetOrigin"
+        },
+        "trigger": {
+          "$ref": "#/$defs/AuditSetTrigger"
+        },
+        "status": {
+          "$ref": "#/$defs/AuditSetStatus"
+        },
+        "rollup": {
+          "$ref": "#/$defs/AuditSetRollup"
+        },
+        "commitSha": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "finishedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "origin",
+        "trigger",
+        "status",
+        "rollup",
+        "commitSha",
+        "error",
+        "startedAt",
+        "finishedAt"
+      ],
+      "title": "AuditSet"
+    },
+    "AuditSetStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "done",
+        "failed"
+      ],
+      "title": "AuditSetStatus"
+    },
+    "AuditSetTrigger": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "push",
+        "reconcile",
+        "publish"
+      ],
+      "title": "AuditSetTrigger"
+    },
     "AuditStartedEvent": {
       "type": "object",
       "properties": {
@@ -255,6 +616,416 @@
       ],
       "title": "BaseAuditEvent"
     },
+    "BenchCorporaResponse": {
+      "type": "object",
+      "properties": {
+        "corpora": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchCorpus"
+          }
+        }
+      },
+      "required": [
+        "corpora"
+      ],
+      "title": "BenchCorporaResponse"
+    },
+    "BenchCorpus": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "datasetVersion": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/BenchCorpusSource"
+        },
+        "manifestSha": {
+          "type": "string"
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "entryCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "version",
+        "datasetVersion",
+        "source",
+        "manifestSha",
+        "generatedAt",
+        "entryCount"
+      ],
+      "title": "BenchCorpus"
+    },
+    "BenchCorpusSource": {
+      "type": "string",
+      "enum": [
+        "datadog",
+        "negative-control",
+        "watchlist"
+      ],
+      "title": "BenchCorpusSource"
+    },
+    "BenchEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "corpusId": {
+          "type": "integer"
+        },
+        "fixtureName": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "expectedVerdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "discoveryDate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rationale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "corpusId",
+        "fixtureName",
+        "packageName",
+        "version",
+        "category",
+        "expectedVerdict",
+        "discoveryDate",
+        "rationale",
+        "sourceId"
+      ],
+      "title": "BenchEntry"
+    },
+    "BenchRunDetailResponse": {
+      "type": "object",
+      "properties": {
+        "corpus": {
+          "$ref": "#/$defs/BenchCorpus"
+        },
+        "run": {
+          "$ref": "#/$defs/BenchRun"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchRunRow"
+          }
+        }
+      },
+      "required": [
+        "corpus",
+        "run",
+        "rows"
+      ],
+      "title": "BenchRunDetailResponse"
+    },
+    "BenchRunItem": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "integer"
+        },
+        "entryId": {
+          "type": "integer"
+        },
+        "runIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "auditId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confirmedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dealbreaker": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokensPrompt": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tokensCompletion": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "runId",
+        "entryId",
+        "runIndex",
+        "auditId",
+        "verdict",
+        "durationMs",
+        "error",
+        "confirmedCount",
+        "dealbreaker",
+        "tokensPrompt",
+        "tokensCompletion"
+      ],
+      "title": "BenchRunItem"
+    },
+    "BenchRunRow": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "$ref": "#/$defs/BenchEntry"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchRunItem"
+          }
+        }
+      },
+      "required": [
+        "entry",
+        "items"
+      ],
+      "title": "BenchRunRow"
+    },
+    "BenchRunRowsResponse": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "integer"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchRunRow"
+          }
+        }
+      },
+      "required": [
+        "runId",
+        "rows"
+      ],
+      "title": "BenchRunRowsResponse"
+    },
+    "BenchRun": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "corpusId": {
+          "type": "integer"
+        },
+        "engineSha": {
+          "type": "string"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "sandboxImageDigest": {
+          "type": "string"
+        },
+        "runsPerEntry": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
+        },
+        "set": {
+          "$ref": "#/$defs/AuditSet"
+        },
+        "tokenCostUsd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "corpusId",
+        "engineSha",
+        "modelId",
+        "sandboxImageDigest",
+        "runsPerEntry",
+        "set",
+        "tokenCostUsd"
+      ],
+      "title": "BenchRun"
+    },
+    "BenchRunsResponse": {
+      "type": "object",
+      "properties": {
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchRun"
+          }
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "title": "BenchRunsResponse"
+    },
+    "BillingCheckoutResponse": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "sessionId"
+      ],
+      "title": "BillingCheckoutResponse"
+    },
+    "BillingInstallationRequest": {
+      "type": "object",
+      "properties": {
+        "installationId": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "installationId"
+      ],
+      "title": "BillingInstallationRequest"
+    },
+    "BillingPortalResponse": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "BillingPortalResponse"
+    },
+    "BillingResponse": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccountEntitlements"
+          }
+        },
+        "plans": {
+          "$ref": "#/$defs/PlanCatalog"
+        },
+        "checkoutEnabled": {
+          "type": "boolean"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SubscriptionPrice"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "accounts",
+        "plans",
+        "checkoutEnabled",
+        "price"
+      ],
+      "title": "BillingResponse"
+    },
     "Budget": {
       "type": "object",
       "properties": {
@@ -294,6 +1065,44 @@
         "wallMs"
       ],
       "title": "Budget"
+    },
+    "CapExceeded": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "cap": {
+          "type": "boolean",
+          "const": true
+        },
+        "resource": {
+          "$ref": "#/$defs/CapResource"
+        },
+        "installationId": {
+          "type": "integer"
+        },
+        "entitlements": {
+          "$ref": "#/$defs/AccountEntitlements"
+        }
+      },
+      "required": [
+        "error",
+        "cap",
+        "resource",
+        "installationId",
+        "entitlements"
+      ],
+      "title": "CapExceeded"
+    },
+    "CapResource": {
+      "type": "string",
+      "enum": [
+        "protected_repos",
+        "public_repo_audits",
+        "monthly_audits"
+      ],
+      "title": "CapResource"
     },
     "Capability": {
       "type": "string",
@@ -1333,6 +2142,30 @@
       ],
       "title": "HypothesisState"
     },
+    "Installation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "accountLogin": {
+          "type": "string"
+        },
+        "accountType": {
+          "type": "string"
+        },
+        "suspended": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "accountLogin",
+        "accountType",
+        "suspended"
+      ],
+      "title": "Installation"
+    },
     "InstrumentationLog": {
       "type": "object",
       "properties": {
@@ -1585,6 +2418,15 @@
       ],
       "title": "InventoryReport"
     },
+    "JobState": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "running",
+        "failed"
+      ],
+      "title": "JobState"
+    },
     "LifecycleHook": {
       "type": "string",
       "enum": [
@@ -1642,6 +2484,47 @@
         "node"
       ],
       "title": "ObserveFlags"
+    },
+    "OkResponse": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "title": "OkResponse"
+    },
+    "OrgsResponse": {
+      "type": "object",
+      "properties": {
+        "installations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Installation"
+          }
+        },
+        "installUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "installations",
+        "installUrl"
+      ],
+      "title": "OrgsResponse"
+    },
+    "Outcome": {
+      "type": "string",
+      "enum": [
+        "SAFE",
+        "ERROR",
+        "DANGEROUS"
+      ],
+      "title": "Outcome"
     },
     "PackageMetadata": {
       "type": "object",
@@ -1709,6 +2592,57 @@
         }
       },
       "title": "PackageMetadata"
+    },
+    "PanelRepo": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "installationId": {
+          "type": "integer"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "fullName": {
+          "type": "string"
+        },
+        "private": {
+          "type": "boolean"
+        },
+        "defaultBranch": {
+          "type": "string"
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "lastScan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditSet"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "installationId",
+        "owner",
+        "name",
+        "fullName",
+        "private",
+        "defaultBranch",
+        "protected",
+        "lastScan"
+      ],
+      "title": "PanelRepo"
     },
     "PhaseCompletedEvent": {
       "type": "object",
@@ -1797,6 +2731,45 @@
         "phase"
       ],
       "title": "PhaseStartedEvent"
+    },
+    "PlanCatalog": {
+      "type": "object",
+      "properties": {
+        "free": {
+          "$ref": "#/$defs/PlanLimits"
+        },
+        "pro": {
+          "$ref": "#/$defs/PlanLimits"
+        }
+      },
+      "required": [
+        "free",
+        "pro"
+      ],
+      "title": "PlanCatalog"
+    },
+    "PlanLimits": {
+      "type": "object",
+      "properties": {
+        "protectedRepos": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "publicRepoAudits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "monthlyAudits": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "protectedRepos",
+        "publicRepoAudits",
+        "monthlyAudits"
+      ],
+      "title": "PlanLimits"
     },
     "PlantedFileRef": {
       "type": "object",
@@ -1946,6 +2919,299 @@
         "evidence"
       ],
       "title": "Proof"
+    },
+    "PublicRepoScanDetailResponse": {
+      "type": "object",
+      "properties": {
+        "scan": {
+          "$ref": "#/$defs/PublicRepoScan"
+        },
+        "depsTruncated": {
+          "type": "boolean"
+        },
+        "deps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuditSetItem"
+          }
+        }
+      },
+      "required": [
+        "scan",
+        "depsTruncated",
+        "deps"
+      ],
+      "title": "PublicRepoScanDetailResponse"
+    },
+    "PublicRepoScanRequest": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "string"
+        },
+        "installationId": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "repository"
+      ],
+      "title": "PublicRepoScanRequest"
+    },
+    "PublicRepoScan": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "repo": {
+          "$ref": "#/$defs/PublicRepo"
+        },
+        "set": {
+          "$ref": "#/$defs/AuditSet"
+        },
+        "requestedBy": {
+          "type": "integer"
+        },
+        "installationId": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accountLogin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "repo",
+        "set",
+        "requestedBy",
+        "installationId",
+        "accountLogin"
+      ],
+      "title": "PublicRepoScan"
+    },
+    "PublicRepoScansResponse": {
+      "type": "object",
+      "properties": {
+        "scans": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PublicRepoScan"
+          }
+        }
+      },
+      "required": [
+        "scans"
+      ],
+      "title": "PublicRepoScansResponse"
+    },
+    "PublicRepo": {
+      "type": "object",
+      "properties": {
+        "githubRepoId": {
+          "type": "integer"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "fullName": {
+          "type": "string"
+        },
+        "htmlUrl": {
+          "type": "string"
+        },
+        "defaultBranch": {
+          "type": "string"
+        },
+        "lockfilePath": {
+          "type": "string"
+        },
+        "lockfileSha": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "githubRepoId",
+        "owner",
+        "name",
+        "fullName",
+        "htmlUrl",
+        "defaultBranch",
+        "lockfilePath",
+        "lockfileSha"
+      ],
+      "title": "PublicRepo"
+    },
+    "ReauthRequired": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "reauth": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "error",
+        "reauth"
+      ],
+      "title": "ReauthRequired"
+    },
+    "ReplayEntry": {
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "whyInteresting": {
+          "type": "string"
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recordedAt": {
+          "type": "string"
+        },
+        "reportSchemaVersion": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
+        },
+        "engineVersion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "slug",
+        "packageName",
+        "version",
+        "verdict",
+        "whyInteresting",
+        "durationMs",
+        "recordedAt",
+        "reportSchemaVersion",
+        "engineVersion"
+      ],
+      "title": "ReplayEntry"
+    },
+    "ReplayGalleryResponse": {
+      "type": "object",
+      "properties": {
+        "replays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReplayEntry"
+          }
+        }
+      },
+      "required": [
+        "replays"
+      ],
+      "title": "ReplayGalleryResponse"
+    },
+    "ReplayStartResponse": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "slug"
+      ],
+      "title": "ReplayStartResponse"
+    },
+    "RepoDetailResponse": {
+      "type": "object",
+      "properties": {
+        "repo": {
+          "$ref": "#/$defs/PanelRepo"
+        },
+        "set": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditSet"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuditSetItem"
+          }
+        },
+        "alerts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Alert"
+          }
+        }
+      },
+      "required": [
+        "repo",
+        "set",
+        "deps",
+        "alerts"
+      ],
+      "title": "RepoDetailResponse"
+    },
+    "ReposResponse": {
+      "type": "object",
+      "properties": {
+        "repos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PanelRepo"
+          }
+        }
+      },
+      "required": [
+        "repos"
+      ],
+      "title": "ReposResponse"
     },
     "ResolvedPackage": {
       "type": "object",
@@ -2116,6 +3382,148 @@
       ],
       "title": "RunError"
     },
+    "ScanAlreadyRunning": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "scanId": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "error",
+        "scanId"
+      ],
+      "title": "ScanAlreadyRunning"
+    },
+    "ScanDepFrame": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "dep"
+        },
+        "item": {
+          "$ref": "#/$defs/AuditSetItem"
+        }
+      },
+      "required": [
+        "type",
+        "item"
+      ],
+      "title": "ScanDepFrame"
+    },
+    "ScanDoneFrame": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "done"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ScanDoneFrame"
+    },
+    "ScanProgressFrame": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "progress"
+        },
+        "status": {
+          "$ref": "#/$defs/AuditSetStatus"
+        },
+        "rollup": {
+          "$ref": "#/$defs/AuditSetRollup"
+        }
+      },
+      "required": [
+        "type",
+        "status",
+        "rollup"
+      ],
+      "title": "ScanProgressFrame"
+    },
+    "ScanStartedResponse": {
+      "type": "object",
+      "properties": {
+        "scanId": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scanId"
+      ],
+      "title": "ScanStartedResponse"
+    },
+    "ScanStreamFrame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScanDepFrame"
+        },
+        {
+          "$ref": "#/$defs/ScanProgressFrame"
+        },
+        {
+          "$ref": "#/$defs/ScanDoneFrame"
+        }
+      ],
+      "title": "ScanStreamFrame"
+    },
+    "SessionResponse": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "$ref": "#/$defs/SessionUser"
+        }
+      },
+      "required": [
+        "user"
+      ],
+      "title": "SessionResponse"
+    },
+    "SessionUser": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "login": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "avatarUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "login",
+        "name",
+        "email",
+        "avatarUrl"
+      ],
+      "title": "SessionUser"
+    },
     "SetupApplied": {
       "type": "object",
       "properties": {
@@ -2214,6 +3622,39 @@
         "responseHash"
       ],
       "title": "StubUrlRef"
+    },
+    "SubscriptionPrice": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interval": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "amount",
+        "currency",
+        "interval"
+      ],
+      "title": "SubscriptionPrice"
     },
     "TimerRecord": {
       "type": "object",
@@ -2416,6 +3857,35 @@
         "target"
       ],
       "title": "Trigger"
+    },
+    "UsageBucket": {
+      "type": "object",
+      "properties": {
+        "used": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remaining": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "used",
+        "limit",
+        "remaining"
+      ],
+      "title": "UsageBucket"
     },
     "VerdictReachedEvent": {
       "type": "object",

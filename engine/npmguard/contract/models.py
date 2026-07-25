@@ -12,6 +12,19 @@ class Model(RootModel[Any]):
     root: Any
 
 
+class AlertsSeenResponse(BaseModel):
+    ok: Literal[True]
+    updated: Annotated[int, Field(ge=0)]
+
+
+class ApiError(BaseModel):
+    error: str
+
+
+class AppNotConfigured(BaseModel):
+    error: str
+
+
 class AttackPathway(
     RootModel[
         Literal[
@@ -51,6 +64,19 @@ class AuditEnqueuedEvent(BaseModel):
     seq: Annotated[int, Field(ge=0)]
     type: Literal['audit_enqueued']
     queuePosition: Annotated[int, Field(ge=0)]
+
+
+class BillingCheckoutResponse(BaseModel):
+    url: str
+    sessionId: str
+
+
+class BillingInstallationRequest(BaseModel):
+    installationId: Annotated[int, Field(gt=0)]
+
+
+class BillingPortalResponse(BaseModel):
+    url: str
 
 
 class MaxSyscalls(RootModel[float]):
@@ -195,6 +221,13 @@ class HypothesisResolution(BaseModel):
     by: str
 
 
+class Installation(BaseModel):
+    id: int
+    accountLogin: str
+    accountType: str
+    suspended: bool
+
+
 class LifecycleHook(
     RootModel[Literal['preinstall', 'install', 'postinstall', 'prepare']]
 ):
@@ -218,6 +251,15 @@ class ObserveFlags(BaseModel):
     inspector: bool | None = False
 
 
+class OkResponse(BaseModel):
+    ok: Literal[True]
+
+
+class OrgsResponse(BaseModel):
+    installations: list[Installation]
+    installUrl: str
+
+
 class PackageMetadata(BaseModel):
     name: str | None = None
     version: str | None = None
@@ -233,6 +275,12 @@ class PhaseLog(BaseModel):
     durationMs: float
     input: dict[str, Any] | None = {}
     output: dict[str, Any] | None = {}
+
+
+class PlanLimits(BaseModel):
+    protectedRepos: Annotated[int, Field(ge=0)]
+    publicRepoAudits: Annotated[int, Field(ge=0)]
+    monthlyAudits: Annotated[int, Field(ge=0)]
 
 
 class PlantedFileRef(BaseModel):
@@ -301,6 +349,32 @@ class Proof(BaseModel):
     teeAttestationId: str | None = None
 
 
+class PublicRepoScanRequest(BaseModel):
+    repository: str
+    installationId: int | None = None
+
+
+class PublicRepo(BaseModel):
+    githubRepoId: int
+    owner: str
+    name: str
+    fullName: str
+    htmlUrl: str
+    defaultBranch: str
+    lockfilePath: str
+    lockfileSha: str
+
+
+class ReauthRequired(BaseModel):
+    error: str
+    reauth: Literal[True]
+
+
+class ReplayStartResponse(BaseModel):
+    auditId: str
+    slug: str
+
+
 class ResolvedPackage(BaseModel):
     path: str
     needsCleanup: bool | None = False
@@ -315,9 +389,36 @@ class RunError(BaseModel):
     detail: str
 
 
+class ScanAlreadyRunning(BaseModel):
+    error: str
+    scanId: int
+
+
+class ScanDoneFrame(BaseModel):
+    type: Literal['done']
+
+
+class ScanStartedResponse(BaseModel):
+    scanId: int
+
+
+class SessionUser(BaseModel):
+    id: int
+    login: str
+    name: str | None
+    email: str | None
+    avatarUrl: str | None
+
+
 class StubUrlRef(BaseModel):
     pattern: str
     responseHash: str
+
+
+class SubscriptionPrice(BaseModel):
+    amount: int | None
+    currency: str | None
+    interval: str | None
 
 
 class TimerRecord(BaseModel):
@@ -372,6 +473,42 @@ class Trigger(BaseModel):
     stdin: str | None = None
 
 
+class UsageBucket(BaseModel):
+    used: Annotated[int, Field(ge=0)]
+    limit: Annotated[int, Field(ge=0)]
+    remaining: int | None
+
+
+class AccountEntitlements(BaseModel):
+    installationId: int
+    accountLogin: str
+    plan: Annotated[Literal['free', 'pro'], Field(title='AccountPlan')]
+    subscriptionStatus: str
+    protectedRepos: UsageBucket
+    publicRepoAudits: UsageBucket
+    monthlyAudits: UsageBucket
+
+
+class Alert(BaseModel):
+    id: int
+    org: str
+    repoId: int | None
+    packageName: str
+    version: str
+    outcome: Literal['DANGEROUS']
+    origin: Annotated[
+        Literal['repo_scan', 'public_repo_scan', 'dep_tree', 'bench_run', 'watchlist'],
+        Field(title='AuditSetOrigin'),
+    ]
+    message: str
+    seen: bool
+    createdAt: str
+
+
+class AlertsResponse(BaseModel):
+    alerts: list[Alert]
+
+
 class AuditErrorEvent(BaseModel):
     auditId: str
     timestamp: str
@@ -380,6 +517,49 @@ class AuditErrorEvent(BaseModel):
     error: str
     code: str
     retryable: bool
+
+
+class AuditSetItem(BaseModel):
+    name: str
+    version: str
+    direct: bool
+    range: str | None
+    outcome: Literal['SAFE', 'ERROR', 'DANGEROUS'] | None
+    verdictReason: str | None
+    evidenceCount: Annotated[int, Field(ge=0)]
+    auditedAt: str | None
+    jobState: Literal['queued', 'running', 'failed'] | None
+    cached: bool
+
+
+class AuditSetRollup(BaseModel):
+    outcome: Literal['SAFE', 'ERROR', 'DANGEROUS'] | None
+    total: Annotated[int, Field(ge=0)]
+    safe: Annotated[int, Field(ge=0)]
+    dangerous: Annotated[int, Field(ge=0)]
+    error: Annotated[int, Field(ge=0)]
+    pending: Annotated[int, Field(ge=0)]
+    cached: Annotated[int, Field(ge=0)]
+
+
+class AuditSet(BaseModel):
+    id: int
+    origin: Annotated[
+        Literal['repo_scan', 'public_repo_scan', 'dep_tree', 'bench_run', 'watchlist'],
+        Field(title='AuditSetOrigin'),
+    ]
+    trigger: Annotated[
+        Literal['manual', 'push', 'reconcile', 'publish'],
+        Field(title='AuditSetTrigger'),
+    ]
+    status: Annotated[
+        Literal['running', 'done', 'failed'], Field(title='AuditSetStatus')
+    ]
+    rollup: AuditSetRollup
+    commitSha: str | None
+    error: str | None
+    startedAt: str
+    finishedAt: str | None
 
 
 class AuditStartedEvent(BaseModel):
@@ -394,6 +574,83 @@ class BaseAuditEvent(BaseModel):
     auditId: str
     timestamp: str
     seq: Annotated[int, Field(ge=0)]
+
+
+class BenchCorpus(BaseModel):
+    id: int
+    name: str
+    version: str
+    datasetVersion: str
+    source: Annotated[
+        Literal['datadog', 'negative-control', 'watchlist'],
+        Field(title='BenchCorpusSource'),
+    ]
+    manifestSha: str
+    generatedAt: str
+    entryCount: Annotated[int, Field(ge=0)]
+
+
+class BenchEntry(BaseModel):
+    id: int
+    corpusId: int
+    fixtureName: str
+    packageName: str
+    version: str
+    category: str
+    expectedVerdict: Annotated[Literal['SAFE', 'DANGEROUS'], Field(title='Verdict')]
+    discoveryDate: str | None
+    rationale: str | None
+    sourceId: str | None
+
+
+class BenchRunItem(BaseModel):
+    runId: int
+    entryId: int
+    runIndex: Annotated[int, Field(ge=0)]
+    auditId: str | None
+    verdict: Literal['SAFE', 'DANGEROUS'] | None
+    durationMs: int | None
+    error: str | None
+    confirmedCount: Annotated[int, Field(ge=0)]
+    dealbreaker: str | None
+    tokensPrompt: int | None
+    tokensCompletion: int | None
+
+
+class BenchRunRow(BaseModel):
+    entry: BenchEntry
+    items: list[BenchRunItem]
+
+
+class BenchRunRowsResponse(BaseModel):
+    runId: int
+    rows: list[BenchRunRow]
+
+
+class BenchRun(BaseModel):
+    id: int
+    corpusId: int
+    engineSha: str
+    modelId: str
+    sandboxImageDigest: str
+    runsPerEntry: Annotated[int, Field(gt=0)]
+    set: AuditSet
+    tokenCostUsd: float | None
+
+
+class BenchRunsResponse(BaseModel):
+    runs: list[BenchRun]
+
+
+class CapExceeded(BaseModel):
+    error: str
+    cap: Literal[True]
+    resource: Annotated[
+        Literal['protected_repos', 'public_repo_audits', 'monthly_audits'],
+        Field(title='CapResource'),
+    ]
+    installationId: int
+    entitlements: AccountEntitlements
 
 
 class Claim(BaseModel):
@@ -659,6 +916,18 @@ class InventoryReport(BaseModel):
     dealbreaker: DealBreaker | None = None
 
 
+class PanelRepo(BaseModel):
+    id: int
+    installationId: int
+    owner: str
+    name: str
+    fullName: str
+    private: bool
+    defaultBranch: str
+    protected: bool
+    lastScan: AuditSet | None
+
+
 class PhaseCompletedEvent(BaseModel):
     auditId: str
     timestamp: str
@@ -674,6 +943,74 @@ class PhaseStartedEvent(BaseModel):
     seq: Annotated[int, Field(ge=0)]
     type: Literal['phase_started']
     phase: str
+
+
+class PlanCatalog(BaseModel):
+    free: PlanLimits
+    pro: PlanLimits
+
+
+class PublicRepoScan(BaseModel):
+    id: int
+    repo: PublicRepo
+    set: AuditSet
+    requestedBy: int
+    installationId: int | None
+    accountLogin: str | None
+
+
+class PublicRepoScansResponse(BaseModel):
+    scans: list[PublicRepoScan]
+
+
+class ReplayEntry(BaseModel):
+    slug: str
+    packageName: str
+    version: str
+    verdict: Annotated[Literal['SAFE', 'DANGEROUS'], Field(title='Verdict')]
+    whyInteresting: str
+    durationMs: Annotated[int, Field(ge=0)]
+    recordedAt: str
+    reportSchemaVersion: Annotated[int, Field(gt=0)]
+    engineVersion: str | None
+
+
+class ReplayGalleryResponse(BaseModel):
+    replays: list[ReplayEntry]
+
+
+class RepoDetailResponse(BaseModel):
+    repo: PanelRepo
+    set: AuditSet | None
+    deps: list[AuditSetItem]
+    alerts: list[Alert]
+
+
+class ReposResponse(BaseModel):
+    repos: list[PanelRepo]
+
+
+class ScanDepFrame(BaseModel):
+    type: Literal['dep']
+    item: AuditSetItem
+
+
+class ScanProgressFrame(BaseModel):
+    type: Literal['progress']
+    status: Annotated[
+        Literal['running', 'done', 'failed'], Field(title='AuditSetStatus')
+    ]
+    rollup: AuditSetRollup
+
+
+class ScanStreamFrame(RootModel[ScanDepFrame | ScanProgressFrame | ScanDoneFrame]):
+    root: Annotated[
+        ScanDepFrame | ScanProgressFrame | ScanDoneFrame, Field(title='ScanStreamFrame')
+    ]
+
+
+class SessionResponse(BaseModel):
+    user: SessionUser
 
 
 class SetupApplied(BaseModel):
@@ -776,12 +1113,35 @@ class AuditReport(BaseModel):
     trace: Annotated[list[PhaseLog] | None, Field(validate_default=True)] = []
 
 
+class BenchCorporaResponse(BaseModel):
+    corpora: list[BenchCorpus]
+
+
+class BenchRunDetailResponse(BaseModel):
+    corpus: BenchCorpus
+    run: BenchRun
+    rows: list[BenchRunRow]
+
+
+class BillingResponse(BaseModel):
+    accounts: list[AccountEntitlements]
+    plans: PlanCatalog
+    checkoutEnabled: bool
+    price: SubscriptionPrice | None
+
+
 class HypothesisGraphSnapshot(BaseModel):
     version: Literal[1]
     auditId: str
     nodes: list[Hypothesis]
     createdAt: str
     updatedAt: str
+
+
+class PublicRepoScanDetailResponse(BaseModel):
+    scan: PublicRepoScan
+    depsTruncated: bool
+    deps: list[AuditSetItem]
 
 
 class RunArtifact(BaseModel):
