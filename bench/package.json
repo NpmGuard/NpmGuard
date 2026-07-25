@@ -3,20 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Security mutation testing benchmark for the NpmGuard auditor.",
+  "description": "Corpus material for the NpmGuard benchmark (selection + fixture materialisation). Measurement lives in engine/npmguard/bench/.",
   "scripts": {
     "lock": "tsx src/seeds/lock.ts",
     "fetch": "tsx src/seeds/fetch.ts",
     "verify-loads": "tsx src/seeds/verify-loads.ts",
     "datadog:select": "tsx src/datadog/select.ts",
     "datadog:fetch": "tsx src/datadog/fetch.ts",
-    "datadog:manifest": "tsx src/datadog/manifest.ts",
-    "run": "tsx src/runner/audit-all.ts",
-    "analyze": "tsx src/runner/analyze.ts",
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@npmguard/shared": "*",
     "tar": "^7.4.3",
     "zod": "^3"
   },

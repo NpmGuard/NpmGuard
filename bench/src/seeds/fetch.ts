@@ -19,7 +19,7 @@ import * as tar from "tar";
 
 import { SEEDS } from "./catalog.js";
 import { fetchVersionMetadata, downloadTarball } from "./registry.js";
-import type { Seed } from "../types.js";
+import type { Seed } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Fetch — download every catalogue entry, verify integrity, unpack into

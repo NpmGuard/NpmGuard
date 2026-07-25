@@ -33,7 +33,6 @@ from kit_spine import (
 from kit_spine.db import metadata
 from kit_stream import StreamService
 
-from .bench import list_benchmark_runs
 from .config import REPO_ROOT, Settings, get_settings
 from .demo import DemoService
 from .errors import NpmGuardError, QueueFullError
@@ -632,11 +631,6 @@ async def resolve(name: str, request: Request) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, status_code=400)
     except Exception as exc:
         return JSONResponse({"error": str(exc) or "Resolution failed"}, status_code=404)
-
-
-@router.get("/bench/results")
-async def benchmark_results() -> dict[str, Any]:
-    return await asyncio.to_thread(list_benchmark_runs)
 
 
 @asynccontextmanager

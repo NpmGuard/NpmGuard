@@ -1,4 +1,4 @@
-import type { SeedCatalog } from "../types.js";
+import type { SeedCatalog } from "./types.js";
 
 /**
  * Seed catalogue for the NpmGuard benchmark, dataset version 0.1.0.

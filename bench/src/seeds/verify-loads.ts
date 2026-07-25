@@ -4,7 +4,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SEEDS } from "./catalog.js";
-import type { Seed } from "../types.js";
+import type { Seed } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // verify-loads — for every fetched seed, attempt to load it from a child
