@@ -18,8 +18,8 @@ import type {
   CapExceededBody,
   Installation,
   PanelRepo,
-  PublicScan,
-  PublicScanDetailResponse,
+  PublicRepoScan,
+  PublicRepoScanDetailResponse,
   RepoDetailResponse,
   SessionUser,
 } from "../lib/engine-types.ts";
@@ -41,7 +41,7 @@ interface PanelStoreState {
   billing: BillingResponse | null;
   billingError: string | null;
   billingBusyInstallationId: number | null;
-  publicScans: PublicScan[];
+  publicScans: PublicRepoScan[];
   publicScanBusy: boolean;
   publicScanError: string | null;
 
@@ -56,7 +56,7 @@ interface PanelStoreState {
   refreshBilling: () => Promise<void>;
   refreshPublicScans: () => Promise<void>;
   startPublicRepoScan: (repository: string, installationId: number) => Promise<number | null>;
-  fetchPublicScanDetail: (scanId: number) => Promise<PublicScanDetailResponse>;
+  fetchPublicScanDetail: (scanId: number) => Promise<PublicRepoScanDetailResponse>;
   startProCheckout: (installationId: number) => Promise<void>;
   openBillingPortal: (installationId: number) => Promise<void>;
   triggerScan: (repoId: number) => Promise<number | null>;

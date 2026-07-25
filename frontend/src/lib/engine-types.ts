@@ -23,13 +23,7 @@
  * declared by hand below is a shape with no schema yet.
  */
 
-import type {
-  AuditSetRollup,
-  DependencyGroups,
-  JobState,
-  Outcome,
-  PackageMetadata,
-} from "@npmguard/shared";
+import type { DependencyGroups, PackageMetadata } from "@npmguard/shared";
 
 // ===== enums =====
 
@@ -350,139 +344,33 @@ export interface OrgsResponse {
   installUrl: string;
 }
 
-// ===== panel repos + scans =====
-
-export interface ScanSummary {
-  id: number;
-  status: "running" | "done" | "failed";
-  trigger: "manual" | "push" | "reconcile";
-  total: number;
-  cached: number;
-  audited: number;
-  failed: number;
-  startedAt: string;
-  finishedAt: string | null;
-  // The rollup over the scan's OWN items; null until the scan is done.
-  outcome: Outcome | null;
-}
-
-export interface PanelRepo {
-  id: number;
-  installationId: number;
-  owner: string;
-  name: string;
-  fullName: string;
-  private: boolean;
-  defaultBranch: string;
-  protected: boolean;
-  lastScan: ScanSummary | null;
-}
-
-export interface DepDetail {
-  name: string;
-  version: string;
-  direct: boolean;
-  range: string | null;
-  // null ⟺ not concluded (a job is queued/running). A failed audit is ERROR, not
-  // null — so a null here always resolves itself, and the UI can show a spinner
-  // for null and a retry for ERROR.
-  outcome: Outcome | null;
-  verdictReason: string | null;
-  evidenceCount: number;
-  auditedAt: string | null;
-  // A fact about the ATTEMPT, never the result: `failed` means a terminal failed
-  // job exists, which is NOT the same as outcome ERROR (an item can be ERROR
-  // with jobState null when its job row was never written).
-  jobState: JobState | null;
-}
-
-export interface Alert {
-  id: number;
-  org: string;
-  repoId: number | null;
-  packageName: string;
-  version: string;
-  // Only DANGEROUS is ever raised (notify.py is the single writer and inserts
-  // that literal). Narrowed from a bare `string`, which is what forced the tone
-  // map to accept any string. The contract renames this to `outcome` alongside
-  // `kind` → `origin`; both land together in R-1.
-  verdict: "DANGEROUS";
-  kind: "scan" | "watch";
-  message: string;
-  seen: boolean;
-  createdAt: string;
-}
-
-export interface RepoDetailResponse {
-  repo: PanelRepo;
-  deps: DepDetail[];
-  // The repo's posture over its CURRENT dep index, computed server-side. The
-  // client consumes it — it must not recompute a second (divergent) answer from
-  // `deps`, which is what it used to do while never reading this field.
-  rollup: AuditSetRollup;
-  scan: ScanSummary | null;
-  alerts: Alert[];
-}
-
-/** /panel/scan/:scanId/events — UNNAMED SSE messages (use onmessage). */
-export type ScanStreamMessage =
-  | {
-      type: "dep";
-      name: string;
-      version: string;
-      outcome: Outcome | null;
-      verdictReason: string | null;
-      evidenceCount: number;
-      jobState: JobState | null;
-    }
-  | { type: "progress"; status: string; total: number; cached: number; audited: number; failed: number }
-  | { type: "done" };
-
-// ===== public repo audits (progress by POLLING — no SSE) =====
-
-export interface PublicScan {
-  id: number;
-  installationId: number;
-  accountLogin: string;
-  requestedBy: number;
-  githubRepoId: number;
-  owner: string;
-  name: string;
-  fullName: string;
-  htmlUrl: string;
-  defaultBranch: string;
-  commitSha: string | null;
-  lockfilePath: string;
-  lockfileSha: string;
-  status: "running" | "done";
-  total: number;
-  cached: number;
-  audited: number;
-  failed: number;
-  error: string | null;
-  startedAt: string;
-  finishedAt: string | null;
-  rollup: AuditSetRollup;
-}
-
-export interface PublicScanDep {
-  name: string;
-  version: string;
-  direct: boolean;
-  range: string | null;
-  cached: boolean;
-  outcome: Outcome | null;
-  reason: string | null;
-  evidenceCount: number;
-  auditedAt: string | null;
-  active: boolean; // a job is queued/running for this dep
-}
-
-export interface PublicScanDetailResponse {
-  scan: PublicScan;
-  dependenciesTruncated: boolean;
-  dependencies: PublicScanDep[];
-}
+// ===== panel repos + audit sets =====
+// R-1 collapsed three near-identical "set of packages to audit, plus a rollup"
+// shapes into ONE, so these are now imported from the contract rather than
+// restated: AuditSet (progress + rollup, nothing about the subject), AuditSetItem
+// (the ONE dep projection, replacing four divergent ones), and the response
+// envelopes that carry them. `ScanSummary`, `DepDetail`, `PublicScan`,
+// `PublicScanDep` and the hand-written `ScanStreamMessage` are gone with them.
+export type {
+  Alert,
+  AlertsResponse,
+  AuditSet,
+  AuditSetItem,
+  AuditSetOrigin,
+  AuditSetStatus,
+  AuditSetTrigger,
+  PanelRepo,
+  PublicRepo,
+  PublicRepoScan,
+  PublicRepoScanDetailResponse,
+  PublicRepoScansResponse,
+  RepoDetailResponse,
+  ReposResponse,
+  ScanDepFrame,
+  ScanDoneFrame,
+  ScanProgressFrame,
+  ScanStreamFrame,
+} from "@npmguard/shared";
 
 // ===== quota / billing =====
 

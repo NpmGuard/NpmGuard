@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import sqlalchemy as sa
 import structlog
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +40,7 @@ from .errors import NpmGuardError, QueueFullError
 from .events import sse_events
 from .llm_runtime import build_npmguard_llm
 from .panel.alerts.notify import handle_dangerous_verdict
+from .panel.audit_set import AuditSetStore, Rollup, build_store
 from .panel.billing import BillingStore
 from .panel.caps import CapsStore
 from .panel.github.checks import check_conclusion, check_summary, conclude_check_run
@@ -55,6 +57,8 @@ from .panel.scan.public_repo_scan import PublicRepoScanEngine
 from .panel.scan.repo_scan import LockfileNotFoundError, ParsedRepoDeps, RepoScanEngine
 from .panel.sessions import PanelSessionStore
 from .panel.stores import GhUserStore, InstallationStore, RepoStore
+from .panel.tables import audit_sets
+from .panel.tables import repos as repo_table
 from .panel.verdict_index import SavedReport, VerdictIndex
 from .panel.watch import Reconciler, RegistryWatcher, sync_watched_packages
 from .payments import (
@@ -104,6 +108,9 @@ class Runtime:
     panel_caps: CapsStore | None = None
     panel_verdicts: VerdictIndex | None = None
     panel_queue: PanelJobQueue | None = None
+    # The ONE audit-set entity (R-1): creation, progress, rollup, and the SSE
+    # stream every origin shares.
+    panel_sets: AuditSetStore | None = None
     panel_scan: RepoScanEngine | None = None
     panel_public_scan: PublicRepoScanEngine | None = None
     panel_billing: BillingStore | None = None
@@ -680,6 +687,7 @@ async def lifespan(app: FastAPI):
     panel_caps: CapsStore | None = None
     panel_verdicts: VerdictIndex | None = None
     panel_queue: PanelJobQueue | None = None
+    panel_sets: AuditSetStore | None = None
     panel_scan: RepoScanEngine | None = None
     panel_public_scan: PublicRepoScanEngine | None = None
     panel_billing: BillingStore | None = None
@@ -696,79 +704,99 @@ async def lifespan(app: FastAPI):
         panel_verdicts = VerdictIndex(sessions_factory)
         panel_queue = PanelJobQueue(sessions_factory)
 
-        # Conclude a push-scan's GitHub check-run once the scan finalizes. The
-        # outcome -> check-state mapping is check_conclusion (fail only on
-        # DANGEROUS, neutral on ERROR); only a set with NOTHING concluded
-        # (outcome None) leaves the check open.
-        async def finalize_check(
-            repo: Any, check_run_id: int, outcome: str | None
-        ) -> None:
-            conclusion = check_conclusion(outcome)
-            if conclusion == "in_progress":
-                return  # nothing concluded yet — leave the check running
+        # Conclude a set's GitHub check-run once the set finalizes. The mapping is
+        # check_conclusion over the ROLLUP (fail only on DANGEROUS, neutral on
+        # ERROR, neutral when the set covered nothing) — every answer is terminal,
+        # because only a finalized set gets here and a finalized set has no pending
+        # items. That is what closed the empty-push check run that used to spin
+        # forever.
+        async def finalize_check(set_id: int, check_run_id: int, rollup: Rollup) -> None:
+            async with sessions_factory() as session:
+                repo = (
+                    (
+                        await session.execute(
+                            sa.select(repo_table)
+                            .select_from(
+                                repo_table.join(
+                                    audit_sets,
+                                    audit_sets.c.origin_ref == repo_table.c.id,
+                                )
+                            )
+                            .where(audit_sets.c.id == set_id)
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+            if repo is None:
+                return
             octo = gh_client.installation_octokit(repo["installation_id"])
             await conclude_check_run(
                 octo,
                 repo["owner"],
                 repo["name"],
                 check_run_id,
-                conclusion,
-                check_summary(outcome),
+                check_conclusion(rollup),
+                check_summary(rollup),
             )
 
+        # The ONE audit-set entity: every origin's progress, rollup and stream.
+        panel_sets = build_store(
+            sessions_factory,
+            panel_verdicts,
+            panel_queue,
+            stream,
+            notifier,
+            finalize_check=finalize_check,
+        )
         panel_scan = RepoScanEngine(
             sessions=sessions_factory,
             caps=panel_caps,
-            verdict_index=panel_verdicts,
-            queue=panel_queue,
+            sets=panel_sets,
             fetch_repo_deps=_make_fetch_repo_deps(gh_client),
             # Keep watched_packages reconciled after a protected repo's index
             # changes (reconcile/push full scans) — the same seam the routes and
             # webhook handlers call directly.
             watch_sync=lambda: sync_watched_packages(sessions_factory),
-            finalize_check=finalize_check,
         )
-        # The public-repo audit engine reuses the same collaborators (its routes
-        # build one per-request too, so no Runtime field is strictly required —
-        # but the worker needs THIS instance's refresh hook so public-scan
-        # progress advances as cache-miss verdicts land).
         panel_public_scan = PublicRepoScanEngine(
             sessions=sessions_factory,
             caps=panel_caps,
-            verdict_index=panel_verdicts,
-            queue=panel_queue,
+            sets=panel_sets,
         )
         panel_billing = BillingStore(sessions_factory)
 
-        # A worker settle nudges BOTH the protected-repo scans AND the public-repo
-        # snapshots covering the pair — either kind may be waiting on this verdict.
-        async def on_scans_touched(name: str, version: str) -> None:
-            await panel_scan.refresh_scans_touching(name, version)
-            await panel_public_scan.refresh_public_scans_touching(name, version)
-
         # The alert hook: fired by a worker only when IT lands a DANGEROUS
         # verdict. It fans out over the exposed repos and emails each org — it
-        # never touches the core engine. ``source`` is 'watch' (registry-watch,
-        # no owning scan) or 'scan'.
-        async def on_dangerous(name: str, version: str, source: str) -> None:
+        # never touches the core engine. ``origin`` is the job's own recorded
+        # AuditSetOrigin, so a public-repo finding is no longer filed as a
+        # registry-watch alert.
+        async def on_dangerous(name: str, version: str, origin: str) -> None:
             await handle_dangerous_verdict(
-                sessions_factory, name, version, source=source, settings=settings
+                sessions_factory, name, version, origin=origin, settings=settings
             )
 
         # The panel scan-engine funnels cache-misses into the SAME AuditService
         # (the single owner of the Docker cap), never a second executor; the
-        # worker awaits admit's future then indexes the saved verdict.
+        # worker awaits admit's future then indexes the saved verdict. A settle
+        # nudges every LIVE set covering the pair, whatever its origin — one hook,
+        # not one per kind of scan.
         panel_workers = PanelWorkerPool(
             panel_queue,
             audits,
             panel_verdicts,
             count=settings.scan_concurrency,
             load_report=load_report,
-            on_scans_touched=on_scans_touched,
+            on_sets_touched=panel_sets.refresh_touching,
             on_dangerous=on_dangerous,
         )
         rebuilt = await panel_verdicts.rebuild(_saved_reports)
         requeued = await panel_queue.reset_stale()
+        # Sets left live by a crashed process are finalized honestly here, BEFORE
+        # the workers start: without it a set whose jobs never existed stays
+        # `running` forever, its check run never concludes, and its stream never
+        # terminates.
+        swept = await panel_sets.refresh_live()
         panel_workers.start()
 
         # Registry-watch + reconcile background loops. Both self-schedule with a
@@ -795,6 +823,7 @@ async def lifespan(app: FastAPI):
             "panel enabled: GitHub App configured",
             verdicts_rebuilt=rebuilt,
             jobs_requeued=requeued,
+            live_sets_swept=swept,
             scan_concurrency=settings.scan_concurrency,
             watch_interval_min=settings.watch_interval_min,
         )
@@ -815,6 +844,7 @@ async def lifespan(app: FastAPI):
         panel_caps=panel_caps,
         panel_verdicts=panel_verdicts,
         panel_queue=panel_queue,
+        panel_sets=panel_sets,
         panel_scan=panel_scan,
         panel_public_scan=panel_public_scan,
         panel_billing=panel_billing,

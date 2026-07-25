@@ -9,12 +9,9 @@ autogenerate both see them. Conventions match ``persistence.py``:
 - Timestamps are ``String(64)`` ISO strings written via ``now_iso()`` — never a
   SQL ``DEFAULT``.
 - The load-bearing dedupe indexes (``ix_panel_jobs_active_pkg``,
-  ``ix_public_repo_scans_active``) are PARTIAL UNIQUE — both ``postgresql_where``
+  ``ix_audit_sets_active_public``) are PARTIAL UNIQUE — both ``postgresql_where``
   and ``sqlite_where`` are supplied for portability across the sqlite/postgres
   engine axis.
-- ``public_repo_scans`` carries a stored ``full_name_lower`` column so the
-  active-scan uniqueness is case-insensitive on both sqlite and postgres
-  (TS's ``COLLATE NOCASE`` isn't portable to postgres).
 """
 
 from __future__ import annotations
@@ -142,44 +139,87 @@ repo_deps = sa.Table(
     sa.Index("ix_repo_deps_name", "name"),
 )
 
-scans = sa.Table(
-    "scans",
+# ONE entity for "a set of (name, version) being audited, plus a rollup" (R-1).
+# It replaces `scans`/`scan_items` and `public_repo_scans`/`public_repo_scan_items`,
+# and is what a bench run (§4.3) and a dep-tree audit (R-7) get for free instead of
+# reimplementing progress + rollup + streaming + truncation a third and fourth time.
+#
+# The row carries NOTHING about what the set is about — the subject lives in its
+# origin's own table, addressed by `origin_ref`:
+#
+#   repo_scan         -> repos.id
+#   public_repo_scan  -> the snapshot's stable github_repo_id
+#   bench_run         -> bench_corpora.id            (designed for, not built)
+#   dep_tree          -> the root's own subject row   (designed for, not built)
+#
+# INVARIANT: `origin_ref` is NOT NULL — every set has an integer subject id in its
+# origin's namespace. An origin whose subject has no such id introduces a subject
+# table with a surrogate one rather than making this column nullable; a nullable
+# `origin_ref` would put "a set about nothing" inside the schema.
+#
+# There is deliberately NO stored `status` and no stored counter. `finished_at` is
+# the single liveness fact (`status` on the wire is "done" iff it is set), and
+# every counter is recomputed from `audit_set_items ⋈ package_verdicts` on read —
+# so a crashed worker cannot desynchronize a counter from reality, because there
+# is no counter. `status='failed'` and the `error` text column are both gone: the
+# falsification pass found zero producers for either.
+audit_sets = sa.Table(
+    "audit_sets",
     metadata,
     sa.Column("id", _surrogate_pk(), primary_key=True, autoincrement=True),
+    # AuditSetOrigin: 'repo_scan'|'public_repo_scan'|'dep_tree'|'bench_run'|'watchlist'
+    sa.Column("origin", sa.String(24), nullable=False),
+    sa.Column("origin_ref", sa.BigInteger, nullable=False),
+    # The installation that pays for this set. A set's lifetime is tied to its
+    # payer (CASCADE), which is what makes an uninstall remove its audit history.
+    # NULL = nobody is billed (registry watch, bench) — never cascaded.
     sa.Column(
-        "repo_id",
+        "billed_to",
         sa.BigInteger,
-        sa.ForeignKey("repos.id", ondelete="CASCADE"),
-        nullable=False,
+        sa.ForeignKey("installations.id", ondelete="CASCADE"),
+        nullable=True,
     ),
-    sa.Column("trigger_kind", sa.String(16), nullable=False),  # 'manual'|'push'|'reconcile'
+    # AuditSetTrigger: 'manual'|'push'|'reconcile'|'publish'
+    sa.Column("trigger_kind", sa.String(16), nullable=False),
     sa.Column("commit_sha", sa.String(64), nullable=True),
-    sa.Column("status", sa.String(16), nullable=False, server_default="running"),
-    sa.Column("total", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("cached", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("audited", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("failed", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("error", sa.Text, nullable=True),
+    # Only a repo_scan opens a GitHub check run. Not on the wire — it is the id of
+    # a side-channel notification, not a property of the set's subject.
     sa.Column("check_run_id", sa.BigInteger, nullable=True),
     sa.Column("started_at", sa.String(64), nullable=False),
     sa.Column("finished_at", sa.String(64), nullable=True),
-    sa.Index("ix_scans_repo_id", "repo_id", "started_at"),
+    sa.Index("ix_audit_sets_subject", "origin", "origin_ref", "started_at"),
+    # At most one LIVE public-repo audit per (repo, payer). Origin-scoped on
+    # purpose: the equivalent statement is FALSE for repo_scan, where two pushes
+    # in quick succession legitimately open two overlapping sets, each with its
+    # own check run. Keyed on the stable github_repo_id rather than a lowercased
+    # full name, so a rename can no longer smuggle in a second running audit.
+    sa.Index(
+        "ix_audit_sets_active_public",
+        "origin_ref",
+        "billed_to",
+        unique=True,
+        postgresql_where=sa.text("finished_at IS NULL AND origin = 'public_repo_scan'"),
+        sqlite_where=sa.text("finished_at IS NULL AND origin = 'public_repo_scan'"),
+    ),
 )
 
-# The exact (pkg, version) set a scan covers — progress computes from THIS.
-scan_items = sa.Table(
-    "scan_items",
+# The exact (pkg, version) set an audit set covers — progress computes from THIS,
+# never from the repo dep index and never from job ownership.
+audit_set_items = sa.Table(
+    "audit_set_items",
     metadata,
     sa.Column(
-        "scan_id",
+        "set_id",
         sa.BigInteger,
-        sa.ForeignKey("scans.id", ondelete="CASCADE"),
+        sa.ForeignKey("audit_sets.id", ondelete="CASCADE"),
         primary_key=True,
     ),
     sa.Column("name", sa.String(214), primary_key=True),
     sa.Column("version", sa.String(128), primary_key=True),
+    sa.Column("direct", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column("range", sa.String(255), nullable=True),
     sa.Column("cached", sa.Boolean, nullable=False, server_default=sa.false()),
-    sa.Index("ix_scan_items_pkg", "name", "version"),
+    sa.Index("ix_audit_set_items_pkg", "name", "version"),
 )
 
 # Derived, rebuildable index of data/reports/. dev: 'SAFE'|'DANGEROUS' only.
@@ -201,13 +241,14 @@ panel_jobs = sa.Table(
     sa.Column("id", _surrogate_pk(), primary_key=True, autoincrement=True),
     sa.Column("kind", sa.String(32), nullable=False, server_default="audit_package"),
     sa.Column("lane", sa.String(16), nullable=False, server_default="cheap"),
-    sa.Column("org", sa.String(255), nullable=True),  # account_login | NULL (watch: not charged)
-    sa.Column(
-        "scan_id",
-        sa.BigInteger,
-        sa.ForeignKey("scans.id", ondelete="SET NULL"),
-        nullable=True,
-    ),  # NULL for public/watch
+    # The fairness key for claim_next, NOT a billing field: money is metered in
+    # account_usage. NULL = a registry-watch audit, which belongs to no org.
+    sa.Column("org", sa.String(255), nullable=True),
+    # Why this pair is being audited — an AuditSetOrigin, carried so an alert
+    # raised on the verdict knows its origin. It replaces a `scan_id` FK whose
+    # ONLY reader derived `"watch" if scan_id is None else "scan"`, and therefore
+    # filed every public-repo audit's finding as a registry-watch alert.
+    sa.Column("origin", sa.String(24), nullable=False, server_default="repo_scan"),
     sa.Column("package_name", sa.String(214), nullable=False),
     sa.Column("version", sa.String(128), nullable=False),
     sa.Column("state", sa.String(16), nullable=False, server_default="queued"),
@@ -283,24 +324,37 @@ alerts = sa.Table(
     ),
     sa.Column("package_name", sa.String(214), nullable=False),
     sa.Column("version", sa.String(128), nullable=False),
-    sa.Column("verdict", sa.String(16), nullable=False),
-    sa.Column("kind", sa.String(16), nullable=False),  # 'scan'|'watch'
-    sa.Column("message", sa.Text, nullable=True),
+    # Only 'DANGEROUS' is ever written (notify.py is the single writer).
+    sa.Column("outcome", sa.String(16), nullable=False),
+    # The AuditSetOrigin of the work that produced the verdict. Replaces a
+    # 'scan'|'watch' `kind` that could not name a public-repo audit at all.
+    sa.Column("origin", sa.String(24), nullable=False),
+    # NOT NULL: notify.py is the single writer and always composes one. Nullable
+    # here forced every reader to coerce (`message or ""`) for a state no producer
+    # can create, while the wire contract declares it non-null.
+    sa.Column("message", sa.Text, nullable=False, server_default=""),
     sa.Column("seen", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("created_at", sa.String(64), nullable=False),
     sa.Index("ix_alerts_org", "org", "created_at"),
 )
 
-# Read-only public-repo audit snapshots; NOT joined to repos.
+# The SUBJECT of a `public_repo_scan` audit set: which public repo was snapshotted
+# and who asked. Read-only; NOT joined to `repos`. Progress, counters, timing and
+# the rollup all live on the set — this table holds only what the set cannot.
+#
+# INVARIANT: `set_id` is the primary key, so a snapshot and its set are 1:1 and
+# there is exactly ONE id in the system. `PublicRepoScan.id` on the wire and
+# `set.id` are the same column projected twice, so they cannot disagree — which is
+# what lets `scanId` mean "the id to stream" on every route, both origins.
 public_repo_scans = sa.Table(
     "public_repo_scans",
     metadata,
-    sa.Column("id", _surrogate_pk(), primary_key=True, autoincrement=True),
     sa.Column(
-        "installation_id",
+        "set_id",
         sa.BigInteger,
-        sa.ForeignKey("installations.id", ondelete="CASCADE"),
-        nullable=False,
+        sa.ForeignKey("audit_sets.id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
     ),
     sa.Column(
         "requested_by",
@@ -308,50 +362,15 @@ public_repo_scans = sa.Table(
         sa.ForeignKey("gh_users.id", ondelete="CASCADE"),
         nullable=False,
     ),
+    # The stable id the public-audit cap counts on (a rename never costs a second
+    # Free slot) and the set's `origin_ref`.
     sa.Column("github_repo_id", sa.BigInteger, nullable=False),
     sa.Column("owner", sa.String(255), nullable=False),
     sa.Column("name", sa.String(255), nullable=False),
     sa.Column("full_name", sa.String(511), nullable=False),
-    # Stored lowercased mirror of full_name for portable case-insensitive
-    # active-scan uniqueness (postgres has no COLLATE NOCASE).
-    sa.Column("full_name_lower", sa.String(511), nullable=False),
     sa.Column("html_url", sa.Text, nullable=False),
     sa.Column("default_branch", sa.String(255), nullable=False),
-    sa.Column("commit_sha", sa.String(64), nullable=True),
     sa.Column("lockfile_path", sa.Text, nullable=False),
     sa.Column("lockfile_sha", sa.String(64), nullable=False),
-    sa.Column("status", sa.String(16), nullable=False, server_default="running"),
-    sa.Column("total", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("cached", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("audited", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("failed", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("error", sa.Text, nullable=True),
-    sa.Column("started_at", sa.String(64), nullable=False),
-    sa.Column("finished_at", sa.String(64), nullable=True),
-    sa.Index("ix_public_repo_scans_installation", "installation_id", "started_at"),
-    sa.Index(
-        "ix_public_repo_scans_active",
-        "installation_id",
-        "full_name_lower",
-        unique=True,
-        postgresql_where=sa.text("status = 'running'"),
-        sqlite_where=sa.text("status = 'running'"),
-    ),
-)
-
-public_repo_scan_items = sa.Table(
-    "public_repo_scan_items",
-    metadata,
-    sa.Column(
-        "scan_id",
-        sa.BigInteger,
-        sa.ForeignKey("public_repo_scans.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
-    sa.Column("name", sa.String(214), primary_key=True),
-    sa.Column("version", sa.String(128), primary_key=True),
-    sa.Column("direct", sa.Boolean, nullable=False, server_default=sa.false()),
-    sa.Column("range", sa.String(255), nullable=True),
-    sa.Column("cached", sa.Boolean, nullable=False, server_default=sa.false()),
-    sa.Index("ix_public_repo_scan_items_pkg", "name", "version"),
+    sa.Index("ix_public_repo_scans_repo", "github_repo_id"),
 )

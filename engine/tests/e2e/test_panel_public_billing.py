@@ -12,7 +12,7 @@
 #       host (github_raw_base → the stub) streams the root lockfile, and every
 #       dep is a pre-seeded CACHE HIT (one DANGEROUS) → 201 {scanId}; the snapshot
 #       finalizes at creation (no uncached work) [C1]
-#     - poll GET /panel/public-repos/:id to status=='done': rollup is max-severity
+#     - GET /panel/public-repos/:id reaches set.status=='done': rollup is max-severity
 #       DANGEROUS with every item concluded (error 0, pending 0), deps carry their
 #       cached outcomes, danger sorts first [C2]
 #     - an SSRF reference (wrong host) → 400; a PRIVATE repo → 403 [C3]
@@ -212,12 +212,21 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
             resp = client.get(f"{base}/api/panel/public-repos/{scan_id}")
             assert resp.status_code == 200, resp.text
             detail = resp.json()
-            if detail["scan"]["status"] == "done":
+            if detail["scan"]["set"]["status"] == "done":
                 break
             time.sleep(0.3)
-        assert detail["scan"]["status"] == "done", detail
+        assert detail["scan"]["set"]["status"] == "done", detail
 
-        rollup = detail["scan"]["rollup"]
+        # The snapshot's id IS its set's id — one id, so `scanId` means the same
+        # thing on the create response, the 409 body and the progress stream.
+        assert detail["scan"]["id"] == detail["scan"]["set"]["id"] == scan_id
+        # The commit the lockfile was read at, recorded so the snapshot is
+        # reproducible together with repo.lockfileSha (this used to be hardcoded
+        # null, which made every public snapshot unreproducible).
+        assert detail["scan"]["set"]["commitSha"], detail["scan"]["set"]
+        assert detail["scan"]["set"]["origin"] == "public_repo_scan"
+
+        rollup = detail["scan"]["set"]["rollup"]
         assert rollup["outcome"] == "DANGEROUS", rollup
         assert rollup["dangerous"] == 1
         assert rollup["safe"] == 1
@@ -225,21 +234,23 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
         assert rollup["pending"] == 0, rollup
         assert rollup["cached"] == 2, rollup
 
-        deps = {d["name"]: d for d in detail["dependencies"]}
+        deps = {d["name"]: d for d in detail["deps"]}
         assert deps["danger-dep"]["outcome"] == "DANGEROUS"
         assert deps["danger-dep"]["cached"] is True
         assert deps["danger-dep"]["evidenceCount"] == 2
         assert deps["safe-dep"]["outcome"] == "SAFE"
         assert deps["safe-dep"]["cached"] is True
         # Severity-DESC ordering: the DANGEROUS dep is first.
-        assert detail["dependencies"][0]["name"] == "danger-dep"
-        assert detail["dependenciesTruncated"] is False
+        assert detail["deps"][0]["name"] == "danger-dep"
+        assert detail["depsTruncated"] is False
 
         # It also shows up in the user's public-audit history.
         history = client.get(f"{base}/api/panel/public-repos")
         assert history.status_code == 200, history.text
         scans = history.json()["scans"]
-        assert any(s["id"] == scan_id and s["fullName"] == "acme/pub" for s in scans)
+        assert any(
+            s["id"] == scan_id and s["repo"]["fullName"] == "acme/pub" for s in scans
+        )
 
         # C3: an SSRF reference (wrong host) is rejected at the parse boundary.
         ssrf = client.post(

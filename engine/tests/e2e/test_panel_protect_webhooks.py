@@ -19,12 +19,12 @@
 #
 #   S-pw-2  a FORGED-signature push → 401 and ZERO work (no check run, no scan)
 #           [C4]; a correctly HMAC-signed push that MODIFIES the root lockfile on
-#           a protected repo → 202, then the delta scan opens an in_progress
+#           a protected repo → 202, then the push scan opens an in_progress
 #           check run (POST) and — the new dep being a SAFE cache hit — concludes
 #           it 'success' (PATCH) on the stub [C5]. This proves the create+
 #           conclude check-run seam is wired end to end (conclusion is the seam
 #           the wire stage had to close: conclude_check_run was defined but
-#           never called until finalize_check bound it into refresh_scan_progress).
+#           never called until finalize_check bound it into the set refresher).
 #
 # NOTE (determinism): every per-dep verdict is a pre-seeded cache HIT, so no
 # Docker/LLM/registry runs. The registry-watch + reconcile POLL LOOP timing is
@@ -132,8 +132,8 @@ def _wait_scan_done(client: httpx.Client, base: str, full_name: str) -> dict:
         detail = client.get(f"{base}/api/panel/repo/{full_name}")
         assert detail.status_code == 200, detail.text
         last = detail.json()
-        scan = last.get("scan")
-        if scan and scan["status"] == "done":
+        audit_set = last.get("set")
+        if audit_set and audit_set["status"] == "done":
             return last
         time.sleep(0.5)
     raise AssertionError(f"scan did not reach 'done' in time; last detail: {last}")
@@ -198,7 +198,7 @@ def test_s_pw_1_protect_syncs_watch_cap_and_alert(
         async def _drive() -> tuple[int, set[str]]:
             try:
                 inserted = await handle_dangerous_verdict(
-                    sessions, "danger-dep", "2.0.0", source="scan", settings=None
+                    sessions, "danger-dep", "2.0.0", origin="repo_scan", settings=None
                 )
                 async with sessions() as session:
                     watched = set(
@@ -223,8 +223,8 @@ def test_s_pw_1_protect_syncs_watch_cap_and_alert(
         alert = alerts[0]
         assert alert["packageName"] == "danger-dep"
         assert alert["version"] == "2.0.0"
-        assert alert["verdict"] == "DANGEROUS"
-        assert alert["kind"] == "scan"
+        assert alert["outcome"] == "DANGEROUS"
+        assert alert["origin"] == "repo_scan"
         assert alert["org"] == "acme"
 
 
@@ -246,11 +246,11 @@ def _sign(secret: str, body: bytes) -> str:
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
-def test_s_pw_2_push_webhook_delta_check_and_forged_signature(
+def test_s_pw_2_push_webhook_check_and_forged_signature(
     engine_factory, github_stub, app_private_key
 ):
     """S-pw-2 [C4-C5]: a forged-signature push → 401 + no work; a signed push
-    modifying the root lockfile on a protected repo → 202 → delta scan opens +
+    modifying the root lockfile on a protected repo → 202 → push scan opens +
     concludes a GitHub check run on the stub."""
     github_stub.set_oauth_code(OAUTH_CODE, USER_TOKEN)
     github_stub.set_user(USER_TOKEN, id=42, login="octocat", email="mona@example.com")
@@ -293,7 +293,7 @@ def test_s_pw_2_push_webhook_delta_check_and_forged_signature(
         # The push adds a new (SAFE cache-hit) dep to the root lockfile.
         github_stub.set_lockfile("acme", "web", "package-lock.json", WEB_LOCKFILE_PLUS_NEW)
 
-        # C5: a correctly signed push → 202 fast; the delta scan runs in the
+        # C5: a correctly signed push → 202 fast; the push scan runs in the
         # background, opening + concluding a check run on the stub.
         signed = _post_webhook(client, base, body, signature=_sign(WEBHOOK_SECRET, body))
         assert signed.status_code == 202, signed.text
@@ -313,7 +313,9 @@ def test_s_pw_2_push_webhook_delta_check_and_forged_signature(
         assert created["body"]["status"] == "in_progress"
         assert created["body"]["head_sha"] == HEAD_SHA
         concluded = next(c for c in github_stub.check_runs if c["method"] == "PATCH")
-        # The one new dep is a SAFE cache hit → the delta rollup is SAFE → the
-        # check is concluded 'success' (fail-only-on-DANGEROUS trust contract).
+        # The push's set covers the WHOLE pushed lockfile (safe-a + new-dep, both
+        # SAFE cache hits), not just the one new pair — so the check answers "is
+        # this commit safe" rather than "was the diff safe", and concludes
+        # 'success' (fail-only-on-DANGEROUS trust contract).
         assert concluded["body"]["status"] == "completed"
         assert concluded["body"]["conclusion"] == "success"

@@ -412,7 +412,7 @@ class SessionUser(BaseModel):
 
 class StubUrlRef(BaseModel):
     pattern: str
-    responseHash: str
+    responseHash: str | None
 
 
 class SubscriptionPrice(BaseModel):
@@ -552,12 +552,9 @@ class AuditSet(BaseModel):
         Literal['manual', 'push', 'reconcile', 'publish'],
         Field(title='AuditSetTrigger'),
     ]
-    status: Annotated[
-        Literal['running', 'done', 'failed'], Field(title='AuditSetStatus')
-    ]
+    status: Annotated[Literal['running', 'done'], Field(title='AuditSetStatus')]
     rollup: AuditSetRollup
     commitSha: str | None
-    error: str | None
     startedAt: str
     finishedAt: str | None
 
@@ -982,6 +979,7 @@ class ReplayGalleryResponse(BaseModel):
 class RepoDetailResponse(BaseModel):
     repo: PanelRepo
     set: AuditSet | None
+    depsTruncated: bool
     deps: list[AuditSetItem]
     alerts: list[Alert]
 
@@ -997,9 +995,7 @@ class ScanDepFrame(BaseModel):
 
 class ScanProgressFrame(BaseModel):
     type: Literal['progress']
-    status: Annotated[
-        Literal['running', 'done', 'failed'], Field(title='AuditSetStatus')
-    ]
+    status: Annotated[Literal['running', 'done'], Field(title='AuditSetStatus')]
     rollup: AuditSetRollup
 
 

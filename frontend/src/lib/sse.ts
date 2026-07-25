@@ -6,15 +6,20 @@
  *   EventSource re-sends the last `id:` as Last-Event-ID and the engine replays
  *   only events after it (it also accepts ?since=<seq>). Either way the fold's
  *   seq guard makes replay idempotent, so the client never reasons about dupes.
- * - Panel scan stream (/panel/scan/:id/events): UNNAMED default messages via
- *   `onmessage`, NO reconnect — on error it closes and fires `onError` so the
- *   caller does a full reload; the terminal {type:"done"} triggers one too.
+ * - Audit-set progress stream (/panel/scan/:id/events): UNNAMED default messages
+ *   via `onmessage` — per-name listeners receive nothing. Frames DO carry an
+ *   `id:` line (the durable log's seq), so a native EventSource reconnect resumes
+ *   from Last-Event-ID exactly as the audit stream does; every frame is a snapshot
+ *   of its subject, so a replayed one is idempotent. On error it closes and fires
+ *   `onError` so the caller does a full reload; the terminal {type:"done"}
+ *   triggers one too. ONE stream for every origin: a public-repo audit and an
+ *   owned-repo scan are the same entity and are followed by this same code.
  *
  * The EventSource constructor and backoff are injectable so unit tests drive a
  * fake with no real timers or network.
  */
 
-import { AUDIT_EVENT_TYPES, type AuditEvent, type ScanStreamMessage } from "./engine-types.ts";
+import { AUDIT_EVENT_TYPES, type AuditEvent, type ScanStreamFrame } from "./engine-types.ts";
 
 /** Structural EventSource surface — deliberately wider than the DOM lib's
  * overloaded signatures so test fakes can satisfy it. */
@@ -110,13 +115,14 @@ export function connectAuditStream(
 }
 
 export interface ScanStreamHandlers {
-  onMessage: (message: ScanStreamMessage) => void;
+  onMessage: (frame: ScanStreamFrame) => void;
   onError?: () => void;
 }
 
-/** Panel repo-scan stream. UNNAMED default messages (JSON → ScanStreamMessage).
- * No reconnect: on error the caller degrades to a full reload (the terminal
- * {type:"done"} triggers one anyway). */
+/** Audit-set progress stream. UNNAMED default messages (JSON → ScanStreamFrame).
+ * No manual reconnect loop: EventSource's own retry already resumes from the
+ * `id:` cursor, and on a hard error the caller degrades to a full reload (the
+ * terminal {type:"done"} triggers one anyway). */
 export function connectScanStream(
   url: string,
   handlers: ScanStreamHandlers,
@@ -128,13 +134,13 @@ export function connectScanStream(
 
   source.onmessage = (raw) => {
     if (closed) return;
-    let message: ScanStreamMessage;
+    let frame: ScanStreamFrame;
     try {
-      message = JSON.parse(raw.data) as ScanStreamMessage;
+      frame = JSON.parse(raw.data) as ScanStreamFrame;
     } catch {
       return; // malformed frame — skip, never throw into the stream
     }
-    handlers.onMessage(message);
+    handlers.onMessage(frame);
   };
   source.onerror = () => {
     if (closed) return;

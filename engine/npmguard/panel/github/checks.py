@@ -1,11 +1,11 @@
 """GitHub check runs for the repo panel (port of TS ``github/checks.ts``).
 
-A protected repo's push triggers a delta scan; the scan's outcome is surfaced to
-GitHub as a **check run** on the head commit. The trust contract (spec §5.10): a
-check **fails only on DANGEROUS**. A SAFE rollup is a success, an ERROR rollup is
-``neutral`` (visible, never blocking, and never claiming safe), and a set with
-nothing concluded yet leaves the check ``in_progress`` — it is never concluded
-prematurely.
+A protected repo's push opens an audit set over the pushed commit's lockfile; the
+set's outcome is surfaced to GitHub as a **check run** on the head commit. The
+trust contract (spec §5.10): a check **fails only on DANGEROUS**. A SAFE rollup is
+a success, an ERROR rollup is ``neutral`` (visible, never blocking, and never
+claiming safe), and a set that covered nothing is ``neutral`` too — never left
+open.
 
 Every GitHub call here is best-effort: the App may have been registered without
 the ``Checks:write`` permission, in which case create/conclude fail. We log and
@@ -18,11 +18,14 @@ client (the caller mints it via ``gh_client.installation_octokit``), matching
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from ..verdict_index import OUTCOMES
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle: audit_set imports nothing here
+    from ..audit_set import Rollup
 
 log = structlog.get_logger("npmguard.panel.checks")
 
@@ -34,40 +37,59 @@ CHECK_NAME = "NpmGuard"
 # silent "in progress" — which is what the old catch-all arm hid.
 _CONCLUSION = {"DANGEROUS": "failure", "ERROR": "neutral", "SAFE": "success"}
 
+# A set that covered nothing. Distinct from every outcome, and NOT a reason to
+# leave the check open: the audit ran and had no work, which is a terminal fact.
+_EMPTY_CONCLUSION = "neutral"
 
-def check_conclusion(outcome: str | None) -> str:
-    """Map a set's rollup outcome to a GitHub check state.
+
+def check_conclusion(rollup: Rollup) -> str:
+    """Map a FINALIZED set's rollup to a TERMINAL GitHub check state.
 
     - ``DANGEROUS`` → ``"failure"`` — the ONLY blocking outcome (trust contract).
     - ``SAFE`` → ``"success"``.
     - ``ERROR`` → ``"neutral"``: the audit could not conclude. It does not block
       the push, and it must not report success either — "we tried and failed" is
       a fact GitHub gets to see.
-    - ``None`` (nothing concluded yet) → ``"in_progress"``: the only non-terminal
-      state, and it is PROGRESS, not an outcome.
+    - ``total == 0`` → ``"neutral"``: nothing to audit.
+
+    Takes the ROLLUP, not the outcome, and that is the whole point. A finalized set
+    has ``pending == 0``, so ``outcome is None`` can only mean ``total == 0`` —
+    "the set covered nothing", not "nothing has concluded yet". With only an
+    outcome to look at, those two were the same value, the mapper answered
+    ``in_progress``, and a push that added no new dependencies left its check run
+    spinning forever. Distinguishing them is a rollup fact, and became expressible
+    the moment progress got its own entity.
 
     Pure — the single source of truth for the fail-only-on-DANGEROUS policy.
     """
-    if outcome is None:
-        return "in_progress"
-    # INVARIANT: a non-null outcome is a panel outcome, so the mapping is total.
-    assert outcome in OUTCOMES, f"{outcome!r} is not a panel outcome"
-    return _CONCLUSION[outcome]
+    # INVARIANT: only a finalized set is concluded, and a finalized set has no
+    # pending items — so there is no non-terminal answer to give.
+    assert rollup.pending == 0, (
+        f"check_conclusion got a set with {rollup.pending} pending items; only a "
+        "finalized set is concluded, and finalizing requires pending == 0"
+    )
+    if rollup.total == 0:
+        return _EMPTY_CONCLUSION
+    # INVARIANT: total > 0 and pending == 0 ⇒ something concluded ⇒ outcome is a
+    # panel outcome, so the mapping is total.
+    assert rollup.outcome in OUTCOMES, (
+        f"a finalized set of {rollup.total} items has outcome {rollup.outcome!r}, "
+        f"which is outside {sorted(OUTCOMES)}"
+    )
+    return _CONCLUSION[rollup.outcome]
 
 
-def check_summary(outcome: str | None, rollup: dict[str, Any] | None = None) -> str:
+def check_summary(rollup: Rollup) -> str:
     """A short human summary for the check output panel."""
-    if outcome == "DANGEROUS":
-        count = (rollup or {}).get("dangerous")
-        detail = f" ({count} dangerous)" if count else ""
+    if rollup.total == 0:
+        return "NpmGuard found no dependencies to audit in this commit."
+    if rollup.outcome == "DANGEROUS":
+        detail = f" ({rollup.dangerous} dangerous)" if rollup.dangerous else ""
         return f"NpmGuard found a DANGEROUS dependency{detail}."
-    if outcome == "ERROR":
-        count = (rollup or {}).get("error")
-        detail = f" ({count} could not be audited)" if count else ""
+    if rollup.outcome == "ERROR":
+        detail = f" ({rollup.error} could not be audited)" if rollup.error else ""
         return f"NpmGuard could not complete this audit{detail} — no clean bill of health."
-    if outcome == "SAFE":
-        return "NpmGuard found no dangerous dependencies."
-    return "NpmGuard audit in progress."
+    return f"NpmGuard found no dangerous dependencies in {rollup.total} packages."
 
 
 async def create_check_run(

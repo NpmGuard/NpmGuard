@@ -26,11 +26,13 @@ npm run gate       # typecheck && test && test:e2e
 
 - `src/lib/engine-types.ts` — the wire contract, **mid-migration to
   `@npmguard/shared`** (N-12: one contract, generated, never hand-mirrored).
-  The panel domain already imports `Outcome`, `AuditSetRollup` and `JobState`
-  from the package; the shapes still declared locally here are scheduled for
-  deletion in R-5a. Do not add a new hand-written wire shape — author it in
-  `shared/src/*.ts` and run `scripts/gen-contract.sh`, which also regenerates the
-  engine's `contract/models.py` from the same source.
+  The whole PANEL domain is now re-exported from the package (`AuditSet`,
+  `AuditSetItem`, `PanelRepo`, `Alert`, `PublicRepoScan`, the response envelopes
+  and the `ScanStreamFrame` union); what is still declared by hand here is the
+  audit-core/report side, scheduled for deletion in R-5a. Do not add a new
+  hand-written wire shape — author it in `shared/src/*.ts` and run
+  `scripts/gen-contract.sh`, which also regenerates the engine's
+  `contract/models.py` from the same source.
   Runtime resolves the package from `shared/src` via a vite alias, while
   typecheck goes through a tsconfig project reference; neither path can serve a
   stale `dist`. See `docs/specs/2026-07-24-platform-v3-system-design.md` §5.4.
@@ -38,10 +40,15 @@ npm run gate       # typecheck && test && test:e2e
   audit-stream state transitions live here (one `switch(event.type)`) — never in
   components, never inline in the store. Idempotent under cursor replay (dedup by
   `seq`); tolerates unknown/dead event types (never throws).
-- `src/lib/sse.ts` — the audit stream: **named** SSE events (one listener per
-  type; `onmessage` never fires). Reconnect resumes from a seq cursor (native
-  `EventSource` sends `Last-Event-ID`; engine also accepts `?since=`). The
-  EventSource ctor + backoff are injectable for tests.
+- `src/lib/sse.ts` — two clients, one convention apart. The audit stream is
+  **named** SSE events (one listener per type; `onmessage` never fires). The
+  audit-set progress stream (`/panel/scan/:id/events`) is **unnamed**
+  (`onmessage` only) — but its frames DO carry an `id:` line, so both resume from
+  a seq cursor (native `EventSource` sends `Last-Event-ID`; the engine also
+  accepts `?since=`). One progress stream serves EVERY origin: an owned-repo scan
+  and a public-repo audit are the same entity (R-1), so `scanId` is a set id and
+  there is no public-scan polling loop. Panel frames are snapshots, so a replay
+  needs no seq guard. The EventSource ctor + backoff are injectable for tests.
 - `src/lib/api.ts` / `src/lib/api-base.ts` — one typed fn per engine route;
   errors are `ApiError{status, body}`; branch on `status`, never on message text.
 - `src/stores/auditStore.ts` — thin shell: SSE connection lifecycle, start

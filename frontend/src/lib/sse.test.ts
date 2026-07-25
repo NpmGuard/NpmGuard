@@ -207,17 +207,23 @@ describe("connectAuditStream — C8 close idempotence", () => {
 });
 
 /**
- * Unit: connectScanStream (the panel repo-scan client) — sse.ts.
+ * Unit: connectScanStream (the audit-set progress client) — sse.ts.
  *
- * The panel stream is the mirror image of the audit stream: UNNAMED default
- * messages (onmessage, never named listeners) and NO reconnect — on error it
- * closes and fires onError so the caller does a full reload; the terminal
- * {type:"done"} is delivered to onMessage (the caller reloads on it).
+ * ONE stream for every origin after R-1: an owned-repo scan and a public-repo
+ * audit are the same entity, so this client follows both. It is the mirror image
+ * of the audit stream in FRAMING: UNNAMED default messages (onmessage, never
+ * named listeners). It is NOT the mirror image in resumability — frames carry an
+ * `id:` line, so EventSource's own retry resumes from the cursor; what this client
+ * has no loop for is a HARD error, which closes and fires onError so the caller
+ * does a full reload. The terminal {type:"done"} is delivered to onMessage.
  *
  * Input classes:
- *  S1  unnamed-message parse — a well-formed default frame is JSON-parsed to
- *                              ScanStreamMessage and handed to onMessage; no named
- *                              listeners are registered.
+ *  S1  unnamed-message parse — a well-formed default frame is JSON-parsed to a
+ *                              ScanStreamFrame and handed to onMessage; no named
+ *                              listeners are registered. The dep frame carries the
+ *                              WHOLE contract item under `item`, not a flattened
+ *                              subset (the old frame dropped direct / range /
+ *                              auditedAt / cached).
  *  S2  malformed frame       — a bad-JSON default frame is skipped, never onMessage,
  *                              never throws.
  *  S3  error → onError       — onerror closes the source and fires onError exactly
@@ -238,19 +244,20 @@ describe("connectScanStream — S1 unnamed-message parse", () => {
     const handle = connectScanStream("/api/panel/scan/1/events", { onMessage }, { eventSource: Ctor });
     const src = FakeEventSource.latest();
     expect(src.listeners.size).toBe(0); // panel stream is unnamed-only
-    deliver(
-      src,
-      frame({ type: "dep", name: "chalk", version: "5.0.0", verdict: "SAFE", verdictReason: null, evidenceCount: 0, jobState: null }),
-    );
-    expect(onMessage).toHaveBeenCalledWith({
-      type: "dep",
+    const item = {
       name: "chalk",
       version: "5.0.0",
-      verdict: "SAFE",
-      verdictReason: null,
+      direct: true,
+      range: "^5.0.0",
+      outcome: "SAFE",
+      verdictReason: "clean",
       evidenceCount: 0,
+      auditedAt: "2026-07-25T00:00:00.000Z",
       jobState: null,
-    });
+      cached: true,
+    };
+    deliver(src, frame({ type: "dep", item }));
+    expect(onMessage).toHaveBeenCalledWith({ type: "dep", item });
     handle.close();
   });
 });

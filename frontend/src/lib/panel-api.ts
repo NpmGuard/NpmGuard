@@ -7,8 +7,8 @@ import type {
   BillingResponse,
   OrgsResponse,
   PanelRepo,
-  PublicScan,
-  PublicScanDetailResponse,
+  PublicRepoScan,
+  PublicRepoScanDetailResponse,
   RepoDetailResponse,
   SessionUser,
 } from "./engine-types.ts";
@@ -75,11 +75,11 @@ export function fetchRepoDetail(owner: string, name: string): Promise<RepoDetail
   return getJson(`${apiBase()}/panel/repo/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
 }
 
-export function fetchPublicScans(): Promise<{ scans: PublicScan[] }> {
+export function fetchPublicScans(): Promise<{ scans: PublicRepoScan[] }> {
   return getJson(`${apiBase()}/panel/public-repos`);
 }
 
-export function fetchPublicScanDetail(scanId: number): Promise<PublicScanDetailResponse> {
+export function fetchPublicScanDetail(scanId: number): Promise<PublicRepoScanDetailResponse> {
   return getJson(`${apiBase()}/panel/public-repos/${scanId}`);
 }
 
@@ -96,6 +96,9 @@ export function startPublicRepoScan(
   );
 }
 
+/** Progress SSE for ANY audit set — an owned-repo scan and a public-repo audit
+ * are the same entity after R-1, so `scanId` is a set id and this is the ONE
+ * progress transport. The public-scan detail poll it replaced was the second. */
 export function scanEventsUrl(scanId: number): string {
   return `${apiBase()}/panel/scan/${scanId}/events`;
 }

@@ -29,7 +29,7 @@ export function AlertsNotice() {
               <span className="mono">
                 {alert.packageName}@{alert.version}
               </span>{" "}
-              is <OutcomePill outcome={alert.verdict} />
+              is <OutcomePill outcome={alert.outcome} />
             </li>
           ))}
         </ul>

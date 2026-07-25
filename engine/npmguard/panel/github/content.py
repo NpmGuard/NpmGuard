@@ -52,6 +52,12 @@ class RootLockfile:
 class PublicRepoInputs:
     lockfile: FetchedFile
     manifest: dict | None
+    # The commit the snapshot was taken at. Together with the lockfile blob sha
+    # this is what makes a public audit reproducible — the pair the wire's
+    # `set.commitSha` + `repo.lockfileSha` carry. Best-effort: `None` when the
+    # anonymous commit lookup fails, because an unreproducible snapshot is still a
+    # useful one and a rate-limited extra call must not sink the audit.
+    commit_sha: str | None = None
 
 
 class PublicRepoFileTooLargeError(Exception):
@@ -268,4 +274,21 @@ async def fetch_public_repo_inputs(
             content=lockfile_content,
         ),
         manifest=manifest,
+        commit_sha=await _public_commit_sha(octo, owner, repo, ref),
     )
+
+
+async def _public_commit_sha(octo, owner: str, repo: str, ref: str | None) -> str | None:
+    """The head commit of ``ref`` (default branch when ``None``), or ``None``.
+
+    Anonymous and best-effort: this exists only to make the snapshot reproducible,
+    so any failure degrades to an unpinned snapshot rather than failing the audit.
+    """
+    try:
+        data = (
+            await octo.arequest("GET", f"/repos/{owner}/{repo}/commits/{ref or 'HEAD'}")
+        ).json()
+    except Exception:  # noqa: BLE001 - reproducibility is a bonus, never a gate
+        return None
+    sha = data.get("sha") if isinstance(data, dict) else None
+    return str(sha) if sha else None

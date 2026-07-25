@@ -31,6 +31,7 @@ from univers.versions import SemverVersion
 
 from kit_spine import now_iso
 from npmguard.config import Settings
+from npmguard.panel.audit_set import ORIGIN_WATCHLIST, ORIGINS
 from npmguard.panel.tables import (
     alerts,
     gh_users,
@@ -72,23 +73,27 @@ async def handle_dangerous_verdict(
     package_name: str,
     version: str,
     *,
-    source: str = "scan",
+    origin: str = ORIGIN_WATCHLIST,
     verdict_reason: str | None = None,
     settings: Settings | None = None,
     send_email: SendEmail = send_dangerous_email,
 ) -> int:
     """Record + notify the exposure of a DANGEROUS ``package_name@version``.
 
-    ``source`` is the alert ``kind`` (``'scan'`` | ``'watch'``). Returns the
-    number of alert rows inserted (0 when nothing is exposed, or every exposed
-    repo was already alerted for this pair). Email is sent per org only when
-    ``settings`` is provided (the wire stage passes it).
+    ``origin`` is the AuditSetOrigin of the work that produced the verdict, carried
+    through from ``panel_jobs.origin`` rather than re-derived — the old
+    ``'scan'``/``'watch'`` pair was computed as "watch iff the job owns no scan"
+    and therefore filed every public-repo audit's finding as a registry-watch
+    alert. Returns the number of alert rows inserted (0 when nothing is exposed, or
+    every exposed repo was already alerted for this pair). Email is sent per org
+    only when ``settings`` is provided (the wire stage passes it).
     """
+    assert origin in ORIGINS, f"{origin!r} is not an AuditSetOrigin"
     exposed = await _collect_exposure(sessions, package_name, version, verdict_reason)
     if not exposed:
         return 0
 
-    inserted = await _insert_alerts(sessions, package_name, version, source, exposed)
+    inserted = await _insert_alerts(sessions, package_name, version, origin, exposed)
 
     # One email per org, addressed to every user with a known email on any
     # installation that owns the org.
@@ -105,7 +110,7 @@ async def handle_dangerous_verdict(
         "dangerous fan-out",
         package=package_name,
         version=version,
-        source=source,
+        origin=origin,
         repos=len(exposed),
         orgs=len(by_org),
         alerts=inserted,
@@ -216,7 +221,7 @@ async def _insert_alerts(
     sessions: async_sessionmaker,
     package_name: str,
     version: str,
-    source: str,
+    origin: str,
     exposed: list[dict[str, Any]],
 ) -> int:
     """Insert one alert row per exposed repo, deduped by
@@ -245,8 +250,8 @@ async def _insert_alerts(
                     repo_id=repo["repo_id"],
                     package_name=package_name,
                     version=version,
-                    verdict="DANGEROUS",
-                    kind=source,
+                    outcome="DANGEROUS",
+                    origin=origin,
                     message=repo["message"],
                     seen=False,
                     created_at=now,

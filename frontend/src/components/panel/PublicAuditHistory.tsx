@@ -1,12 +1,16 @@
 /** Recent public-repository snapshots (up to 6 rows). Rows link into the
- * report dialog; running rows show the polling-driven progress meter. */
+ * report dialog; running rows show a progress meter over the set's rollup.
+ *
+ * A public audit is an audit SET like any other after R-1: the row reads
+ * `scan.set` for progress and `scan.repo` for identity, and its id IS the set id
+ * the progress stream is keyed on. */
 
-import type { PublicScan } from "../../lib/engine-types.ts";
+import type { PublicRepoScan } from "../../lib/engine-types.ts";
 import { formatDate } from "../../lib/format.ts";
 import { OutcomePill } from "./tone.tsx";
 
 interface PublicAuditHistoryProps {
-  scans: PublicScan[];
+  scans: PublicRepoScan[];
   onOpen: (scanId: number) => void;
 }
 
@@ -21,9 +25,10 @@ export function PublicAuditHistory({ scans, onOpen }: PublicAuditHistoryProps) {
       </div>
       <div className="card panel-history">
         {scans.slice(0, 6).map((scan) => {
-          const running = scan.status === "running";
-          const completed = scan.cached + scan.audited + scan.failed;
-          const width = scan.total > 0 ? `${Math.round((completed / scan.total) * 100)}%` : "0%";
+          const { total, pending, cached, error, outcome } = scan.set.rollup;
+          const running = scan.set.status === "running";
+          const completed = total - pending;
+          const width = total > 0 ? `${Math.round((completed / total) * 100)}%` : "0%";
           return (
             <div key={scan.id} className="panel-history__row">
               <div className="panel-history__id">
@@ -32,10 +37,10 @@ export function PublicAuditHistory({ scans, onOpen }: PublicAuditHistoryProps) {
                   className="panel-history__name mono"
                   onClick={() => onOpen(scan.id)}
                 >
-                  {scan.owner}/{scan.name}
+                  {scan.repo.owner}/{scan.repo.name}
                 </button>
                 <span className="microtext mono">
-                  {scan.lockfilePath} · {scan.defaultBranch}
+                  {scan.repo.lockfilePath} · {scan.repo.defaultBranch}
                 </span>
                 <div className="panel-history__tags">
                   <span className="tag">Public</span>
@@ -50,15 +55,15 @@ export function PublicAuditHistory({ scans, onOpen }: PublicAuditHistoryProps) {
                       <span className="dot dot--running" />
                       <span className="microtext">Scanning</span>
                       <span className="microtext mono">
-                        {completed}/{scan.total}
+                        {completed}/{total}
                       </span>
                     </span>
                     <div
                       className="meter"
                       role="progressbar"
-                      aria-label={`Scan progress for ${scan.fullName}`}
+                      aria-label={`Scan progress for ${scan.repo.fullName}`}
                       aria-valuemin={0}
-                      aria-valuemax={scan.total}
+                      aria-valuemax={total}
                       aria-valuenow={completed}
                     >
                       <div className="meter__fill" style={{ width }} />
@@ -66,16 +71,16 @@ export function PublicAuditHistory({ scans, onOpen }: PublicAuditHistoryProps) {
                   </>
                 ) : (
                   <span className="panel-history__statusrow">
-                    {scan.rollup.outcome ? (
-                      <OutcomePill outcome={scan.rollup.outcome} />
+                    {outcome ? (
+                      <OutcomePill outcome={outcome} />
                     ) : (
-                      <span className="pill">Done</span>
+                      <span className="pill">Nothing to audit</span>
                     )}
-                    <span className="microtext">{formatDate(scan.finishedAt)}</span>
+                    <span className="microtext">{formatDate(scan.set.finishedAt)}</span>
                   </span>
                 )}
                 <span className="microtext">
-                  {scan.total} packages · {scan.cached} cached · {scan.failed} unresolved
+                  {total} packages · {cached} cached · {error} unresolved
                 </span>
               </div>
               <div className="panel-history__side">
