@@ -14,17 +14,15 @@
      file with no build step and no network.
 
      SYSTEM RULES OBSERVED
-     §2.7  mono = machine-authored fact (package, version, date, count);
+     §2.7  mono = machine-authored fact (package, version, timestamp, count);
            sans = interface language. Headlines are SANS.
      §2.8  "a stamp, not a pill" — no fully-round status elements; severity
            reaches a row through a 3px left rule, not a full tint.
      §2.2  --ng-error (purple) means AUDIT ERROR and is deliberately unused.
+     §2.9  entrance motion only, transform + opacity. No playback, no sequencing.
 
-     THE SPINE: one pipeline, drawn twice. Each stage carries the SAME icon on
-     both sides — that is what makes the two columns legible as one pipeline
-     rather than two lists, and it lets the colour alone carry the divergence.
-     Stages that behave identically stay grey on both sides: NpmGuard does not
-     stop the publish, and the picture must not imply that it does.
+     Six frames, each one picture: the idea, the attack, the history, the
+     pipeline side by side, the real output, the limits.
      ============================================================================= */
   :root {
     color-scheme: light;
@@ -51,6 +49,7 @@
     --ng-safe-border: #96c9a9;
     --ng-safe-wash:   #ebf8f0;
 
+    --ng-accent:      #1566c5;
     --ng-accent-text: #0052af;
 
     --ng-font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -70,23 +69,82 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  section { max-width: 1080px; margin: 0 auto; padding: clamp(2.6rem, 7vh, 4.5rem) clamp(1.2rem, 4vw, 3rem); }
+  section { max-width: 1080px; margin: 0 auto; padding: clamp(2.4rem, 6.5vh, 4.2rem) clamp(1.2rem, 4vw, 3rem); }
   section + section { border-top: 1px solid var(--ng-border-faint); }
 
-  .lab { font-size: .7rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--ng-text-3); margin: 0 0 1.4rem; }
+  .lab { font-size: .7rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--ng-text-3); margin: 0 0 1.3rem; }
   h1 { font-family: var(--ng-font-mono); font-weight: 700; margin: 0; font-size: clamp(2rem, 1rem + 5vw, 4.2rem); letter-spacing: -.04em; line-height: 1; }
   h1 .v { color: var(--ng-danger); }
-  .say { font-weight: 600; letter-spacing: -.015em; font-size: clamp(1.15rem, .95rem + 1.2vw, 1.75rem); line-height: 1.25; margin: 1.5rem 0 0; text-wrap: balance; max-width: 30ch; }
+  .say { font-weight: 600; letter-spacing: -.015em; font-size: clamp(1.1rem, .95rem + 1.1vw, 1.6rem); line-height: 1.25; margin: 1.4rem 0 0; text-wrap: balance; max-width: 32ch; }
   .say em { font-style: normal; color: var(--ng-danger-text); }
+  .say.grn { color: var(--ng-safe-text); }
 
-  .nums { display: grid; gap: clamp(1rem, 4vw, 2.4rem); margin-top: 2rem; }
+  .nums { display: grid; gap: clamp(1rem, 4vw, 2.4rem); margin-top: 1.8rem; }
   @media (min-width: 700px) { .nums { grid-template-columns: repeat(3, 1fr); } }
   .num { border-top: 1px solid var(--ng-border); padding-top: .7rem; }
   .num b { display: block; font-family: var(--ng-font-mono); font-weight: 700; font-size: clamp(1.7rem, 1.1rem + 2.2vw, 2.6rem); line-height: 1; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
   .num span { display: block; font-size: .65rem; letter-spacing: .13em; text-transform: uppercase; color: var(--ng-text-3); margin-top: .45rem; }
   .num.red b { color: var(--ng-danger-text); }
 
-  /* ── headers ──────────────────────────────────────────────── */
+  /* ── icons ────────────────────────────────────────────────── */
+  .ico { flex: 0 0 auto; width: 30px; height: 30px; display: block; color: inherit; }
+  .ico svg { width: 100%; height: 100%; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .ico.ghost svg { stroke-dasharray: 2.5 2.5; opacity: .5; }
+  .ico.lg { width: 40px; height: 40px; }
+
+  /* ── frame: a key copies, a person doesn't ────────────────── */
+  .idea { display: flex; flex-direction: column; gap: 1.6rem; }
+  .idea-row { display: flex; align-items: center; gap: clamp(.8rem, 2.5vw, 1.8rem); flex-wrap: wrap; }
+  .idea-lab { font-size: .66rem; letter-spacing: .15em; text-transform: uppercase; color: var(--ng-text-3); width: 4.5rem; flex: 0 0 auto; }
+  .arrow { color: var(--ng-border-strong); font-family: var(--ng-font-mono); font-size: 1.1rem; }
+  .dupes { display: flex; gap: .55rem; align-items: center; }
+  .grey { color: var(--ng-border-strong); }
+  .red  { color: var(--ng-danger); }
+  .grn  { color: var(--ng-safe); }
+  .nope { font-family: var(--ng-font-mono); font-weight: 700; color: var(--ng-safe); font-size: 1.9rem; line-height: 1; }
+
+  /* ── frame: the attack, in time ───────────────────────────── */
+  .tl { display: flex; flex-direction: column; }
+  /* `stretch`, not `start`: the rail column holds only an absolutely-positioned
+     dot, so anything that shrink-wraps it collapses to zero height and the
+     connecting line silently disappears. */
+  .tl-row { display: grid; grid-template-columns: 4.6rem 20px 1fr; align-items: stretch; }
+  .tl-t { font-family: var(--ng-font-mono); font-size: .68rem; color: var(--ng-text-3); text-align: right; padding-right: .8rem; padding-top: .5rem; font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .tl-r { position: relative; }
+  .tl-r::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--ng-border); transform: translateX(-50%); }
+  .tl-row:last-child .tl-r::before { bottom: auto; height: 1.1rem; }
+  .tl-d { position: absolute; left: 50%; top: .6rem; transform: translate(-50%, 0); width: 9px; height: 9px; border-radius: 2px; background: var(--ng-border-strong); z-index: 1; }
+  .tl-b { padding: .35rem 0 .9rem .8rem; display: flex; gap: .7rem; align-items: flex-start; color: var(--ng-border-strong); }
+  .tl-b .tx { font-family: var(--ng-font-mono); font-size: .88rem; font-weight: 700; color: var(--ng-text); letter-spacing: -.01em; }
+  .tl-b .tx small { display: block; font-family: var(--ng-font-sans); font-size: .76rem; font-weight: 400; color: var(--ng-text-3); margin-top: .1rem; letter-spacing: 0; }
+  .tl-row.red .tl-d { background: var(--ng-danger); width: 11px; height: 11px; }
+  .tl-row.red .tl-t, .tl-row.red .tl-b .tx { color: var(--ng-danger-text); }
+  .tl-row.red .tl-b { color: var(--ng-danger); }
+
+  /* the gaps — height IS the argument */
+  .tl-gap .tl-r::before { background: repeating-linear-gradient(var(--ng-border-strong) 0 3px, transparent 3px 9px); }
+  .tl-gap .tl-b { align-items: center; padding-top: 0; padding-bottom: 0; }
+  .tl-gap .tl-b span { font-family: var(--ng-font-mono); font-size: .68rem; letter-spacing: .13em; text-transform: uppercase; color: var(--ng-text-2); }
+  .g-lg .tl-b { height: 130px; }
+  .g-md .tl-b { height: 56px; }
+  .g-xs .tl-b { height: 8px; }
+  .g-xs .tl-r::before { background: var(--ng-danger); }
+  .g-xs .tl-b span { color: var(--ng-danger-text); font-weight: 700; }
+
+  /* ── frame: the stamp chain ───────────────────────────────── */
+  .chain { display: flex; align-items: flex-start; overflow-x: auto; padding: .4rem 0 0; }
+  .pkg { flex: 1 1 0; min-width: 88px; display: flex; flex-direction: column; align-items: center; gap: .6rem; position: relative; }
+  .pkg::before { content: ""; position: absolute; top: 31px; left: 50%; right: -50%; height: 2px; background: var(--ng-border); }
+  .pkg:last-child::before { display: none; }
+  /* §2.8 — a stamp, not a pill */
+  .stamp { width: 62px; height: 62px; border-radius: var(--r-lg); display: grid; place-items: center; position: relative; z-index: 1; background: var(--ng-safe-wash); border: 2px solid var(--ng-safe-border); color: var(--ng-safe); }
+  .stamp.empty { border-style: dashed; border-color: var(--ng-danger-border); background: var(--ng-danger-wash); color: var(--ng-danger); }
+  .pkg-v { font-family: var(--ng-font-mono); font-size: .8rem; font-weight: 700; color: var(--ng-text-2); }
+  .pkg-d { font-family: var(--ng-font-mono); font-size: .62rem; color: var(--ng-text-3); }
+  .pkg.bad .pkg-v { color: var(--ng-danger-text); }
+  .pkg.bad .stamp { border-width: 3px; box-shadow: 0 0 0 5px var(--ng-danger-wash); }
+
+  /* ── frame: the split pipeline ────────────────────────────── */
   .heads { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; margin-bottom: .7rem; }
   .heads b { font-size: .7rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
   .heads .l b { color: var(--ng-danger-text); }
@@ -94,126 +152,84 @@
   .heads .r b { color: var(--ng-safe-text); }
   @media (max-width: 760px) { .heads { grid-template-columns: 1fr 1fr; } .heads .mid { display: none; } }
 
-  /* ── pipeline ─────────────────────────────────────────────── */
-  .pipe { display: flex; flex-direction: column; gap: 0; }
   .stage { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; align-items: stretch; }
   @media (max-width: 760px) { .stage { grid-template-columns: 1fr 1fr; gap: .4rem; } }
+  .step { display: grid; place-items: center; text-align: center; font-family: var(--ng-font-mono); font-size: .64rem; line-height: 1.3; letter-spacing: .04em; color: var(--ng-text-3); padding: .3rem; }
+  @media (max-width: 760px) { .step { grid-column: 1 / -1; place-items: start; text-align: left; padding: .55rem 0 .15rem; } .step br { display: none; } }
 
-  .step {
-    display: grid; place-items: center; text-align: center;
-    font-family: var(--ng-font-mono); font-size: .64rem; line-height: 1.3;
-    letter-spacing: .04em; color: var(--ng-text-3); padding: .3rem;
-  }
-  @media (max-width: 760px) {
-    .step { grid-column: 1 / -1; place-items: start; text-align: left; padding: .55rem 0 .15rem; }
-    .step br { display: none; }
-  }
-
-  .cell {
-    background: var(--ng-sunken); border: 1px solid var(--ng-border-faint);
-    border-radius: var(--r-lg); padding: .7rem .9rem;
-    display: flex; align-items: center; gap: .8rem;
-    color: var(--ng-border-strong);
-  }
-  .cell .t { font-size: .88rem; font-weight: 600; color: var(--ng-text-2); line-height: 1.3; }
+  .cell { background: var(--ng-sunken); border: 1px solid var(--ng-border-faint); border-radius: var(--r-lg); padding: .65rem .85rem; display: flex; align-items: center; gap: .8rem; color: var(--ng-border-strong); }
+  .cell .t { font-size: .86rem; font-weight: 600; color: var(--ng-text-2); line-height: 1.3; }
   .cell .t small { display: block; font-size: .72rem; font-weight: 400; color: var(--ng-text-3); margin-top: .1rem; }
-
-  /* Divergence only — §2.8's 3px left rule. */
   .cell.bad { background: var(--ng-danger-wash); border-color: var(--ng-danger-border); border-left: 3px solid var(--ng-danger); color: var(--ng-danger); }
   .cell.bad .t { color: var(--ng-danger-text); }
   .cell.good { background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left: 3px solid var(--ng-safe); color: var(--ng-safe); }
   .cell.good .t { color: var(--ng-safe-text); }
   .cell.void { background-color: var(--ng-canvas); border-style: dashed; border-color: var(--ng-border-strong); }
 
-  /* ── icons: same glyph on both sides, colour carries the state ─────────── */
-  .ico { flex: 0 0 auto; width: 30px; height: 30px; display: block; color: inherit; }
-  .ico svg { width: 100%; height: 100%; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-  /* the step that does not exist gets the same glyph, drawn as a ghost */
-  .ico.ghost svg { stroke-dasharray: 2.5 2.5; opacity: .5; }
-
-  /* the rail between stages — static, it is structure, not motion */
-  .link { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; height: 16px; }
+  .link { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; height: 15px; }
   @media (max-width: 760px) { .link { display: none; } }
   .link span { position: relative; }
-  .link span::before { content: ""; position: absolute; left: 1.35rem; top: 0; bottom: 0; width: 2px; background: var(--ng-border); }
+  .link span::before { content: ""; position: absolute; left: 1.3rem; top: 0; bottom: 0; width: 2px; background: var(--ng-border); }
   .link span.on::before { background: var(--ng-safe-border); }
   .link span.off::before { background: var(--ng-danger-border); }
 
-  /* ── outcome ──────────────────────────────────────────────── */
-  .out { margin-top: 16px; display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; }
+  .out { margin-top: 15px; display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; }
   @media (max-width: 760px) { .out { grid-template-columns: 1fr 1fr; } .out .mid { display: none; } }
-  .box { border-radius: var(--r-lg); padding: .8rem .9rem; }
+  .box { border-radius: var(--r-lg); padding: .75rem .85rem; }
   .box.bad { background: var(--ng-danger-wash); border: 1px solid var(--ng-danger-border); border-left: 3px solid var(--ng-danger); }
   .box.good { background: var(--ng-safe-wash); border: 1px solid var(--ng-safe-border); border-left: 3px solid var(--ng-safe); }
   .out-h { display: flex; align-items: center; gap: .6rem; }
-  .out-n { font-family: var(--ng-font-mono); font-weight: 700; font-size: clamp(1.7rem, 1.1rem + 2.2vw, 2.6rem); line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+  .out-n { font-family: var(--ng-font-mono); font-weight: 700; font-size: clamp(1.6rem, 1.1rem + 2vw, 2.4rem); line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
   .box.bad .out-n, .box.bad .ico { color: var(--ng-danger-text); }
   .box.good .out-n, .box.good .ico { color: var(--ng-safe-text); }
-  .out-l { font-size: .65rem; letter-spacing: .11em; text-transform: uppercase; color: var(--ng-text-3); }
-  .fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(8px, 1fr)); gap: 3px; margin-top: .7rem; }
+  .out-l { font-size: .64rem; letter-spacing: .11em; text-transform: uppercase; color: var(--ng-text-3); line-height: 1.4; }
+  .fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(8px, 1fr)); gap: 3px; margin-top: .65rem; }
   .fleet i { display: block; aspect-ratio: 1; border-radius: 2px; }
   .fleet i.hot { background: var(--ng-danger); }
   .fleet i.ok { background: var(--ng-safe-border); }
+
+  /* ── frame: real output ───────────────────────────────────── */
+  .term {
+    background: var(--ng-sunken); border: 1px solid var(--ng-border);
+    border-radius: var(--r-lg); font-family: var(--ng-font-mono);
+    font-size: clamp(.7rem, .62rem + .22vw, .82rem); line-height: 1.7;
+    padding: 1rem 1.1rem; overflow-x: auto; white-space: pre; color: var(--ng-text-2);
+  }
+  .term .w { color: var(--ng-text); font-weight: 600; }
+  .term .brk { color: var(--ng-danger-text); font-weight: 700; }
+  .term .k { color: var(--ng-accent-text); }
+  .cap { font-size: .64rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ng-text-3); margin: .6rem 0 0; }
 
   /* ── honest ───────────────────────────────────────────────── */
   .cols { display: grid; gap: clamp(1.2rem, 4vw, 2.6rem); }
   @media (min-width: 720px) { .cols { grid-template-columns: 1fr 1fr; } }
   .ch { font-size: .68rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; color: var(--ng-text-3); margin: 0; }
   .rows { border-top: 1px solid var(--ng-border); margin-top: .8rem; }
-  .row { display: grid; grid-template-columns: 1fr; gap: .1rem; padding: .65rem 0; border-bottom: 1px solid var(--ng-border-faint); }
-  @media (min-width: 620px) { .row { grid-template-columns: 7rem 1fr; gap: 1rem; align-items: baseline; } }
-  .row dt { font-size: .64rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ng-text-3); }
-  .row dd { margin: 0; font-size: .84rem; color: var(--ng-text-2); }
+  .row { display: grid; grid-template-columns: 1fr; gap: .1rem; padding: .6rem 0; border-bottom: 1px solid var(--ng-border-faint); }
+  @media (min-width: 620px) { .row { grid-template-columns: 6.5rem 1fr; gap: 1rem; align-items: baseline; } }
+  .row dt { font-size: .63rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ng-text-3); }
+  .row dd { margin: 0; font-size: .83rem; color: var(--ng-text-2); }
   .row dd b { color: var(--ng-text); font-weight: 600; }
   code { font-family: var(--ng-font-mono); font-size: .88em; background: var(--ng-sunken); border: 1px solid var(--ng-border-faint); padding: .04em .28em; border-radius: var(--r-sm); }
   .foot { font-size: .64rem; line-height: 1.85; color: var(--ng-text-3); border-top: 1px solid var(--ng-border); padding-top: 1.1rem; margin-top: 1.8rem; }
 
-  /* Entrance only — no sequencing, no playback. */
   .rv { opacity: 0; transform: translateY(12px); transition: opacity .42s var(--ease), transform .42s var(--ease); }
   .rv.in { opacity: 1; transform: none; }
-  @media (prefers-reduced-motion: reduce) {
-    .rv { opacity: 1; transform: none; transition: none; }
-  }
+  @media (prefers-reduced-motion: reduce) { .rv { opacity: 1; transform: none; transition: none; } }
 </style>
 </head>
 <body>
 
 <svg style="display:none" aria-hidden="true">
-  <!-- credential -->
-  <symbol id="i-key" viewBox="0 0 24 24">
-    <circle cx="7.5" cy="12" r="4.2"/>
-    <path d="M11.7 12H21M18 12v3.4M15 12v2.6"/>
-  </symbol>
-  <!-- a shield, and something getting past it -->
-  <symbol id="i-shield" viewBox="0 0 24 24">
-    <path d="M12 2.6l5.6 2.1v4.1c0 3.4-2.2 6-5.6 7.1-3.4-1.1-5.6-3.7-5.6-7.1V4.7z"/>
-    <path d="M3 20.2h15.4M18.4 20.2l-2.5-2.3M18.4 20.2l-2.5 2.3"/>
-  </symbol>
-  <!-- the published package -->
-  <symbol id="i-box" viewBox="0 0 24 24">
-    <path d="M12 2.6l8.6 4.7v9.4L12 21.4 3.4 16.7V7.3z"/>
-    <path d="M3.4 7.3L12 12l8.6-4.7M12 12v9.4"/>
-  </symbol>
-  <!-- a human -->
-  <symbol id="i-person" viewBox="0 0 24 24">
-    <circle cx="12" cy="7.8" r="4"/>
-    <path d="M4.6 20.6a7.4 7.4 0 0 1 14.8 0"/>
-  </symbol>
-  <!-- install: arriving on a machine -->
-  <symbol id="i-install" viewBox="0 0 24 24">
-    <path d="M12 3v9.6M12 12.6l-3.4-3.4M12 12.6l3.4-3.4"/>
-    <path d="M3.6 16v3.4a1.6 1.6 0 0 0 1.6 1.6h13.6a1.6 1.6 0 0 0 1.6-1.6V16"/>
-  </symbol>
-  <!-- install refused -->
-  <symbol id="i-stop" viewBox="0 0 24 24">
-    <circle cx="12" cy="12" r="8.6"/>
-    <path d="M6 18L18 6"/>
-  </symbol>
-  <!-- the machines -->
-  <symbol id="i-fleet" viewBox="0 0 24 24">
-    <rect x="2.6" y="4.4" width="18.8" height="12.2" rx="1.6"/>
-    <path d="M8.4 20.6h7.2M12 16.6v4"/>
-  </symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="12" r="4.2"/><path d="M11.7 12H21M18 12v3.4M15 12v2.6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.6l5.6 2.1v4.1c0 3.4-2.2 6-5.6 7.1-3.4-1.1-5.6-3.7-5.6-7.1V4.7z"/><path d="M3 20.2h15.4M18.4 20.2l-2.5-2.3M18.4 20.2l-2.5 2.3"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M12 2.6l8.6 4.7v9.4L12 21.4 3.4 16.7V7.3z"/><path d="M3.4 7.3L12 12l8.6-4.7M12 12v9.4"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="7.8" r="4"/><path d="M4.6 20.6a7.4 7.4 0 0 1 14.8 0"/></symbol>
+  <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 3v9.6M12 12.6l-3.4-3.4M12 12.6l3.4-3.4"/><path d="M3.6 16v3.4a1.6 1.6 0 0 0 1.6 1.6h13.6a1.6 1.6 0 0 0 1.6-1.6V16"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M6 18L18 6"/></symbol>
+  <symbol id="i-fleet" viewBox="0 0 24 24"><rect x="2.6" y="4.4" width="18.8" height="12.2" rx="1.6"/><path d="M8.4 20.6h7.2M12 16.6v4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8"/><path d="M12 6.8V12l3.4 2"/></symbol>
+  <symbol id="i-bomb" viewBox="0 0 24 24"><circle cx="10.5" cy="14.5" r="6.6"/><path d="M15.4 10.1l2.6-2.6M18.6 3.4v3.4M21.8 6.6h-3.2"/></symbol>
 </svg>
 
 <!-- 1 ── WHAT, AND WHEN ───────────────────────────────────── -->
@@ -228,7 +244,113 @@
   </div>
 </section>
 
-<!-- 2 ── THE PIPELINE ─────────────────────────────────────── -->
+<!-- 2 ── THE IDEA ─────────────────────────────────────────── -->
+<section>
+  <p class="lab rv">the whole idea</p>
+  <div class="idea rv">
+    <div class="idea-row">
+      <span class="idea-lab">token</span>
+      <span class="ico lg grey"><svg><use href="#i-key"/></svg></span>
+      <span class="arrow">──▶</span>
+      <span class="dupes">
+        <span class="ico lg red"><svg><use href="#i-key"/></svg></span>
+        <span class="ico lg red"><svg><use href="#i-key"/></svg></span>
+        <span class="ico lg red"><svg><use href="#i-key"/></svg></span>
+      </span>
+    </div>
+    <div class="idea-row">
+      <span class="idea-lab">human</span>
+      <span class="ico lg grn"><svg><use href="#i-person"/></svg></span>
+      <span class="arrow">──▶</span>
+      <span class="nope">✗</span>
+    </div>
+  </div>
+  <p class="say rv">A stolen key is still a key.</p>
+</section>
+
+<!-- 3 ── THE ATTACK, IN TIME ──────────────────────────────── -->
+<section>
+  <p class="lab rv">30–31 march · they waited, then it took no time</p>
+  <div class="tl rv">
+
+    <div class="tl-row">
+      <div class="tl-t">30 Mar<br>05:57</div>
+      <div class="tl-r"><span class="tl-d"></span></div>
+      <div class="tl-b"><span class="ico ghost"><svg><use href="#i-box"/></svg></span><span class="tx">plain-crypto-js@4.2.0<small>decoy typosquat · completely clean</small></span></div>
+    </div>
+
+    <div class="tl-row tl-gap g-lg">
+      <div class="tl-t"></div><div class="tl-r"></div>
+      <div class="tl-b"><span class="ico"><svg><use href="#i-clock"/></svg></span><span>18 hours · aging past scanners</span></div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-t">30 Mar<br>23:59</div>
+      <div class="tl-r"><span class="tl-d"></span></div>
+      <div class="tl-b"><span class="ico"><svg><use href="#i-bomb"/></svg></span><span class="tx">plain-crypto-js@4.2.1<small>malicious postinstall · armed</small></span></div>
+    </div>
+
+    <div class="tl-row tl-gap g-md">
+      <div class="tl-t"></div><div class="tl-r"></div>
+      <div class="tl-b"><span>22 min</span></div>
+    </div>
+
+    <div class="tl-row red">
+      <div class="tl-t">31 Mar<br>00:21:58</div>
+      <div class="tl-r"><span class="tl-d"></span></div>
+      <div class="tl-b"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="tx">axios@1.14.1 → latest<small>one added dependency · no source change</small></span></div>
+    </div>
+
+    <div class="tl-row tl-gap g-xs">
+      <div class="tl-t"></div><div class="tl-r"></div>
+      <div class="tl-b"><span>89 s</span></div>
+    </div>
+
+    <div class="tl-row red">
+      <div class="tl-t">00:23:27</div>
+      <div class="tl-r"><span class="tl-d"></span></div>
+      <div class="tl-b"><span class="ico"><svg><use href="#i-fleet"/></svg></span><span class="tx">First machine owned<small>macOS · calls command &amp; control</small></span></div>
+    </div>
+
+    <div class="tl-row tl-gap g-md">
+      <div class="tl-t"></div><div class="tl-r"></div>
+      <div class="tl-b"><span>39 min</span></div>
+    </div>
+
+    <div class="tl-row red">
+      <div class="tl-t">01:00:57</div>
+      <div class="tl-r"><span class="tl-d"></span></div>
+      <div class="tl-b"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="tx">axios@0.30.4 → legacy<small>the other half of the ecosystem</small></span></div>
+    </div>
+
+    <div class="tl-row tl-gap g-md">
+      <div class="tl-t"></div><div class="tl-r"></div>
+      <div class="tl-b"><span>2 h 28 min</span></div>
+    </div>
+
+    <div class="tl-row">
+      <div class="tl-t">03:29</div>
+      <div class="tl-r"><span class="tl-d"></span></div>
+      <div class="tl-b"><span class="ico"><svg><use href="#i-stop"/></svg></span><span class="tx">npm pulls the packages<small>135 machines already reached</small></span></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- 4 ── THE HISTORY ──────────────────────────────────────── -->
+<section>
+  <p class="lab rv">every release, stamped by its publisher</p>
+  <div class="chain rv">
+    <div class="pkg"><span class="stamp"><span class="ico"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">1.13.5</span><span class="pkg-d">08 Feb</span></div>
+    <div class="pkg"><span class="stamp"><span class="ico"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">0.30.3</span><span class="pkg-d">18 Feb</span></div>
+    <div class="pkg"><span class="stamp"><span class="ico"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">1.13.6</span><span class="pkg-d">27 Feb</span></div>
+    <div class="pkg"><span class="stamp"><span class="ico"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">1.14.0</span><span class="pkg-d">27 Mar</span></div>
+    <div class="pkg bad"><span class="stamp empty"><span class="ico ghost"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">1.14.1</span><span class="pkg-d">31 Mar</span></div>
+  </div>
+  <p class="say rv">Then one arrives with <em>nobody on it</em>.</p>
+</section>
+
+<!-- 5 ── THE PIPELINE ─────────────────────────────────────── -->
 <section>
   <div class="heads rv">
     <div class="l"><b>What happened</b></div>
@@ -236,8 +358,7 @@
     <div class="r"><b>With NpmGuard</b></div>
   </div>
 
-  <div class="pipe rv">
-
+  <div class="rv">
     <div class="stage">
       <div class="cell"><span class="ico"><svg><use href="#i-key"/></svg></span><span class="t">Attacker holds it<small>long-lived publish token</small></span></div>
       <div class="step">stolen<br>credential</div>
@@ -274,28 +395,35 @@
 
     <div class="out">
       <div class="box bad">
-        <div class="out-h">
-          <span class="ico"><svg><use href="#i-fleet"/></svg></span>
-          <span class="out-n">135</span>
-          <span class="out-l">machines<br>one vendor</span>
-        </div>
+        <div class="out-h"><span class="ico"><svg><use href="#i-fleet"/></svg></span><span class="out-n">135</span><span class="out-l">machines<br>one vendor</span></div>
         <div class="fleet" id="f1"></div>
       </div>
       <div class="mid"></div>
       <div class="box good">
-        <div class="out-h">
-          <span class="ico"><svg><use href="#i-fleet"/></svg></span>
-          <span class="out-n">0</span>
-          <span class="out-l">reached<br>same 135 machines</span>
-        </div>
+        <div class="out-h"><span class="ico"><svg><use href="#i-fleet"/></svg></span><span class="out-n">0</span><span class="out-l">reached<br>same 135 machines</span></div>
         <div class="fleet" id="f2"></div>
       </div>
     </div>
-
   </div>
 </section>
 
-<!-- 3 ── HONEST ──────────────────────────────────────────── -->
+<!-- 6 ── REAL OUTPUT ──────────────────────────────────────── -->
+<section>
+  <p class="lab rv">not a mockup</p>
+  <div class="rv">
+    <div class="term"><span class="w">$ npmguard install axios@1.14.1</span>
+
+- Checking NpmGuard audit...
+  NOT AUDITED — no NpmGuard record for this version.
+  <span class="brk">PUBLISHER BREAK</span>
+  The previous 4 releases were attested by the same
+  publisher. This one is attested by nobody.
+  Previous 4 releases: <span class="k">0x7c4e9a2f1b8d63e0…</span></div>
+    <p class="cap">verbatim CLI output · real npm publish timeline</p>
+  </div>
+</section>
+
+<!-- 7 ── HONEST ──────────────────────────────────────────── -->
 <section>
   <p class="lab rv">what's real, what isn't</p>
   <div class="cols rv">
@@ -310,9 +438,9 @@
     <div>
       <p class="ch">not yet true</p>
       <dl class="rows">
-        <div class="row"><dt>Adoption</dt><dd><b>axios never used this.</b> The proved releases are reconstructed.</dd></div>
+        <div class="row"><dt>Adoption</dt><dd><b>axios never used this.</b> The stamps are reconstructed.</dd></div>
+        <div class="row"><dt>The decoy</dt><dd>Continuity says <b>nothing</b> about <code>plain-crypto-js</code> — no history to break. That one is the code audit's job.</dd></div>
         <div class="row"><dt>Known gap</dt><dd><code>0.30.4</code> returns only <code>UNATTESTED</code> — the first bad release poisons the streak for the second. Measured, unfixed.</dd></div>
-        <div class="row"><dt>Silence</dt><dd>A package with no history says nothing at all — by design</dd></div>
       </dl>
     </div>
   </div>
@@ -330,19 +458,14 @@
   var N = 135;
   [["f1", "hot"], ["f2", "ok"]].forEach(function (p) {
     var el = document.getElementById(p[0]), f = document.createDocumentFragment();
-    for (var i = 0; i < N; i++) {
-      var d = document.createElement("i");
-      d.className = p[1];
-      f.appendChild(d);
-    }
+    for (var i = 0; i < N; i++) { var d = document.createElement("i"); d.className = p[1]; f.appendChild(d); }
     el.appendChild(f);
   });
 
-  /* Entrance only. This page is shown live, once — so if the observer is
-     missing or never fires, everything is revealed anyway. */
+  /* Entrance only. Shown live, once — so if the observer is missing or never
+     fires, everything is revealed anyway. */
   var items = document.querySelectorAll(".rv");
   function showAll() { items.forEach(function (el) { el.classList.add("in"); }); }
-
   if (!("IntersectionObserver" in window)) { showAll(); return; }
   var io = new IntersectionObserver(function (es) {
     es.forEach(function (e) {
