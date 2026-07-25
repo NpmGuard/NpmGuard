@@ -1,5 +1,11 @@
 /** Start a read-only public repository audit: owner/repo (or github.com
- * URL) input, allowance-account selector, and the trust-boundary list.
+ * URL) input, and the trust-boundary list.
+ *
+ * The allowance-account selector is GONE (D-1 / F-F5). A public scan requires a
+ * GitHub sign-in and nothing more — no App installation, none charged — so there
+ * was no account to choose, and asking for one made this form unreachable for
+ * every signed-in visitor who had not installed the App. That deletion is why
+ * this dialog no longer reads billing at all.
  *
  * ── PRESENTATION: what the recomposition changed ────────────────────────────
  *
@@ -9,10 +15,7 @@
  *    your audit" is our plumbing failing, not a claim about a package, and §0
  *    rule 3 keeps red for the latter. It is the `error` slot now. No hatch: hatch
  *    means "no signal here", and a refusal is a signal — the request was answered.
- * 2. The account picker is the Radix `Select` §3.1 inventories for an org picker,
- *    which brings listbox semantics, typeahead and a 16px mobile trigger the bare
- *    `<select>` did not have.
- *
+
  * There is no input primitive in `components/ui/`, so the repository field carries
  * token classes inline — the same call the two page-level search boxes made, and
  * reported as a gap rather than fixed by adding one. `FOCUS_RING` is explicit on
@@ -21,22 +24,13 @@
  * control inside one has no ring unless it says so. */
 
 import { X } from "lucide-react";
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { PanelDialog } from "../../../components/panel/PanelDialog.tsx";
 import { Button } from "../../../components/ui/button.tsx";
 import { DialogFooter, DialogHeader } from "../../../components/ui/dialog.tsx";
 import { FOCUS_RING } from "../../../components/ui/focus.ts";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../../components/ui/select.tsx";
 import { cn } from "../../../lib/cn.ts";
 import { actionFailure } from "../../../lib/query-state.ts";
-import { publicAuditAllowanceCopy } from "../../billing/quota.ts";
-import { useBilling } from "../../billing/hooks.ts";
 import { useStartPublicScan } from "../hooks.ts";
 
 const BOUNDARIES = [
@@ -57,34 +51,19 @@ export function PublicAuditDialog({
   onClose: () => void;
   onStarted: (scanId: number) => void;
 }) {
-  const billing = useBilling();
   const scan = useStartPublicScan();
-  const allowanceLabelId = useId();
-
-  // The allowance accounts are the ONLY thing this dialog needs from billing, and
-  // the hero that opens it is already gated on having them — so an unreadable
-  // ledger leaves an empty selector rather than a fabricated one.
-  const accounts = billing.status === "ok" ? billing.data.accounts : [];
   const busy = scan.isPending;
-  // A cap belongs to the paywall, so it is filtered out here; anything else is
-  // this form's own error to show.
+  // This form reads no billing at all: nothing here is billed, so there is no
+  // cap to filter out and every failure is this form's own to show.
   const failure = actionFailure(scan.error, "Starting the repository audit");
 
   const [repository, setRepository] = useState("");
-  const [installationId, setInstallationId] = useState<number | null>(
-    accounts[0]?.installationId ?? null,
-  );
-
-  const selected = accounts.find((account) => account.installationId === installationId) ?? null;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const target = repository.trim();
-    if (!target || installationId === null || busy) return;
-    scan.mutate(
-      { repository: target, installationId },
-      { onSuccess: ({ scanId }) => onStarted(scanId) },
-    );
+    if (!target || busy) return;
+    scan.mutate({ repository: target }, { onSuccess: ({ scanId }) => onStarted(scanId) });
   };
 
   return (
@@ -131,43 +110,6 @@ export function PublicAuditDialog({
             <span className="text-2xs text-text-3">Accepted: owner/repo or a github.com URL.</span>
           </label>
 
-          {/* `aria-labelledby` to a real node rather than a wrapping `<label>`:
-              Radix renders the trigger as a `<button role="combobox">`, and a
-              `<label>` around it would fold the label text and the selected value
-              into one accessible name. Same call `RepoDetail` makes for `Switch`. */}
-          <div className="flex flex-col items-start gap-1.5">
-            <span id={allowanceLabelId} className={FIELD_LABEL}>
-              Use repository allowance from
-            </span>
-            {/* `""` when nothing is selected: Radix shows the placeholder for a
-                value no item matches, which is the documented way to express
-                "unset" — and the only reachable way here is a failed billing read
-                leaving zero accounts. */}
-            <Select
-              value={installationId === null ? "" : String(installationId)}
-              onValueChange={(value) => setInstallationId(Number(value))}
-            >
-              <SelectTrigger className="w-full" aria-labelledby={allowanceLabelId}>
-                <SelectValue placeholder="No allowance available" />
-              </SelectTrigger>
-              <SelectContent>
-                {accounts.map((account) => (
-                  <SelectItem
-                    key={account.installationId}
-                    value={String(account.installationId)}
-                  >
-                    {account.accountLogin}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selected && (
-              <span className="text-2xs text-text-3">
-                {publicAuditAllowanceCopy(selected.publicRepoAudits)}
-              </span>
-            )}
-          </div>
-
           <ol className="flex flex-col gap-2" aria-label="Audit boundary">
             {BOUNDARIES.map(([num, label]) => (
               <li key={num} className="flex items-center gap-2.5 text-xs text-text-2">
@@ -195,10 +137,7 @@ export function PublicAuditDialog({
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={busy || !repository.trim() || installationId === null}
-            >
+            <Button type="submit" disabled={busy || !repository.trim()}>
               {busy ? "Reading public snapshot…" : "Audit snapshot"}
             </Button>
           </span>

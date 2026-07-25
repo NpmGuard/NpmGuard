@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { publicAuditAllowanceCopy, quotaState, usageLabel } from "./quota.ts";
+import { quotaState, usageLabel } from "./quota.ts";
 import type { UsageBucket } from "@npmguard/shared";
 
 const bucket = (used: number, limit: number, remaining: number | null): UsageBucket => ({
@@ -33,10 +33,8 @@ describe("quota — C1 unlimited", () => {
     expect(quotaState(bucket(9, 0, null))).toEqual({ kind: "unlimited" });
   });
 
-  it("C1: unlimited never reads as 'zero left' in copy or label", () => {
-    const b = bucket(9, 0, null);
-    expect(publicAuditAllowanceCopy(b)).toBe("Unlimited public repository audits.");
-    expect(usageLabel(b)).toBe("9 / ∞");
+  it("C1: unlimited never reads as 'zero left' in the label", () => {
+    expect(usageLabel(bucket(9, 0, null))).toBe("9 / ∞");
   });
 });
 
@@ -47,27 +45,14 @@ describe("quota — C2 exhausted", () => {
     expect(quotaState(bucket(4, 3, -1))).toEqual({ kind: "exhausted" });
   });
 
-  it("C2: exhausted copy still offers free re-audits; the label reflects full use", () => {
-    const b = bucket(3, 3, 0);
-    expect(publicAuditAllowanceCopy(b)).toBe(
-      "Free repository allowance used. Existing repositories can still be re-audited.",
-    );
-    expect(usageLabel(b)).toBe("3 / 3");
+  it("C2: the label reflects full use", () => {
+    expect(usageLabel(bucket(3, 3, 0))).toBe("3 / 3");
   });
 });
 
 describe("quota — C3 available", () => {
   it("C3: remaining > 0 classifies as available and carries the count", () => {
     expect(quotaState(bucket(1, 3, 2))).toEqual({ kind: "available", remaining: 2 });
-  });
-
-  it("C3: copy is pluralized on the remaining count", () => {
-    expect(publicAuditAllowanceCopy(bucket(2, 3, 1))).toBe(
-      "1 new public repository left. Re-audits are free.",
-    );
-    expect(publicAuditAllowanceCopy(bucket(1, 3, 2))).toBe(
-      "2 new public repositories left. Re-audits are free.",
-    );
   });
 
   it("C3: label reads used/limit", () => {

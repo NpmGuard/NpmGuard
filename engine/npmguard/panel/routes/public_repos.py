@@ -1,7 +1,10 @@
 """Public-repo audit routes.
 
 A signed-in user can audit any *public* GitHub repository against the shared
-verdict cache.
+verdict cache. **A GitHub sign-in is the whole requirement** (D-1 / F-F5): no App
+installation, no repo ownership, no installation charged. That is the point of
+the surface — it is the funnel's front door, and a visitor who has never
+installed the App is exactly who it is for.
 
 Endpoints:
 
@@ -17,8 +20,11 @@ client-side polling loop that stood in for one was the second progress
 implementation this rework exists to delete.
 
 Every route is App-gated (503 when the App is not configured) and session-gated
-(401 when not signed in). The 402 cap body ``{error, cap, resource,
-installationId, entitlements}`` is what the frontend keys on for the paywall.
+(401 when not signed in). Nothing here can answer 402: a public scan is not
+billed, so its ceiling is cost, and past that ceiling the scan covers fewer of
+the lockfile's packages rather than being refused (see ``panel/public_limits.py``).
+The one refusal is 429 on live-scan concurrency, where the honest answer really is
+"wait", never "pay".
 """
 
 from __future__ import annotations
@@ -40,7 +46,6 @@ from npmguard.panel.audit_set import (
     set_wire,
     truncated,
 )
-from npmguard.panel.caps import CapExceededError
 from npmguard.panel.github.content import (
     PublicRepoFileTooLargeError,
     fetch_public_repo_inputs,
@@ -50,18 +55,14 @@ from npmguard.panel.lockfile import (
     manifest_ranges,
     parse_lockfile,
 )
+from npmguard.panel.public_limits import TooManyLiveScansError
 from npmguard.panel.routes._common import current_user, require_enabled, runtime_of
 from npmguard.panel.scan.public_repo_scan import (
     CreatePublicRepoScanInput,
     InvalidPublicRepoReferenceError,
     parse_public_repo_reference,
 )
-from npmguard.panel.tables import (
-    audit_sets,
-    installations,
-    public_repo_scans,
-    user_installations,
-)
+from npmguard.panel.tables import audit_sets, public_repo_scans
 
 log = structlog.get_logger("npmguard.panel.public_repos")
 
@@ -70,19 +71,6 @@ router = APIRouter()
 
 def _not_signed_in() -> JSONResponse:
     return JSONResponse({"error": "Not signed in"}, status_code=401)
-
-
-def _cap_response(exc: CapExceededError) -> JSONResponse:
-    return JSONResponse(
-        {
-            "error": str(exc),
-            "cap": True,
-            "resource": exc.resource,
-            "installationId": exc.installation_id,
-            "entitlements": exc.entitlements,
-        },
-        status_code=402,
-    )
 
 
 def _github_error(err: RequestFailed) -> JSONResponse:
@@ -101,42 +89,25 @@ def _github_error(err: RequestFailed) -> JSONResponse:
     )
 
 
-async def _user_has_installation(
-    session: Any, user_id: int, installation_id: int
-) -> bool:
-    row = (
-        await session.execute(
-            sa.select(sa.literal(1))
-            .select_from(user_installations)
-            .where(
-                user_installations.c.user_id == user_id,
-                user_installations.c.installation_id == installation_id,
-            )
-            .limit(1)
-        )
-    ).first()
-    return row is not None
-
-
 def _scan_select() -> Any:
-    """The snapshot subject joined to its SET and the payer's account login.
+    """The snapshot subject joined to its SET.
 
     One id: `public_repo_scans.set_id` IS the snapshot's primary key, so the wire's
     `scan.id` and `scan.set.id` are the same column and cannot disagree.
+
+    No installation is joined in any more: after D-1 a public scan has a requester
+    and no payer, so there is no account behind it whose login could be shown.
     """
     return sa.select(
         public_repo_scans,
         audit_sets.c.origin,
         audit_sets.c.trigger_kind,
-        audit_sets.c.billed_to,
+        audit_sets.c.requested_by,
         audit_sets.c.commit_sha,
         audit_sets.c.started_at,
         audit_sets.c.finished_at,
-        installations.c.account_login.label("account_login"),
     ).select_from(
-        public_repo_scans.join(
-            audit_sets, audit_sets.c.id == public_repo_scans.c.set_id
-        ).outerjoin(installations, installations.c.id == audit_sets.c.billed_to)
+        public_repo_scans.join(audit_sets, audit_sets.c.id == public_repo_scans.c.set_id)
     )
 
 
@@ -153,11 +124,13 @@ def _scan_wire(row: Any, rollup: Any) -> contract.PublicRepoScan:
             defaultBranch=row["default_branch"],
             lockfilePath=row["lockfile_path"],
             lockfileSha=row["lockfile_sha"],
+            # What the LOCKFILE held. `set.rollup.total` is what this scan
+            # covers, and the two differ when the cost ceiling bound the scan —
+            # which is a fact the result screen has to be able to state.
+            lockfileDepCount=row["dep_count"],
         ),
         set=set_wire({**row, "id": row["set_id"]}, rollup),
         requestedBy=row["requested_by"],
-        installationId=row["billed_to"],
-        accountLogin=row["account_login"],
     )
 
 
@@ -175,11 +148,7 @@ async def list_public_repos(request: Request) -> Response:
             (
                 await session.execute(
                     _scan_select()
-                    .join(
-                        user_installations,
-                        user_installations.c.installation_id == audit_sets.c.billed_to,
-                    )
-                    .where(user_installations.c.user_id == user["id"])
+                    .where(audit_sets.c.requested_by == user["id"])
                     .order_by(audit_sets.c.started_at.desc())
                     .limit(20)
                 )
@@ -220,11 +189,10 @@ async def get_public_repo(scan_id: int, request: Request) -> Response:
             .mappings()
             .first()
         )
-        if (
-            row is None
-            or row["billed_to"] is None
-            or not await _user_has_installation(session, user["id"], row["billed_to"])
-        ):
+        # Your own snapshots, and only those. `requested_by` is the set's, not the
+        # subject's, which is what lets the SSE route authorize the same way
+        # without re-deriving ownership from a second table.
+        if row is None or row["requested_by"] != user["id"]:
             return JSONResponse({"error": "Public audit not found"}, status_code=404)
 
         # Same cap, same severity-first ordering, same server-computed flag as the
@@ -263,22 +231,10 @@ async def scan_public_repo(request: Request) -> Response:
     repository = body.get("repository")
     if not isinstance(repository, str):
         return JSONResponse({"error": "Repository is required"}, status_code=400)
-    installation_id = body.get("installationId")
-    if (
-        not isinstance(installation_id, int)
-        or isinstance(installation_id, bool)
-        or installation_id <= 0
-    ):
-        return JSONResponse(
-            {"error": "Choose the account whose audit allowance should be used"},
-            status_code=400,
-        )
-
-    async with runtime.sessionmaker() as session:
-        if not await _user_has_installation(session, user["id"], installation_id):
-            return JSONResponse(
-                {"error": "GitHub installation not found"}, status_code=404
-            )
+    # The body is `{repository}` and nothing else. There is deliberately no
+    # account to choose: the requester is the session, the scan is not billed, and
+    # asking a visitor who has never installed the App to pick an installation is
+    # exactly what made this surface unreachable for the people it is for (F-F5).
 
     try:
         reference = parse_public_repo_reference(repository)
@@ -309,8 +265,10 @@ async def scan_public_repo(request: Request) -> Response:
     github_repo_id = repo["id"]
 
     # Keyed on the stable github_repo_id, so a rename cannot produce a second
-    # concurrent audit of the same repo.
-    running = await engine.find_running_public_scan(installation_id, github_repo_id)
+    # concurrent audit of the same repo. Scoped to the requester, matching
+    # `ix_audit_sets_active_public` — a live scan of the same repo by SOMEONE ELSE
+    # is not this user's scan and is not theirs to be handed.
+    running = await engine.find_running_public_scan(user["id"], github_repo_id)
     if running is not None:
         return JSONResponse(
             {
@@ -319,13 +277,6 @@ async def scan_public_repo(request: Request) -> Response:
             },
             status_code=409,
         )
-
-    try:
-        await runtime.panel_caps.assert_public_repo_audit_cap(
-            installation_id, github_repo_id
-        )
-    except CapExceededError as exc:
-        return _cap_response(exc)
 
     try:
         inputs = await fetch_public_repo_inputs(
@@ -359,7 +310,6 @@ async def scan_public_repo(request: Request) -> Response:
     try:
         scan_id = await engine.create_public_repo_scan(
             CreatePublicRepoScanInput(
-                installation_id=installation_id,
                 requested_by=user["id"],
                 github_repo_id=github_repo_id,
                 owner=canonical_owner,
@@ -376,8 +326,8 @@ async def scan_public_repo(request: Request) -> Response:
                 deps=deps,
             )
         )
-    except CapExceededError as exc:
-        return _cap_response(exc)
+    except TooManyLiveScansError as exc:
+        return JSONResponse({"error": str(exc), "limit": exc.limit}, status_code=429)
     return JSONResponse({"scanId": scan_id}, status_code=201)
 
 

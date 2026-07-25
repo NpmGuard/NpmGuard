@@ -29,9 +29,10 @@ const Dashboard = lazy(() =>
 const RepoDetail = lazy(() =>
   import("./pages/RepoDetail.tsx").then((m) => ({ default: m.RepoDetail })),
 );
+const Scan = lazy(() => import("./pages/Scan.tsx").then((m) => ({ default: m.Scan })));
 
 // Back/forward off these routes resets the audit store.
-const KEEP_STATE_RE = /^\/(audit|replays|packages|package|cli|pay|dashboard|repo)(\/|$)/;
+const KEEP_STATE_RE = /^\/(audit|replays|packages|package|cli|pay|dashboard|repo|scan)(\/|$)/;
 
 function HomeOrAudit() {
   const hasStarted = useAuditStore((s) => s.hasStarted);
@@ -139,6 +140,7 @@ export function App() {
             <Route path="/cli" element={<CliInstall />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/pay" element={<PayPage />} />
+            <Route path="/scan" element={<Scan />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/repo/:owner/:name" element={<RepoDetail />} />
             <Route path="/audit/:auditId" element={<AuditRoute />} />
