@@ -909,25 +909,55 @@ Four new surfaces, and they form a **funnel plus a credibility triangle**:
 Eight phases. Each lands something usable on its own — the one exception, Phase
 0, earns its place by making every later phase cheaper.
 
-### Phase 0 — One contract (N-12)
-**Goal: panel and every new domain become generated, not hand-mirrored.**
-Move the panel wire shapes into `shared/src/panel.ts`; generate both the Python
-and TS sides. Add `bench.ts` and `replay.ts` as schemas *before* those features
-exist, so they never get hand-mirrored in the first place.
-_Why first:_ this is the only phase that deletes a bug **class** instead of a
-bug. Every later phase touches panel or new wire shapes; doing this after them
-means hand-mirroring everything twice.
-_Done when:_ `engine-types.ts`'s hand-written panel section is gone, and a
-deliberate one-sided change fails the build instead of shipping.
+### Phase 0 — One contract, authored at its TARGET shape (N-12)
 
-### Phase 1 — Collapse the verdict domain (§4.4)
+**Goal: panel and every new domain become generated, not hand-mirrored — and the
+contract is written *once*, already correct.**
+
+★ **Resequencing decision (D-5).** The obvious reading of this plan authors the
+panel contract at today's shape, then rewrites it in Phase 1 (verdict collapse)
+and again in R-1 (audit-set generalization). Three contract rewrites means
+touching every engine route and every frontend consumer three times — which is
+the exact waste N-12 exists to prevent, one level up. So:
+
+> **Phase 0 authors the contract at its target shape**: the generalized
+> `AuditSet` wire shape (R-1) and the 3-state `SAFE|ERROR|DANGEROUS` outcome
+> (§4.4), both from the start. Phase 1 and R-1 then become **migrations of the
+> engine and frontend to meet a contract that already exists**, not redesigns of
+> it.
+
+This inverts the usual order deliberately: normally you'd change code then
+update its types. Here the contract is the *specification*, so it leads. The
+practical benefit is that Phase 1 and R-1 each get a mechanical, checkable
+definition of done — "the generated types compile against the engine and the
+frontend" — instead of a judgement call.
+
+Work:
+- `shared/src/panel.ts` — the panel domain at target shape, reconciled against
+  what the engine *actually emits* (every disagreement between the engine's dicts
+  and today's `engine-types.ts` is a bug to be resolved, not copied).
+- `shared/src/replay.ts`, `shared/src/bench.ts` — authored before their features
+  exist, so they're never hand-mirrored at all.
+- Wire into `index.ts` → `gen-contract.sh` → `contract/models.py`.
+- The frontend imports from `@npmguard/shared`; the hand-written duplicates die.
+- **Boundary validation:** the API layer `safeParse`s responses against the same
+  schemas, so a drift fails loud at runtime instead of silently. This is the
+  answer to the original (legitimate) reason `engine-types.ts` was hand-written
+  "from evidence" — the fix isn't hand-writing forever, it's making the contract
+  verifiable against reality.
+- Acceptance is adversarial: a deliberate one-sided change must fail the build.
+
+_Done when:_ `engine-types.ts` holds no hand-written wire shape that has a
+schema; `tsc -b` + codegen are green; a one-sided change fails.
+
+### Phase 1 — Migrate to the 3-state verdict (§4.4)
 **Goal: `SAFE / ERROR / DANGEROUS` on one axis, progress on the other.**
-Delete `SUSPECT` (unreachable) and `UNKNOWN` (two facts under one name). `ERROR`
-becomes a first-class outcome that rolls up and shows. Update
+The contract already says this after Phase 0; this phase makes the engine and
+frontend *comply*. Delete `SUSPECT` (unreachable) and `UNKNOWN` (two facts under
+one name); `ERROR` becomes a first-class outcome that rolls up and shows. Update
 `verdict_index.SEVERITY`, `compute_rollup`, the check-run mapper, both sort
 ranks, the rollup counters, the tone map.
-Follows Phase 0 so it's one generated-contract edit. Each deletion follows N-4:
-assert first, falsify independently, then delete.
+Each deletion follows N-4: assert first, falsify independently, then delete.
 _Done when:_ zero occurrences of `SUSPECT`/`UNKNOWN` as verdict values, a repo
 with failed audits reports `ERROR` and not silent green, and an assert fails loud
 on any other value reaching the rollup.
@@ -1380,6 +1410,7 @@ which is why the tier gets a name.
 | **D-2** | R-2 goes **seam + fold `PanelJobQueue` in** | One durable queue with lanes (`paid\|panel\|watch\|bench\|public`); `panel_jobs` + the panel worker pool deleted; two hops → one. Migration direction is *lift the panel's primitives up, move callers, then delete* — a proven path never runs on unproven code. |
 | **D-3** | Frontend substrate rebuilt **and the visual language redesigned** | Tokens authored fresh, not ported. Adds a design phase as a real deliverable (palette light+dark, type scale, spacing, elevation, motion, component inventory). Splits R-5 into **R-5a data layer** (not gated) and **R-5b component layer** (gated on the design). |
 | **D-4** | Start with **Phase 0** — one contract | Panel/bench/replay schemas into `shared/`, generated both sides. Everything downstream gets cheaper; R-1's table collapse becomes a schema edit rather than a hunt. |
+| **D-5** | Phase 0 authors the contract at its **target shape** — generalized `AuditSet` (R-1) + 3-state verdict (§4.4) — not today's shape | Avoids rewriting the contract three times and touching every route + consumer three times. Inverts the usual order on purpose: the contract is the *specification*, so it leads, and Phase 1 / R-1 become **migrations to** it with a mechanical definition of done ("generated types compile against both sides") instead of a judgement call. |
 
 ---
 

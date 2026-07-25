@@ -235,8 +235,8 @@ Open (report-only; tracked here, not silently fixed):
 Config note — **`NPMGUARD_MAX_RUNNING_SESSIONS` is now a hard concurrency cap.**
 Since the single-owner rework it sizes the worker pool: the maximum number of
 audits (hence Docker sandboxes) executing at once, not a soft session-row cap.
-The default (100) far exceeds what a small host can hold; set it to the number
-of concurrent full-oracle sandboxes the deployment's RAM allows.
+The default is **4** (`config.py:47`) — set it to the number of concurrent
+full-oracle sandboxes the deployment's RAM allows.
 
 Fixed since first tracked (regression-enforced, no longer open):
 
