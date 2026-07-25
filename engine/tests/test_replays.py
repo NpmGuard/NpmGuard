@@ -1,22 +1,22 @@
-# CLASS MAP — GET /replays, the replay gallery over the durable audit log
-# Axes: row lifecycle (done / error / still-running), row origin (real / demo /
-#       fixture-named), report content (verdict domain, resolvable version),
+# CLASS MAP — GET /replays, the replay gallery over the durable audit log.
+# Seam: rows are inserted straight into the app's sqlite, so the projection is
+#   tested without running audits — except C3, which runs a real audit because a
+#   permalink cannot be proven against a hand-written row. NPMGUARD_DATA_DIR is
+#   pinned to tmp_path as in test_api.py.
+# Axes: row lifecycle (done / error / still-running) × row origin (real / demo /
+#       fixture-named) × report content (verdict domain, resolvable version) ×
 #       base url ("" vs the /api mirror)
-#   C1 a finished public audit is listed, every field read off the row + report
-#   C2 newest first (created_at desc)
-#   C3 a listed row's auditId is a REAL permalink — /audit/{id}/report answers 200
-#      and /audit/{id}/events replays the durable log
-#   C4 non-terminal and errored audits are absent (a card promises a conclusion)
-#   C5 demo rows (package_path == '__demo__') are absent — committed-recording lineage
-#   C6 fixture package names are absent, matching what /packages hides
-#   C7 a report outside the contract's READABLE domain is dropped, not handed out —
-#      both halves: a foreign verdict, and an in-domain verdict on an off-version body
-#   C8 version: report inventory version wins; falls back to the requested version;
-#      null when neither exists (an audit that never resolved one)
-#   C9 the body validates against the generated contract; /api mirror is identical
-# Residue: rows are inserted straight into the app's sqlite so the projection is
-# tested without running audits; NPMGUARD_DATA_DIR is pinned to tmp_path as in
-# test_api.py.
+#
+# What the exclusions are protecting, since no one test says it: a listed row is a
+# LINK to /audit/{id}/report, which serves the stored report RAW. So this endpoint
+# screens harder than the file store does — a foreign verdict is a value the client
+# has no branch for, and an in-domain verdict on an off-version body is worse,
+# because it passes a verdict check and then dies on the client's first missing v2
+# field, on the page this row sent them to. Demo rows are excluded for a different
+# reason: committed recordings already replay through /demo/*, so listing them here
+# would show one exhibit twice under two identities. Fixture names use the same
+# predicate /packages uses, so the two lists cannot disagree about what is a
+# product exhibit.
 import contextlib
 import json
 import sqlite3
@@ -31,13 +31,6 @@ from npmguard.contract import models as contract
 
 BASES = ["", "/api"]
 REPORT_DEADLINE_SECONDS = 30.0
-
-SAFE_REPORT = {
-    "schemaVersion": 2,
-    "verdict": "SAFE",
-    "trace": [{"phase": "inventory", "output": {"metadata": {"version": "4.0.1"}}}],
-}
-
 
 def _report(
     verdict: str = "SAFE", version: str | None = "4.0.1", schema_version: int = 2
@@ -196,8 +189,7 @@ def test_unfinished_and_errored_audits_are_absent(make_app, tmp_path) -> None:
 
 
 def test_demo_rows_are_absent(make_app, tmp_path) -> None:
-    """C5: committed recordings replay through /demo/*, and listing them here would
-    show one exhibit twice under two different identities."""
+    """C5: demo rows (package_path == '__demo__') are absent."""
     with TestClient(make_app()) as client:
         _insert(tmp_path, "demo", "chalk", report=_report(), package_path="__demo__")
         _insert(tmp_path, "real", "chalk", report=_report())
@@ -209,20 +201,15 @@ def test_demo_rows_are_absent(make_app, tmp_path) -> None:
     ["test-pkg-env-exfil", "test-package-thing", "npm-bench-dd-01"],
 )
 def test_fixture_names_are_absent(make_app, tmp_path, package_name) -> None:
-    """C6: the same predicate /packages uses, so the two lists cannot disagree about
-    what is a product exhibit."""
+    """C6: fixture package names are absent."""
     with TestClient(make_app()) as client:
         _insert(tmp_path, "fixture", package_name, report=_report())
         assert _replays(client) == []
 
 
 def test_unreadable_reports_are_dropped(make_app, tmp_path) -> None:
-    """C7: both halves of the readable domain, screened here for a sharper reason
-    than at the file store — a listed row is a LINK to /audit/{id}/report, which
-    serves the stored report raw. A foreign verdict is a value the client has no
-    branch for; an in-domain verdict on an off-version body is worse, because it
-    passes a verdict check and then dies on the client's first missing v2 field, on
-    the page this row sent them to."""
+    """C7: both halves of the readable domain — a foreign verdict, and an in-domain
+    verdict on an off-version body."""
     with TestClient(make_app()) as client:
         _insert(tmp_path, "foreign-verdict", "chalk", report=_report(verdict="SUSPECT"))
         _insert(tmp_path, "off-version", "chalk", report=_report(schema_version=1))
@@ -263,7 +250,7 @@ def test_body_matches_the_contract(make_app, tmp_path, base) -> None:
     """C9: validated against the generated model rather than hand-checked keys, and
     reachable identically under the /api mirror."""
     with TestClient(make_app()) as client:
-        _insert(tmp_path, "aud-1", "chalk", report=SAFE_REPORT)
+        _insert(tmp_path, "aud-1", "chalk", report=_report())
         response = client.get(f"{base}/replays")
         assert response.status_code == 200
         gallery = contract.ReplayGalleryResponse.model_validate(response.json())
