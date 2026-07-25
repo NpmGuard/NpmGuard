@@ -252,7 +252,7 @@ def test_truncated_flag() -> None:
 class _StubPipeline:
     """Never runs: the pool is never started in these classes."""
 
-    async def run(self, package_name, *, audit_id, version, emitter):  # pragma: no cover
+    async def run(self, package_name, *, audit_id, version, local_path=None, emitter=None):  # pragma: no cover
         raise AssertionError("the pipeline must not run in audit-set tests")
 
 

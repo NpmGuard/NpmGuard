@@ -141,7 +141,7 @@ def _settings(**overrides) -> Settings:
 class _StubPipeline:
     """Never runs: no worker pool is started in these classes."""
 
-    async def run(self, package_name, *, audit_id, version, emitter):  # pragma: no cover
+    async def run(self, package_name, *, audit_id, version, local_path=None, emitter=None):  # pragma: no cover
         raise AssertionError("the pipeline must not run here")
 
 

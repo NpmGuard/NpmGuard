@@ -92,7 +92,15 @@ class StubPipeline:
         self.results: dict[str, _Result] = {}
         self.first_started = asyncio.Event()
 
-    async def run(self, package_name: str, *, audit_id: str, version: str | None, emitter: Any):
+    async def run(
+        self,
+        package_name: str,
+        *,
+        audit_id: str,
+        version: str | None,
+        local_path: str | None = None,
+        emitter: Any = None,
+    ):
         self.started.append(package_name)
         self.first_started.set()
         self.active += 1
@@ -116,7 +124,15 @@ class StartEmittingPipeline:
     """Emits audit_started like the real pipeline.run does at its first line —
     used to pin the audit_enqueued → audit_started ordering."""
 
-    async def run(self, package_name: str, *, audit_id: str, version: str | None, emitter: Any):
+    async def run(
+        self,
+        package_name: str,
+        *,
+        audit_id: str,
+        version: str | None,
+        local_path: str | None = None,
+        emitter: Any = None,
+    ):
         await emitter.emit("audit_started", {"packageName": package_name})
         return _Result()
 

@@ -1,4 +1,4 @@
-# CLASS MAP — resolve (seam: REPO_ROOT monkeypatched to a synthetic fixture tree;
+# CLASS MAP — resolve (seam: a synthetic package tree passed as local_path;
 # no network — the registry path is exercised through its pure helpers plus the
 # COMMITTED captures of real registry responses and real npm tarballs under
 # tests/fixtures/registry/, per TESTING.md's parser-input rule: the npm registry
@@ -75,21 +75,20 @@ def _tree_snapshot(root: Path) -> dict[str, bytes]:
 
 
 @pytest.fixture
-def fixture_tree(tmp_path, monkeypatch) -> Path:
+def fixture_tree(tmp_path) -> Path:
     """A synthetic committed-fixture stand-in so a broken implementation can
     never dirty the real repo tree."""
     source = tmp_path / "repo" / "sandbox" / "test-fixtures" / "test-pkg-alpha"
     (source / "lib").mkdir(parents=True)
     (source / "package.json").write_text('{"name":"test-pkg-alpha","version":"1.0.0"}')
     (source / "lib" / "index.js").write_text("module.exports = 1;\n")
-    monkeypatch.setattr("npmguard.resolve.REPO_ROOT", tmp_path / "repo")
     return source
 
 
 async def test_fixture_resolve_returns_private_copy(fixture_tree) -> None:
     """C1: the resolved path is a copy inside a per-run workdir — never the
     fixture source dir — with identical content."""
-    resolved = await resolve_package("test-pkg-alpha")
+    resolved = await resolve_package("test-pkg-alpha", local_path=str(fixture_tree))
     try:
         assert resolved.path != fixture_tree
         assert resolved.path.resolve().is_relative_to(resolved.workdir.resolve())
@@ -104,7 +103,7 @@ async def test_audit_writes_never_mutate_fixture_source(fixture_tree) -> None:
     """C2 — INVARIANT: writes into the resolved path (node_modules unpacking,
     file edits) leave the fixture source byte-identical."""
     before = _tree_snapshot(fixture_tree)
-    resolved = await resolve_package("test-pkg-alpha")
+    resolved = await resolve_package("test-pkg-alpha", local_path=str(fixture_tree))
     try:
         (resolved.path / "node_modules" / "left-pad").mkdir(parents=True)
         (resolved.path / "node_modules" / "left-pad" / "index.js").write_text("evil")
@@ -118,11 +117,11 @@ async def test_audit_writes_never_mutate_fixture_source(fixture_tree) -> None:
 async def test_runs_share_nothing(fixture_tree) -> None:
     """C3: consecutive resolves are fully isolated — the second run can never
     observe the first run's node_modules (the old shared-dir skip leak)."""
-    first = await resolve_package("test-pkg-alpha")
+    first = await resolve_package("test-pkg-alpha", local_path=str(fixture_tree))
     (first.path / "node_modules").mkdir()
     (first.path / "node_modules" / "marker").write_text("run-1")
     cleanup_package(first)
-    second = await resolve_package("test-pkg-alpha")
+    second = await resolve_package("test-pkg-alpha", local_path=str(fixture_tree))
     try:
         assert second.path != first.path
         assert not (second.path / "node_modules").exists()
@@ -133,7 +132,7 @@ async def test_runs_share_nothing(fixture_tree) -> None:
 async def test_cleanup_is_unconditional(fixture_tree) -> None:
     """C4: cleanup_package always removes the workdir — there is no
     needs_cleanup tri-state left to consult."""
-    resolved = await resolve_package("test-pkg-alpha")
+    resolved = await resolve_package("test-pkg-alpha", local_path=str(fixture_tree))
     assert resolved.workdir.exists()
     cleanup_package(resolved)
     assert not resolved.workdir.exists()
@@ -200,13 +199,13 @@ async def test_escaping_fixture_symlink_is_rejected(fixture_tree, tmp_path) -> N
     secret.write_text("hunter2")
     (fixture_tree / "sneaky").symlink_to(secret)
     with pytest.raises(ValueError, match="escapes the private workdir"):
-        await resolve_package("test-pkg-alpha")
+        await resolve_package("test-pkg-alpha", local_path=str(fixture_tree))
     assert _leaked_workdirs() == []
 
     # an internal relative symlink travels with the copy and is allowed
     (fixture_tree / "sneaky").unlink()
     (fixture_tree / "alias.js").symlink_to(Path("lib") / "index.js")
-    resolved = await resolve_package("test-pkg-alpha")
+    resolved = await resolve_package("test-pkg-alpha", local_path=str(fixture_tree))
     try:
         assert (resolved.path / "alias.js").read_text() == "module.exports = 1;\n"
     finally:
@@ -305,7 +304,7 @@ async def test_real_committed_fixture_resolves_outside_repo() -> None:
     if not fixture_dir.exists():
         pytest.skip("committed fixture tree not present")
     before = _tree_snapshot(fixture_dir)
-    resolved = await resolve_package("test-pkg-child-success")
+    resolved = await resolve_package("test-pkg-child-success", local_path=str(fixture_dir))
     try:
         assert not resolved.path.resolve().is_relative_to(REPO_ROOT.resolve())
     finally:

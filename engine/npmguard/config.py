@@ -119,6 +119,17 @@ class Settings(KitSettings):
     # 0031. Recommended production value: true.
     refuse_install_coverage_gap: bool = False
 
+    # Whether `/audit` may accept a `localPath` — a package staged on this host
+    # rather than fetched from the registry. It is how the benchmark audits a
+    # corpus entry and how tests audit a fixture. Default off: it is a local-read
+    # capability, so production serves the registry and nothing else.
+    #
+    # INVARIANT: this gates ADMISSION only. Every read surface — bench runs,
+    # rows, metrics, and the `/audit/{id}` replay behind them — serves stored
+    # local audits whether or not it is on, so prod publishes benchmark results
+    # it cannot itself produce.
+    local_package_audits: bool = False
+
     payment_required: bool = True
     cre_api_key: str | None = None
     stripe_secret_key: str | None = None

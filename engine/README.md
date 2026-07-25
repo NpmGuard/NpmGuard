@@ -44,14 +44,18 @@ uv run ruff format --check .
 `NPMGUARD_MOCK_LLM=true` enables the deterministic benign provider used by
 API tests. It must never be enabled for a real audit.
 
-Batch/watchlist operations and the existing benchmark-result gate are Python
-commands now:
+Batch and watchlist operations, plus the false-positive gate over their output:
 
 ```bash
 uv run npmguard-ops audit-batch is-number@7.0.0 left-pad
-uv run npmguard-ops audit-latest --limit 5 --out ../bench/results/latest.json
-uv run npmguard-ops bench-check --file ../bench/results/latest.json
+uv run npmguard-ops audit-latest --limit 5 --out ../data/watchlist/latest.json
+uv run npmguard-ops watchlist-check --file ../data/watchlist/latest.json
 ```
+
+`watchlist-check` is not part of the benchmark — the bench reads observations
+from the database (`npmguard.bench`), while this reads `audit-latest` result
+files. Its `--max-dangerous 0` default is a specificity canary over packages
+presumed clean.
 
 ## Contracts
 

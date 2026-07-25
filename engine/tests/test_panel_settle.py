@@ -107,7 +107,15 @@ class StubPipeline:
         self.failures: dict[str, int] = {}
         self.runs: list[str] = []
 
-    async def run(self, package_name: str, *, audit_id: str, version: str | None, emitter: Any):
+    async def run(
+        self,
+        package_name: str,
+        *,
+        audit_id: str,
+        version: str | None,
+        local_path: str | None = None,
+        emitter: Any = None,
+    ):
         self.runs.append(package_name)
         remaining = self.failures.get(package_name, 0)
         if remaining:
@@ -374,6 +382,7 @@ _SETTLED = AuditSession(
     requested_version="1.0.0",
     status="done",
     package_path=None,
+    local_path=None,
     file_contents=None,
     report={"verdict": "SAFE", "rationale": "fine"},
     error=None,

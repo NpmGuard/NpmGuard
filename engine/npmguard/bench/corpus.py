@@ -26,12 +26,12 @@ INVARIANT: entry ids are unique within a corpus. Asserted at load time in
 property of the corpus that a collision would silently break (two entries would
 score as one). Not re-checked anywhere downstream.
 
-Fixture names are the package name the engine is asked to audit:
-``resolve.py:38-41`` short-circuits any ``test-pkg-*`` name to
-``sandbox/test-fixtures/<name>``, so a corpus entry's ``fixtureName`` is both the
-on-disk directory and the audit's ``package_name``. Those directories are LIVE
-MALWARE (F-G7): nothing here reads, installs, or executes them — this module
-touches the manifest only.
+A corpus entry's ``fixtureName`` is both its directory under
+``sandbox/test-fixtures`` and the audit's ``package_name``; the runner sends that
+directory as the audit's ``localPath``, because the engine infers nothing about a
+package's source from its name. Those directories are LIVE MALWARE (F-G7):
+nothing here reads, installs, or executes them — this module touches the manifest
+only.
 """
 
 from __future__ import annotations
