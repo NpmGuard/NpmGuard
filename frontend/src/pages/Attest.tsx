@@ -307,6 +307,12 @@ function WorldProof({
         action: config.action,
         // Minted server-side; the signing key never reaches this bundle.
         rp_context: config.rpContext,
+        // REQUIRED for staging. IDKit's `environment` is optional and defaults
+        // to "production", so omitting it produces a production request that the
+        // World simulator refuses with "Production request detected" — the
+        // engine is the authority on which environment this app is configured
+        // for, so it always travels with the request.
+        environment: config.environment as "production" | "staging" | "sandbox",
         require_user_presence: true,
         allow_legacy_proofs: false,
         // proofOfHuman is the ONLY preset that accepts a signal, which is what
