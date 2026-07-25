@@ -2,12 +2,13 @@
 # (seam: real DB per test — throwaway sqlite over kit metadata.create_all;
 #  Settings built with explicit free_/pro_ limits so quotas are injected, not
 #  read from a live .env)
-# Plan resolution (subscription_status axis):
-#   C1 status 'active'   -> plan 'pro'
-#   C2 status 'trialing' -> plan 'pro'
-#   C3 status 'inactive' -> plan 'free'
-#   C4 status 'past_due' / 'canceled' (any non-active) -> plan 'free'
-#   C5 NO billing_accounts row at all -> subscriptionStatus 'inactive', plan 'free'
+# Plan resolution (subscription_status axis), asserted on the projection —
+# subscriptionActive + upgradeOffers — since that is the authority consumers read:
+#   C1 status 'active'   -> top offer granted, nothing left to buy
+#   C2 status 'trialing' -> top offer granted, nothing left to buy
+#   C3 status 'inactive' -> baseline, 'pro' on offer
+#   C4 status 'past_due' / 'canceled' (any non-active) -> baseline, 'pro' on offer
+#   C5 NO billing_accounts row at all -> subscriptionStatus 'inactive', baseline
 # Limit semantics (limit==0 = UNLIMITED):
 #   C6 a 0-limit bucket reports remaining=None and never raises its cap
 #   C7 a positive-limit bucket reports remaining = max(0, limit-used)
@@ -141,31 +142,41 @@ async def db(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "status, expected_plan",
+    "status, paid",
     [
-        ("active", "pro"),  # C1
-        ("trialing", "pro"),  # C2
-        ("inactive", "free"),  # C3
-        ("past_due", "free"),  # C4
-        ("canceled", "free"),  # C4
+        ("active", True),  # C1
+        ("trialing", True),  # C2
+        ("inactive", False),  # C3
+        ("past_due", False),  # C4
+        ("canceled", False),  # C4
     ],
 )
-async def test_plan_resolution_by_status(db, status, expected_plan) -> None:
-    """C1-C4: subscription_status maps active|trialing->pro, everything else->free."""
+async def test_plan_resolution_by_status(db, status, paid) -> None:
+    """C1-C4: active|trialing grant the top offer, everything else the baseline.
+
+    Asserted through the projection — `subscriptionActive` and what is left to
+    buy — because those are what consumers read. `plan` is a display label and
+    is checked here only to pin that it names the granting offer."""
     store, sessions = db
     await _add_installation(sessions, 1, subscription_status=status)
     ent = await store.entitlements(1)
     assert ent["subscriptionStatus"] == status
-    assert ent["plan"] == expected_plan
+    assert ent["subscriptionActive"] is paid
+    assert ent["plan"] == ("Pro" if paid else "Free")
+    # An account on the top offer has nothing left to buy; a baseline one is
+    # offered exactly the tiers above it.
+    assert [o["id"] for o in ent["upgradeOffers"]] == ([] if paid else ["pro"])
 
 
 async def test_no_billing_row_is_free_inactive(db) -> None:
-    """C5: an installation with no billing_accounts row is free / 'inactive'."""
+    """C5: an installation with no billing_accounts row is baseline / 'inactive'."""
     store, sessions = db
     await _add_installation(sessions, 1, subscription_status=None)
     ent = await store.entitlements(1)
     assert ent["subscriptionStatus"] == "inactive"
-    assert ent["plan"] == "free"
+    assert ent["subscriptionActive"] is False
+    assert ent["plan"] == "Free"
+    assert [o["id"] for o in ent["upgradeOffers"]] == ["pro"]
 
 
 # --- Limit semantics ------------------------------------------------------
