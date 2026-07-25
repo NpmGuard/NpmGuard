@@ -7,6 +7,32 @@
  * the injected browser provider); the engine verifies the receipt. There is NO
  * private-key path here and no signer beyond window.ethereum — WalletConnect /
  * mobile QR lives in the CLI, not the web app.
+ *
+ * ── PRESENTATION: what the recomposition onto the token layer changed ───────
+ *
+ * `styles/pay.css` is gone. Four changes, three of them honesty fixes:
+ *
+ * 1. The config read was `config: PublicConfig | null` PLUS a parallel
+ *    `configFailed: boolean` — two variables encoding one three-state fact, with
+ *    `{null, false}` meaning "loading" and `{null, true}` meaning "failed" by
+ *    convention. That is precisely the shape `LoadState` exists to delete (N-4:
+ *    prefer making a bad state unrepresentable), and it had a representable bad
+ *    state — `{config, true}` — that rendered a healthy card over a failed read.
+ * 2. That failure rendered `banner--danger`: RED, for our own plumbing failing
+ *    to answer. §0 rule 3 reserves red for claims about packages. It is now
+ *    `DegradedSurface` in the `error` slot, which also names what failed and
+ *    offers retry — a page that just says "could not load payment options" with
+ *    no way forward is a dead end.
+ * 3. A payment error was also red. Same fix, same reason: a declined card or a
+ *    failed chain verify is not a security finding about the package. This
+ *    follows the precedent `RepoDetail` set for a rejected mutation.
+ * 4. The method tabs were a hand-rolled `role="tablist"` with `aria-selected` on
+ *    plain buttons and no roving tabindex — the arrow keys did nothing, which is
+ *    the whole point of the tab pattern. They are Radix `Tabs` now.
+ *
+ * The wallet-rejected notice deliberately stays neutral rather than becoming a
+ * degraded state: the user rejecting a transaction is an outcome, not a failure,
+ * and nothing was charged.
  */
 
 import { useEffect, useState } from "react";
@@ -19,9 +45,50 @@ import type { PublicConfig } from "../lib/engine-types.ts";
 import { formatCents, formatWeiAsEth, truncateMiddle } from "../lib/format.ts";
 import { hasInjectedWallet, payWithInjected, WalletRejectedError } from "../lib/wallet.ts";
 import { useAuditStore } from "../stores/auditStore.ts";
+import { SectionLabel } from "../components/panel/layout.tsx";
+import { Badge } from "../components/ui/badge.tsx";
+import { Button } from "../components/ui/button.tsx";
+import { Card } from "../components/ui/card.tsx";
+import { DegradedRegion, DegradedSurface } from "../components/ui/degraded-state.tsx";
+import { EmptyState } from "../components/ui/empty-state.tsx";
+import { CommandLine } from "../components/ui/command-line.tsx";
+import {
+  failed,
+  loaded,
+  type LoadState,
+  type ReadSucceeded,
+} from "../components/ui/load-state.ts";
+import { Skeleton } from "../components/ui/skeleton.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs.tsx";
+import { cn } from "../lib/cn.ts";
 
 type Method = "card" | "crypto";
 type CryptoPhase = "idle" | "connecting" | "verifying";
+
+/** The page plane. Not `PanelPage`: this is a single narrow column, not the
+ * 1160px dense grid, so it carries its own measure and the `.ng-root` marker. */
+function PayPlane({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      className={cn("ng-root mx-auto grid w-full max-w-[520px] gap-3.5 px-4 pt-10 pb-16", className)}
+      {...props}
+    />
+  );
+}
+
+/** The one `ReadSucceeded` this file mints itself, for the "no package in the
+ * URL" branch.
+ *
+ * The token exists to stop an empty state being rendered over a read that
+ * FAILED. Here the datum is the URL, and a URL read has no failure mode — there
+ * is no fetch to go wrong — so minting it is honest rather than a loophole. The
+ * narrowing is a type-level formality: `loaded()` only ever returns the `ok`
+ * arm, and the throw documents that rather than guarding against it. */
+function urlRead(): ReadSucceeded {
+  const state = loaded(null);
+  if (state.status !== "ok") throw new Error("loaded() returns the ok arm by construction");
+  return state.read;
+}
 
 export function PayPage() {
   const location = useLocation();
@@ -33,8 +100,7 @@ export function PayPage() {
   // submit signs the same string the engine verifies against.
   const payVersion = version ?? "latest";
 
-  const [config, setConfig] = useState<PublicConfig | null>(null);
-  const [configFailed, setConfigFailed] = useState(false);
+  const [config, setConfig] = useState<LoadState<PublicConfig>>({ status: "loading" });
   const [tab, setTab] = useState<Method | null>(null);
 
   const [cryptoPhase, setCryptoPhase] = useState<CryptoPhase>("idle");
@@ -50,35 +116,54 @@ export function PayPage() {
 
   useEffect(() => {
     let live = true;
-    void fetchPublicConfig()
-      .then((c) => live && setConfig(c))
-      .catch(() => live && setConfigFailed(true));
+    const load = () => {
+      setConfig({ status: "loading" });
+      void fetchPublicConfig()
+        .then((c) => live && setConfig(loaded(c)))
+        .catch(
+          (err) =>
+            live &&
+            setConfig(
+              failed({
+                what: "Payment options",
+                detail: err instanceof Error ? err.message : undefined,
+                retry: load,
+              }),
+            ),
+        );
+    };
+    load();
     return () => {
       live = false;
     };
   }, []);
 
   // Default the tab to the first advertised method once config lands.
+  const advertised = config.status === "ok" ? config.data : null;
   useEffect(() => {
-    if (config && tab === null) {
-      setTab(config.stripeEnabled ? "card" : config.crypto ? "crypto" : null);
+    if (advertised && tab === null) {
+      setTab(advertised.stripeEnabled ? "card" : advertised.crypto ? "crypto" : null);
     }
-  }, [config, tab]);
+  }, [advertised, tab]);
 
   // ---- no package: honest empty state (nothing to pay for) ----
   if (!packageName) {
     return (
-      <div className="pg-pay fade-up">
-        <div className="empty-state">
-          <span className="empty-state__icon" aria-hidden="true">
-            <ShieldCheck size={20} strokeWidth={1.8} />
-          </span>
-          <p>No package selected to audit.</p>
-          <button type="button" className="btn btn--sm" onClick={() => navigate("/packages")}>
-            Browse audited packages
-          </button>
-        </div>
-      </div>
+      <PayPlane>
+        <EmptyState
+          // A successful read of the URL, not of the network — there is genuinely
+          // nothing here, which is exactly what `EmptyState` means.
+          read={urlRead()}
+          icon={ShieldCheck}
+          message="No package selected to audit."
+          hint="Pick a package and the audit fee for it appears here."
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate("/packages")}>
+              Browse audited packages
+            </Button>
+          }
+        />
+      </PayPlane>
     );
   }
 
@@ -86,7 +171,7 @@ export function PayPage() {
   const cryptoBusy = cryptoPhase !== "idle";
 
   async function payWithCrypto() {
-    const crypto = config?.crypto;
+    const crypto = advertised?.crypto;
     if (!crypto) return;
     setWalletNotice(null);
     setPayError(null);
@@ -123,29 +208,31 @@ export function PayPage() {
   const banner = payError ?? cardError;
 
   return (
-    <div className="pg-pay fade-up">
-      <div className="section-title">
-        <span className="eyebrow">Secure an audit</span>
-      </div>
-      <h1 className="headline mono pg-pay__id">{identity}</h1>
+    <PayPlane>
+      <SectionLabel>Secure an audit</SectionLabel>
+      <h1 className="font-mono text-2xl font-semibold break-all text-text">{identity}</h1>
 
-      {!config && !configFailed ? (
-        <div className="empty-state" role="status">
-          <span className="spinner" aria-hidden="true" />
+      {config.status === "loading" ? (
+        <div aria-busy="true" className="grid gap-3">
           <span className="sr-only">Loading payment options</span>
+          {/* Dimensions are known — one card with a tab strip and a CTA — which is
+              the only condition under which a skeleton is honest (§3.1). */}
+          <Skeleton className="h-9 w-full rounded-lg" />
+          <Skeleton className="h-28 w-full rounded-lg" />
         </div>
-      ) : configFailed ? (
-        <div className="banner banner--danger" role="alert">
-          Could not load payment options from the engine.
-        </div>
+      ) : config.status === "failed" ? (
+        <DegradedSurface
+          failure={config.failure}
+          escape={{ label: "Browse audited packages", href: "/packages" }}
+        />
       ) : (
         <PayCard
-          config={config as PublicConfig}
+          config={config.data}
+          read={config.read}
           tab={tab}
           setTab={setTab}
           packageName={packageName}
           version={version}
-          payVersion={payVersion}
           identity={identity}
           walletPresent={walletPresent}
           cryptoPhase={cryptoPhase}
@@ -158,22 +245,26 @@ export function PayPage() {
         />
       )}
 
-      <p className="microtext pg-pay__trust">
-        <ShieldCheck size={12} strokeWidth={1.8} aria-hidden="true" />
+      <p className="flex items-start gap-1.5 text-2xs leading-relaxed text-text-3">
+        <ShieldCheck
+          aria-hidden="true"
+          strokeWidth={1.8}
+          className="mt-0.5 size-icon-sm shrink-0"
+        />
         Payments are verified by the engine, never the browser. The wallet only signs; the audit
         starts once the engine confirms the payment.
       </p>
-    </div>
+    </PayPlane>
   );
 }
 
 interface PayCardProps {
   config: PublicConfig;
+  read: ReadSucceeded;
   tab: Method | null;
   setTab: (m: Method) => void;
   packageName: string;
   version: string | undefined;
-  payVersion: string;
   identity: string;
   walletPresent: boolean;
   cryptoPhase: CryptoPhase;
@@ -186,75 +277,110 @@ interface PayCardProps {
 }
 
 function PayCard(props: PayCardProps) {
-  const { config, tab, setTab, packageName, version, identity, banner } = props;
+  const { config, read, tab, setTab, packageName, version, identity, banner } = props;
   const methods: Method[] = [];
   if (config.stripeEnabled) methods.push("card");
   if (config.crypto) methods.push("crypto");
 
   if (methods.length === 0) {
+    // A SUCCESSFUL read that advertises nothing. The distinction matters here
+    // more than anywhere else on the page: "this engine takes no payment" and
+    // "we could not ask this engine" must never look the same, because the first
+    // is a fact the user can act on and the second is not.
     return (
-      <div className="card pg-pay__card">
-        <div className="empty-state">
-          <p>No payment method is configured on this engine.</p>
-        </div>
-      </div>
+      <Card>
+        <EmptyState
+          read={read}
+          icon={Wallet}
+          message="No payment method is configured on this engine."
+          hint="Nothing can be charged here — this deployment advertises neither card nor crypto."
+        />
+      </Card>
+    );
+  }
+
+  const panes = (
+    <>
+      {tab === "card" && config.stripeEnabled ? (
+        <CardPane
+          priceCents={config.priceCents}
+          identity={identity}
+          packageName={packageName}
+          checkoutLoading={props.checkoutLoading}
+          onCard={props.onCard}
+        />
+      ) : null}
+
+      {tab === "crypto" && config.crypto ? (
+        <CryptoPane
+          crypto={config.crypto}
+          packageName={packageName}
+          version={version}
+          walletPresent={props.walletPresent}
+          cryptoPhase={props.cryptoPhase}
+          cryptoBusy={props.cryptoBusy}
+          walletNotice={props.walletNotice}
+          onCrypto={props.onCrypto}
+        />
+      ) : null}
+
+      {banner ? (
+        // `error` violet, never `danger` red: a declined payment is a failure of
+        // our plumbing or the network, not a claim about the package (§0 rule 3).
+        <DegradedRegion failure={{ what: "Payment", detail: banner }} />
+      ) : null}
+    </>
+  );
+
+  if (methods.length === 1) {
+    return (
+      <Card className="overflow-hidden">
+        <div className="grid gap-3.5 p-4">{panes}</div>
+      </Card>
     );
   }
 
   return (
-    <div className="card pg-pay__card">
-      {methods.length > 1 ? (
-        <div className="pg-pay-tabs" role="tablist" aria-label="Payment method">
+    <Card className="overflow-hidden">
+      <Tabs value={tab ?? methods[0]} onValueChange={(v) => setTab(v as Method)}>
+        <TabsList aria-label="Payment method">
           {methods.map((m) => (
-            <button
-              key={m}
-              type="button"
-              role="tab"
-              aria-selected={tab === m}
-              className={`pg-pay-tab${tab === m ? " is-active" : ""}`}
-              onClick={() => setTab(m)}
-            >
+            <TabsTrigger key={m} value={m}>
               {m === "card" ? (
-                <CreditCard size={14} strokeWidth={1.8} aria-hidden="true" />
+                <CreditCard aria-hidden="true" strokeWidth={1.8} className="size-icon-sm" />
               ) : (
-                <Wallet size={14} strokeWidth={1.8} aria-hidden="true" />
+                <Wallet aria-hidden="true" strokeWidth={1.8} className="size-icon-sm" />
               )}
               {m === "card" ? "Pay with card" : "Crypto"}
-            </button>
+            </TabsTrigger>
           ))}
-        </div>
-      ) : null}
+        </TabsList>
+        {/* Radix unmounts the inactive panel, and `panes` is already a function
+            of `tab`, so no per-pane guard is needed inside. */}
+        {methods.map((m) => (
+          <TabsContent key={m} value={m} className="grid gap-3.5 p-4">
+            {panes}
+          </TabsContent>
+        ))}
+      </Tabs>
+    </Card>
+  );
+}
 
-      <div className="pg-pay__body">
-        {tab === "card" && config.stripeEnabled ? (
-          <CardPane
-            priceCents={config.priceCents}
-            identity={identity}
-            packageName={packageName}
-            checkoutLoading={props.checkoutLoading}
-            onCard={props.onCard}
-          />
-        ) : null}
+/** The metadata rows shared by both panes — price, network, fee, contract. */
+function MetaRows({ children }: { children: React.ReactNode }) {
+  return (
+    <dl className="grid gap-0.5 rounded-md border border-border-faint bg-sunken p-3">{children}</dl>
+  );
+}
 
-        {tab === "crypto" && config.crypto ? (
-          <CryptoPane
-            crypto={config.crypto}
-            packageName={packageName}
-            version={version}
-            walletPresent={props.walletPresent}
-            cryptoPhase={props.cryptoPhase}
-            cryptoBusy={props.cryptoBusy}
-            walletNotice={props.walletNotice}
-            onCrypto={props.onCrypto}
-          />
-        ) : null}
-
-        {banner ? (
-          <div className="banner banner--danger" role="alert">
-            {banner}
-          </div>
-        ) : null}
-      </div>
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-6.5 items-center justify-between gap-3">
+      <dt className="font-mono text-2xs font-medium tracking-wide text-text-3 uppercase">
+        {label}
+      </dt>
+      <dd className="text-right text-sm text-text">{children}</dd>
     </div>
   );
 }
@@ -269,33 +395,26 @@ interface CardPaneProps {
 
 function CardPane({ priceCents, identity, packageName, checkoutLoading, onCard }: CardPaneProps) {
   return (
-    <div className="pg-pay-pane">
-      <p className="subtext">
-        One audit of <span className="mono">{identity}</span>.
+    <div className="grid gap-3">
+      <p className="text-sm text-text-2">
+        One audit of <span className="font-mono">{identity}</span>.
       </p>
-      <dl className="pg-pay-meta">
-        <div className="pg-pay-meta__row">
-          <dt>Price</dt>
-          <dd className="mono">{formatCents(priceCents)}</dd>
-        </div>
-      </dl>
-      <button
-        type="button"
-        className="btn btn--dark pg-pay__cta"
+      <MetaRows>
+        <MetaRow label="Price">
+          <span className="font-mono tabular-nums">{formatCents(priceCents)}</span>
+        </MetaRow>
+      </MetaRows>
+      <Button
+        className="w-full"
         disabled={checkoutLoading}
         aria-label={`pay for audit of ${packageName} with card`}
         onClick={onCard}
       >
-        {checkoutLoading ? (
-          <>
-            <span className="spinner" aria-hidden="true" />
-            Redirecting to Stripe…
-          </>
-        ) : (
-          `Pay ${formatCents(priceCents)} with card`
-        )}
-      </button>
-      <p className="microtext">You'll finish on Stripe's secure checkout, then return here.</p>
+        {checkoutLoading ? "Redirecting to Stripe…" : `Pay ${formatCents(priceCents)} with card`}
+      </Button>
+      <p className="text-2xs text-text-3">
+        You'll finish on Stripe's secure checkout, then return here.
+      </p>
     </div>
   );
 }
@@ -314,78 +433,75 @@ interface CryptoPaneProps {
 function CryptoPane(props: CryptoPaneProps) {
   const { crypto, packageName, version, walletPresent, cryptoPhase, cryptoBusy, walletNotice } =
     props;
-  const feeLabel = crypto.auditFeeWei ? formatWeiAsEth(crypto.auditFeeWei) : "—";
   const cliTarget = version ? `${packageName}@${version}` : packageName;
 
   return (
-    <div className="pg-pay-pane">
-      <dl className="pg-pay-meta">
-        <div className="pg-pay-meta__row">
-          <dt>Network</dt>
-          <dd>
-            <span className="pill pill--violet">Base Sepolia</span>
-          </dd>
-        </div>
-        <div className="pg-pay-meta__row">
-          <dt>Audit fee</dt>
-          <dd className="mono">{feeLabel}</dd>
-        </div>
-        <div className="pg-pay-meta__row">
-          <dt>Contract</dt>
-          <dd className="mono" title={crypto.contract}>
+    <div className="grid gap-3">
+      <MetaRows>
+        <MetaRow label="Network">
+          <Badge>Base Sepolia</Badge>
+        </MetaRow>
+        <MetaRow label="Audit fee">
+          {crypto.auditFeeWei ? (
+            <span className="font-mono tabular-nums">{formatWeiAsEth(crypto.auditFeeWei)}</span>
+          ) : (
+            // An em-dash, never a fabricated 0 — the fee is unknown, and a `0`
+            // here would read as "this audit is free" (§3.4, the `field` rule).
+            <span aria-label="audit fee unavailable" className="font-mono text-text-3">
+              —
+            </span>
+          )}
+        </MetaRow>
+        <MetaRow label="Contract">
+          <span className="font-mono" title={crypto.contract}>
             {truncateMiddle(crypto.contract, 10, 8)}
-          </dd>
-        </div>
-      </dl>
+          </span>
+        </MetaRow>
+      </MetaRows>
 
       {crypto.auditFeeWei ? null : (
-        <p className="microtext">The audit fee could not be read from the contract right now.</p>
+        <p className="text-2xs text-text-3">
+          The audit fee could not be read from the contract right now.
+        </p>
       )}
 
       {walletPresent ? (
         <>
-          <button
-            type="button"
-            className="btn btn--violet pg-pay__cta"
+          <Button
+            className="w-full"
             disabled={cryptoBusy}
             aria-busy={cryptoBusy}
             aria-label={`pay for audit of ${packageName} with crypto`}
             onClick={props.onCrypto}
           >
-            {cryptoPhase === "connecting" ? (
-              <>
-                <span className="spinner" aria-hidden="true" />
-                Confirm in your wallet…
-              </>
-            ) : cryptoPhase === "verifying" ? (
-              <>
-                <span className="spinner" aria-hidden="true" />
-                Verifying payment…
-              </>
-            ) : (
-              "Connect wallet & pay"
-            )}
-          </button>
+            {cryptoPhase === "connecting"
+              ? "Confirm in your wallet…"
+              : cryptoPhase === "verifying"
+                ? "Verifying payment…"
+                : "Connect wallet & pay"}
+          </Button>
           {walletNotice ? (
-            <div className="banner pg-pay-notice" role="status">
+            // Neutral, not degraded: the user rejecting a transaction is an
+            // outcome, and nothing was charged. A hatched error box here would
+            // tell them something broke when nothing did.
+            <p role="status" className="rounded-md border border-border bg-sunken px-3 py-2 text-sm text-text-2">
               {walletNotice}
-            </div>
+            </p>
           ) : null}
-          <p className="microtext">
-            Signs <span className="mono">requestAudit</span> on Base Sepolia with an injected wallet
-            (MetaMask, Rabby). The engine verifies the receipt before the audit runs.
+          <p className="text-2xs text-text-3">
+            Signs <span className="font-mono">requestAudit</span> on Base Sepolia with an injected
+            wallet (MetaMask, Rabby). The engine verifies the receipt before the audit runs.
           </p>
         </>
       ) : (
-        <div className="pg-pay-hint">
-          <p className="subtext">
+        <div className="grid gap-2.5">
+          <p className="text-sm text-text-2">
             No browser wallet detected. On mobile, or to pay over WalletConnect, run the audit from
             the CLI:
           </p>
-          <p className="pg-pay-cli">
-            <kbd>npx</kbd>
-            <span className="mono">npmguard-cli install {cliTarget}</span>
-          </p>
+          {/* Copyable, because this is the one instruction on the page a user
+              without a browser wallet has to carry to another terminal. */}
+          <CommandLine prompt="npx" command={`npmguard-cli install ${cliTarget}`} />
         </div>
       )}
     </div>
