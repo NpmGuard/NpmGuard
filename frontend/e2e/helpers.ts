@@ -18,10 +18,10 @@ export const SAFE_DEMO = "chalk";
 export const DANGEROUS_DEMO = "test-pkg-env-exfil";
 
 /** The PUBLIC names the DANGEROUS/SAFE reports are seeded under for the durable
- * report + registry views (see global-setup.ts). test-pkg-* is filtered from
- * the registry, so the DANGEROUS report is re-homed under a public name. */
-export const SAFE_PKG = { name: "chalk", version: "5.6.2" };
-export const DANGEROUS_PKG = { name: "npm-telemetry-helper", version: "2.0.1" };
+ * report + registry views. Re-exported, not redeclared: the same two pairs are
+ * the panel scenario's cache-hit deps, and one seeded report has to satisfy both
+ * readers. See `panel-fixture.ts`. */
+export { DANGEROUS_PKG, SAFE_PKG } from "./panel-fixture.ts";
 
 /** GET /demo/packages through the vite proxy → the engine. Asserts the two
  * recordings this suite relies on are actually offered. */

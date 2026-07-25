@@ -59,14 +59,18 @@ import { PublicAuditHistory } from "../features/repos/components/PublicAuditHist
 import { PublicAuditReportDialog } from "../features/repos/components/PublicAuditReportDialog.tsx";
 import { RepoCard } from "../features/repos/components/RepoCard.tsx";
 import { usePublicScans, useRepos } from "../features/repos/hooks.ts";
+import {
+  matchesRepoFilter,
+  matchesRepoQuery,
+  repoFilterCounts,
+  type RepoFilter,
+} from "../features/repos/posture.ts";
 import { githubLoginUrl } from "../features/session/api.ts";
 import { useInstallations, useSession } from "../features/session/hooks.ts";
 import { cn } from "../lib/cn.ts";
 import { formatDateTime } from "../lib/format.ts";
 import { allLoaded } from "../lib/query-state.ts";
 import { usePanelUi } from "../stores/panelStore.ts";
-
-type RepoFilter = "all" | "protected" | "unscanned" | "attention";
 
 const FILTERS: { key: RepoFilter; label: string }[] = [
   { key: "all", label: "All" },
@@ -78,18 +82,6 @@ const FILTERS: { key: RepoFilter; label: string }[] = [
 /** The repo grid's own measure. Cards hold a full name plus a status line, so
  * 20rem is the point below which the name wraps mid-identifier. */
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] gap-6";
-
-/** Attention = a human has to do something: a dep is DANGEROUS, or audits could
- * not conclude (ERROR). A set still running, or one with pending deps, is NOT
- * attention — it resolves itself.
- *
- * The set's own rollup is the authority. There is no failed-SET arm: R-1's
- * falsification pass found zero producers for one, and every way a set can go
- * wrong now lands in the rollup as ERROR, which this already reads. */
-function needsAttention(repo: PanelRepo): boolean {
-  const outcome = repo.lastScan?.rollup.outcome ?? null;
-  return outcome === "DANGEROUS" || outcome === "ERROR";
-}
 
 /** Dismissible page notice. Not `DegradedRegion` and not a toast: it reports the
  * outcome of a Stripe round-trip the user just took, which is neither a failed
@@ -262,28 +254,13 @@ export function Dashboard() {
   const noInstallations =
     installations.status === "ok" && installations.data.installations.length === 0;
 
+  // Counts over what we HOLD: a failed repo read has no data arm to count, and
+  // `workspace` below is what keeps the confident grid unreachable in that case.
   const known = repos.status === "ok" ? repos.data : [];
-  const counts: Record<RepoFilter, number> = {
-    all: known.length,
-    protected: known.filter((repo) => repo.protected).length,
-    unscanned: known.filter((repo) => !repo.lastScan).length,
-    attention: known.filter(needsAttention).length,
-  };
+  const counts = repoFilterCounts(known);
 
-  const q = query.trim().toLowerCase();
   const matching = (all: PanelRepo[]) =>
-    all.filter((repo) => {
-      if (filter === "protected" && !repo.protected) return false;
-      if (filter === "unscanned" && repo.lastScan) return false;
-      if (filter === "attention" && !needsAttention(repo)) return false;
-      if (
-        q &&
-        !repo.fullName.toLowerCase().includes(q) &&
-        !repo.defaultBranch.toLowerCase().includes(q)
-      )
-        return false;
-      return true;
-    });
+    all.filter((repo) => matchesRepoFilter(repo, filter) && matchesRepoQuery(repo, query));
 
   const hasBillingAccounts = billing.status === "ok" && billing.data.accounts.length > 0;
   const refreshing = workspace.status === "loading";

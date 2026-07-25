@@ -25,6 +25,8 @@ npm run build      # tsc -b && vite build → dist/ (the engine serves this in p
 npm run typecheck  # tsc -b — NOT --noEmit; see below
 npm test           # vitest + jsdom — clone-and-run, nothing running
 npm run test:e2e   # Playwright boots the REAL engine (uvicorn :8055, demo mode) + vite :3100
+                   # + the panel fixture server :8056 (GitHub App/OAuth stub) so
+                   # the dashboard specs run against a panel-ENABLED engine
 npm run gate       # typecheck && test && test:e2e
 ```
 
@@ -310,7 +312,12 @@ the vocabulary is **closed** (Tailwind's default palette, extra type steps,
 See [`TESTING.md`](TESTING.md) for the class maps. Two pillars: blackbox
 class-mapped **units** (fold replay-idempotence is a mandatory class, not an
 edge case) and **e2e** that never mocks the engine — Playwright boots the real
-uvicorn engine in demo mode (engine :8055, vite :3100, hermetic `.e2e-data`,
-`workers:1` because audit sessions and the SSE hub are in-process engine state).
+uvicorn engine in demo mode (engine :8055, vite :3100, the panel fixture server
+:8056, hermetic `.e2e-data`, `workers:1` because audit sessions and the SSE hub
+are in-process engine state). The panel is proved against the same engine with
+its five GitHub App credentials set and GitHub served by
+`engine/tests/support/panel_e2e_server.py` — with them absent every panel route
+503s, so a dashboard spec failing on "element not found" with no server error is
+almost always a missing credential, not a selector.
 Assert structure and lifecycle, never captured LLM prose. Stable locators are
 `aria-label`s planted at build time.
