@@ -129,8 +129,15 @@ def parse_strace_log(log: str, run_start_sec: float) -> list[EvidenceEvent]:
             match = re.match(r"^(\d+)", args)
             normalized["fd"] = int(match.group(1)) if match else None
         elif syscall in {"connect", "sendto", "accept", "accept4"}:
-            address = re.search(r'sin_addr="([^"]+)"', args) or re.search(
-                r'sin6_addr="([^"]+)"', args
+            # strace prints the address through a formatter — `sin_addr=inet_addr(
+            # "127.0.0.1")`, `inet_pton(AF_INET6, "::1", &sin6_addr)` — so a bare
+            # `sin_addr="…"` pattern matched NOTHING real: every inet connect in the
+            # committed corpus normalized to addr=None while its raw carried the
+            # peer. render_timeline then fell back to "socket", hiding the very
+            # host:port the hypothesis named. Same rendering-loss class as the L4
+            # dropped port; the bare form is kept for hand-written/`-yy` lines.
+            address = re.search(r'sin6?_addr=(?:\w+\()?"([^"]+)"', args) or re.search(
+                r'inet_pton\(AF_INET6,\s*"([^"]+)"', args
             )
             port = re.search(r"htons\((\d+)\)", args)
             normalized.update(

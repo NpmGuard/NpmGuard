@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -67,6 +68,21 @@ def similar_description(left: str, right: str, threshold: float = DEFAULT_MERGE_
     return jaro_winkler(normalize(left), normalize(right)) >= threshold
 
 
+def _asked_question(hypothesis: Hypothesis) -> str:
+    """The pair that determines what a node actually tests: the compiled experiment
+    (what gets run) and the claim (what the judge is asked about it). Two nodes with
+    the same question resolve on one run; two with different questions do not, no
+    matter how alike their prose."""
+    return json.dumps(
+        {
+            "experiment": [call.model_dump(mode="json") for call in hypothesis.experiment or []],
+            "claim": hypothesis.claim.model_dump(mode="json"),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 class HypothesisGraph:
     def __init__(self, audit_id: str, *, clock=now_iso) -> None:
         self.audit_id = audit_id
@@ -117,17 +133,37 @@ class HypothesisGraph:
     def add_or_merge(
         self, hypothesis: Hypothesis, threshold: float = DEFAULT_MERGE_THRESHOLD
     ) -> tuple[Hypothesis, bool]:
+        """Fold an incoming hypothesis into an existing node only when the two ask
+        the SAME question of the SAME run — similar prose alone is not enough.
+
+        Dedup exists to avoid running one experiment twice, and that is the only case
+        it may cover. Merging on description alone dropped the incoming node's
+        `experiment`, `claim` and `severity` while UNIONING its focus regions into the
+        survivor: the second bait never ran, yet the report pointed at both regions as
+        though one run had covered them. A region the report points at must be a region
+        some executed experiment covered, so a node whose experiment or claim differs
+        is a distinct suspicion and is admitted as its own node — it costs one more
+        sandbox run, bounded by the orchestrator's global budget.
+        """
         parsed = Hypothesis.model_validate(hypothesis)
+        question = _asked_question(parsed)
         duplicate = next(
             (
                 node
                 for node in self._nodes.values()
                 if similar_description(parsed.description, node.description, threshold)
+                and _asked_question(node) == question
             ),
             None,
         )
         if duplicate is None:
             return self.add(parsed), False
+        # INVARIANT: past this point the two nodes compile to byte-identical tool
+        # calls under an identical claim, so ONE run resolves both and the union of
+        # their focus regions is exactly as covered as the survivor's own. That is
+        # what makes absorbing focusFiles/focusLines honest rather than a coverage
+        # claim for something never executed.
+        assert _asked_question(duplicate) == question, "add_or_merge: merged unlike questions"
         files = list(dict.fromkeys([*(duplicate.focusFiles or []), *(parsed.focusFiles or [])]))
         lines = list(duplicate.focusLines or [])
         seen = {(line.file, line.range) for line in lines}
@@ -135,8 +171,17 @@ class HypothesisGraph:
             if (line.file, line.range) not in seen:
                 lines.append(line)
                 seen.add((line.file, line.range))
+        # The survivor now stands for both suspicions, so it carries the STRONGER
+        # severity: keep-first would let a `low` duplicate demote a `critical` one out
+        # of its dispatch slot (next_open orders by severity) and under-report it.
+        severity = max(
+            (duplicate.severity or "medium", parsed.severity or "medium"),
+            key=SEVERITY_ORDER.__getitem__,
+        )
         merged = Hypothesis.model_validate(
-            duplicate.model_copy(update={"focusFiles": files, "focusLines": lines})
+            duplicate.model_copy(
+                update={"focusFiles": files, "focusLines": lines, "severity": severity}
+            )
         )
         self._nodes[duplicate.hypId] = merged
         self.updated_at = self._clock()

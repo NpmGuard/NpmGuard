@@ -4460,9 +4460,103 @@ you.
 <a name="24-observations"></a>
 ## 24. Observations
 
-Findings from reading the code and the committed data. **Nothing here has been
-changed.** Each item states what was observed, the evidence, and why it might
-matter.
+Findings from reading the code and the committed data. Each item states what was
+observed, the evidence, and why it might matter.
+
+### 24.0 Status — what has since been fixed, and where this section was wrong
+
+These findings were triaged into the phase plan (design doc **D-9**, goals
+G28–G32), not filed. Four are fixed; the rest are tracked. **Read this subsection
+before trusting any item below** — acting on the fixes corrected the analysis in
+three places, and turned up one defect this section missed entirely.
+
+**Fixed** (`instrumentation-monkey.js`, new `instrumentation-require-hook.js`,
+`evidence.py`, `sensors.py`, `graph.py`, `docker.py`):
+
+- **§24.7** — the L4 URL now carries the authority the caller actually
+  requested, port included, and a port is emitted only when one was supplied
+  (inventing `:80` would be the mirror-image mismatch). The method is also read
+  off the second argument, so `request(url, {method:'POST'})` no longer logs as
+  GET.
+- **§24.8** — request bodies are captured, bounded at 2 KiB per request and
+  64 KiB per run, with `bodyBytes` recording the *true* size so truncation is
+  visible rather than silent. The renderer names which planted `setupApplied.env`
+  canaries the body or URL carries, with an 8-character floor so `CI=1` can't be
+  cited as proof. **Planted *file* contents remain uncorrelatable** — see §24.8's
+  own note and the tracked follow-up.
+- **§24.10** — the require hook moved into its own fragment, concatenated *after*
+  the instrument's own requires. Order is the mechanism, not a filter, per the
+  spec. `parse_l4_trace` now **raises** if any require's `from` is the
+  instrument, so a misattributed capability DEFERs with a located cause instead
+  of reaching a verdict.
+- **§24.17** — a merge now requires description similarity **and** a
+  byte-identical `experiment` **and** an identical `claim`. Once two nodes ask
+  the same question, one run resolves both, so unioning `focusLines` is honest
+  rather than a coverage claim for something never executed — the invariant holds
+  by construction, with no new state. The survivor also takes the **max**
+  severity; keep-first let a `low` duplicate demote a `critical` out of its
+  dispatch slot.
+
+**Two further defects of the same class, found while fixing the above:**
+
+- **The L1 peer address was never parsed.** `re.search(r'sin_addr="([^"]+)"')`
+  matches nothing strace emits — the real form is
+  `sin_addr=inet_addr("127.0.0.1")`. Every inet `connect` in the committed corpus
+  carries the peer in its `raw` while `addr` is `null`, so the renderer printed a
+  bare `connect socket`. It now renders `connect 127.0.0.1:9999`, which answers
+  the same three refutations as §24.7 **from an independent sensor**.
+- **`http.get` / `https.get` were invisible at L4**, because Node's `get` calls
+  the module-internal `request()` rather than the exported one. `hyp-0008`'s
+  artifact contains exactly one L4 network event; the IMDS probe reached the
+  timeline only via pcap.
+
+**Where this section is wrong:**
+
+1. **§24.10 misattributes `module`.** Its recorded `from` is `<root>`, not the
+   instrument — it is Node's own `-e` bootstrap, and the original instrument
+   required `module` *before* installing its hook, so it was never logged at all.
+   Six of the seven (`fs`, `http`, `https`, `child_process`, `crypto`,
+   `inspector`) genuinely carry `from: /tmp/_instrument.js`; the seventh needed
+   different treatment, and is now *annotated* rather than dropped — dropping
+   parentless requires would blind the timeline to an evasive
+   `Module._load(name, null)`.
+2. **§24.7's causal account is incomplete in a way that matters.** L1 also knew
+   the endpoint — `htons(9999)` and `inet_addr("127.0.0.1")` are in every
+   recorded `raw` — and lost it to the dead regex above. **Two independent
+   sensors were understating the same fact**; §24.7 blames only L4.
+3. **§24.9 now explains itself.** The reason no other layer could corroborate the
+   IMDS GET that carried the whole verdict is that L4 was structurally blind to
+   `http.get`.
+
+**The defect this section missed, and it is larger than most of what it found:**
+
+> **`stubUrl` never intercepted the running example at all.** It works by setting
+> `HTTP_PROXY`/`HTTPS_PROXY`, and Node core's `http`/`https` ignore proxy
+> environment variables. The recorded L1 proves it: `connect(19, 127.0.0.1:9999)
+> = -1` — the package dialled its real endpoint and never touched the proxy on
+> `127.0.0.1:18080`. So `setupApplied.stubUrls[].responseHash` attests a canned
+> response that was never served, and the experiment's central manipulation
+> silently did not apply. This is the same defect class as §24.14 (a sealed
+> artifact asserting a bound the run never applied) but worse, because a
+> hypothesis's logic may *depend* on the stub. Tracked, not fixed.
+
+One correct fix is written and deliberately **not** landed: `_describe` reuses
+the fd table for a `connect` without checking `is_socket`, so an AF_UNIX connect
+on a recycled fd inherits a file path (`connect /etc/localtime` — a *false*
+target, worse than a vague one). The one-line fix shifts event ids in 9 of 14
+`dns-exfil` artifacts, which breaks two judge citations pinned to the old
+rendering. That is a legitimate input change, not a bug in the fix — the id count
+*shrinks* because two rows correctly collapse into one — but landing it requires
+a paid re-record, so it is pinned as `xfail(strict=True)` in `test_evidence.py`
+C14b and flips green when the re-record happens. The `sensors.py` fix above
+already removes that fallback for every AF_INET/AF_INET6 connect, so the
+residual exposure is AF_UNIX only.
+
+Finally, a note on why all of this survived a green suite: **the C2 test in
+`test_sensors.py` asserted a line shape strace never emits**
+(`sin_addr="1.2.3.4"`). A whitebox test written against an imagined format is
+how a dead regex stays green for its whole life. The replacement class uses lines
+copied verbatim from a committed artifact's `raw`.
 
 ### 24.1 The committed demo recording is a hybrid of real and curated data
 

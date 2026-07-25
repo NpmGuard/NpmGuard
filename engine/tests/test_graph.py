@@ -10,8 +10,19 @@
 #      parameter, not ambient state
 #   C6 admission asserts armed: an OPEN node with an empty experiment never
 #      enters the graph (generators guarantee armed-or-raise; dispatch trusts it)
+#   C7 a near-duplicate DESCRIPTION with a different experiment is a different
+#      suspicion: both nodes are admitted, so both experiments run
+#   C8 a near-duplicate description with a different claim likewise stays separate —
+#      the judge is still asked the second question
+#   C9 a legitimate merge (same experiment, same claim) carries the STRONGER
+#      severity, so a low duplicate cannot demote a critical one
 # Adversarial pass: 2026-07-23/W6 — C5 added; previously nothing pinned the
 # already-injectable clock seam, letting a wall-clock regression in silently.
+# Coverage-honesty pass: C7-C9. add_or_merge used to dedup on description alone,
+# dropping the incoming experiment/claim/severity while UNIONING focus regions
+# into the survivor — the second bait never ran, yet the report pointed at both
+# regions as if one run had covered them. The axis the old map missed is
+# "what the two nodes actually TEST", not how alike their prose is.
 from pathlib import Path
 
 import pytest
@@ -105,6 +116,54 @@ def test_merge_and_persistence_round_trip(tmp_path: Path) -> None:
     graph.save_to(path)
     restored = HypothesisGraph.load_from(path)
     assert restored.serialize() == graph.serialize()
+
+
+def test_near_duplicate_with_a_different_experiment_is_not_merged() -> None:
+    """C7: same words, different bait. Merging these dropped the second experiment
+    and grew the survivor's focusLines over its region, so the report claimed a
+    region no executed run had covered. Both are admitted, so both run."""
+    graph = HypothesisGraph("audit-1")
+    graph.add(hypothesis("first", focusLines=[FocusRange(file="index.js", range="4-8")]))
+    admitted, was_merged = graph.add_or_merge(
+        hypothesis(
+            "second",
+            focusLines=[FocusRange(file="index.js", range="40-60")],
+            experiment=[
+                ToolCall(tool="setEnv", args={"env": {"AWS_ACCESS_KEY_ID": "AKIA-CANARY"}}),
+                ToolCall(tool="trigger", args={"kind": "entrypoint", "target": "index.js"}),
+            ],
+        )
+    )
+    assert was_merged is False
+    assert graph.size == 2
+    assert admitted.hypId == "second"
+    # The kept node's coverage claim never grew to cover the other's region.
+    surviving_ranges = {
+        (line.file, line.range) for line in graph.get("first").focusLines or []
+    }
+    assert surviving_ranges == {("index.js", "4-8")}
+
+
+def test_near_duplicate_with_a_different_claim_is_not_merged() -> None:
+    """C8: the judge is asked about `claim.kind`, so two nodes with different claims
+    are two different questions. Merging them meant one was never asked."""
+    graph = HypothesisGraph("audit-1")
+    graph.add(hypothesis("first"))
+    _, was_merged = graph.add_or_merge(hypothesis("second", claim=Claim(kind="persistence")))
+    assert was_merged is False
+    assert graph.size == 2
+
+
+def test_merge_keeps_the_stronger_severity() -> None:
+    """C9: the survivor stands for both suspicions. Keep-first let a `low` duplicate
+    demote a `critical` node out of its dispatch slot (next_open orders by severity)
+    and under-report it in the rollup."""
+    graph = HypothesisGraph("audit-1")
+    graph.add(hypothesis("first", severity="low"))
+    merged, was_merged = graph.add_or_merge(hypothesis("second", severity="critical"))
+    assert was_merged is True
+    assert graph.size == 1
+    assert merged.severity == "critical"
 
 
 def test_unarmed_open_hypothesis_is_refused_at_admission() -> None:
