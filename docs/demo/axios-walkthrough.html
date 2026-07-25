@@ -10,24 +10,21 @@
 
      PALETTE: the NpmGuard system, quoted from frontend/src/styles/tokens.css §2.2
      (light primitives). That file is the authority — do not re-pick a colour by
-     eye here. Values are copied rather than imported because this page must open
-     as a standalone file with no build step and no network.
-
-     One palette, light, start to finish. `color-scheme: light` so a judge
-     browsing in dark mode sees the page we rehearsed.
+     eye. Copied rather than imported because this page must open as a standalone
+     file with no build step and no network.
 
      SYSTEM RULES OBSERVED
-     ---------------------
-     §2.7  mono = a machine-authored fact (package, version, date, count);
+     §2.7  mono = machine-authored fact (package, version, date, count);
            sans = interface language. Headlines are SANS.
      §2.8  "a stamp, not a pill" — no fully-round status elements; severity
            reaches a row through a 3px left rule, not a full tint.
-     §2.2  `--ng-error` (purple) means AUDIT ERROR and is deliberately unused
-           here. Danger is red, safe is green, accent is the one system hue.
+     §2.2  --ng-error (purple) means AUDIT ERROR and is deliberately unused.
+     §2.9  transform and opacity only — never width/height/top/left.
 
-     THE SPINE: one pipeline, drawn twice. Rows that are IDENTICAL on both sides
-     are styled identically and muted — they carry the honest half of the claim,
-     that NpmGuard does not stop the publish. Only two rows diverge.
+     THE SPINE: one pipeline, run twice, SIMULTANEOUSLY. Both packets travel the
+     same stages at the same time so the divergence is watched rather than read.
+     The stages that behave IDENTICALLY are the honest half of the claim —
+     NpmGuard does not stop the publish — so they stay muted and matched.
      ============================================================================= */
   :root {
     color-scheme: light;
@@ -60,159 +57,159 @@
     --ng-font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
     --ng-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-    --ng-radius-sm: 4px;
-    --ng-radius-lg: 8px;
-
-    --ng-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-    --ng-dur-reveal: 420ms;
-    --ng-stagger: 40ms;
+    --r-sm: 4px;
+    --r-lg: 8px;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   * { box-sizing: border-box; }
 
   body {
-    margin: 0;
-    background: var(--ng-canvas);
-    color: var(--ng-text);
+    margin: 0; background: var(--ng-canvas); color: var(--ng-text);
     font-family: var(--ng-font-sans);
-    font-size: clamp(15px, 14px + .2vw, 17px);
-    line-height: 1.55;
+    font-size: clamp(15px, 14px + .2vw, 17px); line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
 
-  section {
-    max-width: 1080px; margin: 0 auto;
-    padding: clamp(3rem, 9vh, 6rem) clamp(1.2rem, 4vw, 3rem);
-  }
+  section { max-width: 1080px; margin: 0 auto; padding: clamp(2.6rem, 7vh, 4.5rem) clamp(1.2rem, 4vw, 3rem); }
   section + section { border-top: 1px solid var(--ng-border-faint); }
 
-  .lab {
-    font-size: .7rem; font-weight: 600; letter-spacing: .16em;
-    text-transform: uppercase; color: var(--ng-text-3); margin: 0 0 1.6rem;
-  }
-  h1 {
-    font-family: var(--ng-font-mono); font-weight: 700; margin: 0;
-    font-size: clamp(2rem, 1rem + 5vw, 4.4rem);
-    letter-spacing: -.04em; line-height: 1;
-  }
+  .lab { font-size: .7rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--ng-text-3); margin: 0 0 1.4rem; }
+  h1 { font-family: var(--ng-font-mono); font-weight: 700; margin: 0; font-size: clamp(2rem, 1rem + 5vw, 4.2rem); letter-spacing: -.04em; line-height: 1; }
   h1 .v { color: var(--ng-danger); }
-  .say {
-    font-weight: 600; letter-spacing: -.015em;
-    font-size: clamp(1.2rem, .95rem + 1.3vw, 1.9rem);
-    line-height: 1.25; margin: 1.8rem 0 0; text-wrap: balance; max-width: 30ch;
-  }
+  .say { font-weight: 600; letter-spacing: -.015em; font-size: clamp(1.15rem, .95rem + 1.2vw, 1.75rem); line-height: 1.25; margin: 1.5rem 0 0; text-wrap: balance; max-width: 30ch; }
   .say em { font-style: normal; color: var(--ng-danger-text); }
 
-  /* ── hero numbers ─────────────────────────────────────────── */
-  .nums { display: grid; gap: clamp(1.2rem, 4vw, 2.6rem); margin-top: clamp(2.2rem, 6vh, 3.4rem); }
+  .nums { display: grid; gap: clamp(1rem, 4vw, 2.4rem); margin-top: 2rem; }
   @media (min-width: 700px) { .nums { grid-template-columns: repeat(3, 1fr); } }
-  .num { border-top: 1px solid var(--ng-border); padding-top: .8rem; }
-  .num b {
-    display: block; font-family: var(--ng-font-mono); font-weight: 700;
-    font-size: clamp(1.8rem, 1.1rem + 2.4vw, 2.8rem); line-height: 1;
-    letter-spacing: -.035em; font-variant-numeric: tabular-nums;
-  }
-  .num span { display: block; font-size: .66rem; letter-spacing: .13em; text-transform: uppercase; color: var(--ng-text-3); margin-top: .5rem; }
+  .num { border-top: 1px solid var(--ng-border); padding-top: .7rem; }
+  .num b { display: block; font-family: var(--ng-font-mono); font-weight: 700; font-size: clamp(1.7rem, 1.1rem + 2.2vw, 2.6rem); line-height: 1; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+  .num span { display: block; font-size: .65rem; letter-spacing: .13em; text-transform: uppercase; color: var(--ng-text-3); margin-top: .45rem; }
   .num.red b { color: var(--ng-danger-text); }
 
-  /* ── the split pipeline ───────────────────────────────────── */
-  .heads { display: none; }
-  @media (min-width: 860px) {
-    .heads {
-      display: grid; grid-template-columns: 1fr 9.5rem 1fr;
-      gap: .6rem; margin-bottom: .7rem;
-    }
-    .heads div { font-size: .68rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; }
-    .heads .l { color: var(--ng-danger-text); }
-    .heads .r { color: var(--ng-safe-text); text-align: right; }
-  }
+  /* ── column headers ───────────────────────────────────────── */
+  .heads { display: grid; grid-template-columns: 1fr 7.5rem 1fr; gap: .5rem; margin-bottom: .8rem; align-items: end; }
+  .heads b { font-size: .7rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+  .heads .l b { color: var(--ng-danger-text); }
+  .heads .r { text-align: right; }
+  .heads .r b { color: var(--ng-safe-text); }
+  @media (max-width: 720px) { .heads { grid-template-columns: 1fr 1fr; } .heads .mid { display: none; } }
 
-  .pipe { display: flex; flex-direction: column; gap: .6rem; }
-  .stage { display: grid; gap: .5rem; grid-template-columns: 1fr; }
-  @media (min-width: 860px) { .stage { grid-template-columns: 1fr 9.5rem 1fr; align-items: stretch; gap: .6rem; } }
+  /* ── the pipeline ─────────────────────────────────────────── */
+  .pipe { display: flex; flex-direction: column; gap: 0; }
+  .stage { display: grid; grid-template-columns: 1fr 7.5rem 1fr; gap: .5rem; align-items: stretch; }
+  @media (max-width: 720px) { .stage { grid-template-columns: 1fr 1fr; gap: .4rem; } }
 
-  /* The centre column names the step. It is the proof that both sides are the
-     same pipeline — without it this is just two lists. */
+  /* centre column: names the step, and proves both sides are one pipeline */
   .step {
     display: grid; place-items: center; text-align: center;
-    font-family: var(--ng-font-mono); font-size: .68rem;
-    letter-spacing: .06em; color: var(--ng-text-3);
-    padding: .4rem; line-height: 1.35;
-    border-top: 1px solid var(--ng-border-faint);
-    border-bottom: 1px solid var(--ng-border-faint);
+    font-family: var(--ng-font-mono); font-size: .64rem; line-height: 1.3;
+    letter-spacing: .04em; color: var(--ng-text-3); padding: .3rem;
+    opacity: 0; transition: opacity .3s var(--ease);
   }
-  @media (max-width: 859px) {
-    .step { order: -1; text-align: left; place-items: start; border-bottom: 0; padding: .2rem 0 .1rem; }
+  .stage.seen .step { opacity: 1; }
+  @media (max-width: 720px) {
+    .step { grid-column: 1 / -1; place-items: start; text-align: left; padding: .5rem 0 .15rem; }
+    .step br { display: none; }
   }
 
   .cell {
-    background: var(--ng-surface); border: 1px solid var(--ng-border);
-    border-radius: var(--ng-radius-lg); padding: .8rem 1rem;
-    display: flex; align-items: baseline; gap: .6rem;
-    font-size: .92rem; color: var(--ng-text-2);
+    position: relative;
+    background: var(--ng-sunken); border: 1px solid var(--ng-border-faint);
+    border-radius: var(--r-lg); padding: .7rem .9rem;
+    display: flex; align-items: center; gap: .6rem;
+    opacity: 0; transform: translateY(10px);
+    transition: opacity .3s var(--ease), transform .3s var(--ease),
+                background-color .3s var(--ease), border-color .3s var(--ease),
+                box-shadow .3s var(--ease);
   }
-  .cell .m { font-family: var(--ng-font-mono); font-weight: 700; font-size: .95rem; line-height: 1.3; flex: 0 0 auto; }
-  .cell .t b { color: var(--ng-text); font-weight: 600; }
-  .cell .t small { display: block; font-size: .76rem; color: var(--ng-text-3); margin-top: .1rem; }
+  .stage.seen .cell { opacity: 1; transform: none; }
 
-  /* Identical on both sides: muted, no rule, visually a pass-through. */
-  .cell.same { background: var(--ng-sunken); border-color: var(--ng-border-faint); }
-  .cell.same .m { color: var(--ng-border-strong); }
+  /* the pulse that reads as "the packet is here now" */
+  .stage.live .cell { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ng-accent) 22%, transparent); border-color: var(--ng-accent); }
 
-  /* Divergent rows only. §2.8's 3px left rule. */
-  .cell.bad  { border-left: 3px solid var(--ng-danger); background: var(--ng-danger-wash); border-color: var(--ng-danger-border); border-left-color: var(--ng-danger); }
+  .m { font-family: var(--ng-font-mono); font-weight: 700; font-size: 1.05rem; line-height: 1; color: var(--ng-border-strong); flex: 0 0 auto; width: 1.1rem; text-align: center; }
+  .t { font-size: .88rem; font-weight: 600; color: var(--ng-text-2); line-height: 1.3; }
+  .t small { display: block; font-size: .72rem; font-weight: 400; color: var(--ng-text-3); margin-top: .1rem; }
+
+  /* divergence only — §2.8's 3px left rule */
+  .cell.bad { background: var(--ng-danger-wash); border-color: var(--ng-danger-border); border-left: 3px solid var(--ng-danger); }
   .cell.bad .m { color: var(--ng-danger); }
-  .cell.bad .t b { color: var(--ng-danger-text); }
-  .cell.good { border-left: 3px solid var(--ng-safe); background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left-color: var(--ng-safe); }
+  .cell.bad .t { color: var(--ng-danger-text); }
+  .cell.good { background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left: 3px solid var(--ng-safe); }
   .cell.good .m { color: var(--ng-safe); }
-  .cell.good .t b { color: var(--ng-safe-text); }
-
-  /* The step that does not exist on the left. */
+  .cell.good .t { color: var(--ng-safe-text); }
   .cell.void {
-    background-image: repeating-linear-gradient(45deg, var(--ng-border) 0 1px, transparent 1px 6px);
-    background-color: var(--ng-canvas); border-style: dashed; color: var(--ng-text-3);
+    background-color: var(--ng-canvas); border-style: dashed; border-color: var(--ng-border-strong);
+    background-image: repeating-linear-gradient(45deg, var(--ng-border) 0 1px, transparent 1px 7px);
   }
-  .cell.void .m { color: var(--ng-border-strong); }
 
-  .stage.key .step { color: var(--ng-accent-text); font-weight: 700; border-color: var(--ng-border); }
+  /* connector between stages — scaleY only (§2.9) */
+  .link { display: grid; grid-template-columns: 1fr 7.5rem 1fr; gap: .5rem; height: 20px; }
+  @media (max-width: 720px) { .link { grid-template-columns: 1fr 1fr; gap: .4rem; } .link .mid { display: none; } }
+  .link span { position: relative; }
+  .link span::before {
+    content: ""; position: absolute; left: 1.2rem; top: 0; bottom: 0; width: 2px;
+    background: var(--ng-border-strong);
+    transform: scaleY(0); transform-origin: top;
+    transition: transform .28s var(--ease);
+  }
+  .link.on span::before { transform: scaleY(1); }
+  .link.on span.dead::before { background: var(--ng-safe); }
 
   /* ── outcome ──────────────────────────────────────────────── */
-  .out .cell { flex-direction: column; align-items: stretch; gap: .7rem; }
-  .out-n { font-family: var(--ng-font-mono); font-weight: 700; font-size: clamp(1.9rem, 1.2rem + 2.4vw, 3rem); line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
-  .out .bad .out-n { color: var(--ng-danger-text); }
-  .out .good .out-n { color: var(--ng-safe-text); }
-  .out-l { font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ng-text-3); }
-  .fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(9px, 1fr)); gap: 3px; }
-  .fleet i { display: block; aspect-ratio: 1; border-radius: 2px; background: var(--ng-border); }
+  .out { margin-top: 20px; display: grid; grid-template-columns: 1fr 7.5rem 1fr; gap: .5rem; opacity: 0; transition: opacity .4s var(--ease); }
+  @media (max-width: 720px) { .out { grid-template-columns: 1fr 1fr; } .out .mid { display: none; } }
+  .box { border-radius: var(--r-lg); padding: .8rem .9rem; border: 1px solid var(--ng-border-faint); background: var(--ng-sunken); }
+  .box.bad { background: var(--ng-danger-wash); border-color: var(--ng-danger-border); border-left: 3px solid var(--ng-danger); }
+  .box.good { background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left: 3px solid var(--ng-safe); }
+  .out-n { font-family: var(--ng-font-mono); font-weight: 700; font-size: clamp(1.7rem, 1.1rem + 2.2vw, 2.6rem); line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+  .box.bad .out-n { color: var(--ng-danger-text); }
+  .box.good .out-n { color: var(--ng-safe-text); }
+  .out-l { font-size: .65rem; letter-spacing: .11em; text-transform: uppercase; color: var(--ng-text-3); }
+  .fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(8px, 1fr)); gap: 3px; margin-top: .7rem; }
+  .fleet i { display: block; aspect-ratio: 1; border-radius: 2px; background: var(--ng-border); transition: background-color .25s var(--ease); }
   .fleet i.hot { background: var(--ng-danger); }
   .fleet i.ok { background: var(--ng-safe-border); }
 
-  /* ── honest limits ────────────────────────────────────────── */
-  .cols { display: grid; gap: clamp(1.4rem, 4vw, 3rem); }
+  /* ── replay ───────────────────────────────────────────────── */
+  .ctl { display: flex; align-items: center; gap: .8rem; margin-top: 1.4rem; }
+  .ctl button {
+    font: inherit; font-size: .78rem; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase;
+    background: var(--ng-surface); color: var(--ng-accent-text);
+    border: 1px solid var(--ng-border-strong); border-radius: var(--r-sm);
+    padding: .45rem 1rem; cursor: pointer;
+    transition: border-color .15s var(--ease), color .15s var(--ease);
+  }
+  .ctl button:hover { border-color: var(--ng-accent); }
+  .ctl button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ng-canvas), 0 0 0 4px var(--ng-accent); }
+
+  /* ── honest ───────────────────────────────────────────────── */
+  .cols { display: grid; gap: clamp(1.2rem, 4vw, 2.6rem); }
   @media (min-width: 720px) { .cols { grid-template-columns: 1fr 1fr; } }
   .ch { font-size: .68rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; color: var(--ng-text-3); margin: 0; }
-  .rows { border-top: 1px solid var(--ng-border); margin-top: .9rem; }
-  .row { display: grid; grid-template-columns: 1fr; gap: .1rem; padding: .75rem 0; border-bottom: 1px solid var(--ng-border-faint); }
-  @media (min-width: 620px) { .row { grid-template-columns: 8rem 1fr; gap: 1rem; align-items: baseline; } }
-  .row dt { font-size: .65rem; letter-spacing: .11em; text-transform: uppercase; color: var(--ng-text-3); }
-  .row dd { margin: 0; font-size: .86rem; color: var(--ng-text-2); }
+  .rows { border-top: 1px solid var(--ng-border); margin-top: .8rem; }
+  .row { display: grid; grid-template-columns: 1fr; gap: .1rem; padding: .65rem 0; border-bottom: 1px solid var(--ng-border-faint); }
+  @media (min-width: 620px) { .row { grid-template-columns: 7rem 1fr; gap: 1rem; align-items: baseline; } }
+  .row dt { font-size: .64rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ng-text-3); }
+  .row dd { margin: 0; font-size: .84rem; color: var(--ng-text-2); }
   .row dd b { color: var(--ng-text); font-weight: 600; }
-  code { font-family: var(--ng-font-mono); font-size: .88em; background: var(--ng-sunken); border: 1px solid var(--ng-border-faint); padding: .05em .3em; border-radius: var(--ng-radius-sm); }
-  .foot { font-size: .66rem; line-height: 1.9; color: var(--ng-text-3); border-top: 1px solid var(--ng-border); padding-top: 1.2rem; margin-top: 2.2rem; }
+  code { font-family: var(--ng-font-mono); font-size: .88em; background: var(--ng-sunken); border: 1px solid var(--ng-border-faint); padding: .04em .28em; border-radius: var(--r-sm); }
+  .foot { font-size: .64rem; line-height: 1.85; color: var(--ng-text-3); border-top: 1px solid var(--ng-border); padding-top: 1.1rem; margin-top: 1.8rem; }
 
-  /* ── reveal ───────────────────────────────────────────────── */
-  .rv { opacity: 0; transform: translateY(14px); transition: opacity var(--ng-dur-reveal) var(--ng-ease-out), transform var(--ng-dur-reveal) var(--ng-ease-out); }
+  .rv { opacity: 0; transform: translateY(12px); transition: opacity .42s var(--ease), transform .42s var(--ease); }
   .rv.in { opacity: 1; transform: none; }
-  .stage.rv { transition-delay: calc(var(--i, 0) * var(--ng-stagger)); }
+
   @media (prefers-reduced-motion: reduce) {
-    .rv { opacity: 1; transform: none; transition: none; }
+    .rv, .cell, .step, .link span::before { opacity: 1 !important; transform: none !important; transition: none !important; }
     *, *::before, *::after { transition-duration: .001ms !important; }
   }
 </style>
 </head>
 <body>
 
-<!-- 1 ── WHAT HAPPENED, AND WHEN ──────────────────────────── -->
+<!-- 1 ── WHAT, AND WHEN ───────────────────────────────────── -->
 <section>
   <p class="lab rv">31 March 2026 · 00:21:58 UTC</p>
   <h1 class="rv">axios@<span class="v">1.14.1</span></h1>
@@ -224,61 +221,59 @@
   </div>
 </section>
 
-<!-- 2 ── THE SPLIT PIPELINE ───────────────────────────────── -->
-<section>
-  <p class="lab rv">one pipeline · what happened, and what would have</p>
-
+<!-- 2 ── THE PIPELINE, PLAYED ─────────────────────────────── -->
+<section id="pipeSec">
   <div class="heads rv">
-    <div class="l">What happened</div>
-    <div></div>
-    <div class="r">With NpmGuard</div>
+    <div class="l"><b>What happened</b></div>
+    <div class="mid"></div>
+    <div class="r"><b>With NpmGuard</b></div>
   </div>
 
-  <div class="pipe">
+  <div class="pipe" id="pipe">
 
-    <div class="stage rv" style="--i:0">
-      <div class="cell same"><span class="m">✓</span><span class="t"><b>Attacker holds it</b><small>long-lived npm publish token</small></span></div>
+    <div class="stage" data-s="0">
+      <div class="cell"><span class="m">✓</span><span class="t">Attacker holds it<small>long-lived publish token</small></span></div>
       <div class="step">stolen<br>credential</div>
-      <div class="cell same"><span class="m">✓</span><span class="t"><b>Attacker holds it</b><small>nothing here changes</small></span></div>
+      <div class="cell"><span class="m">✓</span><span class="t">Attacker holds it<small>nothing changes here</small></span></div>
     </div>
+    <div class="link"><span></span><span class="mid"></span><span></span></div>
 
-    <div class="stage rv" style="--i:1">
-      <div class="cell same"><span class="m">✓</span><span class="t"><b>Walked past</b><small>token sat beside OIDC — npm used the token</small></span></div>
+    <div class="stage" data-s="1">
+      <div class="cell"><span class="m">✓</span><span class="t">Walked past<small>token sat beside OIDC</small></span></div>
       <div class="step">trusted<br>publishing</div>
-      <div class="cell same"><span class="m">✓</span><span class="t"><b>Walked past</b><small>same bypass, same result</small></span></div>
+      <div class="cell"><span class="m">✓</span><span class="t">Walked past<small>same bypass</small></span></div>
     </div>
+    <div class="link"><span></span><span class="mid"></span><span></span></div>
 
-    <div class="stage key rv" style="--i:2">
-      <div class="cell void"><span class="m">—</span><span class="t"><b>No such step</b><small>nothing ever asks who is holding the token</small></span></div>
-      <div class="step">prove a<br>human is here</div>
-      <div class="cell good"><span class="m">✗</span><span class="t"><b>Attacker cannot</b><small>a fresh proof, bound to this exact tarball</small></span></div>
-    </div>
-
-    <div class="stage rv" style="--i:3">
-      <div class="cell same"><span class="m">✓</span><span class="t"><b>Accepted, tagged <code>latest</code></b><small>no source change · one added dependency</small></span></div>
+    <div class="stage" data-s="2">
+      <div class="cell"><span class="m">✓</span><span class="t">Tagged <code>latest</code><small>one added dependency</small></span></div>
       <div class="step">npm<br>registry</div>
-      <div class="cell same"><span class="m">✓</span><span class="t"><b>Accepted, tagged <code>latest</code></b><small>we do not stop the publish</small></span></div>
+      <div class="cell"><span class="m">✓</span><span class="t">Tagged <code>latest</code><small>we don't stop the publish</small></span></div>
     </div>
+    <div class="link"><span></span><span class="mid"></span><span class="dead"></span></div>
 
-    <div class="stage key rv" style="--i:4">
-      <div class="cell bad"><span class="m">✓</span><span class="t"><b>Resolves · postinstall runs</b><small>89 seconds to the first machine</small></span></div>
+    <div class="stage" data-s="3" data-l="void" data-r="good">
+      <div class="cell"><span class="m">—</span><span class="t">Nobody asks<small>no such step exists</small></span></div>
+      <div class="step">is a human<br>on this?</div>
+      <div class="cell"><span class="m">✗</span><span class="t">Missing<small>4 releases had one · this has none</small></span></div>
+    </div>
+    <div class="link"><span></span><span class="mid"></span><span class="dead"></span></div>
+
+    <div class="stage" data-s="4" data-l="bad" data-r="good">
+      <div class="cell"><span class="m">✓</span><span class="t">Postinstall runs<small>89 s to the first machine</small></span></div>
       <div class="step">npm<br>install</div>
-      <div class="cell good"><span class="m">✗</span><span class="t"><b>PUBLISHER BREAK</b><small>4 proved releases, then none — stops before download</small></span></div>
+      <div class="cell"><span class="m">✗</span><span class="t">PUBLISHER BREAK<small>stops before download</small></span></div>
     </div>
 
-    <div class="stage out rv" style="--i:5">
-      <div class="cell bad">
-        <div><span class="out-n">135</span> <span class="out-l">machines · one vendor's telemetry</span></div>
-        <div class="fleet" id="f1"></div>
-      </div>
-      <div class="step">outcome</div>
-      <div class="cell good">
-        <div><span class="out-n">0</span> <span class="out-l">reached · the same 135 machines</span></div>
-        <div class="fleet" id="f2"></div>
-      </div>
+    <div class="out" id="out">
+      <div class="box bad"><span class="out-n" id="n1">0</span> <span class="out-l">machines · one vendor</span><div class="fleet" id="f1"></div></div>
+      <div class="mid"></div>
+      <div class="box good"><span class="out-n">0</span> <span class="out-l">reached · same 135 machines</span><div class="fleet" id="f2"></div></div>
     </div>
 
   </div>
+
+  <div class="ctl rv"><button id="replay" type="button">↻ Replay</button></div>
 </section>
 
 <!-- 3 ── HONEST ──────────────────────────────────────────── -->
@@ -311,33 +306,118 @@
 <script>
 (function () {
   "use strict";
-  /* One dot per confirmed infection in the public telemetry — 135, not a
-     made-up proportion. The right-hand grid is the same 135 machines. */
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var stages = [].slice.call(document.querySelectorAll(".stage"));
+  var links  = [].slice.call(document.querySelectorAll(".link"));
+  var out    = document.getElementById("out");
+  var n1     = document.getElementById("n1");
+  var timers = [];
+
+  /* 135 dots = the confirmed-infection count in one vendor's public telemetry,
+     not a made-up proportion. The right-hand grid is the SAME 135 machines. */
   var N = 135;
-  [["f1", "hot"], ["f2", "ok"]].forEach(function (pair) {
-    var el = document.getElementById(pair[0]);
-    var f = document.createDocumentFragment();
+  [["f1", ""], ["f2", "ok"]].forEach(function (p) {
+    var el = document.getElementById(p[0]), f = document.createDocumentFragment();
     for (var i = 0; i < N; i++) {
       var d = document.createElement("i");
-      d.className = pair[1];
+      if (p[1]) d.className = p[1];
       f.appendChild(d);
     }
     el.appendChild(f);
   });
+  var hotDots = document.querySelectorAll("#f1 i");
 
-  var items = document.querySelectorAll(".rv");
-  if (!("IntersectionObserver" in window)) {
-    items.forEach(function (el) { el.classList.add("in"); });
-    return;
-  }
-  var io = new IntersectionObserver(function (es) {
-    es.forEach(function (e) {
-      if (!e.isIntersecting) return;
-      e.target.classList.add("in");
-      io.unobserve(e.target);
+  function at(fn, ms) { timers.push(setTimeout(fn, ms)); }
+
+  function reset() {
+    timers.forEach(clearTimeout); timers = [];
+    stages.forEach(function (s) {
+      s.classList.remove("seen", "live");
+      s.children[0].className = "cell";
+      s.children[2].className = "cell";
     });
-  }, { rootMargin: "0px 0px -8% 0px", threshold: 0.1 });
-  items.forEach(function (el) { io.observe(el); });
+    links.forEach(function (l) { l.classList.remove("on"); });
+    out.style.opacity = "0";
+    n1.textContent = "0";
+    hotDots.forEach(function (d) { d.classList.remove("hot"); });
+  }
+
+  function finish() {
+    out.style.opacity = "1";
+    var n = 0;
+    function bump() {
+      if (n >= N) return;
+      hotDots[n].classList.add("hot");
+      n1.textContent = String(++n);
+      if (!reduce) at(bump, 9);
+    }
+    if (reduce) {
+      hotDots.forEach(function (d) { d.classList.add("hot"); });
+      n1.textContent = String(N);
+    } else { bump(); }
+  }
+
+  function play() {
+    reset();
+    out.style.transition = "opacity .4s var(--ease)";
+
+    if (reduce) {
+      stages.forEach(function (s) {
+        s.classList.add("seen");
+        if (s.dataset.l) s.children[0].className = "cell " + s.dataset.l;
+        if (s.dataset.r) s.children[2].className = "cell " + s.dataset.r;
+      });
+      links.forEach(function (l) { l.classList.add("on"); });
+      finish();
+      return;
+    }
+
+    var STEP = 620;
+    stages.forEach(function (s, i) {
+      at(function () {
+        s.classList.add("seen", "live");
+        at(function () {
+          s.classList.remove("live");
+          /* the divergence lands as the pulse settles */
+          if (s.dataset.l) s.children[0].className = "cell " + s.dataset.l;
+          if (s.dataset.r) s.children[2].className = "cell " + s.dataset.r;
+        }, 380);
+        if (links[i]) at(function () { links[i].classList.add("on"); }, 300);
+      }, i * STEP);
+    });
+    at(finish, stages.length * STEP + 200);
+  }
+
+  document.getElementById("replay").addEventListener("click", play);
+
+  /* This page gets shown to people once, live, with no second chance. If
+     IntersectionObserver is missing, throttled, or never fires, the fallback
+     below guarantees a readable page rather than a blank one. */
+  var started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    document.querySelectorAll(".rv").forEach(function (el) { el.classList.add("in"); });
+    play();
+  }
+
+  var pipeSec = document.getElementById("pipeSec");
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.classList.add("in");
+        if (e.target === pipeSec) { started = true; play(); }
+        io.unobserve(e.target);
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0 });
+    document.querySelectorAll(".rv").forEach(function (el) { io.observe(el); });
+    io.observe(pipeSec);
+    setTimeout(start, 1500);   // nothing revealed by now => observer isn't working
+  } else {
+    start();
+  }
 })();
 </script>
 </body>
