@@ -174,7 +174,7 @@ class AuditService:
         0031 in the durable log. Durable ``queued`` rows (which never started)
         are RE-ENQUEUED into the fresh in-memory queue before the pool spins up —
         they run to completion. Demo replays are excluded from both (running/
-        queued filter file_contents IS NULL)."""
+        queued filter on persistence._not_demo, the package_path tag)."""
         for session in await self.sessions.running():
             message = "Audit interrupted by engine restart"
             await self._finish(
@@ -281,6 +281,11 @@ class AuditService:
             )
             try:
                 report = result.report.model_dump(mode="json", exclude_none=False)
+                # Before the terminal frame, like the report file: whatever
+                # verdict_reached implies exists must already be there. Left NULL when
+                # empty so api.audit_file still falls back to disk.
+                if result.files:
+                    await self.sessions.set_file_contents(session.audit_id, result.files)
                 # INVARIANT: terminal order is report-file, THEN row+event. The
                 # report is durable on disk before the row leaves 'running',
                 # and verdict_reached commits atomically with running->done —

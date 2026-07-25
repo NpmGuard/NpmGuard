@@ -11,7 +11,7 @@ from kit_stream import StreamService
 
 from .config import REPO_ROOT, Settings
 from .events import ENVELOPE_KEYS, TERMINAL_EVENTS, AuditEmitter, audit_channel
-from .persistence import AuditSessionStore
+from .persistence import DEMO_PACKAGE_PATH, AuditSessionStore
 
 MIN_DELAY_MS = 10
 MAX_DELAY_MS = 4_000
@@ -155,11 +155,10 @@ class DemoService:
         recording = self.recordings.get(package_name)
         if recording is None:
             raise KeyError(f'No demo recording for "{package_name}"')
-        # Create the demo-tagged row atomically: file_contents IS NOT NULL is the
-        # de-facto demo tag, so running()/queued()/queued_count() exclude it and
-        # restart recovery never 0031s or re-runs the real pipeline on a replay.
+        # package_path is the demo tag (persistence._not_demo); file_contents is just
+        # the recorded sources a viewer browses.
         session = await self.sessions.create(
-            package_name, file_contents=recording.files, package_path="__demo__"
+            package_name, file_contents=recording.files, package_path=DEMO_PACKAGE_PATH
         )
         task = asyncio.create_task(
             self._replay(session.audit_id, recording), name=f"npmguard-demo-{session.audit_id}"

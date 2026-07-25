@@ -72,9 +72,10 @@
 #       hypotheses) — nothing is regenerated
 #   C7  the SAFE recording replays identically (30 frames, verdict SAFE), so no
 #       class above is a property of one file
-#   C8  the demo row is tagged by file_contents, which holds the recorded sources,
-#       so running() / queued() / queued_count() all exclude it: a replay never
-#       eats a real audit's queue slot and restart recovery never 0031s it
+#   C8  the demo row is tagged by package_path == DEMO_PACKAGE_PATH (file_contents
+#       holds the recorded sources), so running() / queued() / queued_count() all
+#       exclude it: a replay never eats a real audit's queue slot and restart
+#       recovery never 0031s it
 # PACING — NPMGUARD_DEMO_SPEED
 #   C9  0 -> the throttle is skipped entirely: 7.3 s of recorded pacing replays
 #       inside INSTANT_CEILING
@@ -459,8 +460,8 @@ async def test_safe_recording_replays_the_same_way(rig, at_speed) -> None:
 
 
 async def test_demo_row_is_invisible_to_the_audit_queue(rig, at_speed) -> None:
-    """C8: file_contents IS NOT NULL is the de-facto demo tag, and it holds the
-    recorded sources a viewer browses. So a replay is excluded from queued() /
+    """C8: package_path == DEMO_PACKAGE_PATH is the demo tag, and file_contents holds
+    the recorded sources a viewer browses. So a replay is excluded from queued() /
     running() / queued_count() — it cannot consume a real audit's admission slot,
     and restart recovery cannot sweep it into a 0031 or re-run the real pipeline
     on it."""
@@ -721,7 +722,7 @@ async def test_a_failed_terminal_append_rolls_the_report_row_back(
     caller's transaction precisely so this rolls back. A finalize()-then-emit()
     ordering fix satisfies C16 and fails here.
     (A demo row left non-terminal is NOT repaired by restart recovery — the
-    file_contents tag deliberately hides it from queued()/running() — so what this
+    package_path demo tag deliberately hides it from queued()/running() — so what this
     buys is only the direction of the failure: a replay that visibly stops, never a
     terminal frame promising a report that is not there.)"""
     module = at_speed("0")
