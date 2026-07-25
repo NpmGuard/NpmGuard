@@ -41,3 +41,14 @@ sandbox/node_modules/
 
 # Agent worktrees (git worktree checkouts, never repo content).
 .claude/worktrees/
+
+# Playwright writes these relative to its CWD. `frontend/.gitignore` already
+# covers a run started from `frontend/`, but the e2e suite is just as often
+# driven from the workspace root (npm workspaces, an IDE runner, an agent), and
+# then the artifacts land HERE where nothing was ignoring them — which is how
+# four error-context.md files and a .last-run.json once reached a commit.
+# Ignored at both levels on purpose: the run's CWD is not something a
+# contributor should have to remember.
+test-results/
+playwright-report/
+blob-report/
