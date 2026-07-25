@@ -36,7 +36,22 @@ from kit_stream import StreamService
 
 from .bench.routes import router as bench_router
 from .config import REPO_ROOT, Settings, get_settings
-from .contract.models import ReplayEntry, ReplayGalleryResponse, ValidationFailed, ValidationIssue
+from .contract.models import (
+    AuditAcceptedResponse,
+    CheckoutResponse,
+    CheckoutStatus,
+    CryptoConfig,
+    DemoPackagesResponse,
+    PackageIndexResponse,
+    PackageReportResponse,
+    PublicConfig,
+    ReplayEntry,
+    ReplayGalleryResponse,
+    ResolveResponse,
+    StartAuditResponse,
+    ValidationFailed,
+    ValidationIssue,
+)
 from .demo import DemoService
 from .errors import NpmGuardError, QueueFullError
 from .events import sse_events
@@ -181,6 +196,23 @@ def _make_fetch_repo_deps(gh_client: GitHubAppClient):
     return fetch_repo_deps
 
 
+def _wire(model: BaseModel, status_code: int = 200) -> JSONResponse:
+    """One response, serialized from the generated contract rather than authored here.
+
+    Every audit-surface envelope goes through this. The point is not brevity: a
+    route that builds a dict literal is a SECOND author of a shape the contract
+    already declares, and two authors of one shape is the drift N-12 exists to
+    end. Constructing the model means a renamed or dropped field fails at the
+    route instead of at whichever client notices first.
+
+    ``exclude_none=False`` is load-bearing and matches every other wire payload:
+    the contract's nullability rule is that an absent value arrives as an explicit
+    ``null``, so dropping the key would collapse "not set" and "this engine does
+    not send that field" into one observation the client cannot tell apart.
+    """
+    return JSONResponse(model.model_dump(mode="json", exclude_none=False), status_code=status_code)
+
+
 def _validation_failed(message: str, issues: list[ValidationIssue]) -> JSONResponse:
     """The contract's ``ValidationFailed`` body, dumped with ``exclude_none=False``
     like every other wire payload."""
@@ -315,14 +347,14 @@ async def audit(request: Request) -> JSONResponse:
         result = await runtime.audits.admit(parsed.packageName, parsed.version)
         if is_cre:
             result.future.add_done_callback(_consume_future)
-            return JSONResponse(
-                {
-                    "status": "accepted",
-                    "auditId": result.audit_id,
-                    "packageName": parsed.packageName,
-                    "version": parsed.version,
-                    "queuePosition": result.queue_position,
-                },
+            return _wire(
+                AuditAcceptedResponse(
+                    status="accepted",
+                    auditId=result.audit_id,
+                    packageName=parsed.packageName,
+                    version=parsed.version,
+                    queuePosition=result.queue_position,
+                ),
                 status_code=202,
             )
         return JSONResponse(await result.future)
@@ -377,8 +409,8 @@ async def start_stream(request: Request) -> JSONResponse:
             result.future.add_done_callback(_consume_future)
         except Exception as exc:
             return _audit_error(exc)
-        return JSONResponse(
-            {"auditId": session.audit_id, "packageName": verified.package_name}
+        return _wire(
+            StartAuditResponse(auditId=session.audit_id, packageName=verified.package_name)
         )
 
     if parsed.stripeSessionId:
@@ -393,7 +425,7 @@ async def start_stream(request: Request) -> JSONResponse:
             return JSONResponse({"error": "Payment verification failed"}, status_code=402)
         result = await runtime.audits.submit(session)
         result.future.add_done_callback(_consume_future)  # fire-and-forget; retrieve exc
-        return JSONResponse({"auditId": session.audit_id, "packageName": package_name})
+        return _wire(StartAuditResponse(auditId=session.audit_id, packageName=package_name))
 
     if not runtime.settings.payment_required:
         if not parsed.packageName:
@@ -403,7 +435,9 @@ async def start_stream(request: Request) -> JSONResponse:
         except Exception as exc:
             return _audit_error(exc)
         result.future.add_done_callback(_consume_future)  # fire-and-forget; retrieve exc
-        return JSONResponse({"auditId": result.audit_id, "packageName": parsed.packageName})
+        return _wire(
+            StartAuditResponse(auditId=result.audit_id, packageName=parsed.packageName)
+        )
 
     return JSONResponse(
         {"error": "Payment required. Use /checkout or provide txHash + chain."},
@@ -504,7 +538,7 @@ async def checkout(request: Request) -> JSONResponse:
             email=str(parsed.email) if parsed.email else None,
             origin=origin,
         )
-        return JSONResponse({"url": url, "sessionId": session_id})
+        return _wire(CheckoutResponse(url=url, sessionId=session_id))
     except Exception:
         log.exception("stripe checkout creation failed")
         return JSONResponse({"error": "Payment system error"}, status_code=500)
@@ -517,22 +551,26 @@ async def checkout_status(session_id: str, request: Request) -> JSONResponse:
         return JSONResponse({"error": "Stripe payments not configured"}, status_code=501)
     existing = await runtime.sessions.payment("stripe", session_id)
     if existing:
-        return JSONResponse(
-            {
-                "paid": True,
-                "packageName": existing["package_name"],
-                "version": existing["version"],
-                "auditId": existing["audit_id"],
-            }
+        return _wire(
+            CheckoutStatus(
+                paid=True,
+                packageName=existing["package_name"],
+                version=existing["version"],
+                auditId=existing["audit_id"],
+            )
         )
     try:
         verification = await verify_checkout_session(runtime.settings, session_id)
-        return JSONResponse(
-            {
-                "paid": verification["paid"],
-                "packageName": verification["packageName"],
-                "version": verification["version"],
-            }
+        # `auditId` is null rather than absent: the payment is verified but has
+        # not been claimed into an audit yet, and a client must be able to tell
+        # that from an engine that does not report claims at all.
+        return _wire(
+            CheckoutStatus(
+                paid=verification["paid"],
+                packageName=verification["packageName"],
+                version=verification["version"],
+                auditId=None,
+            )
         )
     except Exception:
         return JSONResponse({"error": "Invalid session"}, status_code=400)
@@ -592,35 +630,48 @@ async def stripe_webhook(request: Request) -> JSONResponse:
 async def public_config(request: Request) -> JSONResponse:
     runtime = _runtime(request)
     settings = runtime.settings
-    base = {
-        "paymentRequired": settings.payment_required,
-        "paymentEnabled": settings.payment_required,
-        "stripeEnabled": bool(settings.stripe_secret_key),
-        "priceCents": settings.audit_price_cents,
-    }
+
+    def config(crypto: CryptoConfig | None) -> JSONResponse:
+        return _wire(
+            PublicConfig(
+                paymentRequired=settings.payment_required,
+                paymentEnabled=settings.payment_required,
+                stripeEnabled=bool(settings.stripe_secret_key),
+                priceCents=settings.audit_price_cents,
+                crypto=crypto,
+            )
+        )
+
+    contract = chain_contract(settings, "base-sepolia")
     if not is_chain_configured(settings, "base-sepolia"):
-        return JSONResponse({**base, "crypto": None})
+        return config(None)
+    # `is_chain_configured` IS "a contract address is set" (payments.py), which is
+    # why CryptoConfig.contract is not nullable and this assert cannot fire.
+    assert contract is not None, "chain reported configured with no contract address"
     try:
         fee = await read_audit_fee(settings, "base-sepolia")
-        return JSONResponse(
-            {
-                **base,
-                "crypto": {
-                    "chain": "base-sepolia",
-                    "chainId": 84532,
-                    "contract": chain_contract(settings, "base-sepolia"),
-                    "auditFeeWei": str(fee) if fee is not None else None,
-                },
-            }
-        )
     except Exception:
+        # A crypto block the client cannot pay with is worse than no crypto
+        # option: it renders a pay button that cannot build a transaction. So an
+        # unreadable fee retracts the whole method, which is the invariant
+        # CryptoConfig is authored around.
         log.warning("failed to read audit fee")
-        return JSONResponse({**base, "crypto": None})
+        return config(None)
+    # None only for an unconfigured chain, excluded above.
+    assert fee is not None, "audit fee read succeeded with no value on a configured chain"
+    return config(
+        CryptoConfig(
+            chain="base-sepolia",
+            chainId=84532,
+            contract=contract,
+            auditFeeWei=str(fee),
+        )
+    )
 
 
 @router.get("/demo/packages")
-async def demo_packages(request: Request) -> dict[str, list[str]]:
-    return {"packages": list(_runtime(request).demos.recordings)}
+async def demo_packages(request: Request) -> JSONResponse:
+    return _wire(DemoPackagesResponse(packages=list(_runtime(request).demos.recordings)))
 
 
 @router.post("/demo/start")
@@ -633,7 +684,7 @@ async def demo_start(request: Request) -> JSONResponse:
     if not package_name:
         return JSONResponse({"error": "packageName is required"}, status_code=400)
     try:
-        return JSONResponse(await _runtime(request).demos.start(package_name))
+        return _wire(await _runtime(request).demos.start(package_name))
     except KeyError as exc:
         return JSONResponse({"error": exc.args[0]}, status_code=404)
 
@@ -699,7 +750,7 @@ async def packages(request: Request) -> Response:
     index = REPO_ROOT / "frontend" / "dist" / "index.html"
     if "text/html" in request.headers.get("accept", "") and index.exists():
         return FileResponse(index)
-    return JSONResponse({"packages": list_reports()})
+    return _wire(PackageIndexResponse(packages=list_reports()))
 
 
 @router.get("/package/{name:path}/report")
@@ -711,12 +762,35 @@ async def package_report(name: str, request: Request) -> JSONResponse:
             valid_semver(version)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    suffix = f"@{version}" if version else ""
+    not_found = JSONResponse(
+        {"error": f"No audit report found for {name}{suffix}"}, status_code=404
+    )
     result = load_report(name, version)
     if result is None:
-        suffix = f"@{version}" if version else ""
-        return JSONResponse({"error": f"No audit report found for {name}{suffix}"}, status_code=404)
+        return not_found
     report, resolved_version = result
-    return JSONResponse({"report": report, "version": resolved_version, "packageName": name})
+    try:
+        envelope = PackageReportResponse(
+            report=report, version=resolved_version, packageName=name
+        )
+    except PydanticValidationError as exc:
+        # The store's readable-domain screen is two fields (schemaVersion +
+        # verdict); this is the rest of the contract, applied where the body
+        # actually crosses a wire. A report that passes the screen but is not an
+        # `AuditReport` is the failure `report_store._readable` names in its own
+        # docstring: it satisfies a verdict check and then dies on the client's
+        # first missing v2 field, bricking that package's page for as long as the
+        # file sits on disk. 404 is the same answer the screen gives — unreadable
+        # is unreadable — and it is NOT a 500, matching the store's rule that one
+        # bad report must not take a route down. Logged, because N-3 forbids a
+        # silently fabricated absence.
+        log.warning(
+            "stored report is outside the contract", package=name, version=resolved_version,
+            error=str(exc),
+        )
+        return not_found
+    return _wire(envelope)
 
 
 @router.get("/resolve/{name:path}")
@@ -725,7 +799,7 @@ async def resolve(name: str, request: Request) -> JSONResponse:
     try:
         valid_package_name(name)
         resolved_version, _ = await resolve_tarball_url(name, version)
-        return JSONResponse({"packageName": name, "version": resolved_version})
+        return _wire(ResolveResponse(packageName=name, version=resolved_version))
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     except Exception as exc:

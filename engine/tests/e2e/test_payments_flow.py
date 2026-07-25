@@ -366,7 +366,13 @@ def test_checkout_creates_stripe_session(engine_factory, mock_llm, stripe_stub):
 
 
 def test_checkout_status_unclaimed_session(engine_factory, mock_llm, stripe_stub):
-    """S7: status of an unclaimed session comes from live Stripe verification (paid:false)."""
+    """S7: status of an unclaimed session comes from live Stripe verification (paid:false).
+
+    `auditId` is present and null, not absent: it is the contract's `CheckoutStatus`
+    and the wire rule is that an unset value arrives as an explicit null. The
+    equality assertion is what pins that — an omitted key would be a client-visible
+    difference between "not claimed yet" and "engine does not report claims".
+    """
     mock_llm.load(scripted_roles=scripted_safe_roles())
     engine = _stripe_engine(engine_factory, mock_llm, stripe_stub)
     stripe_stub.add_session(
@@ -381,6 +387,7 @@ def test_checkout_status_unclaimed_session(engine_factory, mock_llm, stripe_stub
         "paid": False,
         "packageName": ENV_EXFIL_PKG,
         "version": ENV_EXFIL_VERSION,
+        "auditId": None,
     }
 
 

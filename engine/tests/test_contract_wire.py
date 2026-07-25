@@ -28,8 +28,15 @@
 #      survive codegen value-for-value (the failure that mangled `TriageHypothesis`)
 #   C6 ValidationFailed — the 400 body's declared key set, with pydantic's own
 #      `type`/`input` absent from an issue by construction
+#   C7 codegen FRESHNESS — the committed artifact is what today's `shared/src/*.ts`
+#      renders. C5 checks artifact→python; this checks zod→artifact, the half where
+#      a schema edit that skipped `gen-contract.sh` leaves every consumer agreeing
+#      with each other about the WRONG shape
 
 import json
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -236,3 +243,53 @@ def test_the_validation_failed_body_declares_exactly_what_the_engine_sends() -> 
     # rule for this repo is that every declared key is always present.
     with pytest.raises(ValidationError):
         contract.ValidationFailed.model_validate({"error": "Invalid request"})
+
+
+# ---------------------------------------------------------------------------
+# C7 — codegen FRESHNESS: the artifact still matches the Zod it came from
+# ---------------------------------------------------------------------------
+
+
+def test_the_contract_artifact_is_what_the_zod_renders_today() -> None:
+    """C7: `contract.schema.json` is regenerated, not merely generated once.
+
+    C5 pins the artifact against the generated PYTHON, which is the second half of
+    the chain. This is the first half, and it was the unguarded one: `shared/src/*.ts`
+    is the authored source, and an edit there that never ran `scripts/gen-contract.sh`
+    leaves the artifact and `models.py` describing the OLD shape. Everything
+    downstream stays self-consistent and green — the engine constructs the stale
+    model, the frontend parses against the stale zod — while the contract silently
+    stops meaning what the repo says it means. That is exactly the two-authors
+    failure the generated contract exists to abolish, reappearing as a staleness
+    rather than as a hand-written copy.
+
+    Rendered to a TMPDIR and diffed, never in place: a test that wrote to
+    `shared/contract/` would repair the drift it is meant to catch and then pass.
+
+    Skipped loudly without npm — the toolchain is a repo-level dependency, and the
+    idiom for a tier that cannot run here is to say so, not to quietly pass (same
+    rule as the docker/postgres tiers in `scripts/gate.sh`).
+    """
+    if shutil.which("npm") is None:
+        pytest.skip("npm unavailable — contract freshness UNVERIFIED (required before merge)")
+    repo_root = CONTRACT_PATH.parents[2]
+    with tempfile.TemporaryDirectory() as tmp:
+        result = subprocess.run(
+            ["npm", "--silent", "-w", "@npmguard/shared", "run", "contract:export", "--", "--out", tmp],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert result.returncode == 0, result.stderr
+        rendered = json.loads((Path(tmp) / "contract.schema.json").read_text(encoding="utf-8"))
+    committed = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    stale = {
+        name
+        for name in set(rendered["$defs"]) | set(committed["$defs"])
+        if rendered["$defs"].get(name) != committed["$defs"].get(name)
+    }
+    assert not stale, (
+        f"contract.schema.json is stale for {sorted(stale)} — "
+        "run scripts/gen-contract.sh and commit the result"
+    )

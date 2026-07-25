@@ -179,7 +179,7 @@ async def _replay(rig, module=demo_module, *, package: str) -> SimpleNamespace:
     service = module.DemoService(rig.sessions, rig.stream)
     started = time.monotonic()
     handle = await service.start(package)
-    audit_id = handle["auditId"]
+    audit_id = handle.auditId
     async with asyncio.timeout(REPLAY_DEADLINE_SECONDS):
         while True:
             row = await rig.sessions.get(audit_id)
@@ -672,7 +672,7 @@ async def test_a_failed_terminal_append_rolls_the_report_row_back(
 
     monkeypatch.setattr(rig.stream, "append", failing_append)
     handle = await service.start("chalk")
-    audit_id = handle["auditId"]
+    audit_id = handle.auditId
     task = next(
         task for task in asyncio.all_tasks() if task.get_name() == f"npmguard-demo-{audit_id}"
     )
