@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import httpx
 import pytest
@@ -45,6 +46,21 @@ CLI_TIMEOUT_SECONDS = 120.0
 async def _get(url: str, **kwargs) -> httpx.Response:
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
         return await client.get(url, **kwargs)
+
+
+def _extracted_package(db_url: str, audit_id: str) -> tuple[str, bool]:
+    """The row's package_path, and whether it still exists on disk."""
+    sync_url = db_url.replace("+aiosqlite", "").replace("+asyncpg", "")
+    engine = sa.create_engine(sync_url)
+    try:
+        with engine.connect() as connection:
+            path = connection.execute(
+                sa.text("SELECT package_path FROM audit_sessions WHERE audit_id = :id"),
+                {"id": audit_id},
+            ).scalar_one()
+    finally:
+        engine.dispose()
+    return path, Path(path).exists()
 
 
 def _row_count(db_url: str, table: str) -> int:
@@ -114,6 +130,33 @@ async def test_report_persisted_under_real_version_never_latest(engine_factory, 
     assert list(engine.data_dir.rglob("latest.json")) == []
     assert list(engine.data_dir.rglob("*.tmp")) == []
     assert json.loads((report_dir / f"{ENV_EXFIL_VERSION}.json").read_text())["verdict"] == "SAFE"
+
+
+async def test_audited_sources_survive_the_audit_for_replay(engine_factory, mock_llm):
+    """S24: after the audit ends, /audit/:id/file/:path still serves the source it
+    audited — the extracted tarball is gone by then, so this only passes if the bytes
+    were persisted. A replay reads through this route; without it the source pane
+    renders "Failed to load file (404)" for every completed audit.
+
+    The row must NOT be mistaken for a demo replay: package_path stays the real
+    extracted path, which is what keeps restart recovery seeing real audits."""
+    mock_llm.load(scripted_roles=scripted_safe_roles())
+    engine = engine_factory(llm_url=mock_llm.v1_url)
+    audit_id = await _run_safe_audit(engine, ENV_EXFIL_PKG, ENV_EXFIL_VERSION)
+
+    listed = await _get(f"{engine.base_url}/audit/{audit_id}/report")
+    assert listed.status_code == 200
+
+    served = await _get(f"{engine.base_url}/audit/{audit_id}/file/package.json")
+    assert served.status_code == 200, served.text
+    assert json.loads(served.text)["name"] == ENV_EXFIL_PKG
+
+    package_path, still_on_disk = _extracted_package(engine.db_url, audit_id)
+    assert package_path != "__demo__"
+    assert not still_on_disk  # so the 200 above came from stored bytes
+
+    missing = await _get(f"{engine.base_url}/audit/{audit_id}/file/nope.js")
+    assert missing.status_code == 404
 
 
 async def test_report_refetch_and_version_resolution(engine_factory, mock_llm):

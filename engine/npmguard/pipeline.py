@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from .audit_log import AuditLog
 from .config import SOURCE_FILE_TYPES, Settings
 from .contract.models import (
     AuditReport,
+    FileRecord,
     FileSummary,
     FileVerdict,
     Hypothesis,
@@ -53,11 +54,44 @@ HYPOTHESIZE_TIMEOUT_MS = 1_200_000
 ORCHESTRATOR_BUDGET_MS = 2_400_000
 
 
+MAX_REPLAY_FILE_BYTES = 256 * 1024
+MAX_REPLAY_TOTAL_BYTES = 4 * 1024 * 1024
+
+
+def _replay_sources(root: Path, files: Sequence[FileRecord]) -> dict[str, str]:
+    """The audited sources, kept so a replay can still serve them after
+    `cleanup_package` deletes the extracted tarball.
+
+    Driven by the inventory list, never a walk of `root`: dependencies are
+    provisioned into `root/node_modules` first, so a walk would slurp the whole
+    dependency tree. Over budget drops files rather than truncating one.
+    """
+    captured: dict[str, str] = {}
+    budget = MAX_REPLAY_TOTAL_BYTES
+    for record in files:
+        if record.isBinary or record.sizeBytes > MAX_REPLAY_FILE_BYTES:
+            continue
+        target = root / record.path
+        if not target.is_relative_to(root):
+            continue
+        try:
+            text = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        cost = len(text.encode("utf-8"))
+        if cost > budget:
+            continue
+        budget -= cost
+        captured[record.path] = text
+    return captured
+
+
 @dataclass(frozen=True)
 class AuditResult:
     report: AuditReport
     package_path: Path
     resolved: ResolvedPackage
+    files: dict[str, str] = field(default_factory=dict)
 
     def cleanup(self) -> None:
         cleanup_package(self.resolved)
@@ -306,6 +340,10 @@ class AuditPipeline:
             )
             trace.append(phase)
             log.write("inventory.json", inventory)
+            # Here, so all three exits below return the same sources.
+            replay_sources = await asyncio.to_thread(
+                _replay_sources, resolved.path, inventory.files
+            )
             if emitter:
                 await emitter.emit("file_list", {"files": inventory.files})
                 await emitter.emit(
@@ -343,7 +381,7 @@ class AuditPipeline:
                     trace=trace,
                 )
                 log.write("report.json", report)
-                return AuditResult(report, resolved.path, resolved)
+                return AuditResult(report, resolved.path, resolved, replay_sources)
 
             # "We could not check what runs at install time" (inventory.py:
             # `install-coverage-gap`, either kind — a hook whose code is nowhere in
@@ -429,7 +467,7 @@ class AuditPipeline:
                     graph, flagged.fileSummaries, trace, coverage_gaps=coverage_gaps
                 )
                 log.write("report.json", report)
-                return AuditResult(report, resolved.path, resolved)
+                return AuditResult(report, resolved.path, resolved, replay_sources)
 
             hypotheses, phase = await _timed_phase(
                 "hypothesize",
@@ -533,7 +571,7 @@ class AuditPipeline:
                 },
             )
             log.write("report.json", report)
-            return AuditResult(report, resolved.path, resolved)
+            return AuditResult(report, resolved.path, resolved, replay_sources)
         except BaseException:
             # INVARIANT: this pipeline never leaves an extracted package behind.
             # `acquired is None` means resolve_package never returned, and it

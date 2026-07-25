@@ -32,7 +32,7 @@
 #            C12 (flip) start() RE-ENQUEUES durable 'queued' rows and runs them to
 #                verdict_reached; only interrupted 'running' rows become 0031 (never drop
 #                a claimed paid audit)
-#            DEMO demo-tagged rows (file_contents IS NOT NULL) are excluded from 0031
+#            DEMO demo-tagged rows (package_path == DEMO_PACKAGE_PATH) excluded from 0031
 #                recovery — recovery never runs the real pipeline on a demo replay
 # Shutdown:  C13 (flip) close(deadline) is BOUNDED — a stalled audit no longer stalls
 #                shutdown; it returns within ~deadline and finalizes the stalled row 0031
@@ -72,7 +72,7 @@ from kit_spine.notify_polling import PollingNotifier
 from kit_stream import StreamService
 from npmguard.errors import AuditIncompleteError, QueueFullError
 from npmguard.events import audit_channel
-from npmguard.persistence import AuditSessionStore
+from npmguard.persistence import DEMO_PACKAGE_PATH, AuditSessionStore
 from npmguard.service import AuditService, SubmitResult
 
 WAIT_SECONDS = 15  # generous bound for any awaited queue outcome
@@ -97,9 +97,10 @@ class _Report(BaseModel):
 
 
 class _Result:
-    def __init__(self) -> None:
+    def __init__(self, files: dict[str, str] | None = None) -> None:
         self.report = _Report()
         self.cleaned = False
+        self.files = files or {}  # mirrors AuditResult.files
 
     def cleanup(self) -> None:
         self.cleaned = True
@@ -472,11 +473,14 @@ async def test_restart_reenqueues_queued_sessions(rig) -> None:
 
 
 async def test_demo_rows_excluded_from_recovery(rig) -> None:
-    """DEMO: a demo-tagged row (file_contents IS NOT NULL) is invisible to
+    """DEMO: a demo-tagged row (package_path == DEMO_PACKAGE_PATH) is invisible to
     running()/queued(), so restart recovery never 0031s it nor re-runs the real
-    pipeline on it."""
+    pipeline on it. Built the way DemoService.start builds it — the row shape that
+    actually exists."""
     service, sessions, stream = rig.service, rig.sessions, rig.stream
-    demo = await sessions.create("demo-pkg", file_contents={"index.js": "x"})
+    demo = await sessions.create(
+        "demo-pkg", file_contents={"index.js": "x"}, package_path=DEMO_PACKAGE_PATH
+    )
     await sessions.mark_running(demo.audit_id)  # a demo replay "in progress"
     await service.start()
     restored = await sessions.get(demo.audit_id)

@@ -42,6 +42,23 @@ payment_claims = sa.Table(
 )
 
 
+DEMO_PACKAGE_PATH = "__demo__"
+
+
+def _not_demo() -> sa.ColumnElement[bool]:
+    """Excludes demo replays from running() / queued() / queued_count(): they are
+    driven by DemoService, so restart recovery must not 0031 or re-run them.
+
+    The IS NULL arm is required, not defensive — `package_path` is NULL until
+    resolve fills it in, and SQL `col != 'x'` is NULL for a NULL column, which
+    would hide every freshly-queued audit.
+    """
+    return sa.or_(
+        audit_sessions.c.package_path.is_(None),
+        audit_sessions.c.package_path != DEMO_PACKAGE_PATH,
+    )
+
+
 @dataclass(frozen=True)
 class AuditSession:
     audit_id: str
@@ -75,8 +92,8 @@ class AuditSessionStore:
         # Rows are born 'queued'. The wait-queue bound (queued_count vs queue_size)
         # is enforced by AuditService.reserve() BEFORE create/claim — there is no
         # DB running-count cap here anymore. `file_contents`/`package_path` let the
-        # demo path create its tagged row atomically (file_contents IS NOT NULL is
-        # the de-facto demo tag; real audits never write file_contents on create).
+        # demo path create its tagged row atomically (package_path == DEMO_PACKAGE_PATH
+        # is the demo tag; real audits fill package_path in from resolve).
         now = now_iso()
         audit_id = str(uuid4())
         values: dict[str, Any] = dict(
@@ -88,8 +105,9 @@ class AuditSessionStore:
             updated_at=now,
         )
         # Only set file_contents/package_path when provided. The JSON column
-        # renders an explicit Python None as JSON 'null', which would defeat the
-        # `file_contents IS NULL` demo filter — so omit them to keep SQL NULL.
+        # renders an explicit Python None as JSON 'null' rather than SQL NULL, and
+        # `api.audit_file` branches on `file_contents is not None` to decide between
+        # the stored sources and the on-disk package — so omit them to keep SQL NULL.
         if file_contents is not None:
             values["file_contents"] = file_contents
         if package_path is not None:
@@ -114,15 +132,14 @@ class AuditSessionStore:
         return _session(row) if row is not None else None
 
     async def running(self) -> list[AuditSession]:
-        # Excludes demo replays (file_contents IS NOT NULL): those are driven by
-        # DemoService, never by AuditService, and must not be swept into 0031
-        # restart recovery.
+        # Excludes demo replays (see _not_demo): those are driven by DemoService,
+        # never by AuditService, and must not be swept into 0031 restart recovery.
         async with self._sessions() as session:
             rows = (
                 await session.execute(
                     sa.select(audit_sessions).where(
                         audit_sessions.c.status == "running",
-                        audit_sessions.c.file_contents.is_(None),
+                        _not_demo(),
                     )
                 )
             ).mappings()
@@ -136,7 +153,7 @@ class AuditSessionStore:
                 await session.execute(
                     sa.select(audit_sessions).where(
                         audit_sessions.c.status == "queued",
-                        audit_sessions.c.file_contents.is_(None),
+                        _not_demo(),
                     )
                 )
             ).mappings()
@@ -152,7 +169,7 @@ class AuditSessionStore:
                     .select_from(audit_sessions)
                     .where(
                         audit_sessions.c.status == "queued",
-                        audit_sessions.c.file_contents.is_(None),
+                        _not_demo(),
                     )
                 )
             ).scalar_one()
@@ -194,10 +211,9 @@ class AuditSessionStore:
     async def set_package_path(self, audit_id: str, path: str) -> None:
         await self._update(audit_id, package_path=path)
 
-    async def set_file_contents(
-        self, audit_id: str, files: dict[str, str], path: str = "__demo__"
-    ) -> None:
-        await self._update(audit_id, file_contents=files, package_path=path)
+    async def set_file_contents(self, audit_id: str, files: dict[str, str]) -> None:
+        # Must not touch package_path — that would tag a real audit as a demo replay.
+        await self._update(audit_id, file_contents=files)
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[AsyncSession]:
