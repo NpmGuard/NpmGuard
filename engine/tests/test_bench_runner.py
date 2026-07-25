@@ -89,7 +89,7 @@ async def test_a_full_queue_is_back_pressure_not_an_observation(monkeypatch) -> 
     monkeypatch.setattr(runner.asyncio, "sleep", _sleep)
     api = _api(handler)
     try:
-        assert await api.admit("test-pkg-bench-x") == "fresh-1"
+        assert await api.admit("test-pkg-bench-x", "/fixtures/test-pkg-bench-x") == "fresh-1"
     finally:
         await api.close()
     assert len(calls) == 3
@@ -102,7 +102,7 @@ async def test_a_real_refusal_is_recorded_not_retried() -> None:
     api = _api(lambda request: httpx.Response(402, json={"error": "Payment required."}))
     try:
         with pytest.raises(runner.BenchRunnerError, match="Payment required"):
-            await api.admit("test-pkg-bench-x")
+            await api.admit("test-pkg-bench-x", "/fixtures/test-pkg-bench-x")
     finally:
         await api.close()
 
@@ -120,7 +120,7 @@ async def test_the_runner_never_consults_an_existing_report() -> None:
 
     api = _api(handler)
     try:
-        await api.admit("test-pkg-bench-x")
+        await api.admit("test-pkg-bench-x", "/fixtures/test-pkg-bench-x")
     finally:
         await api.close()
     assert seen == [("POST", "/audit")]
@@ -211,7 +211,7 @@ async def test_a_client_timeout_is_recorded_with_the_harness_code() -> None:
     class _Api:
         timeout_ms = 1_000
 
-        async def admit(self, package_name):
+        async def admit(self, package_name, local_path):
             return "a1"
 
         async def wait(self, audit_id):

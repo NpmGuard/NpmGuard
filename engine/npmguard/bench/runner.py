@@ -151,12 +151,19 @@ class BenchApi:
         if response.is_error:
             raise BenchRunnerError(f"engine /health returned {response.status_code}")
 
-    async def admit(self, package_name: str) -> str:
-        """Enqueue ONE fresh audit. Blocks on back-pressure, never on a cache."""
+    async def admit(self, package_name: str, local_path: str) -> str:
+        """Enqueue ONE fresh audit of a STAGED package. Blocks on back-pressure,
+        never on a cache.
+
+        The path is declared, not implied by the name: the engine attaches no
+        meaning to a package name, so a corpus entry says where its bytes are.
+        """
         deadline = time.monotonic() + _QUEUE_FULL_MAX_WAIT_SECONDS
         while True:
             response = await self.client.post(
-                "/audit", headers={"x-api-key": self.key}, json={"packageName": package_name}
+                "/audit",
+                headers={"x-api-key": self.key},
+                json={"packageName": package_name, "localPath": local_path},
             )
             payload = response.json() if response.content else {}
             if response.status_code == 202 and isinstance(payload.get("auditId"), str):
@@ -201,7 +208,9 @@ async def _one(
     async with gate:
         label = f"{entry.fixture_name}#{run_index}"
         try:
-            audit_id = await api.admit(entry.fixture_name)
+            audit_id = await api.admit(
+                entry.fixture_name, str(FIXTURES_DIR / entry.fixture_name)
+            )
         except BenchRunnerError as exc:
             print(f"[bench:run] not admitted {label}: {exc}", file=sys.stderr)
             await store.record(run_id, Attempt(entry.fixture_name, run_index, None, str(exc), None))

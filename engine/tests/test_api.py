@@ -23,6 +23,7 @@ import sqlite3
 import time
 
 import pytest
+from conftest import staged
 from fastapi.testclient import TestClient
 
 from npmguard.api import create_app
@@ -98,7 +99,7 @@ def test_free_stream_audit_completes_and_replays(make_app, base) -> None:
     with TestClient(make_app()) as client:
         assert client.get(f"{base}/health").json() == {"status": "ok"}
         started = client.post(
-            f"{base}/audit/stream", json={"packageName": "test-pkg-child-success"}
+            f"{base}/audit/stream", json=staged("test-pkg-child-success")
         )
         assert started.status_code == 200
         audit_id = started.json()["auditId"]
@@ -124,7 +125,7 @@ def test_payment_gate_and_cre_paths(make_app, tmp_path) -> None:
         wrong_key = client.post(
             "/audit",
             headers={"x-api-key": "not-the-key"},
-            json={"packageName": "test-pkg-child-success"},
+            json=staged("test-pkg-child-success"),
         )
         assert wrong_key.status_code == 402
 
@@ -137,7 +138,7 @@ def test_payment_gate_and_cre_paths(make_app, tmp_path) -> None:
         accepted = client.post(
             "/audit",
             headers={"x-api-key": "test-cre-key"},
-            json={"packageName": "test-pkg-child-success"},
+            json=staged("test-pkg-child-success"),
         )
         assert accepted.status_code == 202
         body = accepted.json()
@@ -220,3 +221,50 @@ def test_the_400_body_carries_no_undeclared_key(make_app, base) -> None:
         assert set(body) == set(contract.ValidationFailed.model_fields)
         for issue in body["details"]:
             assert set(issue) == set(contract.ValidationIssue.model_fields)
+
+
+def test_staged_audits_are_refused_unless_the_engine_is_configured_for_them(
+    make_app, tmp_path
+) -> None:
+    """C-local-1: `localPath` is a local-read capability, so admission is where it
+    is checked — the only place, and before any work.
+
+    Discriminating both ways: the SAME body is refused with the knob off and
+    accepted with it on, so the test cannot pass because the path was wrong. And
+    a request with no `localPath` is unaffected either way, which is what makes
+    production's default a restriction on staging rather than on auditing."""
+    body = staged("test-pkg-child-success")
+    with TestClient(make_app(NPMGUARD_LOCAL_PACKAGE_AUDITS="false")) as client:
+        refused = client.post("/audit/stream", json=body)
+        assert refused.status_code == 403
+        assert "not enabled" in refused.json()["error"]
+    with TestClient(make_app(NPMGUARD_LOCAL_PACKAGE_AUDITS="true")) as client:
+        assert client.post("/audit/stream", json=body).status_code == 200
+
+
+def test_an_incoherent_local_path_is_refused_at_parse_time(make_app) -> None:
+    """C-local-2: a relative path, or one that is not a package, is refused with a
+    400 before an audit exists — there is nothing for resolve to acquire, so it is
+    made unreachable rather than handled as a resolve-phase failure."""
+    with TestClient(make_app()) as client:
+        for bad in ("sandbox/test-fixtures/test-pkg-child-success", "/nonexistent/pkg"):
+            response = client.post(
+                "/audit/stream", json={"packageName": "test-pkg-child-success", "localPath": bad}
+            )
+            assert response.status_code == 400, bad
+
+
+def test_a_staged_audit_never_enters_the_published_report_store(make_app, tmp_path) -> None:
+    """C-local-3: `data/reports/<name>/<version>.json` is read as "what npm serves
+    under this name", and a directory on this host cannot back that claim.
+
+    This is the one the name-prefix rule got wrong: a staged package carries its
+    own package.json version, so it filed a real report file under whatever name
+    it was staged as, and only a name pattern kept it off the public listing. The
+    audit still completes and is still served by /audit/{id}."""
+    with TestClient(make_app()) as client:
+        started = client.post("/audit/stream", json=staged("test-pkg-child-success"))
+        audit_id = started.json()["auditId"]
+        assert _wait_report(client, "", audit_id).status_code == 200
+        assert client.get("/packages").json()["packages"] == []
+        assert not list((tmp_path / "data" / "reports").rglob("*.json"))

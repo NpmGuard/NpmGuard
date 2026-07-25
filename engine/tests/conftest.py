@@ -52,7 +52,7 @@ os.environ["NPMGUARD_AUDIT_LOG_DIR"] = str(_SESSION_STATE / "audit-logs")
 # Imported here rather than at the top of the file so the residue guard above
 # still means what it says: it must run before ANY npmguard import, and keeping
 # this one below it makes that ordering impossible to break by accident.
-from npmguard.config import Settings  # noqa: E402
+from npmguard.config import REPO_ROOT, Settings  # noqa: E402
 
 Settings.model_config["env_file"] = None
 assert not Settings().github_app_enabled, (
@@ -85,3 +85,31 @@ def _stub_dry_run_load(monkeypatch):
 
     monkeypatch.setattr("npmguard.phases.dry_run_load", _loads)
     monkeypatch.setattr("npmguard.hypothesis_agent.dry_run_load", _loads)
+
+
+FIXTURES_DIR = REPO_ROOT / "sandbox" / "test-fixtures"
+
+
+def staged(package_name: str, **extra: object) -> dict[str, object]:
+    """An audit request body for a committed fixture.
+
+    Tests declare where a package's bytes are, the way any client would — the
+    engine reads no meaning into a package name, so a ``test-pkg-*`` prefix is a
+    convention of this suite and carries no resolution behaviour.
+    """
+    return {
+        "packageName": package_name,
+        "localPath": str(FIXTURES_DIR / package_name),
+        **extra,
+    }
+
+
+@pytest.fixture(autouse=True)
+def _allow_local_package_audits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unit tests audit fixture directories; that is what the capability is for.
+
+    Set for the whole suite rather than per app-builder so a new test does not
+    have to know it exists. A test asserting the REFUSAL overrides it back to
+    false — production's value, and the reason the knob defaults off.
+    """
+    monkeypatch.setenv("NPMGUARD_LOCAL_PACKAGE_AUDITS", "true")

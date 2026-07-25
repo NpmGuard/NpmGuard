@@ -33,6 +33,7 @@ from tests.support.stubs import (
 )
 
 REGISTRY_FIXTURES_DIR = ENGINE_ROOT / "tests" / "fixtures" / "registry"
+FIXTURES_DIR = ENGINE_ROOT.parent / "sandbox" / "test-fixtures"
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -84,10 +85,21 @@ def _registry_session() -> Iterator[RegistryStub]:
 
 @pytest.fixture
 def registry_stub(_registry_session: RegistryStub) -> RegistryStub:
-    """Registry stub preloaded with committed fixtures (tests/fixtures/registry)."""
+    """Registry stub preloaded with committed fixtures.
+
+    Two sources: the captured real packuments+tarballs under
+    tests/fixtures/registry, and every package directory under
+    sandbox/test-fixtures published as a registry package. The second is what
+    lets a paid or persisted audit of fixture CONTENT travel the registry path
+    it travels in production — the engine reads no meaning into a package name,
+    so a fixture is only reachable if something serves it.
+    """
     _registry_session.clear()
     if REGISTRY_FIXTURES_DIR.is_dir():
         _registry_session.load_dir(REGISTRY_FIXTURES_DIR)
+    for fixture in sorted(FIXTURES_DIR.glob("test-pkg-*")):
+        if (fixture / "package.json").is_file():
+            _registry_session.serve_package_dir(fixture)
     return _registry_session
 
 
@@ -137,16 +149,21 @@ def github_stub(_github_session: GitHubStub) -> GitHubStub:
 
 
 @pytest.fixture
-def engine_factory(tmp_path):
+def engine_factory(tmp_path, registry_stub: RegistryStub):
     """Callable building started EngineHarness instances; all closed at teardown.
 
     ``engine_factory(**EngineHarness kwargs, start=True, wait_ready=True)``.
     Pass ``start=False`` (or ``wait_ready=False``) for boot-failure scenarios.
+
+    The registry defaults to the stub because every engine HAS a registry — it is
+    the only package source a public audit has. A scenario that needs an
+    unreachable one passes ``registry_url`` itself.
     """
     created: list[EngineHarness] = []
 
     def factory(*, start: bool = True, wait_ready: bool = True, **kwargs) -> EngineHarness:
         kwargs.setdefault("workdir", tmp_path / f"engine-{len(created)}")
+        kwargs.setdefault("registry_url", registry_stub.base_url)
         harness = EngineHarness(**kwargs)
         created.append(harness)
         if start:
