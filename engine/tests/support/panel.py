@@ -11,10 +11,13 @@ App-JWT signing path, so they live here once rather than in each test module.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+
+from npmguard.report_store import REPORT_SCHEMA_VERSIONS
 
 # 32-byte AES-256-GCM key, hex-encoded. Settings only enforces the SHAPE
 # (64 hex chars), and no test asserts on ciphertext, so the value is arbitrary.
@@ -63,3 +66,21 @@ def github_env(
     if extra:
         env.update(extra)
     return env
+
+
+def seed_report(reports_dir: Path, name: str, version: str, report: dict) -> None:
+    """Write a report the boot-time verdict-index rebuild turns into a
+    ``package_verdicts`` cache hit, so the dep needs no real audit.
+
+    Stamps ``schemaVersion`` from the production domain rather than a literal.
+    A report outside that domain is *correctly* ignored by the rebuild
+    (``report_store.readable``), and the failure it produces is silent in the
+    shape that matters: every seeded dep becomes a cache MISS, runs a real audit
+    against the hermetic-dead registry, and settles ERROR — a scenario that still
+    looks like it ran. Deriving the version here means widening the domain cannot
+    leave these fixtures behind.
+    """
+    body = {"schemaVersion": max(REPORT_SCHEMA_VERSIONS), **report}
+    directory = reports_dir / name
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{version}.json").write_text(json.dumps(body) + "\n", encoding="utf-8")

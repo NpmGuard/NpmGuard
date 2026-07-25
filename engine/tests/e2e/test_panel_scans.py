@@ -31,12 +31,11 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 
 import httpx
 import pytest
 
-from tests.support.panel import github_env
+from tests.support.panel import github_env, seed_report
 
 pytestmark = pytest.mark.e2e
 
@@ -60,16 +59,6 @@ LOCKFILE_CONTENT = json.dumps(
         },
     }
 )
-
-
-def _seed_report(reports_dir: Path, name: str, version: str, report: dict) -> None:
-    """Write a report file the boot-time verdict-index rebuild turns into a
-    package_verdicts cache hit (so the dep needs no real audit)."""
-    directory = reports_dir / name
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{version}.json").write_text(
-        json.dumps(report) + "\n", encoding="utf-8"
-    )
 
 
 def _sign_in(client: httpx.Client, base: str, github_stub) -> None:
@@ -150,10 +139,10 @@ def test_s_scan_1_cache_hit_scan_rollup_and_sse(engine_factory, github_stub, app
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(
+    seed_report(
         reports, "safe-dep", "1.0.0", {"verdict": "SAFE", "rationale": "clean", "confirmedHypIds": []}
     )
-    _seed_report(
+    seed_report(
         reports,
         "danger-dep",
         "2.0.0",

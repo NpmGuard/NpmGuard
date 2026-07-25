@@ -55,12 +55,11 @@ import hashlib
 import hmac
 import json
 import time
-from pathlib import Path
 
 import httpx
 import pytest
 
-from tests.support.panel import github_env
+from tests.support.panel import github_env, seed_report
 
 pytestmark = pytest.mark.e2e
 
@@ -96,14 +95,6 @@ PROTECT_LOCKFILE = json.dumps(
         },
     }
 )
-
-
-def _seed_report(reports_dir: Path, name: str, version: str, report: dict) -> None:
-    directory = reports_dir / name
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{version}.json").write_text(
-        json.dumps(report) + "\n", encoding="utf-8"
-    )
 
 
 def _safe() -> dict:
@@ -207,8 +198,8 @@ def test_s_pub_0_signed_in_visitor_with_no_installation_can_scan(
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-dep", "1.0.0", _safe())
-    _seed_report(reports, "danger-dep", "2.0.0", _dangerous())
+    seed_report(reports, "safe-dep", "1.0.0", _safe())
+    seed_report(reports, "danger-dep", "2.0.0", _dangerous())
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
@@ -276,8 +267,8 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-dep", "1.0.0", _safe())
-    _seed_report(reports, "danger-dep", "2.0.0", _dangerous())
+    seed_report(reports, "safe-dep", "1.0.0", _safe())
+    seed_report(reports, "danger-dep", "2.0.0", _dangerous())
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
@@ -394,7 +385,7 @@ def test_s_bill_1_subscription_webhook_flips_plan_and_lifts_cap(
         stripe_webhook_secret=WEBHOOK_SECRET,
     )
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-dep", "1.0.0", _safe())
+    seed_report(reports, "safe-dep", "1.0.0", _safe())
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
