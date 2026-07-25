@@ -359,6 +359,14 @@ export const PublicRepoSchema = z.object({
   // snapshot reproducible together with `set.commitSha`.
   lockfilePath: z.string(),
   lockfileSha: z.string(),
+  // How many distinct (name, version) pairs the LOCKFILE held. `set.rollup.total`
+  // is how many this scan COVERS, and the two differ when the per-user cost
+  // ceiling bound the scan (D-1 / F-F6): past it, a scan is served from cached
+  // verdicts rather than refused. The difference is the number of packages this
+  // scan says nothing about, and a surface aimed at strangers has to be able to
+  // say that — silently reporting a partial scan as a whole one is the same
+  // credibility failure as overstating SAFE.
+  lockfileDepCount: z.number().int().nonnegative(),
 });
 export type PublicRepo = z.infer<typeof PublicRepoSchema>;
 
@@ -371,11 +379,6 @@ export const PublicRepoScanSchema = z.object({
   // The gh_user who asked. A sign-in is required and is the whole abuse ceiling
   // (D-1); what remains is cost control, not abuse control.
   requestedBy: z.number().int(),
-  // Nullable per D-1 / F-F5: scanning a public repo requires a GitHub sign-in
-  // and nothing more — no App installation, none charged — so a requester with
-  // no installation has neither of these.
-  installationId: z.number().int().nullable(),
-  accountLogin: z.string().nullable(),
 });
 export type PublicRepoScan = z.infer<typeof PublicRepoScanSchema>;
 
@@ -396,16 +399,14 @@ export const PublicRepoScanDetailResponseSchema = z.object({
 });
 export type PublicRepoScanDetailResponse = z.infer<typeof PublicRepoScanDetailResponseSchema>;
 
-// POST /panel/public-repos/scan (and the unauthenticated /public-scan).
+// POST /panel/public-repos/scan. The body is the repository and NOTHING else:
+// a GitHub sign-in is the whole requirement (D-1 / F-F5), so there is no account
+// to choose. Asking a visitor who has never installed the App to name an
+// installation is exactly what made this surface unreachable for the people it
+// exists for.
 export const PublicRepoScanRequestSchema = z.object({
   // Any public repo reference the engine can parse (owner/name or a URL).
   repository: z.string(),
-  // Optional (D-1): supplied only to bill a chosen account. Strict int — a
-  // boolean or "123" is not an installation id, and the two request bodies must
-  // not disagree about that. The `> 0` check stays in the one shared parser
-  // (B12): expressing it here on a NULLABLE field makes the codegen emit a
-  // field-named wrapper class into the contract module.
-  installationId: z.number().int().nullable().default(null),
 });
 export type PublicRepoScanRequest = z.infer<typeof PublicRepoScanRequestSchema>;
 
@@ -443,7 +444,6 @@ export const AccountEntitlementsSchema = z.object({
   // no billing row). Deliberately not an enum: it is the provider's fact.
   subscriptionStatus: z.string(),
   protectedRepos: UsageBucketSchema,
-  publicRepoAudits: UsageBucketSchema,
   monthlyAudits: UsageBucketSchema,
 });
 export type AccountEntitlements = z.infer<typeof AccountEntitlementsSchema>;
@@ -451,7 +451,6 @@ export type AccountEntitlements = z.infer<typeof AccountEntitlementsSchema>;
 // Deployment-tuned ceilings (Settings), same 0-means-unlimited rule as above.
 export const PlanLimitsSchema = z.object({
   protectedRepos: z.number().int().nonnegative(),
-  publicRepoAudits: z.number().int().nonnegative(),
   monthlyAudits: z.number().int().nonnegative(),
 });
 export type PlanLimits = z.infer<typeof PlanLimitsSchema>;
@@ -556,16 +555,13 @@ export const AppNotConfiguredSchema = z.object({
 });
 export type AppNotConfigured = z.infer<typeof AppNotConfiguredSchema>;
 
-export const CapResourceSchema = z.enum([
-  "protected_repos",
-  "public_repo_audits",
-  "monthly_audits",
-]);
+export const CapResourceSchema = z.enum(["protected_repos", "monthly_audits"]);
 export type CapResource = z.infer<typeof CapResourceSchema>;
 
-// 402 on scan / protect / public-scan. Carries FRESH entitlements so the client
-// patches its ledger from the very response that opened the paywall (F-E3) — no
-// second request, no stale quota render.
+// 402 on scan / protect. NOT on the public scan: that surface is not billed, so
+// its ceiling degrades coverage instead of opening a paywall. Carries FRESH
+// entitlements so the client patches its ledger from the very response that
+// opened the paywall (F-E3) — no second request, no stale quota render.
 export const CapExceededSchema = z.object({
   error: z.string(),
   cap: z.literal(true),
@@ -574,6 +570,15 @@ export const CapExceededSchema = z.object({
   entitlements: AccountEntitlementsSchema,
 });
 export type CapExceeded = z.infer<typeof CapExceededSchema>;
+
+// 429 from the public scan when the requester already has `limit` scans live.
+// A concurrency bound, not a quota — named separately from CapExceeded because
+// the honest answer is "wait for one to finish" and never "upgrade".
+export const TooManyLiveScansSchema = z.object({
+  error: z.string(),
+  limit: z.number().int().positive(),
+});
+export type TooManyLiveScans = z.infer<typeof TooManyLiveScansSchema>;
 
 // 409 from every scan trigger, repo and public alike. NOT a red banner: a set is
 // already live and streamable, so the caller streams `scanId` instead. Naming it

@@ -50,6 +50,7 @@ from .panel.github.client import GitHubAppClient
 from .panel.github.content import fetch_lockfile, fetch_manifest
 from .panel.jobs import PanelJobQueue, PanelWorkerPool
 from .panel.lockfile import manifest_ranges, parse_lockfile
+from .panel.public_limits import PublicScanLimits
 from .panel.routes.auth import router as panel_auth_router
 from .panel.routes.billing import router as panel_billing_router
 from .panel.routes.gh_webhooks import router as panel_webhooks_router
@@ -854,7 +855,7 @@ async def lifespan(app: FastAPI):
         )
         panel_public_scan = PublicRepoScanEngine(
             sessions=sessions_factory,
-            caps=panel_caps,
+            limits=PublicScanLimits(sessions=sessions_factory, settings=settings),
             sets=panel_sets,
         )
         panel_billing = BillingStore(sessions_factory)

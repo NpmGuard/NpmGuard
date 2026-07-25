@@ -649,17 +649,18 @@ async def _may_read_set(runtime: Any, user_id: int, set_id: int) -> bool:
 
     One stream serves every origin, so the authorization has to be per-origin here
     rather than per-route. A ``repo_scan`` set is readable by anyone who can access
-    its repo's installation; a ``public_repo_scan`` set by anyone who can access
-    the installation that paid for it. Every other origin is unreadable until it
-    has an access story of its own — an origin nobody can read is a 404, never an
-    open default.
+    its repo's installation; a ``public_repo_scan`` set by the user who asked for
+    it. Every other origin is unreadable until it has an access story of its own —
+    an origin nobody can read is a 404, never an open default.
     """
     async with runtime.sessionmaker() as session:
         row = (
             (
                 await session.execute(
                     sa.select(
-                        audit_sets.c.origin, audit_sets.c.origin_ref, audit_sets.c.billed_to
+                        audit_sets.c.origin,
+                        audit_sets.c.origin_ref,
+                        audit_sets.c.requested_by,
                     ).where(audit_sets.c.id == set_id)
                 )
             )
@@ -670,9 +671,12 @@ async def _may_read_set(runtime: Any, user_id: int, set_id: int) -> bool:
         return False
     if row["origin"] == ORIGIN_REPO_SCAN:
         return await _authorized_repo(runtime, user_id, row["origin_ref"]) is not None
-    if row["origin"] == ORIGIN_PUBLIC_REPO_SCAN and row["billed_to"] is not None:
-        async with runtime.sessionmaker() as session:
-            return await _user_has_installation(session, user_id, row["billed_to"])
+    if row["origin"] == ORIGIN_PUBLIC_REPO_SCAN:
+        # `requested_by` is NOT NULL for this origin (the invariant in
+        # `AuditSetStore.create`), so there is no "unowned public set" arm to
+        # write — a NULL here would be a bug upstream, and comparing it to a user
+        # id is False anyway rather than an open default.
+        return row["requested_by"] == user_id
     return False
 
 

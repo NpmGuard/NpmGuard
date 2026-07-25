@@ -258,7 +258,6 @@ class PhaseLog(BaseModel):
 
 class PlanLimits(BaseModel):
     protectedRepos: Annotated[int, Field(ge=0)]
-    publicRepoAudits: Annotated[int, Field(ge=0)]
     monthlyAudits: Annotated[int, Field(ge=0)]
 
 
@@ -274,7 +273,6 @@ class ProcessSpawn(BaseModel):
 
 class PublicRepoScanRequest(BaseModel):
     repository: str
-    installationId: int | None = None
 
 
 class PublicRepo(BaseModel):
@@ -286,6 +284,7 @@ class PublicRepo(BaseModel):
     defaultBranch: str
     lockfilePath: str
     lockfileSha: str
+    lockfileDepCount: Annotated[int, Field(ge=0)]
 
 
 class ReauthRequired(BaseModel):
@@ -345,6 +344,11 @@ class TimerRecord(BaseModel):
     source: str | None = ''
 
 
+class TooManyLiveScans(BaseModel):
+    error: str
+    limit: Annotated[int, Field(gt=0)]
+
+
 class ToolCall(BaseModel):
     tool: str
     args: dict[str, Any] | None = {}
@@ -402,7 +406,6 @@ class AccountEntitlements(BaseModel):
     plan: Annotated[Literal['free', 'pro'], Field(title='AccountPlan')]
     subscriptionStatus: str
     protectedRepos: UsageBucket
-    publicRepoAudits: UsageBucket
     monthlyAudits: UsageBucket
 
 
@@ -642,8 +645,7 @@ class CapExceeded(BaseModel):
     error: str
     cap: Literal[True]
     resource: Annotated[
-        Literal['protected_repos', 'public_repo_audits', 'monthly_audits'],
-        Field(title='CapResource'),
+        Literal['protected_repos', 'monthly_audits'], Field(title='CapResource')
     ]
     installationId: int
     entitlements: AccountEntitlements
@@ -951,8 +953,6 @@ class PublicRepoScan(BaseModel):
     repo: PublicRepo
     set: AuditSet
     requestedBy: int
-    installationId: int | None
-    accountLogin: str | None
 
 
 class PublicRepoScansResponse(BaseModel):

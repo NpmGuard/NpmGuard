@@ -84,9 +84,10 @@ export function PlanLedger({ state }: { state: LoadState<BillingResponse> }) {
                   <Badge tone={account.plan === "pro" ? "accent" : "neutral"}>{account.plan}</Badge>
                 </header>
                 <AllowanceMeter label="Protected repositories" bucket={account.protectedRepos} />
-                <AllowanceMeter label="Public repository audits" bucket={account.publicRepoAudits} />
+                <AllowanceMeter label="Audits this month" bucket={account.monthlyAudits} />
                 <p className="text-2xs text-text-3">
-                  Re-auditing the same public repository never consumes another slot.
+                  Public repository scans are not billed to this account — they are free per
+                  signed-in user and never consume an allowance here.
                 </p>
                 {account.plan === "free" ? (
                   <Button
