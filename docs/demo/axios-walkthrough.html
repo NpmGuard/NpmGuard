@@ -16,20 +16,21 @@
      SYSTEM RULES OBSERVED
      §2.7  mono = machine-authored fact (package, version, timestamp, count);
            sans = interface language. Headlines are SANS.
-     §2.8  "a stamp, not a pill" — no fully-round status elements; severity
-           reaches a row through a 3px left rule, not a full tint.
+     §2.8  "a stamp, not a pill" — severity reaches a row through a 3px left
+           rule, not a full tint.
      §2.2  --ng-error (purple) means AUDIT ERROR and is deliberately unused.
-     §2.9  entrance motion only, transform + opacity. No playback, no sequencing.
+     §2.9  entrance motion only. No playback, no sequencing.
 
-     Six frames, each one picture: the idea, the attack, the history, the
-     pipeline side by side, the real output, the limits.
+     THE WHOLE PAGE IS ONE DIAGRAM: the npm publish-to-install pipeline, drawn
+     twice. Stages that behave IDENTICALLY stay grey on both sides — that is the
+     honest half of the claim, since NpmGuard does not stop the publish. The
+     right column then visibly stops mid-pipeline, which says more than a label.
      ============================================================================= */
   :root {
     color-scheme: light;
 
     --ng-sunken:  #f4f3f0;
     --ng-canvas:  #fbfaf8;
-    --ng-surface: #ffffff;
 
     --ng-text:   #22201c;
     --ng-text-2: #585752;
@@ -49,9 +50,6 @@
     --ng-safe-border: #96c9a9;
     --ng-safe-wash:   #ebf8f0;
 
-    --ng-accent:      #1566c5;
-    --ng-accent-text: #0052af;
-
     --ng-font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
     --ng-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
@@ -69,17 +67,16 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  section { max-width: 1080px; margin: 0 auto; padding: clamp(2.4rem, 6.5vh, 4.2rem) clamp(1.2rem, 4vw, 3rem); }
+  section { max-width: 1080px; margin: 0 auto; padding: clamp(2.6rem, 7vh, 4.5rem) clamp(1.2rem, 4vw, 3rem); }
   section + section { border-top: 1px solid var(--ng-border-faint); }
 
   .lab { font-size: .7rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--ng-text-3); margin: 0 0 1.3rem; }
   h1 { font-family: var(--ng-font-mono); font-weight: 700; margin: 0; font-size: clamp(2rem, 1rem + 5vw, 4.2rem); letter-spacing: -.04em; line-height: 1; }
   h1 .v { color: var(--ng-danger); }
-  .say { font-weight: 600; letter-spacing: -.015em; font-size: clamp(1.1rem, .95rem + 1.1vw, 1.6rem); line-height: 1.25; margin: 1.4rem 0 0; text-wrap: balance; max-width: 32ch; }
+  .say { font-weight: 600; letter-spacing: -.015em; font-size: clamp(1.15rem, .95rem + 1.2vw, 1.75rem); line-height: 1.25; margin: 1.4rem 0 0; text-wrap: balance; max-width: 32ch; }
   .say em { font-style: normal; color: var(--ng-danger-text); }
-  .say.grn { color: var(--ng-safe-text); }
 
-  .nums { display: grid; gap: clamp(1rem, 4vw, 2.4rem); margin-top: 1.8rem; }
+  .nums { display: grid; gap: clamp(1rem, 4vw, 2.4rem); margin-top: 1.9rem; }
   @media (min-width: 700px) { .nums { grid-template-columns: repeat(3, 1fr); } }
   .num { border-top: 1px solid var(--ng-border); padding-top: .7rem; }
   .num b { display: block; font-family: var(--ng-font-mono); font-weight: 700; font-size: clamp(1.7rem, 1.1rem + 2.2vw, 2.6rem); line-height: 1; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
@@ -90,61 +87,8 @@
   .ico { flex: 0 0 auto; width: 30px; height: 30px; display: block; color: inherit; }
   .ico svg { width: 100%; height: 100%; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
   .ico.ghost svg { stroke-dasharray: 2.5 2.5; opacity: .5; }
-  .ico.lg { width: 40px; height: 40px; }
 
-  /* ── frame: a key copies, a person doesn't ────────────────── */
-  .idea { display: flex; flex-direction: column; gap: 1.6rem; }
-  .idea-row { display: flex; align-items: center; gap: clamp(.8rem, 2.5vw, 1.8rem); flex-wrap: wrap; }
-  .idea-lab { font-size: .66rem; letter-spacing: .15em; text-transform: uppercase; color: var(--ng-text-3); width: 4.5rem; flex: 0 0 auto; }
-  .arrow { color: var(--ng-border-strong); font-family: var(--ng-font-mono); font-size: 1.1rem; }
-  .dupes { display: flex; gap: .55rem; align-items: center; }
-  .grey { color: var(--ng-border-strong); }
-  .red  { color: var(--ng-danger); }
-  .grn  { color: var(--ng-safe); }
-  .nope { font-family: var(--ng-font-mono); font-weight: 700; color: var(--ng-safe); font-size: 1.9rem; line-height: 1; }
-
-  /* ── frame: the attack, in time ───────────────────────────── */
-  .tl { display: flex; flex-direction: column; }
-  /* `stretch`, not `start`: the rail column holds only an absolutely-positioned
-     dot, so anything that shrink-wraps it collapses to zero height and the
-     connecting line silently disappears. */
-  .tl-row { display: grid; grid-template-columns: 4.6rem 20px 1fr; align-items: stretch; }
-  .tl-t { font-family: var(--ng-font-mono); font-size: .68rem; color: var(--ng-text-3); text-align: right; padding-right: .8rem; padding-top: .5rem; font-variant-numeric: tabular-nums; line-height: 1.35; }
-  .tl-r { position: relative; }
-  .tl-r::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--ng-border); transform: translateX(-50%); }
-  .tl-row:last-child .tl-r::before { bottom: auto; height: 1.1rem; }
-  .tl-d { position: absolute; left: 50%; top: .6rem; transform: translate(-50%, 0); width: 9px; height: 9px; border-radius: 2px; background: var(--ng-border-strong); z-index: 1; }
-  .tl-b { padding: .35rem 0 .9rem .8rem; display: flex; gap: .7rem; align-items: flex-start; color: var(--ng-border-strong); }
-  .tl-b .tx { font-family: var(--ng-font-mono); font-size: .88rem; font-weight: 700; color: var(--ng-text); letter-spacing: -.01em; }
-  .tl-b .tx small { display: block; font-family: var(--ng-font-sans); font-size: .76rem; font-weight: 400; color: var(--ng-text-3); margin-top: .1rem; letter-spacing: 0; }
-  .tl-row.red .tl-d { background: var(--ng-danger); width: 11px; height: 11px; }
-  .tl-row.red .tl-t, .tl-row.red .tl-b .tx { color: var(--ng-danger-text); }
-  .tl-row.red .tl-b { color: var(--ng-danger); }
-
-  /* the gaps — height IS the argument */
-  .tl-gap .tl-r::before { background: repeating-linear-gradient(var(--ng-border-strong) 0 3px, transparent 3px 9px); }
-  .tl-gap .tl-b { align-items: center; padding-top: 0; padding-bottom: 0; }
-  .tl-gap .tl-b span { font-family: var(--ng-font-mono); font-size: .68rem; letter-spacing: .13em; text-transform: uppercase; color: var(--ng-text-2); }
-  .g-lg .tl-b { height: 130px; }
-  .g-md .tl-b { height: 56px; }
-  .g-xs .tl-b { height: 8px; }
-  .g-xs .tl-r::before { background: var(--ng-danger); }
-  .g-xs .tl-b span { color: var(--ng-danger-text); font-weight: 700; }
-
-  /* ── frame: the stamp chain ───────────────────────────────── */
-  .chain { display: flex; align-items: flex-start; overflow-x: auto; padding: .4rem 0 0; }
-  .pkg { flex: 1 1 0; min-width: 88px; display: flex; flex-direction: column; align-items: center; gap: .6rem; position: relative; }
-  .pkg::before { content: ""; position: absolute; top: 31px; left: 50%; right: -50%; height: 2px; background: var(--ng-border); }
-  .pkg:last-child::before { display: none; }
-  /* §2.8 — a stamp, not a pill */
-  .stamp { width: 62px; height: 62px; border-radius: var(--r-lg); display: grid; place-items: center; position: relative; z-index: 1; background: var(--ng-safe-wash); border: 2px solid var(--ng-safe-border); color: var(--ng-safe); }
-  .stamp.empty { border-style: dashed; border-color: var(--ng-danger-border); background: var(--ng-danger-wash); color: var(--ng-danger); }
-  .pkg-v { font-family: var(--ng-font-mono); font-size: .8rem; font-weight: 700; color: var(--ng-text-2); }
-  .pkg-d { font-family: var(--ng-font-mono); font-size: .62rem; color: var(--ng-text-3); }
-  .pkg.bad .pkg-v { color: var(--ng-danger-text); }
-  .pkg.bad .stamp { border-width: 3px; box-shadow: 0 0 0 5px var(--ng-danger-wash); }
-
-  /* ── frame: the split pipeline ────────────────────────────── */
+  /* ── the split pipeline ───────────────────────────────────── */
   .heads { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; margin-bottom: .7rem; }
   .heads b { font-size: .7rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
   .heads .l b { color: var(--ng-danger-text); }
@@ -154,16 +98,22 @@
 
   .stage { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; align-items: stretch; }
   @media (max-width: 760px) { .stage { grid-template-columns: 1fr 1fr; gap: .4rem; } }
+
+  /* the centre column names the step — it is what makes the two columns read
+     as ONE pipeline rather than two unrelated lists */
   .step { display: grid; place-items: center; text-align: center; font-family: var(--ng-font-mono); font-size: .64rem; line-height: 1.3; letter-spacing: .04em; color: var(--ng-text-3); padding: .3rem; }
   @media (max-width: 760px) { .step { grid-column: 1 / -1; place-items: start; text-align: left; padding: .55rem 0 .15rem; } .step br { display: none; } }
 
   .cell { background: var(--ng-sunken); border: 1px solid var(--ng-border-faint); border-radius: var(--r-lg); padding: .65rem .85rem; display: flex; align-items: center; gap: .8rem; color: var(--ng-border-strong); }
   .cell .t { font-size: .86rem; font-weight: 600; color: var(--ng-text-2); line-height: 1.3; }
   .cell .t small { display: block; font-size: .72rem; font-weight: 400; color: var(--ng-text-3); margin-top: .1rem; }
+
+  /* divergence only — §2.8's 3px left rule */
   .cell.bad { background: var(--ng-danger-wash); border-color: var(--ng-danger-border); border-left: 3px solid var(--ng-danger); color: var(--ng-danger); }
   .cell.bad .t { color: var(--ng-danger-text); }
   .cell.good { background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left: 3px solid var(--ng-safe); color: var(--ng-safe); }
   .cell.good .t { color: var(--ng-safe-text); }
+
   /* Two different absences, so two different treatments.
      .void = the step does not exist in npm at all (a hole in the process).
      .none = the step exists but was never reached, because the break already
@@ -196,18 +146,6 @@
   .fleet i.hot { background: var(--ng-danger); }
   .fleet i.ok { background: var(--ng-safe-border); }
 
-  /* ── frame: real output ───────────────────────────────────── */
-  .term {
-    background: var(--ng-sunken); border: 1px solid var(--ng-border);
-    border-radius: var(--r-lg); font-family: var(--ng-font-mono);
-    font-size: clamp(.7rem, .62rem + .22vw, .82rem); line-height: 1.7;
-    padding: 1rem 1.1rem; overflow-x: auto; white-space: pre; color: var(--ng-text-2);
-  }
-  .term .w { color: var(--ng-text); font-weight: 600; }
-  .term .brk { color: var(--ng-danger-text); font-weight: 700; }
-  .term .k { color: var(--ng-accent-text); }
-  .cap { font-size: .64rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ng-text-3); margin: .6rem 0 0; }
-
   /* ── honest ───────────────────────────────────────────────── */
   .cols { display: grid; gap: clamp(1.2rem, 4vw, 2.6rem); }
   @media (min-width: 720px) { .cols { grid-template-columns: 1fr 1fr; } }
@@ -229,18 +167,16 @@
 <body>
 
 <svg style="display:none" aria-hidden="true">
+  <symbol id="i-at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5.6a2.7 2.7 0 0 0 5.4 0V12A9.4 9.4 0 1 0 17.6 19.5"/></symbol>
   <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="12" r="4.2"/><path d="M11.7 12H21M18 12v3.4M15 12v2.6"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.6l5.6 2.1v4.1c0 3.4-2.2 6-5.6 7.1-3.4-1.1-5.6-3.7-5.6-7.1V4.7z"/><path d="M3 20.2h15.4M18.4 20.2l-2.5-2.3M18.4 20.2l-2.5 2.3"/></symbol>
-  <symbol id="i-box" viewBox="0 0 24 24"><path d="M12 2.6l8.6 4.7v9.4L12 21.4 3.4 16.7V7.3z"/><path d="M3.4 7.3L12 12l8.6-4.7M12 12v9.4"/></symbol>
   <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="7.8" r="4"/><path d="M4.6 20.6a7.4 7.4 0 0 1 14.8 0"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M12 2.6l8.6 4.7v9.4L12 21.4 3.4 16.7V7.3z"/><path d="M3.4 7.3L12 12l8.6-4.7M12 12v9.4"/></symbol>
   <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 3v9.6M12 12.6l-3.4-3.4M12 12.6l3.4-3.4"/><path d="M3.6 16v3.4a1.6 1.6 0 0 0 1.6 1.6h13.6a1.6 1.6 0 0 0 1.6-1.6V16"/></symbol>
-  <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M6 18L18 6"/></symbol>
-  <symbol id="i-fleet" viewBox="0 0 24 24"><rect x="2.6" y="4.4" width="18.8" height="12.2" rx="1.6"/><path d="M8.4 20.6h7.2M12 16.6v4"/></symbol>
-  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8"/><path d="M12 6.8V12l3.4 2"/></symbol>
-  <symbol id="i-at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5.6a2.7 2.7 0 0 0 5.4 0V12A9.4 9.4 0 1 0 17.6 19.5"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M7.4 16.4a4.3 4.3 0 0 1 .4-8.6 5.9 5.9 0 0 1 11.2 1.6 3.7 3.7 0 0 1-.8 7"/><path d="M12 11v8.4M12 19.4l-2.6-2.7M12 19.4l2.6-2.7"/></symbol>
   <symbol id="i-run" viewBox="0 0 24 24"><rect x="2.6" y="4.2" width="18.8" height="15.6" rx="1.8"/><path d="M6.8 9.6l2.9 2.6-2.9 2.6M12.4 15.2h4.8"/></symbol>
-  <symbol id="i-bomb" viewBox="0 0 24 24"><circle cx="10.5" cy="14.5" r="6.6"/><path d="M15.4 10.1l2.6-2.6M18.6 3.4v3.4M21.8 6.6h-3.2"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M6 18L18 6"/></symbol>
+  <symbol id="i-fleet" viewBox="0 0 24 24"><rect x="2.6" y="4.4" width="18.8" height="12.2" rx="1.6"/><path d="M8.4 20.6h7.2M12 16.6v4"/></symbol>
 </svg>
 
 <!-- 1 ── WHAT, AND WHEN ───────────────────────────────────── -->
@@ -255,113 +191,7 @@
   </div>
 </section>
 
-<!-- 2 ── THE IDEA ─────────────────────────────────────────── -->
-<section>
-  <p class="lab rv">the whole idea</p>
-  <div class="idea rv">
-    <div class="idea-row">
-      <span class="idea-lab">token</span>
-      <span class="ico lg grey"><svg><use href="#i-key"/></svg></span>
-      <span class="arrow">──▶</span>
-      <span class="dupes">
-        <span class="ico lg red"><svg><use href="#i-key"/></svg></span>
-        <span class="ico lg red"><svg><use href="#i-key"/></svg></span>
-        <span class="ico lg red"><svg><use href="#i-key"/></svg></span>
-      </span>
-    </div>
-    <div class="idea-row">
-      <span class="idea-lab">human</span>
-      <span class="ico lg grn"><svg><use href="#i-person"/></svg></span>
-      <span class="arrow">──▶</span>
-      <span class="nope">✗</span>
-    </div>
-  </div>
-  <p class="say rv">A stolen key is still a key.</p>
-</section>
-
-<!-- 3 ── THE ATTACK, IN TIME ──────────────────────────────── -->
-<section>
-  <p class="lab rv">30–31 march · they waited, then it took no time</p>
-  <div class="tl rv">
-
-    <div class="tl-row">
-      <div class="tl-t">30 Mar<br>05:57</div>
-      <div class="tl-r"><span class="tl-d"></span></div>
-      <div class="tl-b"><span class="ico ghost"><svg><use href="#i-box"/></svg></span><span class="tx">plain-crypto-js@4.2.0<small>decoy typosquat · completely clean</small></span></div>
-    </div>
-
-    <div class="tl-row tl-gap g-lg">
-      <div class="tl-t"></div><div class="tl-r"></div>
-      <div class="tl-b"><span class="ico"><svg><use href="#i-clock"/></svg></span><span>18 hours · aging past scanners</span></div>
-    </div>
-
-    <div class="tl-row">
-      <div class="tl-t">30 Mar<br>23:59</div>
-      <div class="tl-r"><span class="tl-d"></span></div>
-      <div class="tl-b"><span class="ico"><svg><use href="#i-bomb"/></svg></span><span class="tx">plain-crypto-js@4.2.1<small>malicious postinstall · armed</small></span></div>
-    </div>
-
-    <div class="tl-row tl-gap g-md">
-      <div class="tl-t"></div><div class="tl-r"></div>
-      <div class="tl-b"><span>22 min</span></div>
-    </div>
-
-    <div class="tl-row red">
-      <div class="tl-t">31 Mar<br>00:21:58</div>
-      <div class="tl-r"><span class="tl-d"></span></div>
-      <div class="tl-b"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="tx">axios@1.14.1 → latest<small>one added dependency · no source change</small></span></div>
-    </div>
-
-    <div class="tl-row tl-gap g-xs">
-      <div class="tl-t"></div><div class="tl-r"></div>
-      <div class="tl-b"><span>89 s</span></div>
-    </div>
-
-    <div class="tl-row red">
-      <div class="tl-t">00:23:27</div>
-      <div class="tl-r"><span class="tl-d"></span></div>
-      <div class="tl-b"><span class="ico"><svg><use href="#i-fleet"/></svg></span><span class="tx">First machine owned<small>macOS · calls command &amp; control</small></span></div>
-    </div>
-
-    <div class="tl-row tl-gap g-md">
-      <div class="tl-t"></div><div class="tl-r"></div>
-      <div class="tl-b"><span>39 min</span></div>
-    </div>
-
-    <div class="tl-row red">
-      <div class="tl-t">01:00:57</div>
-      <div class="tl-r"><span class="tl-d"></span></div>
-      <div class="tl-b"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="tx">axios@0.30.4 → legacy<small>the other half of the ecosystem</small></span></div>
-    </div>
-
-    <div class="tl-row tl-gap g-md">
-      <div class="tl-t"></div><div class="tl-r"></div>
-      <div class="tl-b"><span>2 h 28 min</span></div>
-    </div>
-
-    <div class="tl-row">
-      <div class="tl-t">03:29</div>
-      <div class="tl-r"><span class="tl-d"></span></div>
-      <div class="tl-b"><span class="ico"><svg><use href="#i-stop"/></svg></span><span class="tx">npm pulls the packages<small>135 machines already reached</small></span></div>
-    </div>
-
-  </div>
-</section>
-
-<!-- 4 ── THE HISTORY ──────────────────────────────────────── -->
-<section>
-  <p class="lab rv">every release, stamped by its publisher</p>
-  <div class="chain rv">
-    <div class="pkg"><span class="stamp"><span class="ico"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">1.13.5</span><span class="pkg-d">08 Feb</span></div>
-    <div class="pkg"><span class="stamp"><span class="ico"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">0.30.3</span><span class="pkg-d">18 Feb</span></div>
-    <div class="pkg"><span class="stamp"><span class="ico"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">1.13.6</span><span class="pkg-d">27 Feb</span></div>
-    <div class="pkg"><span class="stamp"><span class="ico"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">1.14.0</span><span class="pkg-d">27 Mar</span></div>
-    <div class="pkg bad"><span class="stamp empty"><span class="ico ghost"><svg><use href="#i-person"/></svg></span></span><span class="pkg-v">1.14.1</span><span class="pkg-d">31 Mar</span></div>
-  </div>
-  <p class="say rv">Then one arrives with <em>nobody on it</em>.</p>
-</section>
-
-<!-- 5 ── THE PIPELINE ─────────────────────────────────────── -->
+<!-- 2 ── THE PIPELINE, TWICE ──────────────────────────────── -->
 <section>
   <div class="heads rv">
     <div class="l"><b>What happened</b></div>
@@ -385,9 +215,9 @@
     <div class="link"><span></span><span class="mid"></span><span></span></div>
 
     <div class="stage">
-      <div class="cell"><span class="ico"><svg><use href="#i-shield"/></svg></span><span class="t">Walked past<small>token sat beside OIDC</small></span></div>
+      <div class="cell"><span class="ico"><svg><use href="#i-shield"/></svg></span><span class="t">Walked past<small>npm took the token instead</small></span></div>
       <div class="step">trusted<br>publishing</div>
-      <div class="cell"><span class="ico"><svg><use href="#i-shield"/></svg></span><span class="t">Walked past<small>same bypass</small></span></div>
+      <div class="cell"><span class="ico"><svg><use href="#i-shield"/></svg></span><span class="t">Walked past<small>same way in</small></span></div>
     </div>
     <div class="link"><span></span><span class="mid"></span><span class="on"></span></div>
 
@@ -399,29 +229,29 @@
     <div class="link"><span></span><span class="mid"></span><span class="on"></span></div>
 
     <div class="stage">
-      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Tagged <code>latest</code><small>no source change</small></span></div>
+      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Became the default<small>no source code changed</small></span></div>
       <div class="step">npm<br>registry</div>
-      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Tagged <code>latest</code><small>we don't stop the publish</small></span></div>
+      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Became the default<small>we don't stop the publish</small></span></div>
     </div>
     <div class="link"><span class="off"></span><span class="mid"></span><span class="on"></span></div>
 
     <div class="stage">
-      <div class="cell bad"><span class="ico"><svg><use href="#i-install"/></svg></span><span class="t">Resolves to 1.14.1<small><code>^1.14.0</code> matches it</small></span></div>
+      <div class="cell bad"><span class="ico"><svg><use href="#i-install"/></svg></span><span class="t">Picked up automatically<small>nobody chose to upgrade</small></span></div>
       <div class="step">npm<br>install</div>
       <div class="cell good"><span class="ico"><svg><use href="#i-stop"/></svg></span><span class="t">PUBLISHER BREAK<small>stops here, before download</small></span></div>
     </div>
     <div class="link"><span class="off"></span><span class="mid"></span><span class="halt"></span></div>
 
     <div class="stage">
-      <div class="cell bad"><span class="ico"><svg><use href="#i-download"/></svg></span><span class="t">Downloaded<small>and the decoy dependency with it</small></span></div>
+      <div class="cell bad"><span class="ico"><svg><use href="#i-download"/></svg></span><span class="t">Downloaded<small>with the hidden extra dependency</small></span></div>
       <div class="step">tarball</div>
       <div class="cell none"><span class="ico ghost"><svg><use href="#i-download"/></svg></span><span class="t">Never fetched</span></div>
     </div>
     <div class="link"><span class="off"></span><span class="mid"></span><span class="halt"></span></div>
 
     <div class="stage">
-      <div class="cell bad"><span class="ico"><svg><use href="#i-run"/></svg></span><span class="t">Payload executes<small>RAT drops · beacons C2 every 60 s</small></span></div>
-      <div class="step">postinstall</div>
+      <div class="cell bad"><span class="ico"><svg><use href="#i-run"/></svg></span><span class="t">Malware installs<small>phones home every 60 seconds</small></span></div>
+      <div class="step">install<br>script</div>
       <div class="cell none"><span class="ico ghost"><svg><use href="#i-run"/></svg></span><span class="t">Never runs</span></div>
     </div>
 
@@ -439,23 +269,7 @@
   </div>
 </section>
 
-<!-- 6 ── REAL OUTPUT ──────────────────────────────────────── -->
-<section>
-  <p class="lab rv">not a mockup</p>
-  <div class="rv">
-    <div class="term"><span class="w">$ npmguard install axios@1.14.1</span>
-
-- Checking NpmGuard audit...
-  NOT AUDITED — no NpmGuard record for this version.
-  <span class="brk">PUBLISHER BREAK</span>
-  The previous 4 releases were attested by the same
-  publisher. This one is attested by nobody.
-  Previous 4 releases: <span class="k">0x7c4e9a2f1b8d63e0…</span></div>
-    <p class="cap">verbatim CLI output · real npm publish timeline</p>
-  </div>
-</section>
-
-<!-- 7 ── HONEST ──────────────────────────────────────────── -->
+<!-- 3 ── HONEST ──────────────────────────────────────────── -->
 <section>
   <p class="lab rv">what's real, what isn't</p>
   <div class="cols rv">
@@ -470,8 +284,8 @@
     <div>
       <p class="ch">not yet true</p>
       <dl class="rows">
-        <div class="row"><dt>Adoption</dt><dd><b>axios never used this.</b> The stamps are reconstructed.</dd></div>
-        <div class="row"><dt>The decoy</dt><dd>Continuity says <b>nothing</b> about <code>plain-crypto-js</code> — no history to break. That one is the code audit's job.</dd></div>
+        <div class="row"><dt>Adoption</dt><dd><b>axios never used this.</b> The four proved releases are reconstructed.</dd></div>
+        <div class="row"><dt>The decoy</dt><dd>Continuity says <b>nothing</b> about the hidden dependency — a brand-new package has no history to break. That one is the code audit's job.</dd></div>
         <div class="row"><dt>Known gap</dt><dd><code>0.30.4</code> returns only <code>UNATTESTED</code> — the first bad release poisons the streak for the second. Measured, unfixed.</dd></div>
       </dl>
     </div>
