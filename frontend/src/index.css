@@ -15,9 +15,16 @@
       `unicode-range`, so a Latin page downloads only the Latin file — that is
       §2.7's "subset to Latin" without a hand-maintained `@font-face`. Plex Mono
       is loaded at 400 (body) and 500 (labels, table headers) only.
-   3. base.css then the seven page sheets — the legacy substrate, unchanged
-      except for the v3 base layer appended to base.css. They are deleted as
-      their pages are recomposed, not before. */
+   3. base.css then the remaining SIX page sheets — the legacy substrate,
+      unchanged except for the v3 base layer appended to base.css. They are
+      deleted as their pages are recomposed, not before.
+
+      `styles/panel.css` was the seventh and is GONE: the panel cluster
+      (pages/Dashboard, pages/RepoDetail, components/panel/**, and the ten
+      components under features/{session,repos,alerts,billing}/components) is
+      fully on the token layer, so every rule in it had lost its last consumer.
+      It is the first of the eight to reach zero, and the shape of how the rest
+      go: recompose the consumers, then delete the sheet and this line. */
 /* The legacy DM Sans / DM Mono webfont, hoisted out of base.css. It has to be
    the FIRST statement in the bundle: `@import` is only legal before any other
    rule, and once base.css is inlined after Tailwind's layers a nested
@@ -40,4 +47,3 @@
 @import "./styles/registry.css";
 @import "./styles/pay.css";
 @import "./styles/cli.css";
-@import "./styles/panel.css";

@@ -1,9 +1,39 @@
 /** Start a read-only public repository audit: owner/repo (or github.com
- * URL) input, allowance-account selector, and the trust-boundary list. */
+ * URL) input, allowance-account selector, and the trust-boundary list.
+ *
+ * ── PRESENTATION: what the recomposition changed ────────────────────────────
+ *
+ * Nothing about what this form submits or when. Two things about what it says:
+ *
+ * 1. **A refused mutation rendered `banner--danger` — RED.** "We could not start
+ *    your audit" is our plumbing failing, not a claim about a package, and §0
+ *    rule 3 keeps red for the latter. It is the `error` slot now. No hatch: hatch
+ *    means "no signal here", and a refusal is a signal — the request was answered.
+ * 2. The account picker is the Radix `Select` §3.1 inventories for an org picker,
+ *    which brings listbox semantics, typeahead and a 16px mobile trigger the bare
+ *    `<select>` did not have.
+ *
+ * There is no input primitive in `components/ui/`, so the repository field carries
+ * token classes inline — the same call the two page-level search boxes made, and
+ * reported as a gap rather than fixed by adding one. `FOCUS_RING` is explicit on
+ * it and is NOT optional here: a dialog is portalled outside the `.ng-root`
+ * subtree that the global `:focus-visible` rule is scoped to, so a hand-rolled
+ * control inside one has no ring unless it says so. */
 
 import { X } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { PanelDialog } from "../../../components/panel/PanelDialog.tsx";
+import { Button } from "../../../components/ui/button.tsx";
+import { DialogFooter, DialogHeader } from "../../../components/ui/dialog.tsx";
+import { FOCUS_RING } from "../../../components/ui/focus.ts";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../../components/ui/select.tsx";
+import { cn } from "../../../lib/cn.ts";
 import { actionFailure } from "../../../lib/query-state.ts";
 import { publicAuditAllowanceCopy } from "../../billing/quota.ts";
 import { useBilling } from "../../billing/hooks.ts";
@@ -15,14 +45,21 @@ const BOUNDARIES = [
   ["03", "No checks or webhooks"],
 ] as const;
 
-interface PublicAuditDialogProps {
+/** Field label: the metadata voice, in sans. Deliberately not `SectionLabel` —
+ * that is mono uppercase and marks a page SECTION; a form field's label is
+ * ordinary interface language and §2.7 keeps mono for machine-authored facts. */
+const FIELD_LABEL = "text-2xs font-medium text-text-2";
+
+export function PublicAuditDialog({
+  onClose,
+  onStarted,
+}: {
   onClose: () => void;
   onStarted: (scanId: number) => void;
-}
-
-export function PublicAuditDialog({ onClose, onStarted }: PublicAuditDialogProps) {
+}) {
   const billing = useBilling();
   const scan = useStartPublicScan();
+  const allowanceLabelId = useId();
 
   // The allowance accounts are the ONLY thing this dialog needs from billing, and
   // the hero that opens it is already gated on having them — so an unreadable
@@ -53,72 +90,119 @@ export function PublicAuditDialog({ onClose, onStarted }: PublicAuditDialogProps
   return (
     <PanelDialog ariaLabel="Audit a public repository" onClose={onClose}>
       <form onSubmit={submit}>
-        <div className="dialog__header">
-          <div>
-            <span className="eyebrow">Read-only audit</span>
-            <h2 className="headline panel-dialog-sub">Audit a public repository</h2>
+        <DialogHeader className="flex-row items-start justify-between gap-3 pr-5">
+          <div className="flex min-w-0 flex-col items-start gap-1">
+            {/* Accent, not muted: this label is the one place the dialog states
+                the guarantee that makes the whole flow safe to offer, and §2.2
+                permits accent on a thing that is genuinely load-bearing rather
+                than decorative chrome. */}
+            <span className="font-mono text-2xs font-medium tracking-wide text-accent-text uppercase">
+              Read-only audit
+            </span>
+            <h2 className="text-xl font-semibold text-text">Audit a public repository</h2>
           </div>
-          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
-            <X size={15} />
-          </button>
-        </div>
-        <div className="dialog__body">
-          <label className="panel-field">
-            <span className="eyebrow eyebrow--faint">Repository</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Close"
+            className="size-control-sm shrink-0 px-0"
+            onClick={onClose}
+          >
+            <X aria-hidden="true" className="size-icon" />
+          </Button>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3.5 px-5 py-4">
+          <label className="flex flex-col items-start gap-1.5">
+            <span className={FIELD_LABEL}>Repository</span>
             <input
-              className="input input--mono"
               placeholder="github.com/owner/repository"
               value={repository}
               onChange={(event) => setRepository(event.target.value)}
               autoFocus
+              className={cn(
+                "h-control w-full rounded-md border border-border-control bg-surface px-2.5",
+                // 16px below `md`, or iOS Safari zooms the viewport on focus (§2.7).
+                "font-mono text-sm text-text placeholder:text-text-3 max-md:h-tap max-md:text-md",
+                "transition-colors duration-fast hover:border-border-strong",
+                FOCUS_RING,
+              )}
             />
-            <span className="microtext">Accepted: owner/repo or a github.com URL.</span>
+            <span className="text-2xs text-text-3">Accepted: owner/repo or a github.com URL.</span>
           </label>
-          <label className="panel-field">
-            <span className="eyebrow eyebrow--faint">Use repository allowance from</span>
-            <select
-              className="select"
-              value={installationId ?? ""}
-              onChange={(event) => setInstallationId(Number(event.target.value))}
+
+          {/* `aria-labelledby` to a real node rather than a wrapping `<label>`:
+              Radix renders the trigger as a `<button role="combobox">`, and a
+              `<label>` around it would fold the label text and the selected value
+              into one accessible name. Same call `RepoDetail` makes for `Switch`. */}
+          <div className="flex flex-col items-start gap-1.5">
+            <span id={allowanceLabelId} className={FIELD_LABEL}>
+              Use repository allowance from
+            </span>
+            {/* `""` when nothing is selected: Radix shows the placeholder for a
+                value no item matches, which is the documented way to express
+                "unset" — and the only reachable way here is a failed billing read
+                leaving zero accounts. */}
+            <Select
+              value={installationId === null ? "" : String(installationId)}
+              onValueChange={(value) => setInstallationId(Number(value))}
             >
-              {accounts.map((account) => (
-                <option key={account.installationId} value={account.installationId}>
-                  {account.accountLogin}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full" aria-labelledby={allowanceLabelId}>
+                <SelectValue placeholder="No allowance available" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((account) => (
+                  <SelectItem
+                    key={account.installationId}
+                    value={String(account.installationId)}
+                  >
+                    {account.accountLogin}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {selected && (
-              <span className="microtext">{publicAuditAllowanceCopy(selected.publicRepoAudits)}</span>
+              <span className="text-2xs text-text-3">
+                {publicAuditAllowanceCopy(selected.publicRepoAudits)}
+              </span>
             )}
-          </label>
-          <ol className="panel-boundary" aria-label="Audit boundary">
+          </div>
+
+          <ol className="flex flex-col gap-2" aria-label="Audit boundary">
             {BOUNDARIES.map(([num, label]) => (
-              <li key={num}>
-                <span className="mono panel-boundary__num">{num}</span> {label}
+              <li key={num} className="flex items-center gap-2.5 text-xs text-text-2">
+                <span className="font-mono text-2xs tabular-nums text-accent-text">{num}</span>{" "}
+                {label}
               </li>
             ))}
           </ol>
+
           {failure && (
-            <p className="banner banner--danger panel-dialog-error" role="alert">
+            <p
+              role="alert"
+              className="rounded-md border border-error-border bg-error-wash px-2.5 py-2 text-xs text-error-text"
+            >
               {failure.detail ?? failure.what}
             </p>
           )}
         </div>
-        <div className="dialog__footer">
-          <span className="microtext panel-footnote">
+
+        <DialogFooter className="sm:justify-between">
+          <span className="max-w-60 text-2xs text-text-3">
             Manual result only · findings never write to the target repository.
           </span>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="btn btn--dark"
-            disabled={busy || !repository.trim() || installationId === null}
-          >
-            {busy ? "Reading public snapshot…" : "Audit snapshot"}
-          </button>
-        </div>
+          <span className="flex items-center gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={busy || !repository.trim() || installationId === null}
+            >
+              {busy ? "Reading public snapshot…" : "Audit snapshot"}
+            </Button>
+          </span>
+        </DialogFooter>
       </form>
     </PanelDialog>
   );
