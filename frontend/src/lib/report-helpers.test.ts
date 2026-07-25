@@ -19,12 +19,18 @@
  *                             reach the row, and only the state pill is coloured
  *                             on a refuted one — green, because that IS what we
  *                             now know.
+ *  C7  byImportanceDesc      — state first, severity within: CONFIRMED → DEFERRED
+ *                             → IN_PROGRESS → OPEN → REFUTED. A refuted CRITICAL
+ *                             sorts BELOW a confirmed LOW, which is the whole
+ *                             point — severity alone ranked disproved worries
+ *                             above the real finding.
  *
  * Blackbox: reports/hypotheses are built via factories; assertions read outputs only.
  */
 
 import { describe, expect, it } from "vitest";
 import {
+  byImportanceDesc,
   capabilitiesFromReport,
   claimLabel,
   confirmedHypotheses,
@@ -181,5 +187,49 @@ describe("C6: hypothesis colour is decided by state, modulated by severity", () 
     expect(hypothesisStatePillClass("DEFERRED")).toBe("pill");
     expect(hypothesisStatePillClass("OPEN")).toBe("pill pill--running");
     expect(hypothesisStatePillClass("IN_PROGRESS")).toBe("pill pill--running");
+  });
+});
+
+describe("C7: hypotheses sort by importance, not by an untested claim's severity", () => {
+  it("C7: state outranks severity — a refuted CRITICAL sits below a confirmed LOW", () => {
+    const rows = [
+      hyp("refuted-critical", "critical", "REFUTED"),
+      hyp("confirmed-low", "low", "CONFIRMED"),
+    ];
+    expect(byImportanceDesc(rows).map((h) => h.hypId)).toEqual([
+      "confirmed-low",
+      "refuted-critical",
+    ]);
+  });
+
+  it("C7: the full rank — could-not-decide above still-deciding, refuted last", () => {
+    const rows = [
+      hyp("refuted", "critical", "REFUTED"),
+      hyp("open", "critical", "OPEN"),
+      hyp("in-progress", "critical", "IN_PROGRESS"),
+      hyp("deferred", "critical", "DEFERRED"),
+      hyp("confirmed", "critical", "CONFIRMED"),
+    ];
+    expect(byImportanceDesc(rows).map((h) => h.hypId)).toEqual([
+      "confirmed",
+      "deferred",
+      "in-progress",
+      "open",
+      "refuted",
+    ]);
+  });
+
+  it("C7: severity still orders within one state, and the input is not mutated", () => {
+    const rows = [
+      hyp("c-medium", "medium", "CONFIRMED"),
+      hyp("c-critical", "critical", "CONFIRMED"),
+      hyp("c-high", "high", "CONFIRMED"),
+    ];
+    expect(byImportanceDesc(rows).map((h) => h.hypId)).toEqual([
+      "c-critical",
+      "c-high",
+      "c-medium",
+    ]);
+    expect(rows.map((h) => h.hypId)).toEqual(["c-medium", "c-critical", "c-high"]);
   });
 });

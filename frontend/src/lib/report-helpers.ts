@@ -102,8 +102,44 @@ export function hypothesisStatePillClass(state: HypothesisState): string {
   }
 }
 
-export function bySeverityDesc<T extends { severity: string }>(items: readonly T[]): T[] {
+/** Severity-only order. Module-private: it is the right sort for a list that is
+ * already ONE state (`confirmedHypotheses`), and the wrong one everywhere else —
+ * see `byImportanceDesc`. */
+function bySeverityDesc<T extends { severity: string }>(items: readonly T[]): T[] {
   return [...items].sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
+}
+
+/* ── importance = the same two axes the colour rule reads ───────────────────
+ *
+ * Severity alone is the wrong sort for the same reason it was the wrong colour:
+ * it ranks a claim nobody has tested. Sorting by it put thirteen refuted
+ * CRITICALs above the one CONFIRMED finding, so the reader had to scroll past
+ * every disproved worry to reach the actual threat.
+ *
+ * State first, severity within it. The rank mirrors `panel/tone.tsx`'s
+ * `depPriority`, and the load-bearing line is the same one: something we could
+ * NOT decide outranks something still being decided, because a DEFERRED
+ * hypothesis needs a human and a live one resolves itself.
+ */
+const STATE_RANK: Record<HypothesisState, number> = {
+  CONFIRMED: 0, // a real finding
+  DEFERRED: 1, // could not be decided — needs a human
+  IN_PROGRESS: 2, // being decided
+  OPEN: 3, // not started
+  REFUTED: 4, // tested, did not happen — the least urgent thing on the page
+};
+
+/** Most important first: CONFIRMED → DEFERRED → IN_PROGRESS → OPEN → REFUTED,
+ * severity descending inside each. Stable for equal keys, so a re-render cannot
+ * reshuffle rows the reader is looking at. */
+export function byImportanceDesc<T extends { severity: string; state: HypothesisState }>(
+  items: readonly T[],
+): T[] {
+  return [...items].sort(
+    (a, b) =>
+      STATE_RANK[a.state] - STATE_RANK[b.state] ||
+      (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0),
+  );
 }
 
 export function hypothesesInState(report: AuditReport, state: HypothesisState): Hypothesis[] {

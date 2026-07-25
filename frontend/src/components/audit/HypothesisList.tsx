@@ -11,7 +11,7 @@ import type { CSSProperties } from "react";
 import { useAuditStore } from "../../stores/auditStore.ts";
 import type { HypothesisView } from "../../lib/audit-fold.ts";
 import {
-  bySeverityDesc,
+  byImportanceDesc,
   claimLabel,
   hypothesisAccentVar,
   hypothesisSeverityTagClass,
@@ -26,7 +26,7 @@ export function HypothesisList() {
     return <p className="subtext audit-side__empty">No hypotheses raised yet</p>;
   }
 
-  const ordered = bySeverityDesc<HypothesisView>(hypotheses);
+  const ordered = byImportanceDesc<HypothesisView>(hypotheses);
 
   return (
     <ul className="audit-hyps">

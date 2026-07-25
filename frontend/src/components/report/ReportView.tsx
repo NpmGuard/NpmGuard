@@ -9,7 +9,7 @@
 
 import type { AuditReport } from "@npmguard/shared";
 import {
-  bySeverityDesc,
+  byImportanceDesc,
   capabilitiesFromReport,
   confirmedHypotheses,
   notableFiles,
@@ -48,7 +48,10 @@ export function ReportView({
   const notableSet = new Set(notable.map((f) => f.file));
   const orderedFiles = [...notable, ...report.fileSummaries.filter((f) => !notableSet.has(f.file))];
 
-  const allHypotheses = bySeverityDesc(report.hypotheses);
+  // Most important first: a CONFIRMED finding, then what could not be decided,
+  // then live work, and the refuted ones last. Severity alone ranked thirteen
+  // disproved CRITICALs above the one real threat.
+  const allHypotheses = byImportanceDesc(report.hypotheses);
   const traceMs = totalTraceMs(report);
 
   return (
