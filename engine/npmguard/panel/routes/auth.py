@@ -21,7 +21,8 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from npmguard.panel.github.client import _expires_at_from_ttl
 from npmguard.panel.routes._common import (
     current_user,
-    require_enabled,
+    panel_disabled_response,
+    require_panel,
     runtime_of,
     secure_cookies,
 )
@@ -56,9 +57,9 @@ def _select_email(profile_email: str | None, emails: Any) -> str | None:
 
 @router.get("/auth/github/login")
 async def github_login(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
 
     state = secrets.token_hex(16)
     response = RedirectResponse(runtime.gh_client.authorize_url(state), status_code=302)
@@ -76,9 +77,9 @@ async def github_login(request: Request) -> Response:
 
 @router.get("/auth/github/callback")
 async def github_callback(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
 
     params = request.query_params
     code = params.get("code")
@@ -160,9 +161,9 @@ async def github_callback(request: Request) -> Response:
 
 @router.get("/me")
 async def me(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return JSONResponse({"error": "Not signed in"}, status_code=401)
@@ -171,9 +172,9 @@ async def me(request: Request) -> Response:
 
 @router.post("/auth/logout")
 async def logout(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         await runtime.panel_sessions.delete(token)

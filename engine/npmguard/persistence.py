@@ -7,11 +7,25 @@ from typing import Any, Literal
 from uuid import uuid4
 
 import sqlalchemy as sa
+from sqlalchemy.engine import CursorResult, Result
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kit_spine import now_iso
 from kit_spine.db import metadata
+
+
+def _rowcount(result: Result[Any]) -> int:
+    """How many rows a DML statement matched.
+
+    ``execute`` is typed as returning a ``Result``; every UPDATE/DELETE actually
+    returns a ``CursorResult``, which is the only kind that carries ``rowcount``.
+    Asserting that here keeps the guarded-update invariants below reading as one
+    comparison rather than one comparison plus a type apology.
+    """
+    assert isinstance(result, CursorResult)
+    return result.rowcount
+
 
 audit_sessions = sa.Table(
     "audit_sessions",
@@ -212,7 +226,7 @@ class AuditSessionStore:
             .values(status="running", updated_at=now_iso())
         )
         async with self._sessions() as session, session.begin():
-            rowcount = (await session.execute(statement)).rowcount
+            rowcount = _rowcount(await session.execute(statement))
         return rowcount == 1
 
     async def reset_to_queued(self, audit_id: str) -> None:
@@ -227,7 +241,7 @@ class AuditSessionStore:
             .values(status="queued", error=None, report=None, updated_at=now_iso())
         )
         async with self._sessions() as session, session.begin():
-            rowcount = (await session.execute(statement)).rowcount
+            rowcount = _rowcount(await session.execute(statement))
         assert rowcount == 1, (
             f"reset_to_queued({audit_id}): matched {rowcount} error rows "
             "(row missing or not in error state)"
@@ -270,10 +284,10 @@ class AuditSessionStore:
             )
         )
         if session is not None:
-            rowcount = (await session.execute(statement)).rowcount
+            rowcount = _rowcount(await session.execute(statement))
         else:
             async with self._sessions() as own, own.begin():
-                rowcount = (await own.execute(statement)).rowcount
+                rowcount = _rowcount(await own.execute(statement))
         # INVARIANT: finalize transitions exactly one non-terminal (queued|running)
         # row -> done|error. A missing or already-terminal row is a lifecycle bug —
         # raise loudly, never a silent no-op or a done->error overwrite. The guard

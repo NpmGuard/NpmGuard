@@ -10,15 +10,33 @@
  *  C3  capabilitiesFromReport — distinct, falsy-skipping union over fileSummaries.
  *  C4  claimLabel           — known ClaimKind → label; unknown string → itself.
  *  C5  verdictTone          — DANGEROUS→danger, SAFE→safe.
+ *  C6  hypothesis colour     — STATE decides, severity only modulates. A CRITICAL
+ *                             hypothesis that was REFUTED carries NO danger hue
+ *                             anywhere (that was the bug: 13 refuted hypotheses
+ *                             rendered as 13 red rows); DEFERRED is neutral, never
+ *                             amber, because "could not decide" is no finding
+ *                             rather than a weak one; only CONFIRMED lets severity
+ *                             reach the row, and only the state pill is coloured
+ *                             on a refuted one — green, because that IS what we
+ *                             now know.
+ *  C7  byImportanceDesc      — state first, severity within: CONFIRMED → DEFERRED
+ *                             → IN_PROGRESS → OPEN → REFUTED. A refuted CRITICAL
+ *                             sorts BELOW a confirmed LOW, which is the whole
+ *                             point — severity alone ranked disproved worries
+ *                             above the real finding.
  *
  * Blackbox: reports/hypotheses are built via factories; assertions read outputs only.
  */
 
 import { describe, expect, it } from "vitest";
 import {
+  byImportanceDesc,
   capabilitiesFromReport,
   claimLabel,
   confirmedHypotheses,
+  hypothesisAccentVar,
+  hypothesisSeverityTagClass,
+  hypothesisStatePillClass,
   verdictHeadline,
   verdictTone,
 } from "./report-helpers.ts";
@@ -136,5 +154,82 @@ describe("report-helpers — C5 verdictTone", () => {
   it("C5: DANGEROUS→danger, SAFE→safe", () => {
     expect(verdictTone("DANGEROUS")).toBe("danger");
     expect(verdictTone("SAFE")).toBe("safe");
+  });
+});
+
+describe("C6: hypothesis colour is decided by state, modulated by severity", () => {
+  const UNRESOLVED: HypothesisState[] = ["REFUTED", "DEFERRED", "OPEN", "IN_PROGRESS"];
+  const SEVERITIES: HypothesisSeverity[] = ["critical", "high", "medium", "low"];
+
+  it("C6: only a CONFIRMED hypothesis lets severity reach the row", () => {
+    expect(hypothesisAccentVar("CONFIRMED", "critical")).toBe("var(--danger)");
+    expect(hypothesisAccentVar("CONFIRMED", "high")).toBe("var(--danger)");
+    expect(hypothesisAccentVar("CONFIRMED", "medium")).toBe("var(--suspect)");
+    expect(hypothesisSeverityTagClass("CONFIRMED", "critical")).toBe("tag tag--danger");
+  });
+
+  it("C6: no unresolved state carries a hue, at ANY severity — the refuted-critical bug", () => {
+    for (const state of UNRESOLVED) {
+      for (const severity of SEVERITIES) {
+        expect(hypothesisAccentVar(state, severity), `${state}/${severity}`).toBe(
+          "var(--tone-paper-accent)",
+        );
+        expect(hypothesisSeverityTagClass(state, severity), `${state}/${severity}`).toBe("tag");
+      }
+    }
+  });
+
+  it("C6: the state pill is the one element that may be coloured on a refuted row", () => {
+    expect(hypothesisStatePillClass("CONFIRMED")).toBe("pill pill--danger");
+    expect(hypothesisStatePillClass("REFUTED")).toBe("pill pill--safe");
+    // Ambiguous is grey. `pill--suspect` (amber) would claim a weak finding where
+    // the investigation reached none.
+    expect(hypothesisStatePillClass("DEFERRED")).toBe("pill");
+    expect(hypothesisStatePillClass("OPEN")).toBe("pill pill--running");
+    expect(hypothesisStatePillClass("IN_PROGRESS")).toBe("pill pill--running");
+  });
+});
+
+describe("C7: hypotheses sort by importance, not by an untested claim's severity", () => {
+  it("C7: state outranks severity — a refuted CRITICAL sits below a confirmed LOW", () => {
+    const rows = [
+      hyp("refuted-critical", "critical", "REFUTED"),
+      hyp("confirmed-low", "low", "CONFIRMED"),
+    ];
+    expect(byImportanceDesc(rows).map((h) => h.hypId)).toEqual([
+      "confirmed-low",
+      "refuted-critical",
+    ]);
+  });
+
+  it("C7: the full rank — could-not-decide above still-deciding, refuted last", () => {
+    const rows = [
+      hyp("refuted", "critical", "REFUTED"),
+      hyp("open", "critical", "OPEN"),
+      hyp("in-progress", "critical", "IN_PROGRESS"),
+      hyp("deferred", "critical", "DEFERRED"),
+      hyp("confirmed", "critical", "CONFIRMED"),
+    ];
+    expect(byImportanceDesc(rows).map((h) => h.hypId)).toEqual([
+      "confirmed",
+      "deferred",
+      "in-progress",
+      "open",
+      "refuted",
+    ]);
+  });
+
+  it("C7: severity still orders within one state, and the input is not mutated", () => {
+    const rows = [
+      hyp("c-medium", "medium", "CONFIRMED"),
+      hyp("c-critical", "critical", "CONFIRMED"),
+      hyp("c-high", "high", "CONFIRMED"),
+    ];
+    expect(byImportanceDesc(rows).map((h) => h.hypId)).toEqual([
+      "c-critical",
+      "c-high",
+      "c-medium",
+    ]);
+    expect(rows.map((h) => h.hypId)).toEqual(["c-medium", "c-critical", "c-high"]);
   });
 });

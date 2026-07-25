@@ -2,13 +2,14 @@
  * The boundary where the wire contract is CHECKED rather than assumed.
  *
  * `getJson<T>()` is a cast: it promises `T` and delivers whatever the engine
- * sent. That cast is the reason `engine-types.ts` was originally hand-written
- * "from evidence" — someone read the real responses because the declared types
- * had never been confronted with one. Hand-writing forever is not the fix;
- * making the contract *verifiable against reality* is. So every panel response
- * is `safeParse`d against the same zod schema the engine's Pydantic models are
- * generated from, and drift raises {@link ContractViolationError} here instead
- * of arriving in a component as `undefined`.
+ * sent. That cast is the reason the app's wire types were once hand-written
+ * "from evidence" in a `lib/engine-types.ts` — someone read the real responses
+ * because the declared types had never been confronted with one. Hand-writing
+ * forever is not the fix; making the contract *verifiable against reality* is.
+ * So every response — panel and audit alike — is `safeParse`d against the same
+ * zod schema the engine's Pydantic models are generated from, and drift raises
+ * {@link ContractViolationError} here instead of arriving in a component as
+ * `undefined`.
  *
  * Two properties this buys that a type alone cannot:
  *

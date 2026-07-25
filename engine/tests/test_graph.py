@@ -21,6 +21,7 @@
 # UNIONING focus regions into the survivor: the second bait never runs, and the
 # report points at both regions as if one run had covered them.
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -31,10 +32,11 @@ from npmguard.graph import (
     derive_graph_verdict,
     next_open,
 )
+from tests.support.optional import present
 
 
 def hypothesis(hypothesis_id: str = "hyp-1", **changes) -> Hypothesis:
-    values = {
+    values: dict[str, Any] = {
         "hypId": hypothesis_id,
         "description": "reads NPM_TOKEN and sends it to attacker.example",
         "claim": Claim(kind="env_exfil"),
@@ -87,7 +89,7 @@ def test_confirmed_always_wins_and_priority_is_severity_first() -> None:
     graph = HypothesisGraph("audit-1")
     graph.add(hypothesis("low", severity="low", createdAt="2020-01-01T00:00:00Z"))
     graph.add(hypothesis("critical", severity="critical", createdAt="2026-01-01T00:00:00Z"))
-    assert next_open(graph).hypId == "critical"
+    assert present(next_open(graph)).hypId == "critical"
     graph.transition("critical", "CONFIRMED", by="judge", evidence_refs=[evidence()])
     graph.transition("low", "REFUTED", by="judge", evidence_refs=[evidence("run-2")])
     verdict = derive_graph_verdict(graph)

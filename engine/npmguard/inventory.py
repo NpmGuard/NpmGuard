@@ -340,9 +340,10 @@ def parse_package_json(
     scripts = _string_record(package.get("scripts"))
     targets, _ = classify_install_hooks(scripts)
     install = list(dict.fromkeys(target.reference for target in targets))
+    module = text("module")
     runtime = [text("main") or "index.js"]
-    if text("module"):
-        runtime.append(text("module"))
+    if module:
+        runtime.append(module)
     runtime.extend(_exports_entries(package.get("exports")))
     entry_points = EntryPoints(
         install=install, runtime=list(dict.fromkeys(runtime)), bin=_bin_entries(package.get("bin"))

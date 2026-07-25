@@ -29,6 +29,7 @@ import sqlalchemy as sa
 
 from kit_spine import make_engine, make_session_factory, now_iso
 from kit_spine.db import metadata
+from npmguard.config import Settings
 from npmguard.panel import tables
 from npmguard.panel.alerts.notify import handle_dangerous_verdict, range_satisfies
 
@@ -241,7 +242,7 @@ async def test_email_one_per_org_to_known_recipients(db) -> None:
 
     collector = _EmailCollector()
     inserted = await handle_dangerous_verdict(
-        db, "evil", "1.2.3", origin="repo_scan", settings=object(), send_email=collector
+        db, "evil", "1.2.3", origin="repo_scan", settings=Settings(_env_file=None), send_email=collector
     )
 
     assert inserted == 1
@@ -261,7 +262,7 @@ async def test_no_exposure_no_alert_no_email(db) -> None:
 
     collector = _EmailCollector()
     inserted = await handle_dangerous_verdict(
-        db, "evil", "1.2.3", settings=object(), send_email=collector
+        db, "evil", "1.2.3", settings=Settings(_env_file=None), send_email=collector
     )
 
     assert inserted == 0

@@ -20,11 +20,12 @@
 #      CREDENTIAL_THEFT five times), so the 12-value bound must be applied AFTER
 #      dedup — a repeat must never displace a distinct capability off the end
 import json
+from typing import cast
 
 import pytest
 import sqlalchemy as sa
 
-from kit_llm import BudgetExhausted, ScriptedLlm
+from kit_llm import BudgetExhausted, LlmClient, ScriptedLlm
 from kit_llm.capture import llm_attempts
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
@@ -43,6 +44,7 @@ from npmguard.phases import (
     run_flag,
     run_hypothesize,
 )
+from tests.support.optional import present
 
 
 async def _attempt_statuses(sessions) -> list[str]:
@@ -173,8 +175,8 @@ async def test_kit_schema_transport_arms_hypothesis_after_bounded_repair(tmp_pat
         audit_id="audit-1",
     )
     assert result.claim.kind == "env_exfil"
-    assert [call.tool for call in result.experiment] == ["setEnv", "trigger"]
-    assert result.experiment[-1].args["target"] == "index.js"
+    assert [call.tool for call in present(result.experiment)] == ["setEnv", "trigger"]
+    assert present(present(result.experiment)[-1].args)["target"] == "index.js"
     # Public ledger: exactly one rejected attempt restated invalid, then the repair.
     assert await _attempt_statuses(sessions) == ["invalid_output", "ok"]
     await llm.aclose()
@@ -223,7 +225,7 @@ async def test_semantically_invalid_hypothesis_is_repaired_inside_kit(tmp_path) 
         audit_id="audit-1",
     )
 
-    assert [call.tool for call in result.experiment] == ["trigger"]
+    assert [call.tool for call in present(result.experiment)] == ["trigger"]
     assert await _attempt_statuses(sessions) == ["invalid_output", "ok"]
     await llm.aclose()
     await engine.dispose()
@@ -298,7 +300,7 @@ async def test_intent_budget_exhaustion_propagates_never_fabricates(tmp_path) ->
 
     package, inventory = await _fixture_inventory(tmp_path)
     with pytest.raises(BudgetExhausted):
-        await extract_intent(package, inventory, _BudgetSpentLlm(), "audit-1")
+        await extract_intent(package, inventory, cast(LlmClient, _BudgetSpentLlm()), "audit-1")
 
 
 async def test_intent_provider_exhaustion_falls_back_explicitly_degraded(tmp_path) -> None:
@@ -406,7 +408,10 @@ def test_hypothesis_wire_schema_is_strict_and_provider_portable() -> None:
             if node.get("type") == "object":
                 assert node.get("additionalProperties") is False
                 properties = node.get("properties", {})
-                assert set(node.get("required", [])) == set(properties)
+                assert isinstance(properties, dict)
+                required = node.get("required", [])
+                assert isinstance(required, list)
+                assert set(required) == set(properties)
             for value in node.values():
                 assert_strict_object(value)
         elif isinstance(node, list):
@@ -462,9 +467,9 @@ async def test_custom_hypothesis_driver_is_planted_and_triggered(tmp_path) -> No
         audit_id="audit-1",
     )
 
-    assert [call.tool for call in result.experiment] == ["plantFiles", "trigger"]
-    assert result.experiment[0].args["files"][0]["path"] == "/pkg/npmguard-driver.js"
-    assert result.experiment[1].args["target"] == "/pkg/npmguard-driver.js"
+    assert [call.tool for call in present(result.experiment)] == ["plantFiles", "trigger"]
+    assert present(present(result.experiment)[0].args)["files"][0]["path"] == "/pkg/npmguard-driver.js"
+    assert present(present(result.experiment)[1].args)["target"] == "/pkg/npmguard-driver.js"
     await llm.aclose()
     await engine.dispose()
 

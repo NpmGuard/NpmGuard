@@ -90,8 +90,11 @@ export function fetchPublicScanDetail(scanId: number) {
 }
 
 /**
- * 201 {scanId} | 402 cap | 403 private | 404 | 409 already running | 422 no
- * lockfile | 429.
+ * 201 {scanId} | 403 private | 404 | 409 already running | 422 no lockfile |
+ * 429 (GitHub's rate limit, or this user's live-scan concurrency).
+ *
+ * No 402: a public scan is not billed (D-1), so its cost ceiling degrades what
+ * the scan covers rather than opening a paywall.
  *
  * The 409 is resolved to a SUCCESS here, at the boundary, because that is what it
  * means: a set for this repo is already live and streamable, so the caller
@@ -102,7 +105,6 @@ export function fetchPublicScanDetail(scanId: number) {
  */
 export async function startPublicRepoScan(vars: {
   repository: string;
-  installationId: number;
 }): Promise<ScanStartedResponse> {
   try {
     return await postWire(

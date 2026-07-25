@@ -4,7 +4,7 @@
 //               report (verdict pill, counts rail, hypotheses, files, timing).
 //               A bogus name → an honest .empty-state 404 — NOT an error, and
 //               NEVER a fabricated SAFE verdict.
-// Reports are SEEDED by global-setup.ts from the demo recordings' `report`
+// Reports are SEEDED by panel-fixture.ts from the demo recordings' `report`
 // field, under PUBLIC names (chalk@5.6.2 SAFE, npm-telemetry-helper@2.0.1
 // DANGEROUS). Assert STRUCTURE, never captured prose.
 // ─────────────────────────────────────────────────────────────────────────────

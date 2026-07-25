@@ -1,6 +1,12 @@
 import re
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
+
+# The chains this engine can verify a payment on. Lives here, with the rest of
+# the request vocabulary, so ``payments`` can take it without validation having
+# to import web3.
+SupportedChain = Literal["base-sepolia", "base"]
 
 PACKAGE_NAME_RE = re.compile(r"^(@[a-z0-9\-~][a-z0-9._~\-]*/)?[a-z0-9\-~][a-z0-9._~\-]*$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$")
@@ -40,7 +46,10 @@ class StreamAuditRequest(BaseModel):
     version: str | None = None
     stripeSessionId: str | None = None
     txHash: str | None = None
-    chain: str | None = None
+    # The chain set is the type, not a validator check: parsing a request is
+    # then the only place a chain name can be wrong, and everything downstream
+    # (is_chain_configured, verify_audit_payment) takes SupportedChain.
+    chain: SupportedChain | None = None
 
     @model_validator(mode="after")
     def valid(self) -> "StreamAuditRequest":
@@ -50,6 +59,4 @@ class StreamAuditRequest(BaseModel):
             valid_semver(self.version)
         if self.txHash is not None and TX_HASH_RE.fullmatch(self.txHash) is None:
             raise ValueError("Invalid txHash")
-        if self.chain not in (None, "base-sepolia", "base"):
-            raise ValueError("Invalid chain")
         return self

@@ -20,9 +20,6 @@
         "protectedRepos": {
           "$ref": "#/$defs/UsageBucket"
         },
-        "publicRepoAudits": {
-          "$ref": "#/$defs/UsageBucket"
-        },
         "monthlyAudits": {
           "$ref": "#/$defs/UsageBucket"
         }
@@ -33,7 +30,6 @@
         "plan",
         "subscriptionStatus",
         "protectedRepos",
-        "publicRepoAudits",
         "monthlyAudits"
       ],
       "title": "AccountEntitlements"
@@ -158,6 +154,39 @@
         "error"
       ],
       "title": "AppNotConfigured"
+    },
+    "AuditAcceptedResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "accepted"
+        },
+        "auditId": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "queuePosition": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "status",
+        "auditId",
+        "packageName",
+        "version",
+        "queuePosition"
+      ],
+      "title": "AuditAcceptedResponse"
     },
     "AuditEnqueuedEvent": {
       "type": "object",
@@ -1536,10 +1565,52 @@
       "type": "string",
       "enum": [
         "protected_repos",
-        "public_repo_audits",
         "monthly_audits"
       ],
       "title": "CapResource"
+    },
+    "CheckoutResponse": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "sessionId"
+      ],
+      "title": "CheckoutResponse"
+    },
+    "CheckoutStatus": {
+      "type": "object",
+      "properties": {
+        "paid": {
+          "type": "boolean"
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "auditId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "paid",
+        "packageName",
+        "version",
+        "auditId"
+      ],
+      "title": "CheckoutStatus"
     },
     "ClaimKind": {
       "type": "string",
@@ -1592,6 +1663,32 @@
       ],
       "title": "CorrelationConfidence"
     },
+    "CryptoConfig": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string",
+          "const": "base-sepolia"
+        },
+        "chainId": {
+          "type": "number",
+          "const": 84532
+        },
+        "contract": {
+          "type": "string"
+        },
+        "auditFeeWei": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain",
+        "chainId",
+        "contract",
+        "auditFeeWei"
+      ],
+      "title": "CryptoConfig"
+    },
     "CryptoOp": {
       "type": "object",
       "properties": {
@@ -1623,6 +1720,21 @@
         "detail"
       ],
       "title": "DealBreaker"
+    },
+    "DemoPackagesResponse": {
+      "type": "object",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "packages"
+      ],
+      "title": "DemoPackagesResponse"
     },
     "DependenciesProvisionedEvent": {
       "type": "object",
@@ -2869,6 +2981,21 @@
       ],
       "title": "Outcome"
     },
+    "PackageIndexResponse": {
+      "type": "object",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PackageSummary"
+          }
+        }
+      },
+      "required": [
+        "packages"
+      ],
+      "title": "PackageIndexResponse"
+    },
     "PackageMetadata": {
       "type": "object",
       "properties": {
@@ -2935,6 +3062,50 @@
         }
       },
       "title": "PackageMetadata"
+    },
+    "PackageReportResponse": {
+      "type": "object",
+      "properties": {
+        "report": {
+          "$ref": "#/$defs/AuditReport"
+        },
+        "version": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "report",
+        "version",
+        "packageName"
+      ],
+      "title": "PackageReportResponse"
+    },
+    "PackageSummary": {
+      "type": "object",
+      "properties": {
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "auditedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "packageName",
+        "version",
+        "verdict",
+        "auditedAt"
+      ],
+      "title": "PackageSummary"
     },
     "PanelRepo": {
       "type": "object",
@@ -3098,10 +3269,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "publicRepoAudits": {
-          "type": "integer",
-          "minimum": 0
-        },
         "monthlyAudits": {
           "type": "integer",
           "minimum": 0
@@ -3109,7 +3276,6 @@
       },
       "required": [
         "protectedRepos",
-        "publicRepoAudits",
         "monthlyAudits"
       ],
       "title": "PlanLimits"
@@ -3149,6 +3315,41 @@
       ],
       "title": "ProcessSpawn"
     },
+    "PublicConfig": {
+      "type": "object",
+      "properties": {
+        "paymentRequired": {
+          "type": "boolean"
+        },
+        "paymentEnabled": {
+          "type": "boolean"
+        },
+        "stripeEnabled": {
+          "type": "boolean"
+        },
+        "priceCents": {
+          "type": "integer"
+        },
+        "crypto": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CryptoConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "paymentRequired",
+        "paymentEnabled",
+        "stripeEnabled",
+        "priceCents",
+        "crypto"
+      ],
+      "title": "PublicConfig"
+    },
     "PublicRepoScanDetailResponse": {
       "type": "object",
       "properties": {
@@ -3177,17 +3378,6 @@
       "properties": {
         "repository": {
           "type": "string"
-        },
-        "installationId": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -3209,31 +3399,13 @@
         },
         "requestedBy": {
           "type": "integer"
-        },
-        "installationId": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "accountLogin": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
       },
       "required": [
         "id",
         "repo",
         "set",
-        "requestedBy",
-        "installationId",
-        "accountLogin"
+        "requestedBy"
       ],
       "title": "PublicRepoScan"
     },
@@ -3278,6 +3450,10 @@
         },
         "lockfileSha": {
           "type": "string"
+        },
+        "lockfileDepCount": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -3288,7 +3464,8 @@
         "htmlUrl",
         "defaultBranch",
         "lockfilePath",
-        "lockfileSha"
+        "lockfileSha",
+        "lockfileDepCount"
       ],
       "title": "PublicRepo"
     },
@@ -3415,6 +3592,22 @@
         "repos"
       ],
       "title": "ReposResponse"
+    },
+    "ResolveResponse": {
+      "type": "object",
+      "properties": {
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "packageName",
+        "version"
+      ],
+      "title": "ResolveResponse"
     },
     "ResolvedPackage": {
       "type": "object",
@@ -3798,6 +3991,22 @@
       ],
       "title": "Severity"
     },
+    "StartAuditResponse": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "packageName"
+      ],
+      "title": "StartAuditResponse"
+    },
     "StreamKind": {
       "type": "string",
       "enum": [
@@ -3881,6 +4090,24 @@
         "ms"
       ],
       "title": "TimerRecord"
+    },
+    "TooManyLiveScans": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "error",
+        "limit"
+      ],
+      "title": "TooManyLiveScans"
     },
     "ToolCall": {
       "type": "object",

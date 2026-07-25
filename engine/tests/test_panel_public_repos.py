@@ -2,12 +2,12 @@
 # (seam A: parse_public_repo_reference is PURE — string in, PublicRepoReference
 #  out or InvalidPublicRepoReferenceError; it is the SSRF boundary, so its
 #  rejection classes are the security-relevant part.
-#  seam B: PublicRepoScanEngine over a real throwaway sqlite — the REAL caps store
-#  and the REAL shared AuditSetStore, so the snapshot row, the cap keyed on the
-#  stable repo id, and the live-audit lookup are observable without GitHub/docker.)
+#  seam B: PublicRepoScanEngine over a real throwaway sqlite — the REAL per-user
+#  limits and the REAL shared AuditSetStore, so the snapshot row, the coverage
+#  ceiling and the live-audit lookup are observable without GitHub/docker.)
 #
-# After R-1 this module owns discovery + the cap + the snapshot row and NOTHING
-# else: dedupe, cache-first enqueue, progress, rollup, truncation and the stream
+# After R-1 this module owns discovery + the cost ceiling + the snapshot row and
+# NOTHING else: dedupe, cache-first enqueue, progress, rollup, truncation and the stream
 # are the shared audit-set entity's and are enumerated ONCE in
 # tests/test_panel_audit_set.py — including a per-origin class that proves this
 # origin's rollup is byte-identical to repo_scan's over the same item list.
@@ -26,16 +26,19 @@
 #   C10 scp-style git@github.com:owner/repo (colon in a non-URL input)
 #   C11 an owner or repo failing the identity grammar (spaces, '..', '.')
 # PublicRepoScanEngine.create_public_repo_scan:
-#   C12 the set is created with origin_ref = the STABLE github_repo_id, and the
-#       snapshot row is keyed by set_id — one id, so `scanId` means one thing
+#   C12 the set is created with origin_ref = the STABLE github_repo_id, no payer
+#       and the REQUESTER on the set, and the snapshot row is keyed by set_id —
+#       one id, so `scanId` means one thing
 #   C13 the returned id is the SET id (streamable on /panel/scan/{id}/events)
-#   C14 the cap is asserted before the set exists: a refusal leaves no snapshot
+#   C14 concurrency is asserted before the set exists: a refusal leaves no snapshot
 # find_running_public_scan:
-#   C15 a live audit is found by (github_repo_id, payer) — NOT by a lowercased
+#   C15 a live audit is found by (github_repo_id, REQUESTER) — NOT by a lowercased
 #       full name, so a RENAME cannot smuggle in a second concurrent audit
-#   C16 a finished audit is not "running"; another installation's is not visible
+#   C16 a finished audit is not "running"; another USER's is not visible
 #   C17 the durable partial-unique index refuses a second live audit of the same
-#       repo by the same payer (the guard, not the pre-check, is what holds)
+#       repo by the same user (the guard, not the pre-check, is what holds)
+from typing import Any
+
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
@@ -47,9 +50,9 @@ from kit_stream import StreamService
 from npmguard.config import Settings
 from npmguard.panel import tables
 from npmguard.panel.audit_set import build_store
-from npmguard.panel.caps import CapExceededError, CapsStore
 from npmguard.panel.jobs import PanelJobQueue
 from npmguard.panel.lockfile import LockfileDep
+from npmguard.panel.public_limits import PublicScanLimits, TooManyLiveScansError
 from npmguard.panel.scan.public_repo_scan import (
     CreatePublicRepoScanInput,
     InvalidPublicRepoReferenceError,
@@ -123,15 +126,14 @@ def test_parse_reference_rejects(raw: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _settings() -> Settings:
-    return Settings(
-        free_max_protected_repos=3,
-        free_max_public_repo_audits=10,
-        free_max_audits_month=250,
-        pro_max_protected_repos=25,
-        pro_max_public_repo_audits=0,
-        pro_max_audits_month=5000,
+def _settings(**overrides) -> Settings:
+    base = dict(
+        public_scan_max_new_audits=0,  # 0 = unlimited; coverage is C-classed below
+        public_scan_monthly_new_audits=0,
+        public_scan_max_concurrent=4,
     )
+    base.update(overrides)
+    return Settings(**base)
 
 
 @pytest.fixture
@@ -171,15 +173,16 @@ async def public_engine(tmp_path):
         notifier,
     )
     yield PublicRepoScanEngine(
-        sessions=factory, caps=CapsStore(factory, _settings()), sets=sets
+        sessions=factory,
+        limits=PublicScanLimits(sessions=factory, settings=_settings()),
+        sets=sets,
     ), factory
     await notifier.close()
     await engine.dispose()
 
 
 def _input(deps: list[LockfileDep], **overrides) -> CreatePublicRepoScanInput:
-    base = dict(
-        installation_id=1,
+    base: dict[str, Any] = dict(
         requested_by=7,
         github_repo_id=999,
         owner="facebook",
@@ -213,9 +216,14 @@ async def test_create_keys_the_snapshot_on_the_set(public_engine) -> None:
         _input([LockfileDep("lodash", "4.17.21", True, "^4.17.21")])
     )
     audit_set = await _row(factory, tables.audit_sets, id=set_id)
-    assert (audit_set["origin"], audit_set["origin_ref"], audit_set["billed_to"]) == (
-        "public_repo_scan", 999, 1,
-    )
+    # Requester, no payer: D-1's identity swap, asserted on the row that the
+    # liveness index and the read authorization both key on.
+    assert (
+        audit_set["origin"],
+        audit_set["origin_ref"],
+        audit_set["requested_by"],
+        audit_set["billed_to"],
+    ) == ("public_repo_scan", 999, 7, None)
     # The commit sha is recorded; together with the lockfile blob sha it is what
     # makes the snapshot reproducible.
     assert audit_set["commit_sha"] == "cafe" * 10
@@ -224,15 +232,16 @@ async def test_create_keys_the_snapshot_on_the_set(public_engine) -> None:
     assert snapshot["full_name"] == "facebook/react"
 
 
-async def test_cap_refusal_leaves_no_snapshot(public_engine) -> None:
-    """C14: the cap is asserted before the set exists, so a refused audit leaves
-    neither a set nor a snapshot row to stream or count."""
+async def test_concurrency_refusal_leaves_no_snapshot(public_engine) -> None:
+    """C14: live-scan concurrency is asserted before the set exists, so a refused
+    audit leaves neither a set nor a snapshot row to stream or count. This is the
+    ONLY refusal on this surface — every other ceiling degrades coverage."""
     engine, factory = public_engine
-    # A limit of 0 means UNLIMITED (the wire's "no cap" signal), so the ceiling
-    # under test is 1 — consumed by the first audit below.
-    engine.caps = CapsStore(factory, Settings(free_max_public_repo_audits=1))
+    engine.limits = PublicScanLimits(
+        sessions=factory, settings=_settings(public_scan_max_concurrent=1)
+    )
     await engine.create_public_repo_scan(_input([LockfileDep("a", "1.0.0", True, None)]))
-    with pytest.raises(CapExceededError):
+    with pytest.raises(TooManyLiveScansError):
         await engine.create_public_repo_scan(
             _input([LockfileDep("b", "1.0.0", True, None)], github_repo_id=1000)
         )
@@ -244,17 +253,17 @@ async def test_cap_refusal_leaves_no_snapshot(public_engine) -> None:
 
 
 async def test_find_running_is_keyed_on_the_stable_repo_id(public_engine) -> None:
-    """C15/C16: a live audit is found by (github_repo_id, payer). Keying on the
+    """C15/C16: a live audit is found by (github_repo_id, requester). Keying on the
     stable id rather than a lowercased full name is what makes a RENAME unable to
     open a second concurrent audit of the same repository."""
     engine, factory = public_engine
     set_id = await engine.create_public_repo_scan(
         _input([LockfileDep("x", "1.0.0", True, None)])
     )
-    assert await engine.find_running_public_scan(1, 999) == set_id
-    # A different payer does not see it, and neither does a different repo.
-    assert await engine.find_running_public_scan(2, 999) is None
-    assert await engine.find_running_public_scan(1, 1000) is None
+    assert await engine.find_running_public_scan(7, 999) == set_id
+    # A different user does not see it, and neither does a different repo.
+    assert await engine.find_running_public_scan(8, 999) is None
+    assert await engine.find_running_public_scan(7, 1000) is None
 
     # Once finished it is no longer running — even though the snapshot row remains.
     async with factory() as session, session.begin():
@@ -263,12 +272,12 @@ async def test_find_running_is_keyed_on_the_stable_repo_id(public_engine) -> Non
             .where(tables.audit_sets.c.id == set_id)
             .values(finished_at=now_iso())
         )
-    assert await engine.find_running_public_scan(1, 999) is None
+    assert await engine.find_running_public_scan(7, 999) is None
 
 
 async def test_second_live_audit_is_refused_by_the_index(public_engine) -> None:
     """C17: the durable partial-unique index — not the application pre-check — is
-    what guarantees at most one LIVE public audit per (repo, payer). The pre-check
+    what guarantees at most one LIVE public audit per (repo, requester). The pre-check
     loses a cross-process race; the index cannot."""
     engine, factory = public_engine
     await engine.create_public_repo_scan(_input([LockfileDep("x", "1.0.0", True, None)]))
@@ -276,7 +285,7 @@ async def test_second_live_audit_is_refused_by_the_index(public_engine) -> None:
         async with factory() as session, session.begin():
             await session.execute(
                 tables.audit_sets.insert().values(
-                    origin="public_repo_scan", origin_ref=999, billed_to=1,
+                    origin="public_repo_scan", origin_ref=999, requested_by=7,
                     trigger_kind="manual", started_at=now_iso(),
                 )
             )

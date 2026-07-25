@@ -14,7 +14,7 @@ from .audit_log import AuditLog
 from .config import Settings
 from .contract.models import EvidenceRef, Hypothesis, RunArtifact
 from .errors import DockerUnavailableError
-from .events import AuditEmitter
+from .events import Emitting
 from .evidence import ArtifactStore, RenderedTimeline, render_timeline
 from .graph import HypothesisGraph, next_open
 from .observation import RunUnderObservationError, is_unresolved_module, run_under_observation
@@ -134,7 +134,7 @@ async def run_experiment(
     )
 
 
-async def _emit_resolved(emitter: AuditEmitter | None, hypothesis: Hypothesis) -> None:
+async def _emit_resolved(emitter: Emitting | None, hypothesis: Hypothesis) -> None:
     if emitter:
         await emitter.emit(
             "hypothesis_resolved",
@@ -155,7 +155,7 @@ async def run_orchestrator(
     package_path: Path,
     artifact_store: ArtifactStore,
     log: AuditLog,
-    emitter: AuditEmitter | None,
+    emitter: Emitting | None,
     stated_purpose: str,
     global_budget_ms: float,
     settings: Settings,
@@ -238,6 +238,7 @@ async def run_orchestrator(
                     if result.judge_failed:
                         reason = f"Judge could not evaluate the run: {result.reason}"
                     elif unresolved_module:
+                        assert error is not None  # is_unresolved_module implies it
                         reason = f"Program-under-test could not be loaded ({error.detail})"
                     else:
                         reason = f"Observation incomplete ({error_kind}): {result.reason}"
