@@ -16,7 +16,7 @@ import {
 } from "../lib/api.ts";
 import { foldAuditEvent, initialFoldState, type AuditFoldState } from "../lib/audit-fold.ts";
 import { apiBase } from "../lib/config.ts";
-import type { AuditReport } from "../lib/engine-types.ts";
+import type { AuditReport } from "@npmguard/shared";
 import { connectAuditStream, type StreamHandle } from "../lib/sse.ts";
 
 interface AuditStoreState extends AuditFoldState {
@@ -94,6 +94,20 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
         onReconnecting: () => set({ reconnecting: true }),
         onFailed: () =>
           set({ running: false, reconnecting: false, error: "Lost connection to the audit engine" }),
+        // Drift, not a dropout. The stream is already closed and reconnecting
+        // would replay the same bad frame, so the run ends here — with a message
+        // that says the engine disagreed with the contract rather than blaming
+        // the network. The audit itself keeps running server-side and its durable
+        // report stays reachable at /package/:name/report.
+        onContractViolation: (detail) => {
+          set({
+            running: false,
+            reconnecting: false,
+            error: `The audit stream sent a frame that does not match the contract (${detail})`,
+            errorCode: "CONTRACT_VIOLATION",
+            errorRetryable: false,
+          });
+        },
       },
       { isDone: () => !get().running },
     );

@@ -1,9 +1,10 @@
 /** One typed function per DEV engine route (engine/npmguard/api.py). */
 
+import { AuditReportSchema, type AuditReport } from "@npmguard/shared";
 import { getJson, postJson } from "./api-base.ts";
 import { apiBase } from "./config.ts";
+import { ContractViolationError, getWire, parseWire } from "./wire.ts";
 import type {
-  AuditReport,
   CheckoutResponse,
   CheckoutStatus,
   PackageReportResponse,
@@ -61,9 +62,20 @@ export function fetchCheckoutStatus(sessionId: string): Promise<CheckoutStatus> 
 }
 
 /** 200 report once terminal. The engine answers 202 {status} while still
- * running — only called after verdict_reached / for the durable lookup. */
+ * running — only called after verdict_reached / for the durable lookup.
+ *
+ * PARSED, not cast: the report is the largest structure the app receives and it
+ * drives the entire report view, so a dropped engine field would otherwise reach
+ * a component as `undefined` (a missing `counts` renders an empty rail; a
+ * retired `verdict` picks no tone at all). A violation throws
+ * ContractViolationError, which `query-client.ts` classifies as terminal — drift
+ * is deterministic and must not be retried. */
 export function fetchAuditReport(auditId: string): Promise<AuditReport> {
-  return getJson(`${apiBase()}/audit/${auditId}/report`, "Could not load the report");
+  return getWire(
+    `${apiBase()}/audit/${auditId}/report`,
+    AuditReportSchema,
+    `GET /audit/${auditId}/report`,
+  );
 }
 
 export async function fetchAuditFile(
@@ -83,8 +95,28 @@ export function fetchPackages(): Promise<{ packages: PackageSummary[] }> {
 }
 
 /** `name` may be scoped (@scope/pkg) — the slash stays unencoded, the engine
- * mounts a splat route. */
-export function fetchPackageReport(name: string, version?: string): Promise<PackageReportResponse> {
+ * mounts a splat route.
+ *
+ * The envelope has no schema in `@npmguard/shared` (see `engine-types.ts`), so it
+ * is checked structurally while the part that carries structure — the report — is
+ * delegated to `AuditReportSchema`. That split is deliberate rather than lazy:
+ * the report is where a drifted engine field actually corrupts a view, and it is
+ * the half a hand-written check could get wrong. The two envelope strings only
+ * label the page.
+ * TODO(contract): author this envelope in `shared/src/backend.ts` and delete the
+ * structural half. */
+export async function fetchPackageReport(
+  name: string,
+  version?: string,
+): Promise<PackageReportResponse> {
   const query = version ? `?version=${encodeURIComponent(version)}` : "";
-  return getJson(`${apiBase()}/package/${name}/report${query}`, "No audit report found");
+  const what = `GET /package/${name}/report`;
+  const raw = await getJson<unknown>(`${apiBase()}/package/${name}/report${query}`, "No audit report found");
+  const envelope = (raw ?? {}) as Record<string, unknown>;
+  const report = parseWire(AuditReportSchema, envelope["report"], `${what} (report)`);
+  const { packageName, version: reportedVersion } = envelope;
+  if (typeof packageName !== "string" || typeof reportedVersion !== "string") {
+    throw new ContractViolationError(what, "packageName, version: expected string", raw);
+  }
+  return { report, version: reportedVersion, packageName };
 }

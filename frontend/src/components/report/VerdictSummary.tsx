@@ -5,12 +5,12 @@
  */
 
 import type { CSSProperties } from "react";
-import type { HypothesisCounts, Verdict } from "../../lib/engine-types.ts";
+import type { HypothesisCounts, VerdictEnum } from "@npmguard/shared";
 import { verdictTone } from "../../lib/report-helpers.ts";
 import { CountsRail } from "./CountsRail.tsx";
 
 export interface VerdictSummaryProps {
-  verdict: Verdict;
+  verdict: VerdictEnum;
   rationale: string;
   counts: HypothesisCounts;
 }

@@ -10,8 +10,8 @@ import type {
   ClaimKind,
   Hypothesis,
   HypothesisState,
-  Verdict,
-} from "./engine-types.ts";
+  VerdictEnum,
+} from "@npmguard/shared";
 
 export const CLAIM_LABELS: Record<ClaimKind, string> = {
   env_exfil: "Environment exfiltration",
@@ -43,7 +43,7 @@ export function claimLabel(claim: ClaimKind | string): string {
   return CLAIM_LABELS[claim as ClaimKind] ?? claim;
 }
 
-export function verdictTone(verdict: Verdict): "safe" | "danger" {
+export function verdictTone(verdict: VerdictEnum): "safe" | "danger" {
   return verdict === "DANGEROUS" ? "danger" : "safe";
 }
 

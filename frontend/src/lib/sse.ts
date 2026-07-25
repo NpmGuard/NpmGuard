@@ -6,6 +6,7 @@
  *   EventSource re-sends the last `id:` as Last-Event-ID and the engine replays
  *   only events after it (it also accepts ?since=<seq>). Either way the fold's
  *   seq guard makes replay idempotent, so the client never reasons about dupes.
+ *   Frames are PARSED against `AuditEventSchema`, not cast — see the listener.
  * - Audit-set progress stream (/panel/scan/:id/events): UNNAMED default messages
  *   via `onmessage` — per-name listeners receive nothing. Frames DO carry an
  *   `id:` line (the durable log's seq), so a native EventSource reconnect resumes
@@ -19,8 +20,29 @@
  * fake with no real timers or network.
  */
 
-import { ScanStreamFrameSchema, type ScanStreamFrame } from "@npmguard/shared";
-import { AUDIT_EVENT_TYPES, type AuditEvent } from "./engine-types.ts";
+import {
+  AuditEventSchema,
+  EVENT_TYPES,
+  ScanStreamFrameSchema,
+  type AuditEventUnion,
+  type ScanStreamFrame,
+} from "@npmguard/shared";
+
+/**
+ * The 17 named events the audit stream can carry. Aliased on import because this
+ * module serves TWO streams and a bare `EVENT_TYPES` would not say whose.
+ *
+ * A name here that the engine never emits is a permanently dead listener; a union
+ * member missing from here is an event this client silently never receives. The
+ * `AuditEventType` alias in the contract cannot catch either, because shared
+ * derives it from this very list — so the list is pinned against the union's own
+ * discriminant, in both directions, immediately below. `contract-audit.test.ts`
+ * C3 asserts the same equality at runtime.
+ */
+const AUDIT_EVENT_TYPES: readonly AuditEventUnion["type"][] = EVENT_TYPES;
+const _unionMembersAreAllListed: readonly (typeof EVENT_TYPES)[number][] =
+  [] as AuditEventUnion["type"][];
+void _unionMembersAreAllListed;
 
 /** Structural EventSource surface — deliberately wider than the DOM lib's
  * overloaded signatures so test fakes can satisfy it. */
@@ -34,12 +56,20 @@ export type EventSourceLike = {
 export type EventSourceCtor = new (url: string) => EventSourceLike;
 
 export interface AuditStreamHandlers {
-  onEvent: (event: AuditEvent) => void;
+  onEvent: (event: AuditEventUnion) => void;
   /** attempt is 1-based; called before each reconnect wait */
   onReconnecting?: (attempt: number) => void;
   /** all reconnect attempts exhausted */
   onFailed?: () => void;
   onConnected?: () => void;
+  /**
+   * A frame whose payload does not match its contract. Kept SEPARATE from
+   * `onFailed` because the two have opposite recoveries: a transport drop is
+   * transient and is retried, while drift is deterministic — the same engine
+   * sends the same bad frame on every reconnect — so retrying it is an infinite
+   * loop that hides the cause. The stream is closed before this fires.
+   */
+  onContractViolation?: (detail: string) => void;
 }
 
 export interface AuditStreamOptions {
@@ -56,6 +86,19 @@ export interface StreamHandle {
 }
 
 const defaultBackoff = (attempt: number) => Math.min(1000 * 2 ** (attempt - 1), 16000);
+
+/** Render at most three zod issues as `path: message` — enough to name the
+ * drifted field in an error line, short enough to display. The stream counterpart
+ * to the same rendering `lib/wire.ts` does for HTTP responses; kept local because
+ * that one is reached through `getJson`, which an SSE frame never passes through. */
+function describeFrameIssues(error: { issues: { path: PropertyKey[]; message: string }[] }): string {
+  const shown = error.issues
+    .slice(0, 3)
+    .map(({ path, message }) => `${path.length > 0 ? path.join(".") : "(root)"}: ${message}`);
+  return error.issues.length > 3
+    ? `${shown.join("; ")} (+${error.issues.length - 3} more)`
+    : shown.join("; ");
+}
 
 export function connectAuditStream(
   url: string,
@@ -79,13 +122,33 @@ export function connectAuditStream(
         if (closed) return;
         attempts = 0; // a delivered event proves the connection is healthy
         handlers.onConnected?.();
-        let event: AuditEvent;
+        let payload: unknown;
         try {
-          event = JSON.parse((raw as MessageEvent).data) as AuditEvent;
+          payload = JSON.parse((raw as MessageEvent).data);
         } catch {
           return; // malformed frame — skip, never throw into the stream
         }
-        handlers.onEvent(event);
+        // A frame is a wire response like any other, so it is CHECKED, not cast.
+        // This used to be `JSON.parse(...) as AuditEvent`, the same defect the
+        // panel progress stream carried: a frame that had lost a field folded
+        // straight into cumulative state and nothing said so. Here it is worse
+        // than a stale row — the fold iterates and indexes these payloads
+        // (`file_list` walks `event.files`), so a dropped field is a TypeError
+        // thrown from inside an EventSource listener, on a frame nobody can see.
+        //
+        // Only the 17 SUBSCRIBED names reach this point, so failing strictly here
+        // cannot break forward compatibility: an event type the engine adds has
+        // no listener and is dropped by EventSource before this runs.
+        const parsed = AuditEventSchema.safeParse(payload);
+        if (!parsed.success) {
+          closed = true;
+          if (retryTimer !== null) clearTimeout(retryTimer);
+          source?.close();
+          source = null;
+          handlers.onContractViolation?.(`${type}: ${describeFrameIssues(parsed.error)}`);
+          return;
+        }
+        handlers.onEvent(parsed.data);
       });
     }
     source.onerror = () => {

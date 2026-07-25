@@ -4,7 +4,7 @@
  * Honest empty: when nothing was raised, we say so — never a row of zeros.
  */
 
-import type { HypothesisCounts } from "../../lib/engine-types.ts";
+import type { HypothesisCounts } from "@npmguard/shared";
 
 export interface CountsRailProps {
   counts: HypothesisCounts;

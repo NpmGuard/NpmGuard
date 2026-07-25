@@ -7,6 +7,13 @@
  *  C2  delivered event             — a well-formed frame is parsed → onEvent, and
  *                                    onConnected fires (a delivered event = healthy).
  *  C3  malformed frame             — a bad-JSON frame is skipped, never onEvent, never throws.
+ *  C9  contract violation          — a frame that PARSES as JSON but violates
+ *                                    AuditEventSchema never reaches onEvent: the
+ *                                    stream closes and onContractViolation fires,
+ *                                    with NO reconnect (drift is deterministic, so
+ *                                    retrying replays the same bad frame forever).
+ *                                    This is the class that used to be a silent
+ *                                    `as AuditEvent` cast.
  *  C4  reconnect on error          — onerror → onReconnecting(attempt) + a reopen
  *                                    scheduled through the injected backoff.
  *  C5  attempt reset               — a delivered event resets the attempt counter so a
@@ -26,7 +33,7 @@ import {
   type EventSourceCtor,
   type EventSourceLike,
 } from "./sse.ts";
-import { AUDIT_EVENT_TYPES } from "./engine-types.ts";
+import { EVENT_TYPES } from "@npmguard/shared";
 
 class FakeEventSource implements EventSourceLike {
   static instances: FakeEventSource[] = [];
@@ -64,6 +71,13 @@ class FakeEventSource implements EventSourceLike {
 const Ctor = FakeEventSource as unknown as EventSourceCtor;
 const frame = (payload: object) => JSON.stringify(payload);
 
+/** A CONTRACT-COMPLETE audit frame. The envelope fields are not decoration: the
+ * client now parses every frame against `AuditEventSchema`, so a frame missing
+ * `auditId`/`timestamp`/`seq` is a violation, exactly as it would be on the wire
+ * (events.py flattens all four envelope fields onto every payload). */
+const auditFrame = (payload: object, seq = 1) =>
+  frame({ auditId: "aud-1", timestamp: "2026-07-25T00:00:00.000Z", seq, ...payload });
+
 beforeEach(() => {
   FakeEventSource.instances = [];
   vi.useFakeTimers();
@@ -76,7 +90,7 @@ describe("connectAuditStream — C1 named-listener registration", () => {
   it("C1: registers exactly one listener per AUDIT_EVENT_TYPES and never uses onmessage", () => {
     const handle = connectAuditStream("/api/audit/a/events", { onEvent: () => {} }, { eventSource: Ctor });
     const src = FakeEventSource.latest();
-    expect([...src.listeners.keys()].sort()).toEqual([...AUDIT_EVENT_TYPES].sort());
+    expect([...src.listeners.keys()].sort()).toEqual([...EVENT_TYPES].sort());
     expect(src.onmessage).toBeNull();
     handle.close();
   });
@@ -87,8 +101,14 @@ describe("connectAuditStream — C2 delivered event", () => {
     const onEvent = vi.fn();
     const onConnected = vi.fn();
     const handle = connectAuditStream("/api/audit/a/events", { onEvent, onConnected }, { eventSource: Ctor });
-    FakeEventSource.latest().emit("audit_started", frame({ type: "audit_started", seq: 1, packageName: "chalk" }));
-    expect(onEvent).toHaveBeenCalledWith({ type: "audit_started", seq: 1, packageName: "chalk" });
+    FakeEventSource.latest().emit("audit_started", auditFrame({ type: "audit_started", packageName: "chalk" }));
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "audit_started",
+      auditId: "aud-1",
+      timestamp: "2026-07-25T00:00:00.000Z",
+      seq: 1,
+      packageName: "chalk",
+    });
     expect(onConnected).toHaveBeenCalled();
     handle.close();
   });
@@ -140,7 +160,7 @@ describe("connectAuditStream — C5 attempt reset", () => {
     expect(onReconnecting).toHaveBeenNthCalledWith(2, 2);
 
     // a healthy frame arrives → attempts reset
-    FakeEventSource.latest().emit("audit_started", frame({ type: "audit_started", seq: 1, packageName: "x" }));
+    FakeEventSource.latest().emit("audit_started", auditFrame({ type: "audit_started", packageName: "x" }));
     FakeEventSource.latest().fail(); // should be attempt 1 again, not 3
     expect(onReconnecting).toHaveBeenNthCalledWith(3, 1);
     handle.close();
@@ -197,12 +217,114 @@ describe("connectAuditStream — C8 close idempotence", () => {
     expect(() => handle.close()).not.toThrow(); // idempotent
     expect(src.closed).toBe(true);
 
-    src.emit("audit_started", frame({ type: "audit_started", seq: 1, packageName: "x" }));
+    src.emit("audit_started", auditFrame({ type: "audit_started", packageName: "x" }));
     src.fail();
     vi.advanceTimersByTime(1000);
     expect(onEvent).not.toHaveBeenCalled(); // closed → dropped
     expect(onReconnecting).not.toHaveBeenCalled();
     expect(FakeEventSource.instances).toHaveLength(1);
+  });
+});
+
+describe("connectAuditStream — C9 contract violation", () => {
+  /** A frame that is valid JSON and a real event NAME, but has lost a field. This
+   * is the shape that used to flow straight into the fold: `file_list` without
+   * `files` is not a cosmetic gap — the fold iterates it. */
+  it("C9: a frame violating its schema never reaches onEvent; the stream closes and reports drift", () => {
+    const onEvent = vi.fn();
+    const onContractViolation = vi.fn();
+    const onReconnecting = vi.fn();
+    const handle = connectAuditStream(
+      "/api/audit/a/events",
+      { onEvent, onContractViolation, onReconnecting },
+      { eventSource: Ctor, backoffMs: () => 0 },
+    );
+    const src = FakeEventSource.latest();
+    src.emit("file_list", auditFrame({ type: "file_list" })); // `files` dropped
+
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(src.closed).toBe(true);
+    expect(onContractViolation).toHaveBeenCalledTimes(1);
+    // the detail names the event and the offending path, for a support conversation
+    expect(onContractViolation.mock.calls[0]?.[0]).toContain("file_list");
+    expect(onContractViolation.mock.calls[0]?.[0]).toContain("files");
+
+    // NO reconnect: the same engine would send the same bad frame.
+    vi.advanceTimersByTime(60_000);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(onReconnecting).not.toHaveBeenCalled();
+    handle.close();
+  });
+
+  it("C9: a dropped envelope field is a violation too, not a tolerated frame", () => {
+    // events.py flattens {type,auditId,timestamp,seq} onto EVERY payload, so a
+    // frame missing one is drift. The fold dedups by `seq`; a frame without one
+    // would defeat the replay guard entirely.
+    const onEvent = vi.fn();
+    const onContractViolation = vi.fn();
+    const handle = connectAuditStream(
+      "/api/audit/a/events",
+      { onEvent, onContractViolation },
+      { eventSource: Ctor, backoffMs: () => 0 },
+    );
+    FakeEventSource.latest().emit(
+      "audit_started",
+      frame({ type: "audit_started", packageName: "chalk" }), // no auditId/timestamp/seq
+    );
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onContractViolation).toHaveBeenCalledTimes(1);
+    handle.close();
+  });
+
+  it("C9: an audit_error with null fields is rejected, not defaulted", () => {
+    // The engine cannot emit this frame (all three fields required non-null, every
+    // emit site supplies them). The fold used to accept it and substitute "The
+    // audit failed", which turned a contract break into a plausible-looking error
+    // message. It is now refused by name.
+    const onEvent = vi.fn();
+    const onContractViolation = vi.fn();
+    const handle = connectAuditStream(
+      "/api/audit/a/events",
+      { onEvent, onContractViolation },
+      { eventSource: Ctor, backoffMs: () => 0 },
+    );
+    FakeEventSource.latest().emit(
+      "audit_error",
+      auditFrame({ type: "audit_error", error: null, code: null, retryable: null }),
+    );
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onContractViolation).toHaveBeenCalledTimes(1);
+    handle.close();
+  });
+
+  it("C9: a well-formed frame for every subscribed name is delivered, so C9 is not vacuous", () => {
+    // Guards the opposite failure: a validator so strict that nothing passes would
+    // satisfy every assertion above. One real frame per name must still arrive.
+    const onEvent = vi.fn();
+    const onContractViolation = vi.fn();
+    const handle = connectAuditStream(
+      "/api/audit/a/events",
+      { onEvent, onContractViolation },
+      { eventSource: Ctor, backoffMs: () => 0 },
+    );
+    const src = FakeEventSource.latest();
+    src.emit("phase_started", auditFrame({ type: "phase_started", phase: "flag" }, 1));
+    src.emit(
+      "verdict_reached",
+      auditFrame(
+        {
+          type: "verdict_reached",
+          verdict: "SAFE",
+          rationale: "all refuted",
+          counts: { total: 0, open: 0, inProgress: 0, confirmed: 0, refuted: 0, deferred: 0 },
+          confirmedCount: 0,
+        },
+        2,
+      ),
+    );
+    expect(onContractViolation).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    handle.close();
   });
 });
 

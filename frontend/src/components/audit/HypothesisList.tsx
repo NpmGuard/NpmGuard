@@ -9,7 +9,7 @@
 import type { CSSProperties } from "react";
 import { useAuditStore } from "../../stores/auditStore.ts";
 import type { HypothesisView } from "../../lib/audit-fold.ts";
-import type { HypothesisState } from "../../lib/engine-types.ts";
+import type { HypothesisState } from "@npmguard/shared";
 import { bySeverityDesc, claimLabel, STATE_LABELS } from "../../lib/report-helpers.ts";
 
 function severityAccent(severity: string): string {
