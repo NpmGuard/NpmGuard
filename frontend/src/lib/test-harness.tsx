@@ -136,14 +136,25 @@ export function alert(over: Partial<Alert> = {}): Alert {
   };
 }
 
+const PRO_OFFER = {
+  id: "pro",
+  label: "Pro",
+  limits: { protectedRepos: 0, monthlyAudits: 0 },
+};
+
+/** Baseline fixture: an unpaid account, so `Pro` is still on the table. Pass
+ * `{subscriptionActive: true, upgradeOffers: []}` for one that holds the top
+ * offer — the two facts move together in the engine's projection. */
 export function entitlements(over: Partial<AccountEntitlements> = {}): AccountEntitlements {
   return {
     installationId: 1,
     accountLogin: "acme",
-    plan: "free",
+    plan: "Free",
     subscriptionStatus: "inactive",
+    subscriptionActive: false,
     protectedRepos: { used: 1, limit: 1, remaining: 0 },
     monthlyAudits: { used: 0, limit: 100, remaining: 100 },
+    upgradeOffers: [PRO_OFFER],
     ...over,
   };
 }
@@ -151,10 +162,10 @@ export function entitlements(over: Partial<AccountEntitlements> = {}): AccountEn
 export function billingResponse(over: Partial<BillingResponse> = {}): BillingResponse {
   return {
     accounts: [entitlements()],
-    plans: {
-      free: { protectedRepos: 1, monthlyAudits: 100 },
-      pro: { protectedRepos: 0, monthlyAudits: 0 },
-    },
+    offers: [
+      { id: "free", label: "Free", limits: { protectedRepos: 1, monthlyAudits: 100 } },
+      PRO_OFFER,
+    ],
     checkoutEnabled: true,
     // `currency` is nullable on the wire, and the fixture exercises that null.
     price: { amount: 900, currency: null, interval: "month" },

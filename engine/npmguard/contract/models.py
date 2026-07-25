@@ -292,6 +292,12 @@ class PlanLimits(BaseModel):
     monthlyAudits: Annotated[int, Field(ge=0)]
 
 
+class PlanOffer(BaseModel):
+    id: str
+    label: str
+    limits: PlanLimits
+
+
 class PlantedFileRef(BaseModel):
     path: str
     contentHash: str
@@ -452,10 +458,12 @@ class ValidationIssue(BaseModel):
 class AccountEntitlements(BaseModel):
     installationId: int
     accountLogin: str
-    plan: Annotated[Literal['free', 'pro'], Field(title='AccountPlan')]
+    plan: str
     subscriptionStatus: str
+    subscriptionActive: bool
     protectedRepos: UsageBucket
     monthlyAudits: UsageBucket
+    upgradeOffers: list[PlanOffer]
 
 
 class Alert(BaseModel):
@@ -688,6 +696,13 @@ class BenchRun(BaseModel):
 
 class BenchRunsResponse(BaseModel):
     runs: list[BenchRun]
+
+
+class BillingResponse(BaseModel):
+    accounts: list[AccountEntitlements]
+    offers: list[PlanOffer]
+    checkoutEnabled: bool
+    price: SubscriptionPrice | None
 
 
 class CapExceeded(BaseModel):
@@ -999,11 +1014,6 @@ class PhaseStartedEvent(BaseModel):
     phase: str
 
 
-class PlanCatalog(BaseModel):
-    free: PlanLimits
-    pro: PlanLimits
-
-
 class PublicRepoScan(BaseModel):
     id: int
     repo: PublicRepo
@@ -1174,13 +1184,6 @@ class BenchRunDetailResponse(BaseModel):
     corpus: BenchCorpus
     run: BenchRun
     rows: list[BenchRunRow]
-
-
-class BillingResponse(BaseModel):
-    accounts: list[AccountEntitlements]
-    plans: PlanCatalog
-    checkoutEnabled: bool
-    price: SubscriptionPrice | None
 
 
 class HypothesisGraphSnapshot(BaseModel):
