@@ -36,13 +36,13 @@ function Harness({ onClose = () => {} }: { onClose?: () => void }) {
       </button>
       {open && (
         <PanelDialog ariaLabel="Public audit snapshot 12" onClose={close}>
-          <div className="dialog__header">
-            <h2 className="headline">acme/widget</h2>
-            <button type="button" className="icon-btn" aria-label="Close" onClick={close}>
+          <div>
+            <h2>acme/widget</h2>
+            <button type="button" aria-label="Close" onClick={close}>
               x
             </button>
           </div>
-          <div className="dialog__body">
+          <div>
             <a href="#dep">left-pad@1.3.0</a>
           </div>
         </PanelDialog>
@@ -65,11 +65,13 @@ describe("PanelDialog — P1/P3 the preserved signature", () => {
     // Radix can wire `aria-labelledby` from a real node. Same name either way,
     // which is what makes the three untouched callers keep working.
     expect(dialog).toHaveAccessibleName("Public audit snapshot 12");
-    expect(screen.getByText("acme/widget")).toBeInTheDocument();
-    // The legacy body classes survive inside the new shell — the callers still
-    // ship them and `base.css` still styles them.
-    expect(dialog.querySelector(".dialog__header")).not.toBeNull();
-    expect(dialog.querySelector(".dialog__body")).not.toBeNull();
+    // "Verbatim" is the claim worth testing, so assert the caller's OWN nodes
+    // reach the DOM — a heading and a link the shell knows nothing about. This
+    // used to assert on `.dialog__header` / `.dialog__body`, which only ever
+    // proved that `base.css` was still around to style them; that sheet is gone
+    // and the structural guarantee is the part that actually mattered.
+    expect(screen.getByRole("heading", { name: "acme/widget" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "left-pad@1.3.0" })).toBeInTheDocument();
   });
 
   it("P3: the adapter draws no close button of its own", async () => {
