@@ -121,6 +121,22 @@ inlined it — which is why the generated Python class is named `Hypothes`
 
 **DECISION:** export it.
 
+### A5b Skeleton coverage gap — the failure path has no fixture
+
+Verified while checking parity after the deletion: the four committed
+`engine/tests/fixtures/sse/*.skeleton.json` union to **15** event types, and the
+frontend declares all 15. The 2 declared types absent from every skeleton are
+`audit_enqueued` (pre-pipeline) and `audit_error` (failure path) — both have
+confirmed emit sites (`service.py:120`, `:184`/`:246`/`:315`), so they are real.
+
+**So no committed SSE fixture exercises the failure path at all.** That's a
+coverage gap to close when the e2e work lands (Phase 3), not a contract defect.
+
+Method note worth keeping: my first parity check mis-parsed the skeleton JSON and
+produced an empty type set, which satisfies a ⊆ assertion **trivially**. A
+subset check against an empty set is not evidence. Re-ran it against the real
+`eventTypes` arrays before believing the result.
+
 ### A6 Two report-construction sites
 
 `_report()` (`pipeline.py:111`) and the dealbreaker early-return
