@@ -136,8 +136,7 @@ export const InventoryMetaEventSchema = BaseAuditEventSchema.extend({
 export type InventoryMetaEvent = z.infer<typeof InventoryMetaEventSchema>;
 
 // ---------------------------------------------------------------------------
-// Emitted by the engine but previously unschematised — present in every
-// committed SSE skeleton (pipeline.py:193, :278, :359).
+// Emitted by pipeline.py, and present in every committed SSE skeleton.
 // ---------------------------------------------------------------------------
 
 export const DependenciesProvisionedEventSchema = BaseAuditEventSchema.extend({
@@ -164,8 +163,8 @@ export const GraphBuiltEventSchema = BaseAuditEventSchema.extend({
 });
 export type GraphBuiltEvent = z.infer<typeof GraphBuiltEventSchema>;
 
-// All three fields are always supplied, non-null, by every emit site
-// (service.py:184, :246, :315) — so they are required, not optional.
+// All three fields are always supplied, non-null, by every emit site in
+// service.py — so they are required, not optional.
 export const AuditErrorEventSchema = BaseAuditEventSchema.extend({
   type: z.literal("audit_error"),
   error: z.string(),
@@ -176,11 +175,9 @@ export type AuditErrorEvent = z.infer<typeof AuditErrorEventSchema>;
 
 // EXACTLY the 17 types the engine can emit. Verified against every emit site
 // (AuditEmitter.emit, service.py's terminal append, and demo replay) and against
-// the committed SSE skeletons. Seven previously-declared members
-// (agent_thinking/agent_tool_call/agent_tool_result/agent_reasoning/
-// finding_discovered/verify_started/verify_test_result) had ZERO emit sites and
-// were deleted: an unreachable member costs a dead SSE listener, a dead fold arm,
-// and a reader who must re-derive that it is dead.
+// the committed SSE skeletons. A member with no emit site does not belong here:
+// it costs a dead SSE listener, a dead fold arm, and a reader who has to
+// re-derive that it is dead.
 export const AuditEventSchema = z.discriminatedUnion("type", [
   AuditStartedEventSchema,
   AuditEnqueuedEventSchema,

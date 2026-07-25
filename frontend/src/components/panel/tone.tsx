@@ -6,9 +6,8 @@
  * axes stay separate here too: `outcomeTone` maps what we KNOW, and the dep
  * helpers below fold in progress (`jobState`) only where the UI shows progress.
  *
- * The param is no longer widened to `string`: the retired 4-state PanelVerdict
- * and a bare-`string` Alert.verdict were what forced that, and a widened param
- * silently accepted values the map had no arm for.
+ * The param is typed `Outcome`, never widened to `string`: a widened param
+ * silently accepts values the map has no arm for.
  *
  * This file is now LOGIC ONLY. The two renderers that used to live at the
  * bottom moved to `components/ui/verdict-stamp.tsx` as `VerdictStamp` /
@@ -47,10 +46,9 @@ export function outcomeTone(outcome: Outcome | null): Tone {
 /** Card accent for a repo's last audit set: set progress first (still running),
  * then the outcome over its own items.
  *
- * There is no `failed` arm any more — R-1's falsification pass found zero
- * producers for a failed SET, so the status domain is `running | done` and the
- * branch that handled it was dead. Every way a set can go wrong now resolves into
- * its rollup, where ERROR is a real, countable outcome. */
+ * There is no `failed` arm: the set status domain is `running | done`. Every way
+ * a set can go wrong resolves into its rollup, where ERROR is a real, countable
+ * outcome. */
 export function scanTone(set: AuditSet | null): Tone {
   if (!set) return "unknown";
   if (set.status === "running") return "running";

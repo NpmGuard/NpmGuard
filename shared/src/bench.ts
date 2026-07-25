@@ -9,21 +9,17 @@ import { AuditSetSchema } from "./panel.js";
  * THE RULE THIS DOMAIN IS BUILT AROUND (F-G2): a run item stores OBSERVATIONS
  * only. There is no `detected`, no `status`, no `proofKinds`, no per-item
  * outcome anywhere below. Every judgement — detected / missed / false positive /
- * inconclusive — is DERIVED at read time from `expected × observed`. Bench v1
- * died because it stored judgements computed from report fields
- * (`expectedCapabilities ⊆ capabilities`, `proof.kind === "TEST_CONFIRMED"`)
- * that no longer exist: the rows became unreadable instead of re-projectable.
- * Because a row keeps its `auditId` and the report stays on disk, a scoring-rule
- * change re-projects all history.
+ * inconclusive — is DERIVED at read time from `expected × observed`. Storing a
+ * judgement instead ties every row to the report fields the rule was computed
+ * from, so the rows become unreadable rather than re-projectable the moment
+ * those fields change. Because a row keeps its `auditId` and the report stays on
+ * disk, a scoring-rule change re-projects all history.
  *
- * O-2 — the scoring rule — is RESOLVED (D-6's eight-value outcome taxonomy), so
- * the vocabulary and the rates are now declared, at the bottom of this file. Note
- * what did NOT change: the outcome of an observation is still nowhere on
+ * The outcome vocabulary IS declared, at the bottom of this file — but nowhere on
  * `BenchRunItem`. `BenchOutcome` and `BenchEntryBucket` appear only inside
- * `BenchRunMetrics`, which is a READ-TIME PROJECTION — the taxonomy travels on the
- * wire, never into storage, so the next taxonomy edit re-projects all history
- * exactly as before. Declaring a judgement and storing one are different acts, and
- * only the second is what killed v1.
+ * `BenchRunMetrics`, a READ-TIME PROJECTION, so the taxonomy travels on the wire
+ * and never into storage. Declaring a judgement and storing one are different
+ * acts, and only the second costs you your history.
  *
  * WIRE nullability rule as in panel.ts: `.nullable()`, never `.optional()`.
  */
@@ -117,8 +113,8 @@ export const BenchRunSchema = z.object({
   id: z.number().int(),
   corpusId: z.number().int(),
   engineSha: z.string(),
-  // The reproducibility identifier, OBSERVED (B-11 / methodology §7.6). One
-  // `modelId` string cannot describe a run: `intent`/`flag` bill on
+  // The reproducibility identifier, OBSERVED. One `modelId` string cannot
+  // describe a run: `intent`/`flag` bill on
   // `triage_model` while `hypothesis`/`propose`/`agent`/`judge` bill on
   // `investigation_model`, and every role carries a cross-provider fallback tail,
   // so a single audit can bill several models. Empty when no LLM attempt was
@@ -134,12 +130,11 @@ export const BenchRunSchema = z.object({
   // who needs the truth reads `observedModels`; `modelId` is for grouping and for
   // a caption.
   //
-  // Enforced at the PRODUCER (`read.py`'s `model_id`, which returns `... or None`)
-  // rather than by the type, and not for want of trying: `.min(1).nullable()` makes
-  // the Python codegen emit a field-named `ModelId` wrapper class into the shared
-  // contract module — the hazard already documented on `BenchRunItem`'s nullable
-  // numerics below — which would cost every Python reader a `.root` and every test
-  // a string comparison. One producer is a cheaper guarantee than that.
+  // Enforced at the PRODUCER (`read.py`'s `model_id`) rather than by the type:
+  // `.min(1).nullable()` makes the Python codegen emit a field-named `ModelId`
+  // wrapper class into the shared contract module — the same hazard documented on
+  // `BenchRunItem`'s nullable numerics below — costing every Python reader a
+  // `.root`. One producer is the cheaper guarantee.
   modelId: z.string().nullable(),
   sandboxImageDigest: z.string(),
   runsPerEntry: z.number().int().positive(),
@@ -226,11 +221,9 @@ export const BenchRunDetailResponseSchema = z.object({
 });
 export type BenchRunDetailResponse = z.infer<typeof BenchRunDetailResponseSchema>;
 
-// GET /bench/runs/{run_id}/rows — the drill-down. The `?outcome=` filter §5.3
-// sketches is still absent, and now for a smaller reason than O-2: the outcome
-// vocabulary exists (`BenchOutcomeSchema`) but the wire carries observations and
-// the reader filters, so adding the filter adds a query param rather than a
-// stored field.
+// GET /bench/runs/{run_id}/rows — the drill-down. There is deliberately no
+// `?outcome=` filter: the wire carries observations and the reader filters, so
+// adding one would be a query param, never a stored field.
 export const BenchRunRowsResponseSchema = z.object({
   runId: z.number().int(),
   rows: z.array(BenchRunRowSchema),
@@ -241,13 +234,13 @@ export type BenchRunRowsResponse = z.infer<typeof BenchRunRowsResponseSchema>;
 // The derived projection (§4.2, §5.3–§5.5, §7.1) — D-6's answer to O-2
 // ---------------------------------------------------------------------------
 
-// §4.2 — the per-OBSERVATION outcome. Eight values, exhaustive and disjoint.
+// The per-OBSERVATION outcome. Eight values, exhaustive and disjoint.
 // Produced by `projector.classify`, and produced NOWHERE else: it is derived from
 // `expected × observed` at read time and is never written to a row.
 export const BenchOutcomeSchema = z.enum([
-  // `expectedVerdict: DANGEROUS` and the engine said DANGEROUS. Split because §4.4
-  // treats the dealbreaker short-circuit as a DISJOINT mechanism, not a weaker tier
-  // — it returns before any hypothesis exists, so it must not be averaged in with
+  // `expectedVerdict: DANGEROUS` and the engine said DANGEROUS. Split because the
+  // dealbreaker short-circuit is a DISJOINT mechanism, not a weaker tier — it
+  // returns before any hypothesis exists, so it must not be averaged in with
   // "proved by running it".
   "CAUGHT_PROVED",
   "CAUGHT_STRUCTURAL",

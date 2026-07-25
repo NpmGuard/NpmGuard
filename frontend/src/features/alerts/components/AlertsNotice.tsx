@@ -1,14 +1,14 @@
 /** Unseen-alerts banner: count, the first three alerts as
  * "pkg@ver is VERDICT", and a mark-as-seen action.
  *
- * THIS is the component the degraded-state bug lived in. The old store kept the
- * previous alerts snapshot when the fetch failed; on first load that snapshot was
- * `[]`, `unseen.length === 0` was therefore true, and this returned `null`. A
- * reader saw no banner and concluded *no threats* when the truth was *no
- * knowledge* — in a security product, the product lying.
+ * THIS is the component the degraded-state bug lives in. Keep the previous alerts
+ * snapshot when the fetch fails and, on first load, that snapshot is `[]` —
+ * `unseen.length === 0` is true, this returns `null`, and a reader sees no banner
+ * and concludes *no threats* when the truth is *no knowledge*. In a security
+ * product, that is the product lying.
  *
- * The fix is not a `try`/`catch` here; it is that the failure is now a state this
- * component can be handed. Three arms, and only one of them has alerts in scope:
+ * The guard is not a `try`/`catch` here; it is that the failure is a STATE this
+ * component is handed. Three arms, and only one of them has alerts in scope:
  *
  *   loading  → nothing. A banner not yet drawn claims nothing.
  *   failed   → a named degraded region: "Alerts unavailable", hatched, with a

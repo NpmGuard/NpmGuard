@@ -13,9 +13,8 @@
  *
  * Two properties this buys that a type alone cannot:
  *
- *  1. A dropped engine field fails LOUD. `PanelRepo` without `defaultBranch`
- *     used to render an empty branch chip; now the region degrades and names
- *     the route that broke.
+ *  1. A dropped engine field fails LOUD: the region degrades and names the route
+ *     that broke, rather than rendering an empty chip where the field was.
  *  2. The failure is not retried. Drift is deterministic — the same response
  *     violates the same schema — so `query-client.ts` classifies this error as
  *     terminal (see `retryable`).

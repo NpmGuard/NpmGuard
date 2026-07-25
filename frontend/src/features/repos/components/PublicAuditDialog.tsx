@@ -7,15 +7,13 @@
  * every signed-in visitor who had not installed the App. So this dialog reads no
  * billing at all.
  *
- * ── PRESENTATION: what the recomposition changed ────────────────────────────
+ * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
- * Nothing about what this form submits or when. Two things about what it says:
- *
- * 1. **A refused mutation rendered `banner--danger` — RED.** "We could not start
+ * 1. **A refused mutation is the `error` slot, never RED.** "We could not start
  *    your audit" is our plumbing failing, not a claim about a package, and §0
- *    rule 3 keeps red for the latter. It is the `error` slot now. No hatch: hatch
- *    means "no signal here", and a refusal is a signal — the request was answered.
-
+ *    rule 3 keeps red for the latter. No hatch either: hatch means "no signal
+ *    here", and a refusal is a signal — the request was answered.
+ *
  * There is no input primitive in `components/ui/`, so the repository field carries
  * token classes inline — the same call the two page-level search boxes made, and
  * reported as a gap rather than fixed by adding one. `FOCUS_RING` is explicit on
