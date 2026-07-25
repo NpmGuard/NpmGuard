@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,6 +39,27 @@ class SseFrame:
             return self.data["type"]
         return self.event
 
+    @property
+    def event_id(self) -> int:
+        """The frame's ``id:``, which every persisted event frame carries.
+
+        Only heartbeats arrive without one, and a test comparing cursors is
+        looking at events — so this is the invariant, not a branch.
+        """
+        assert self.id is not None, f"frame {self.type!r} arrived without an id"
+        return self.id
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        """The frame's data, which every non-heartbeat frame has.
+
+        A test reading fields off a frame has already decided it is an event, so
+        a heartbeat here is a bug in the test rather than a case to branch on —
+        say that once, instead of at each read.
+        """
+        assert self.data is not None, f"heartbeat frame has no payload (comment={self.comment!r})"
+        return self.data
+
 
 async def iter_frames(
     base_url: str,
@@ -47,7 +68,7 @@ async def iter_frames(
     since: int | None = None,
     last_event_id: int | None = None,
     deadline: float = STREAM_DEADLINE_SECONDS,
-) -> AsyncIterator[SseFrame]:
+) -> AsyncGenerator[SseFrame]:
     """Yield frames from the audit event stream until the server closes it.
 
     The read timeout equals ``deadline`` so a silent stream cannot hang longer
@@ -134,3 +155,21 @@ def find_frames(frames: list[SseFrame], event_type: str) -> list[SseFrame]:
 
 def terminal_frame(frames: list[SseFrame]) -> SseFrame | None:
     return next((frame for frame in frames if frame.type in TERMINAL_EVENT_TYPES), None)
+
+
+def require_frame(frames: list[SseFrame], event_type: str) -> SseFrame:
+    """The first ``event_type`` frame — for the tests that need it to exist.
+
+    Fails naming the sequence that DID arrive, which is the thing you want when
+    a stream stopped early; ``find_frame`` stays for tests asserting absence.
+    """
+    frame = find_frame(frames, event_type)
+    assert frame is not None, f"no {event_type!r} frame in {event_types(frames)}"
+    return frame
+
+
+def require_terminal_frame(frames: list[SseFrame]) -> SseFrame:
+    """The terminal frame every completed stream ends on."""
+    frame = terminal_frame(frames)
+    assert frame is not None, f"stream ended without a terminal frame: {event_types(frames)}"
+    return frame

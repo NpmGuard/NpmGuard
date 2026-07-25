@@ -50,7 +50,12 @@ from npmguard.panel.lockfile import (
     manifest_ranges,
     parse_lockfile,
 )
-from npmguard.panel.routes._common import current_user, require_enabled, runtime_of
+from npmguard.panel.routes._common import (
+    current_user,
+    panel_disabled_response,
+    require_panel,
+    runtime_of,
+)
 from npmguard.panel.scan.public_repo_scan import (
     CreatePublicRepoScanInput,
     InvalidPublicRepoReferenceError,
@@ -163,9 +168,9 @@ def _scan_wire(row: Any, rollup: Any) -> contract.PublicRepoScan:
 
 @router.get("/panel/public-repos")
 async def list_public_repos(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -203,9 +208,9 @@ async def list_public_repos(request: Request) -> Response:
 
 @router.get("/panel/public-repos/{scan_id}")
 async def get_public_repo(scan_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -246,9 +251,9 @@ async def get_public_repo(scan_id: int, request: Request) -> Response:
 
 @router.post("/panel/public-repos/scan")
 async def scan_public_repo(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
