@@ -1,4 +1,4 @@
-# CLASS MAP — panel.alerts.notify (port of TS alerts/notify.ts)
+# CLASS MAP — panel.alerts.notify
 # (seam A: range_satisfies is PURE — (version, npm-range) -> bool via univers,
 #  no IO. seam B: handle_dangerous_verdict runs over a real throwaway sqlite
 #  seeded directly (installations/repos/repo_deps/gh_users/user_installations);

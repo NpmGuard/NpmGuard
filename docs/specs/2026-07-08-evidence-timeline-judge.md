@@ -2,10 +2,8 @@
 
 _Status: proposed · 2026-07-08 · engine v2 · branch `engine-v2-cutover`_
 
-> **Landed, in Python.** This spec was written against the retired TypeScript
-> engine, so every `engine/src/**.ts` path below is that lineage's, not a live
-> file. The design it describes is implemented in `engine/npmguard/`; read it as
-> the record of a decision, not as a map of the code.
+> **Landed.** The `engine/src/**.ts` paths below are dead; this design lives in
+> `engine/npmguard/`. Read it as the record of a decision, not a map of the code.
 
 This is a **from-scratch rewrite of the evidence layer** to be basic, clean, and working — the
 foundation we finetune later. It builds exactly the six steps of the reimagined pipeline and adds

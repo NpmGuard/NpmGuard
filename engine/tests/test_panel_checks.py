@@ -1,4 +1,4 @@
-# CLASS MAP — panel.github.checks (port of TS github/checks.ts)
+# CLASS MAP — panel.github.checks
 # (seam: check_conclusion is PURE — a FINALIZED set's rollup in, a TERMINAL check
 #  state out, no IO. It takes the rollup rather than the outcome because
 #  "the set covered nothing" and "nothing concluded yet" are the same OUTCOME
@@ -13,7 +13,7 @@
 #   C4  total == 0 -> 'neutral': nothing to audit is a TERMINAL fact. Before R-1
 #       this set's outcome was None, the mapper answered 'in_progress', and an
 #       empty push left its check run spinning forever
-#   C5  a value outside the domain (a legacy UNKNOWN/SUSPECT) raises, instead of
+#   C5  a value outside the domain raises, instead of
 #       silently parking the check in_progress forever
 #   C5b a set with PENDING items raises: only a finalized set is concluded, so
 #       there is no non-terminal answer for this function to give

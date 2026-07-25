@@ -1,5 +1,4 @@
-"""Registry-watch + lockfile-reconcile (port of TS ``watch/poller.ts`` +
-``jobs/reconcile.ts``).
+"""Registry-watch + lockfile-reconcile.
 
 The CLI guards the *install* moment; this guards the *publish* moment. Every
 distinct package used by a protected repo is ETag-polled against the npm

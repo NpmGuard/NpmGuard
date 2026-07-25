@@ -1,4 +1,4 @@
-"""GitHub check runs for the repo panel (port of TS ``github/checks.ts``).
+"""GitHub check runs for the repo panel.
 
 A protected repo's push opens an audit set over the pushed commit's lockfile; the
 set's outcome is surfaced to GitHub as a **check run** on the head commit. The

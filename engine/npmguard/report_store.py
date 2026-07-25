@@ -44,28 +44,20 @@ def _readable(report: Any, source: Path) -> bool:
     """Whether ``report`` is one this store may hand out.
 
     INVARIANT: every report leaving this module carries a `schemaVersion` and a
-    `verdict` the generated contract declares — so no route can put a foreign shape
-    on a wire, including routes that do not exist yet. This is the read boundary
-    rather than a per-route filter on purpose: `/packages` and
+    `verdict` the generated contract declares — so no route can put a shape the
+    client cannot parse on a wire, including routes that do not exist yet. This is
+    the read boundary rather than a per-route filter on purpose: `/packages` and
     `/package/{name}/report` both read straight through here, and screening them one
     at a time is how the next reader gets forgotten.
 
-    The threat is concrete, not hypothetical. `data/reports/` is shared BYTE FOR BYTE
-    with the TS lineage at `origin/main` (`report-store.ts` resolves the identical
-    path, and this checkout's own `event-stream/4.0.1.json` was written by it). That
-    lineage writes an unversioned report whose body is `findings`/`proofs`/
-    `capabilities`/`runtimeEvidence`, and runs every one through
-    `normalizeReportVerdict`, which OVERWRITES `verdict` with a 4-state
-    `assessAuditReport().classification`. Both halves reach a client as a defect: a
-    `"verdict": "SUSPECT"` is a value the frontend has no branch for, and an
-    in-domain verdict on a schemaVersion-1 body is worse — it passes a verdict check
-    and then fails the client's contract parse on the FIRST missing v2 field
-    (`counts`), which bricks that package's page for as long as the file sits there.
-    Screening the version is what makes the whole class unreachable rather than just
-    the verdict half of it.
+    Both halves are needed. An out-of-domain verdict is a value the frontend has no
+    branch for; an in-domain verdict on an off-version body is worse, because it
+    passes a verdict check and then fails the client's contract parse on the first
+    missing field — bricking that package's page for as long as the file sits on
+    disk, since the store re-serves it on every request.
 
     Treated as unreadable rather than fatal, matching how this module already treats
-    a corrupt file: one foreign report must not 500 the whole package list. Logged,
+    a corrupt file: one bad report must not 500 the whole package list. Logged,
     because N-3 forbids a silently fabricated absence.
     """
     if not isinstance(report, dict):

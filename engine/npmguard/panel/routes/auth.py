@@ -1,7 +1,6 @@
 """GitHub sign-in: OAuth web flow + opaque DB sessions.
 
-A port of the TS engine's ``routes/auth.ts``. OAuth on top of the GitHub App
-establishes WHO the signed-in user is; repo access comes from the App
+OAuth on top of the GitHub App establishes WHO the signed-in user is; repo access comes from the App
 installations they can see (``routes/panel.ts``). Everything is gated on
 ``settings.github_app_enabled`` — 503 when the App is not configured.
 

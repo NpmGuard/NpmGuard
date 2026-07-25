@@ -1,7 +1,6 @@
 """Subscription-billing state over ``billing_accounts``.
 
-Port of the TS ``billing.ts`` (state) — the counterpart to the Stripe SDK calls
-in :mod:`npmguard.payments`. An installation is the billing account, so every
+The counterpart to the Stripe SDK calls in :mod:`npmguard.payments`. An installation is the billing account, so every
 row is keyed by ``installation_id``.
 
 Division of labour:
