@@ -20,6 +20,8 @@
 #       same report + event vocabulary; parallel-stream divergence pinned (UNENFORCED)
 #   S9  payment gate 402; CRE key → 202 + queuePosition; invalid payload → 400 [C5]
 #   S37 boot invariant (F3): MOCK_LLM=true + env=prod refuses to start; dev boots [C8]
+#
+# Blackbox: engine HTTP API + SSE + report files + DB rows (observable effects only).
 
 from __future__ import annotations
 

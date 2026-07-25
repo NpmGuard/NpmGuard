@@ -2,7 +2,7 @@
 # packet capture. This tier exists because the defect it pins was invisible to
 # every other one: nothing about it is wrong until the bytes are big.
 #
-# MEASURED AT 67f830f, before the fix — a real run of the S46 package with the
+# MEASURED before the fix — a real run of the S46 package with the
 # 10 MiB slice in place:
 #     capture bytes in container  : 13,002,771
 #     bytes retrieved to the host :  7,864,320   (= 10 MiB of base64, /4*3)

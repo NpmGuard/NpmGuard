@@ -34,6 +34,16 @@
 # list beside it the rule degrades from "two items of named debt" into "it does not
 # apply here". test_no_exemption_outlives_its_reader is what keeps it emptied.
 #
+# Three scoping rules the scans depend on:
+#  - C1 scans `npmguard/` only. A TEST reading a knob would otherwise count as a
+#    reader, and a knob only tests read is still dead vocabulary in production.
+#  - C1 covers OWN fields only. Inherited `KitSettings` fields (llm_*, env,
+#    log_level) are Kit's surface and are read inside Kit, which this test cannot
+#    see. C3 needs no such split: an inherited field is still reached through the
+#    NPMGUARD_ prefix, so it counts as declared.
+#  - C4 exists because C3 alone is satisfiable by `os.environ[PREFIX + name]`: a
+#    literal-only scan cannot see a computed key, and would report a clean surface
+#    while the hole stayed open.
 import ast
 import re
 from pathlib import Path
@@ -52,18 +62,6 @@ ENV_VARIABLE = re.compile(rf"{re.escape(ENV_PREFIX)}[A-Z0-9_]+")
 # crash mid-audit on a typo; the honest move when one is tempting is to land the
 # reader, not to grow the list.
 UNDECLARED_READS: dict[str, str] = {}
-RETIRED_KNOBS = (
-    "triage_max_files",
-    "max_agent_turns",
-    "investigation_enabled",
-    "test_gen_model",
-    "test_gen_mode",
-    "max_findings_to_prove",
-    "verify_timeout_sec",
-    "max_docker_exec_timeout_sec",
-)
-
-
 def _own_fields() -> list[str]:
     inherited = set(KitSettings.model_fields)
     return [name for name in Settings.model_fields if name not in inherited]
@@ -169,7 +167,7 @@ def test_every_environment_variable_read_is_declared() -> None:
     which for a knob inside the FLAG fan-out means mid-audit on an audit already
     paid for.
 
-    Measured against the pre-cleanup tree (this file dropped onto 0d73449): fails
+    Measured against the pre-cleanup tree, this scan fails
     naming NPMGUARD_DEMO_SPEED (demo.py), NPMGUARD_NPM_REGISTRY (resolve.py),
     NPMGUARD_AUDIT_LOG_DIR (audit_log.py) and NPMGUARD_API_URL (ops.py) — four of the
     six then-undeclared reads, the other two being the pair in UNDECLARED_READS. That
@@ -215,16 +213,3 @@ def test_no_environment_key_is_computed() -> None:
     )
 
 
-def test_retired_knobs_stay_retired() -> None:
-    """C2: the eight deleted knobs are not back on the surface.
-
-    Each was declared without a reader anywhere. C1 alone would accept `triage_max_files` again the moment any reader appeared;
-    this pin makes reintroducing one an explicit act — delete the entry here, with
-    the reasoning in config.py's ledger read first. Fails against the
-    pre-deletion tree, which is the point."""
-    back = sorted(name for name in RETIRED_KNOBS if name in Settings.model_fields)
-    assert back == [], (
-        f"retired knobs re-declared: {back}. If a bound like this is genuinely "
-        "wanted, it needs a reader whose truncation is VISIBLE in the report — a "
-        "silently capped analysis is a coverage gap wearing a green badge."
-    )

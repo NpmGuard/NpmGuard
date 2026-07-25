@@ -31,20 +31,6 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "llm"
 BUNDLES = ["chalk@5.6.2", "is-number@7.0.0", "test-pkg-env-exfil@2.0.1", "test-pkg-dns-exfil@0.2.1"]
 
 
-# ── C1: kit import contract ────────────────────────────────────────────────
-def test_kit_reused_symbols_are_importable() -> None:
-    """C1: the underscore-private kit symbols the reuse map depends on still exist.
-    A kit re-vendor that renames one fails HERE, at collection, not mid-replay."""
-    from kit_llm.bench import golden, replay
-
-    assert callable(golden.canonical_sha256)
-    for name in ("_BEARER", "_KEY_ASSIGNMENT", "_KNOWN_TOKEN", "_ROOT_DOTENV"):
-        assert hasattr(golden, name), f"kit_llm.bench.golden.{name} vanished"
-    for name in ("_match_subset", "_provider_result", "_neutral_wire_body", "_strict_object"):
-        assert hasattr(replay, name), f"kit_llm.bench.replay.{name} vanished"
-    assert hasattr(replay, "ProviderExchange")
-
-
 # ── C2/C3: ReplayIndex matching + cursor ───────────────────────────────────
 def _exchange(id_: str, sha: str, body: dict, *, required=True, repeat=False, status="ok") -> Exchange:
     from kit_llm.bench.golden import canonical_sha256

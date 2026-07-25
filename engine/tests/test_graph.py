@@ -16,6 +16,10 @@
 #      the judge is still asked the second question
 #   C9 a legitimate merge (same experiment, same claim) carries the STRONGER
 #      severity, so a low duplicate cannot demote a critical one
+# C7-C9 turn on what two nodes actually TEST, not on how alike their prose is.
+# Deduping on description alone drops the incoming experiment/claim/severity while
+# UNIONING focus regions into the survivor: the second bait never runs, and the
+# report points at both regions as if one run had covered them.
 from pathlib import Path
 
 import pytest

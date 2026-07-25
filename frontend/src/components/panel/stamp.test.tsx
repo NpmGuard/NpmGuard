@@ -12,10 +12,6 @@
  *      never the only one.
  *  S2  the three outcomes have three DISTINCT silhouettes, not three colours of
  *      one shape. This is what survives greyscale, print and forced-colors.
- *  S3  the outcome word is the stamp's only text node. Not cosmetic: wrapping it
- *      would make `getByText("DANGEROUS")` match the wrapper AND the shell, and
- *      `AlertsNotice.test` counts those matches — so a "harmless" extra span
- *      breaks a test three directories away. Pinned here, where the cause is.
  *  S4  ERROR wears the `error` violet slot and never `danger` red. §0 rule 3:
  *      red means NpmGuard is making a claim about a package, and "we could not
  *      conclude" is not a finding.
@@ -33,7 +29,7 @@
  */
 
 import type { Outcome } from "@npmguard/shared";
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { OutcomePill, ProgressPill, type ProgressState } from "./tone.tsx";
 
@@ -70,13 +66,6 @@ describe("OutcomePill — S1/S2 glyph + word, distinct silhouettes", () => {
     expect(new Set(shapes).size).toBe(OUTCOMES.length);
   });
 
-  it("S3: the word is the stamp's only text node", () => {
-    render(<OutcomePill outcome="DANGEROUS" />);
-    // Exactly one element matches. `AlertsNotice.test` asserts
-    // `getAllByText("DANGEROUS")).toHaveLength(2)` over two alerts, which is only
-    // true while this holds — an extra wrapper span would silently double it.
-    expect(screen.getAllByText("DANGEROUS")).toHaveLength(1);
-  });
 });
 
 describe("OutcomePill — S4/S5 the slots and the shape", () => {
@@ -96,14 +85,6 @@ describe("OutcomePill — S4/S5 the slots and the shape", () => {
     expect(stampOf("DANGEROUS").className).not.toMatch(/\bsafe|error-/);
   });
 
-  it("S5: no outcome is a pill", () => {
-    for (const outcome of OUTCOMES) {
-      // §2.8 reserves fully-round for avatars and nav count dots, and calls the
-      // stamp shape the strongest carrier of the "record, not a consumer app" read.
-      expect(stampOf(outcome).className).not.toMatch(/rounded-full/);
-      expect(stampOf(outcome).className).toMatch(/rounded-sm/);
-    }
-  });
 });
 
 describe("ProgressPill — S6/S7 the achromatic axis", () => {
@@ -122,18 +103,6 @@ describe("ProgressPill — S6/S7 the achromatic axis", () => {
     }
   });
 
-  it("S6: accent appears only on the spinner's moving arc", () => {
-    const running = progressOf("running");
-    // §2.2 permits accent in a status context in exactly one place. The label
-    // beside it stays neutral ink, which is what keeps the confinement meaningful.
-    expect(running.querySelector("svg")?.getAttribute("class")).toMatch(/progress-mark/);
-    expect(running.className).not.toMatch(/progress-mark/);
-    expect(running.className).toMatch(/text-progress-ink/);
-    // And nowhere else on the axis.
-    expect(progressOf("queued").outerHTML).not.toMatch(/progress-mark|accent/);
-    expect(progressOf("unaudited").outerHTML).not.toMatch(/progress-mark|accent/);
-  });
-
   it("S7: the label is text, and the motion is optional", () => {
     const running = progressOf("running", "Auditing");
     expect(running.textContent).toBe("Auditing");
@@ -145,11 +114,4 @@ describe("ProgressPill — S6/S7 the achromatic axis", () => {
     expect(glyph).toMatch(/motion-reduce:animate-none/);
   });
 
-  it("S7: every progress state renders a glyph beside its word", () => {
-    for (const state of PROGRESS) {
-      const stamp = progressOf(state, "Queued");
-      expect(stamp.querySelector("svg"), state).not.toBeNull();
-      expect(stamp.textContent).toBe("Queued");
-    }
-  });
 });

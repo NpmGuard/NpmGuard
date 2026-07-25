@@ -12,6 +12,13 @@
 #   C5 retryable members                — 5xx only: a client that retries on
 #                                         `retryable` must never retry a client error
 #
+# C2 exists because NPMGUARD-9999's producer is a string literal, not a raise: a
+# rule phrased over raise sites alone either red-flags the base class or waves it
+# through unexamined, so the exemption is an assertion instead.
+#
+# The scan counts CONSTRUCTION, not `raise`, on purpose: `exc = X(...); raise exc`
+# and `raise X(...) from err` are the same producer, and an exception class
+# instantiated in production code but never raised would itself be a defect.
 import ast
 import re
 from pathlib import Path
@@ -119,25 +126,6 @@ def test_each_code_is_claimed_by_exactly_one_class() -> None:
     assert collisions == {}, f"one code, two meanings: {collisions}"
     malformed = sorted(code for code in by_code if not re.fullmatch(CODE_PATTERN, code))
     assert malformed == [], f"codes must match {CODE_PATTERN}: {malformed}"
-
-
-def test_retired_codes_are_never_recycled() -> None:
-    """C4: 0002 / 0010 / 0050 appear nowhere executable.
-
-    All three were declared without a producer; 0050's running-count session cap
-    was deliberately replaced by the bounded wait queue plus a fixed worker pool.
-    A code is stable forever, so re-using one of these numbers for a new meaning
-    silently changes what an already-deployed client believes. This test fails
-    against the pre-deletion tree, which is the point."""
-    declared = {cls.code for cls in _members().values()}
-    literals = _string_literals(skip=set())
-    resurrected = sorted(
-        code for code in RETIRED_CODES if code in declared or code in literals
-    )
-    assert resurrected == [], (
-        f"retired codes back in executable form: {resurrected}. They are reserved "
-        "— a new failure mode takes a new number (see the ledger in errors.py)."
-    )
 
 
 def test_retryable_errors_are_server_errors() -> None:

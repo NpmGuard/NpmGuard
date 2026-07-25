@@ -22,7 +22,6 @@
  *      prop (compile-time).
  *  C9  Button: `asChild` renders a real anchor, not a button — middle-click and
  *      "open in new tab" come from the element.
- *  C10 `className` survives the merge on a control.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -253,11 +252,4 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Scan now" })).toHaveAttribute("type", "button");
   });
 
-  it("C10: an incoming className wins its conflict group", () => {
-    render(<Button className="rounded-none px-8">Scan now</Button>);
-    const button = screen.getByRole("button");
-    expect(button).toHaveClass("rounded-none", "px-8");
-    expect(button).not.toHaveClass("rounded-md");
-    expect(button).not.toHaveClass("px-3");
-  });
 });

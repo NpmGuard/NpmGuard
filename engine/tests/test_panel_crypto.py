@@ -19,6 +19,8 @@
 #       aes-256-gcm, [iv,tag,ct] base64-joined) decrypts to the exact plaintext,
 #       proving the byte-for-byte format match across implementations
 #   C11 no plaintext leak: TokenCryptoError messages never contain the plaintext
+# C3 is what stops a no-op "encrypt" that returns base64(plaintext) with a valid
+#   shape from passing the whole file.
 import base64
 import types
 

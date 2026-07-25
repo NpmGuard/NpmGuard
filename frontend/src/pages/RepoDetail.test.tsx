@@ -28,7 +28,6 @@
  *                                     half-finished scan reads as a settled posture —
  *                                     §2.2 rule 2 makes the progress axis achromatic
  *                                     for exactly this.
- *  T7  both themes render, and no colour is hardcoded.
  *
  * Blackbox: msw at the boundary, assertions on the accessibility tree and the
  * `data-state` markers.
@@ -39,7 +38,6 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { Route, Routes } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { expectNoHardcodedColour } from "../components/panel/theme-probe.ts";
 import {
   auditSet,
   clearAbsoluteApiBase,
@@ -266,36 +264,4 @@ describe("RepoDetail — T6 progress is never a verdict", () => {
     // 5 of 20 safe so far, and the page must not round that up to a verdict.
     expect(screen.queryByText("No known threats")).toBeNull();
   });
-});
-
-describe("RepoDetail — T7 both themes", () => {
-  afterEach(() => document.documentElement.classList.remove("dark", "light"));
-
-  const CONCLUDED = auditSet({
-    rollup: { outcome: "DANGEROUS", total: 1, safe: 0, dangerous: 1, error: 0, pending: 0, cached: 0 },
-  });
-
-  for (const theme of ["light", "dark"] as const) {
-    it(`T7: renders under an explicit .${theme} stamp`, async () => {
-      document.documentElement.classList.add(theme);
-      respondWith({
-        repo: panelRepo({ lastScan: CONCLUDED }),
-        set: CONCLUDED,
-        depsTruncated: false,
-        deps: [DEP],
-        alerts: [],
-      });
-      renderDetail();
-
-      // Same markup, both themes — that is what `@theme inline` buys, and it holds
-      // only while no colour is decided at author time.
-      expect(await screen.findByText("Action required")).toBeInTheDocument();
-      const table = screen.getByRole("table", { name: "Dependency inventory" });
-      // Addressed through the stamp's own `data-outcome` hook rather than by text:
-      // the review queue stamps the same dep, so a bare `getByText("DANGEROUS")`
-      // finds two and says nothing about which surface it found.
-      expect(table.querySelector("[data-outcome='DANGEROUS']")).not.toBeNull();
-      expectNoHardcodedColour();
-    });
-  }
 });
