@@ -66,7 +66,9 @@
     --r-sm: 4px;
     --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-    --node: clamp(64px, 7.4vw, 104px);
+    --col-l: #f9f3f1;   /* danger 3.5% over canvas */
+    --col-r: #f1f4f0;   /* safe 4.5% over canvas   */
+    --node: clamp(92px, 11vw, 152px);
     --rail: 3px;
   }
 
@@ -104,10 +106,15 @@
     backdrop-filter: blur(6px);
     border-bottom: 1px solid var(--ng-border-faint);
   }
-  .heads b { font-size: .72rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
-  .heads .l b { color: var(--ng-danger-text); }
-  .heads .r { text-align: right; }
-  .heads .r b { color: var(--ng-safe-text); }
+  .heads b {
+    display: inline-block; padding: .5rem 1rem; border-radius: var(--r-sm);
+    font-size: clamp(.72rem, .64rem + .3vw, .88rem); font-weight: 700;
+    letter-spacing: .14em; text-transform: uppercase; color: #fff;
+  }
+  .heads .l { text-align: center; }
+  .heads .r { text-align: center; }
+  .heads .l b { background: var(--ng-danger); }
+  .heads .r b { background: var(--ng-safe); }
   @media (max-width: 780px) { .heads { grid-template-columns: 1fr 1fr; } .heads .mid { display: none; } }
 
   /* ── a stage: two big nodes and the step that names them ───────────────── */
@@ -126,12 +133,28 @@
     .stage { grid-template-columns: 1fr 1fr; gap: .8rem; min-height: clamp(150px, 30vh, 260px); }
   }
 
-  .side { position: relative; display: flex; align-items: center; gap: clamp(.8rem, 2vw, 1.4rem); }
+  .side {
+    position: relative;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    gap: clamp(.7rem, 1.6vw, 1.1rem);
+    padding: clamp(1rem, 2.4vh, 1.8rem) 1rem;
+  }
+  /* the two columns are two different worlds, and that has to be obvious at a
+     glance. The tint is a COLUMN identity, not a row state — the node and the
+     title stay identical grey on stages that behaved identically, which is what
+     carries "nothing changed here". */
+  .stage > .side:first-of-type { background: var(--col-l); }
+  .stage > .side:last-of-type  { background: var(--col-r); }
+  .stage:first-of-type > .side:first-of-type { border-radius: 10px 10px 0 0; }
+  .stage:first-of-type > .side:last-of-type  { border-radius: 10px 10px 0 0; }
+  .stage:last-of-type  > .side:first-of-type { border-radius: 0 0 10px 10px; }
+  .stage:last-of-type  > .side:last-of-type  { border-radius: 0 0 10px 10px; }
   /* the rail runs the full height of the stage behind the node, so consecutive
      stages join into one continuous line without any per-gap geometry */
   .side::before {
     content: ""; position: absolute; z-index: 0;
-    left: calc(var(--node) / 2); transform: translateX(-50%);
+    left: 50%; transform: translateX(-50%);
     top: 0; bottom: 0; width: var(--rail);
     background: var(--ng-border);
   }
@@ -147,9 +170,10 @@
     border: 3px solid var(--ng-border-strong);
     background: var(--ng-sunken); color: var(--ng-border-strong);
   }
-  .node svg { width: 46%; height: 46%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .node svg { width: 52%; height: 52%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-  .ttl { font-size: clamp(1rem, .78rem + 1.05vw, 1.55rem); font-weight: 600; letter-spacing: -.015em; color: var(--ng-text-2); text-wrap: balance; }
+  .ttl { position: relative; z-index: 1; background: inherit; padding: .1rem .7rem;
+         display: block; font-size: clamp(1rem, .76rem + 1vw, 1.5rem); font-weight: 600; letter-spacing: -.015em; color: var(--ng-text-2); text-wrap: balance; }
 
   /* state — carried by the node and the title, nothing else */
   .side.bad .node { border-color: var(--ng-danger); background: var(--ng-danger-wash); color: var(--ng-danger); }
