@@ -36,6 +36,8 @@
 #   C16 a finished audit is not "running"; another installation's is not visible
 #   C17 the durable partial-unique index refuses a second live audit of the same
 #       repo by the same payer (the guard, not the pre-check, is what holds)
+from typing import Any
+
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
@@ -178,7 +180,7 @@ async def public_engine(tmp_path):
 
 
 def _input(deps: list[LockfileDep], **overrides) -> CreatePublicRepoScanInput:
-    base = dict(
+    base: dict[str, Any] = dict(
         installation_id=1,
         requested_by=7,
         github_repo_id=999,

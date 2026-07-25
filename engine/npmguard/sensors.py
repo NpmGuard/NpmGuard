@@ -5,6 +5,7 @@ import shlex
 from dataclasses import dataclass
 from typing import Any
 
+from .contract.kinds import EventKind
 from .contract.models import EvidenceEvent
 from .docker import docker_exec, read_bytes_from_container
 
@@ -39,7 +40,7 @@ TRACED_SYSCALLS = (
 # contract's fixed EventKind vocabulary (shared/src/evidence.ts); the exact
 # syscall is preserved in the event's `raw`. recvfrom is a socket read;
 # accept/accept4 join connect's connection-established family (peer addr:port).
-SYSCALL_KIND = {
+SYSCALL_KIND: dict[str, EventKind] = {
     "open": "openat",
     "openat": "openat",
     "read": "read",
@@ -84,6 +85,8 @@ STRACE_RESUMED = re.compile(r"^<\.\.\.\s+(\w+)\s+resumed>(.*)$")
 # "+++ killed by SIGTERM +++". Not syscalls, so not events — but named, so that an
 # unrecognised body is an assertion rather than a silent drop.
 STRACE_STATUS = re.compile(r"^(?:\+\+\+|---)")
+# The sockaddr family inside a `{sa_family=AF_INET, ...}` brace block.
+SA_FAMILY = re.compile(r"sa_family=(AF_\w+)")
 # `find -printf '%s\t%T@\t%p\0'` — the path is LAST and records are NUL-terminated,
 # so a path holding a tab or a newline cannot be mistaken for a field boundary.
 SNAPSHOT_RECORD = re.compile(r"^(\d+)\t(\d+\.\d+)\t(.+)$", re.DOTALL)
@@ -275,13 +278,18 @@ def _peer(syscall: str, args: str) -> dict[str, Any]:
     module and cost three judge refutations, so it is now impossible rather than
     invisible.
     """
-    block = next((item for item in _brace_blocks(args) if "sa_family=" in item), None)
-    if block is None:
+    # One regex both selects the block and reads the family out of it, so "a
+    # block with a family" and "a family we could parse" cannot come apart.
+    found = next(
+        ((item, m) for item in _brace_blocks(args) if (m := SA_FAMILY.search(item))), None
+    )
+    if found is None:
         # No sockaddr argument at all. Real and correct for accept4(fd, NULL, NULL,
         # …) and for sendto/recvfrom on a connected socket (dest_addr NULL), and for
         # the -1 EAGAIN recvfrom whose arguments strace could not decode.
         return {"family": None, "addr": None, "port": None}
-    family = re.search(r"sa_family=(AF_\w+)", block).group(1)
+    block, family_match = found
+    family = family_match.group(1)
     peer: dict[str, Any] = {"family": family, "addr": None, "port": None}
     if family == "AF_UNIX":
         # sun_path="/var/run/nscd/socket", or @"name" for an abstract socket. path

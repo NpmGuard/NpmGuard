@@ -366,6 +366,20 @@ def _sum_or_none(values: Iterable[int | None]) -> int | None:
     return total
 
 
+def _total_cost(costs: Sequence[float | None]) -> float | None:
+    """USD spend over the attempted observations — ``None`` when any contributor
+    is unknown, and ``None`` (never ``0.0``) when there were none: "no cost was
+    recorded" is not "the cost was zero"."""
+    if not costs:
+        return None
+    total = 0.0
+    for cost in costs:
+        if cost is None:
+            return None
+        total += cost
+    return total
+
+
 def project(
     engine_sha: str,
     rows: Sequence[tuple[Entry, Sequence[contract.BenchRunItem]]],
@@ -478,9 +492,7 @@ def project(
         tokens_completion=_sum_or_none(
             item.tokensCompletion for _, items in rows for item in items
         ),
-        token_cost_usd=(
-            None if any(cost is None for cost in costs) or not costs else sum(costs)
-        ),
+        token_cost_usd=_total_cost(costs),
     )
 
 

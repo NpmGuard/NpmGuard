@@ -9,6 +9,8 @@ the e2e engine runs out-of-process, so it is unaffected.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 from tests.e2e.llm_mock import MockLlmClient, create_mock_app
@@ -50,14 +52,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(scope="session")
-def mock_llm_server(tmp_path_factory: pytest.TempPathFactory) -> StubServer:
+def mock_llm_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[StubServer]:
     spool = tmp_path_factory.mktemp("llm-mock-spool")
     with StubServer(create_mock_app(spool)) as server:
         yield server
 
 
 @pytest.fixture
-def mock_llm(mock_llm_server: StubServer) -> MockLlmClient:
+def mock_llm(mock_llm_server: StubServer) -> Iterator[MockLlmClient]:
     """Per-test mock handle: state fully cleared before, fail-loud checks after.
 
     Teardown asserts zero unmatched requests and all required exchanges
@@ -75,7 +77,7 @@ def mock_llm(mock_llm_server: StubServer) -> MockLlmClient:
 
 
 @pytest.fixture(scope="session")
-def _registry_session() -> RegistryStub:
+def _registry_session() -> Iterator[RegistryStub]:
     with RegistryStub() as stub:
         yield stub
 
@@ -90,7 +92,7 @@ def registry_stub(_registry_session: RegistryStub) -> RegistryStub:
 
 
 @pytest.fixture(scope="session")
-def _fake_chain_session() -> FakeChainRpc:
+def _fake_chain_session() -> Iterator[FakeChainRpc]:
     with FakeChainRpc() as stub:
         yield stub
 
@@ -102,7 +104,7 @@ def fake_chain(_fake_chain_session: FakeChainRpc) -> FakeChainRpc:
 
 
 @pytest.fixture(scope="session")
-def _stripe_session() -> StripeStub:
+def _stripe_session() -> Iterator[StripeStub]:
     with StripeStub() as stub:
         yield stub
 
@@ -114,7 +116,7 @@ def stripe_stub(_stripe_session: StripeStub) -> StripeStub:
 
 
 @pytest.fixture(scope="session")
-def _github_session() -> GitHubStub:
+def _github_session() -> Iterator[GitHubStub]:
     with GitHubStub() as stub:
         yield stub
 
