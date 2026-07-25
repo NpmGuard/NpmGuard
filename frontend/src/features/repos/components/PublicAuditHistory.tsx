@@ -126,9 +126,10 @@ export function PublicAuditHistory({ state, onOpen }: PublicAuditHistoryProps) {
                 <Button variant="outline" size="sm" onClick={() => onOpen(scan.id)}>
                   {running ? "View progress" : "Report"}
                 </Button>
-                <span className="text-2xs text-text-3">
-                  Allowance · <span className="font-mono">{scan.accountLogin}</span>
-                </span>
+                {/* The "Allowance · <org>" line is gone with the allowance
+                    itself (D-1): a public scan is billed to no installation, so
+                    naming one under every row would attribute a cost that is not
+                    charged anywhere. */}
               </div>
             </div>
           );

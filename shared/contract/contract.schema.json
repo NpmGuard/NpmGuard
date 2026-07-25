@@ -20,9 +20,6 @@
         "protectedRepos": {
           "$ref": "#/$defs/UsageBucket"
         },
-        "publicRepoAudits": {
-          "$ref": "#/$defs/UsageBucket"
-        },
         "monthlyAudits": {
           "$ref": "#/$defs/UsageBucket"
         }
@@ -33,7 +30,6 @@
         "plan",
         "subscriptionStatus",
         "protectedRepos",
-        "publicRepoAudits",
         "monthlyAudits"
       ],
       "title": "AccountEntitlements"
@@ -1536,7 +1532,6 @@
       "type": "string",
       "enum": [
         "protected_repos",
-        "public_repo_audits",
         "monthly_audits"
       ],
       "title": "CapResource"
@@ -3098,10 +3093,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "publicRepoAudits": {
-          "type": "integer",
-          "minimum": 0
-        },
         "monthlyAudits": {
           "type": "integer",
           "minimum": 0
@@ -3109,7 +3100,6 @@
       },
       "required": [
         "protectedRepos",
-        "publicRepoAudits",
         "monthlyAudits"
       ],
       "title": "PlanLimits"
@@ -3177,17 +3167,6 @@
       "properties": {
         "repository": {
           "type": "string"
-        },
-        "installationId": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -3209,31 +3188,13 @@
         },
         "requestedBy": {
           "type": "integer"
-        },
-        "installationId": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "accountLogin": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
       },
       "required": [
         "id",
         "repo",
         "set",
-        "requestedBy",
-        "installationId",
-        "accountLogin"
+        "requestedBy"
       ],
       "title": "PublicRepoScan"
     },
@@ -3278,6 +3239,10 @@
         },
         "lockfileSha": {
           "type": "string"
+        },
+        "lockfileDepCount": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -3288,7 +3253,8 @@
         "htmlUrl",
         "defaultBranch",
         "lockfilePath",
-        "lockfileSha"
+        "lockfileSha",
+        "lockfileDepCount"
       ],
       "title": "PublicRepo"
     },
@@ -3881,6 +3847,24 @@
         "ms"
       ],
       "title": "TimerRecord"
+    },
+    "TooManyLiveScans": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "error",
+        "limit"
+      ],
+      "title": "TooManyLiveScans"
     },
     "ToolCall": {
       "type": "object",

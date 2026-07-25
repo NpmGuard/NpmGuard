@@ -5,9 +5,19 @@
 # are included and the /webhooks/stripe subscription branch coexists with the
 # UNCHANGED one-off audit branch.
 #
+#   S-pub-0  G17 — a signed-in visitor with NO App installation scans a public
+#     repo they do not own [C0]:
+#     - sign in ONLY (orgs are never mirrored, so `user_installations` is empty
+#       and no installation cookie/allowance exists anywhere)
+#     - POST /panel/public-repos/scan {repository:'acme/pub'} → 201 {scanId}, and
+#       the snapshot is readable + listed by its REQUESTER
+#     - this is the goal in its falsifiable form: it fails on the pre-D-1 route,
+#       which 400s without an installationId and 404s on one the user lacks
+#
 #   S-pub-1  public-repo audit end to end [C1-C3]:
-#     - sign in → mirror orgs (so installation 500 is owned by the user)
-#     - POST /panel/public-repos/scan {repository:'acme/pub', installationId:500}:
+#     - sign in → mirror orgs (installation 500 exists, and is NOT used: the scan
+#       is billed to nobody either way)
+#     - POST /panel/public-repos/scan {repository:'acme/pub'}:
 #       the credential-free public octokit reads the repo, the SSRF-guarded raw
 #       host (github_raw_base → the stub) streams the root lockfile, and every
 #       dep is a pre-seeded CACHE HIT (one DANGEROUS) → 201 {scanId}; the snapshot
@@ -154,6 +164,93 @@ def _subscription_created_payload(
     return json.dumps(event).encode()
 
 
+def _sign_in_only(client: httpx.Client, base: str) -> None:
+    """Sign in and STOP. No `/panel/orgs`, so `user_installations` stays empty.
+
+    This is the whole point of G17: the visitor the public scan exists for has
+    never installed the App anywhere, so there is nothing for an installation to
+    be looked up from. Calling `/panel/orgs` here would mirror one into existence
+    and quietly destroy what the scenario proves.
+    """
+    login = client.get(f"{base}/api/auth/github/login")
+    assert login.status_code == 302, login.text
+    authorized = client.get(login.headers["location"])
+    assert authorized.status_code == 302
+    callback = client.get(authorized.headers["location"])
+    assert callback.status_code == 302, callback.text
+    assert "ng_session" in client.cookies
+
+
+# ---------------------------------------------------------------------------
+# S-pub-0 — G17: no installation, no ownership, no allowance
+# ---------------------------------------------------------------------------
+
+
+def test_s_pub_0_signed_in_visitor_with_no_installation_can_scan(
+    engine_factory, github_stub, app_private_key
+):
+    """S-pub-0 [C0]: G17. A visitor whose ONLY credential is a GitHub sign-in
+    scans a public repo they do not own, and reads the result back.
+
+    Discriminating (N-7): every assertion here fails on the pre-D-1 route. It
+    demanded an `installationId` in the body (400 without one), rejected an
+    installation the user could not access (404), and asserted an
+    installation-scoped allowance before any work started (402). The repo is
+    `acme/pub` — owned by an org this user has no relationship with.
+    """
+    github_stub.set_oauth_code(OAUTH_CODE, USER_TOKEN)
+    github_stub.set_user(USER_TOKEN, id=42, login="octocat", email="mona@example.com")
+    # Deliberately NO `add_installation`: nothing to mirror even if something tried.
+    github_stub.add_repo("acme", "pub", id=2001, private=False)
+    github_stub.set_lockfile("acme", "pub", "package-lock.json", PUB_LOCKFILE)
+
+    harness = engine_factory(start=False)
+    reports = harness.data_dir / "reports"
+    _seed_report(reports, "safe-dep", "1.0.0", _safe())
+    _seed_report(reports, "danger-dep", "2.0.0", _dangerous())
+    harness.extra_env = github_env(
+        api_base=github_stub.base_url,
+        private_key_path=app_private_key,
+        panel_base_url=harness.base_url,
+        extra={"NPMGUARD_GITHUB_RAW_BASE": github_stub.base_url},
+    )
+    harness.start()
+    base = harness.base_url
+
+    with httpx.Client(follow_redirects=False, timeout=HTTP_TIMEOUT_SECONDS) as client:
+        _sign_in_only(client, base)
+
+        # The precondition, asserted rather than assumed — otherwise a future
+        # change that mirrors orgs during sign-in would make this scenario pass
+        # for the wrong reason and G17 would silently stop being tested.
+        orgs_free = client.get(f"{base}/api/panel/billing")
+        assert orgs_free.status_code == 200, orgs_free.text
+        assert orgs_free.json()["accounts"] == [], orgs_free.text
+
+        created = client.post(
+            f"{base}/api/panel/public-repos/scan", json={"repository": "acme/pub"}
+        )
+        assert created.status_code == 201, created.text
+        scan_id = created.json()["scanId"]
+
+        # Readable by its requester on the detail route AND present in their
+        # history — both authorizations used to run through `user_installations`,
+        # so both would 404 / come back empty for this user.
+        detail = client.get(f"{base}/api/panel/public-repos/{scan_id}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["scan"]["requestedBy"] == 42
+
+        history = client.get(f"{base}/api/panel/public-repos")
+        assert history.status_code == 200, history.text
+        assert [s["id"] for s in history.json()["scans"]] == [scan_id]
+
+        # The progress stream authorizes the same way — one stream, every origin.
+        events = client.get(
+            f"{base}/api/panel/scan/{scan_id}/events", headers={"Accept": "text/event-stream"}
+        )
+        assert events.status_code == 200, events.text
+
+
 # ---------------------------------------------------------------------------
 # S-pub-1 — public-repo audit end to end
 # ---------------------------------------------------------------------------
@@ -198,7 +295,7 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
         # so no panel job is enqueued and the snapshot finalizes at creation.
         created = client.post(
             f"{base}/api/panel/public-repos/scan",
-            json={"repository": "acme/pub", "installationId": 500},
+            json={"repository": "acme/pub"},
         )
         assert created.status_code == 201, created.text
         scan_id = created.json()["scanId"]
@@ -257,7 +354,6 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
             f"{base}/api/panel/public-repos/scan",
             json={
                 "repository": "https://evil.example.com/acme/pub",
-                "installationId": 500,
             },
         )
         assert ssrf.status_code == 400, ssrf.text
@@ -265,7 +361,7 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
         # C3: a PRIVATE repo cannot be audited through the public path.
         private = client.post(
             f"{base}/api/panel/public-repos/scan",
-            json={"repository": "acme/secret", "installationId": 500},
+            json={"repository": "acme/secret"},
         )
         assert private.status_code == 403, private.text
         assert "public repositories" in private.json()["error"].lower()

@@ -136,7 +136,7 @@ function PublicScanProbe({ onDone }: { onDone: (scanId: number) => void }) {
   const scan = useStartPublicScan();
   useEffect(() => {
     scan.mutate(
-      { repository: "acme/widget", installationId: 1 },
+      { repository: "acme/widget" },
       { onSuccess: ({ scanId }) => void onDone(scanId) },
     );
     // mount only — one submission per probe
