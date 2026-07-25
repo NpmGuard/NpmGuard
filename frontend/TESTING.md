@@ -85,9 +85,12 @@ mocked engine.** The engine runs in its deterministic **demo-replay** mode
 (`POST /demo/start` replays a committed recording — zero LLM, zero docker),
 paced fast by `NPMGUARD_DEMO_SPEED`.
 
+**Two projects**: `app` (everything below through vite on :3100) and
+`static-serving` (S8, straight at the engine on :8055 — the production shape).
+
 **Harness** (`playwright.config.ts`): engine on **:8055** (`uv run uvicorn
 npmguard.api:app`, payment off, hermetic `.e2e-data`, `NPMGUARD_DEMO_SPEED`) +
-vite on **:3100** (proxying `/api` → the engine) + the **panel fixture server**
+vite on **:3100** (proxying `/api` → the engine, prefix intact) + the **panel fixture server**
 on **:8056** (`engine/tests/support/panel_e2e_server.py` — the GitHub App + OAuth
 stub the Python e2e tier uses, run as a process, plus a slow-404 npm registry);
 `workers:1 retries:0` (audit sessions + the SSE hub are in-process engine state —
@@ -130,6 +133,16 @@ replay, live, reconnect-resume-without-duplicates, idle survival):
   advertised methods render); the error taxonomy branches on `ApiError.status`.
 - **S7 expired session** — `/audit/<bogus-uuid>` → the probe 404s → an honest
   "session expired" state, never a blank view.
+- **S8 static serving** (`static-serving.spec.ts`, the **`static-serving`
+  project**) — the only specs that talk to the **engine origin** with no vite in
+  front of them. Every client route answers with the app on a HARD navigation,
+  `/audit/:id` included, while the API keeps answering on `/api`. The other specs
+  structurally cannot cover this: vite serves the SPA for every path and proxies
+  only `/api`, whereas production is nginx → engine → `dist/`, where the engine's
+  own routes match first. When it was written, `/replays` and `/packages` returned
+  JSON to a browser and the `/audit/{id}` permalink 404'd — all green in the
+  vite-backed suite. `frontend/dist` is rebuilt at config load so the project
+  drives a current bundle.
 - **P1–P6 the GitHub panel** (`panel.spec.ts`, serial — the flow is
   sequential and later scenarios read the state the scan produced). **P1**
   sign-in: the real OAuth round trip through the stub mirrors the workspace onto

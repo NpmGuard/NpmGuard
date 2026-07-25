@@ -427,7 +427,7 @@ async def test_scoped_package_end_to_end(engine_factory, mock_llm, registry_stub
     assert wrapped.json()["report"]["verdict"] == "SAFE"
 
     listing = await _get(
-        f"{engine.base_url}/packages", headers={"accept": "application/json"}
+        f"{engine.base_url}/api/packages"
     )
     assert listing.status_code == 200
     entries = {item["packageName"]: item for item in listing.json()["packages"]}

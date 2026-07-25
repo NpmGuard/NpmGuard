@@ -204,7 +204,7 @@ def test_packages_route_omits_an_out_of_domain_verdict(reports_app) -> None:
     write("hazypkg", "3.0.0", FOREIGN_VERDICT)
 
     with TestClient(app) as client:
-        packages = client.get("/packages").json()["packages"]
+        packages = client.get("/api/packages").json()["packages"]
 
     assert {(p["packageName"], p["verdict"]) for p in packages} == {
         ("leftpad", "SAFE"),
@@ -273,7 +273,7 @@ def test_a_legacy_shaped_report_is_refused_by_both_public_routes(reports_app) ->
 
     with TestClient(app) as client:
         assert client.get("/package/event-stream/report", params={"version": "4.0.1"}).status_code == 404
-        packages = client.get("/packages").json()["packages"]
+        packages = client.get("/api/packages").json()["packages"]
 
     assert [p["packageName"] for p in packages] == ["leftpad"]
 
