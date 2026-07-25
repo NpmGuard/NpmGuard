@@ -187,9 +187,21 @@ describe("foldAuditEvent — C3 lifecycle transitions", () => {
       ev(1, {
         type: "inventory_meta",
         scripts: { postinstall: "node evil.js" },
-        dependencies: { dependencies: { chalk: "^5" }, devDependencies: { vitest: "^4" } },
+        // The engine's REAL group keys (inventory.py) — prod/dev/optional/peer.
+        // This test previously fed {dependencies, devDependencies}, a shape the
+        // engine never emits, so it agreed with the fold's bug instead of
+        // catching it.
+        dependencies: { prod: { chalk: "^5" }, dev: { vitest: "^4" }, optional: {}, peer: {} },
         entryPoints: { install: [], runtime: ["index.js"], bin: [] },
-        metadata: { name: "p", version: "1.0.0", description: null, license: null },
+        metadata: {
+          name: "p",
+          version: "1.0.0",
+          description: null,
+          license: null,
+          homepage: null,
+          keywords: [],
+          repository: null,
+        },
       }),
     );
     expect(s.inventoryMeta).not.toBeNull();
@@ -199,6 +211,35 @@ describe("foldAuditEvent — C3 lifecycle transitions", () => {
     // lifecycle script surfaced + a dependency-count line
     expect(s.pipelineLog.some((e) => e.text.includes("Lifecycle scripts"))).toBe(true);
     expect(s.pipelineLog.some((e) => e.text === "1 prod · 1 dev dependencies")).toBe(true);
+  });
+
+  it("C3: inventory_meta counts every dependency group the engine emits", () => {
+    const s = foldAuditEvent(
+      initialFoldState(),
+      ev(1, {
+        type: "inventory_meta",
+        scripts: {},
+        dependencies: {
+          prod: { chalk: "^5", ora: "^8" },
+          dev: { vitest: "^4" },
+          optional: { fsevents: "^2" },
+          peer: { react: "^19" },
+        },
+        entryPoints: { install: [], runtime: [], bin: [] },
+        metadata: {
+          name: "p",
+          version: "1.0.0",
+          description: null,
+          license: null,
+          homepage: null,
+          keywords: [],
+          repository: null,
+        },
+      }),
+    );
+    // Guards the exact bug class: reading a group key the engine does not send
+    // yielded 0/0 for every package. A non-zero count is the discriminator.
+    expect(s.pipelineLog.some((e) => e.text === "2 prod · 1 dev dependencies")).toBe(true);
   });
 
   it("C3: intent_extracted captures purpose and expected capabilities", () => {
@@ -416,9 +457,17 @@ describe("foldAuditEvent — C6 fixture cross-check (types only)", () => {
           return ev(seq, {
             type,
             scripts: {},
-            dependencies: {},
+            dependencies: { prod: {}, dev: {}, optional: {}, peer: {} },
             entryPoints: { install: [], runtime: [], bin: [] },
-            metadata: { name: null, version: null, description: null, license: null },
+            metadata: {
+              name: null,
+              version: null,
+              description: null,
+              license: null,
+              homepage: null,
+              keywords: [],
+              repository: null,
+            },
           });
         case "intent_extracted":
           return ev(seq, { type, statedPurpose: "x", expectedCapabilities: [] });

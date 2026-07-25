@@ -232,8 +232,11 @@ export function foldAuditEvent(state: AuditFoldState, event: AuditEvent): AuditF
           },
         ];
       }
-      const prod = Object.keys(meta.dependencies["dependencies"] ?? {}).length;
-      const dev = Object.keys(meta.dependencies["devDependencies"] ?? {}).length;
+      // Group keys are prod/dev/optional/peer (inventory.py) — NOT the
+      // package.json field names. Reading `dependencies`/`devDependencies` here
+      // made this line report 0 · 0 for every package.
+      const prod = Object.keys(meta.dependencies.prod ?? {}).length;
+      const dev = Object.keys(meta.dependencies.dev ?? {}).length;
       pipelineLog = [
         ...pipelineLog,
         { kind: "info", text: `${prod} prod · ${dev} dev dependencies`, timestamp: at },

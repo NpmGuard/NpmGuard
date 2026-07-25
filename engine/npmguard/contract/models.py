@@ -12,15 +12,6 @@ class Model(RootModel[Any]):
     root: Any
 
 
-class AgentReasoningEvent(BaseModel):
-    auditId: str
-    timestamp: str
-    seq: Annotated[int, Field(ge=0)]
-    type: Literal['agent_reasoning']
-    text: str
-    step: int
-
-
 class AttackPathway(
     RootModel[
         Literal[
@@ -54,6 +45,14 @@ class AttackPathway(
     ]
 
 
+class AuditEnqueuedEvent(BaseModel):
+    auditId: str
+    timestamp: str
+    seq: Annotated[int, Field(ge=0)]
+    type: Literal['audit_enqueued']
+    queuePosition: Annotated[int, Field(ge=0)]
+
+
 class MaxSyscalls(RootModel[float]):
     root: Annotated[float, Field(gt=0.0)] = None
 
@@ -76,6 +75,13 @@ class CryptoOp(BaseModel):
 class DealBreaker(BaseModel):
     check: str
     detail: str
+
+
+class DependencyGroups(BaseModel):
+    prod: dict[str, str] | None = {}
+    dev: dict[str, str] | None = {}
+    optional: dict[str, str] | None = {}
+    peer: dict[str, str] | None = {}
 
 
 class EntryPoints(BaseModel):
@@ -189,13 +195,6 @@ class HypothesisResolution(BaseModel):
     by: str
 
 
-class Metadata(BaseModel):
-    name: str | None
-    version: str | None
-    description: str | None
-    license: str | None
-
-
 class LifecycleHook(
     RootModel[Literal['preinstall', 'install', 'postinstall', 'prepare']]
 ):
@@ -226,7 +225,7 @@ class PackageMetadata(BaseModel):
     license: str | None = None
     homepage: str | None = None
     keywords: list[str] | None = []
-    repository: Any | None = None
+    repository: str | dict[str, Any] | None = None
 
 
 class PhaseLog(BaseModel):
@@ -332,7 +331,7 @@ class ToolCall(BaseModel):
     args: dict[str, Any] | None = {}
 
 
-class Hypothes(BaseModel):
+class TriageHypothesis(BaseModel):
     hypId: str
     claim: Annotated[
         Literal[
@@ -373,51 +372,14 @@ class Trigger(BaseModel):
     stdin: str | None = None
 
 
-class AgentThinkingEvent(BaseModel):
-    auditId: str
-    timestamp: str
-    seq: Annotated[int, Field(ge=0)]
-    type: Literal['agent_thinking']
-    step: int
-
-
-class AgentToolCallEvent(BaseModel):
-    auditId: str
-    timestamp: str
-    seq: Annotated[int, Field(ge=0)]
-    type: Literal['agent_tool_call']
-    tool: str
-    args: dict[str, Any]
-    step: int
-
-
-class AgentToolResultEvent(BaseModel):
-    auditId: str
-    timestamp: str
-    seq: Annotated[int, Field(ge=0)]
-    type: Literal['agent_tool_result']
-    tool: str
-    resultPreview: str
-    step: int
-    injectionDetected: bool
-
-
-class AuditEnqueuedEvent(BaseModel):
-    auditId: str
-    timestamp: str
-    seq: Annotated[int, Field(ge=0)]
-    type: Literal['audit_enqueued']
-    queuePosition: Annotated[int, Field(ge=0)]
-
-
 class AuditErrorEvent(BaseModel):
     auditId: str
     timestamp: str
     seq: Annotated[int, Field(ge=0)]
     type: Literal['audit_error']
-    error: str | None = None
-    code: str | None = None
-    retryable: bool | None = None
+    error: str
+    code: str
+    retryable: bool
 
 
 class AuditStartedEvent(BaseModel):
@@ -457,6 +419,17 @@ class Claim(BaseModel):
         Literal['time_gate', 'geo_gate', 'ci_gate', 'inspector_gate', 'docker_gate']
         | None
     ) = None
+
+
+class DependenciesProvisionedEvent(BaseModel):
+    auditId: str
+    timestamp: str
+    seq: Annotated[int, Field(ge=0)]
+    type: Literal['dependencies_provisioned']
+    installed: bool
+    packageCount: Annotated[int, Field(ge=0)]
+    skipped: str | None = None
+    error: str | None = None
 
 
 class EvidenceEvent(BaseModel):
@@ -537,12 +510,14 @@ class FileVerdictEvent(BaseModel):
     verdict: FileVerdict
 
 
-class FindingDiscoveredEvent(BaseModel):
+class GraphBuiltEvent(BaseModel):
     auditId: str
     timestamp: str
     seq: Annotated[int, Field(ge=0)]
-    type: Literal['finding_discovered']
-    finding: Finding
+    type: Literal['graph_built']
+    nodeCount: Annotated[int, Field(ge=0)]
+    addedCount: Annotated[int, Field(ge=0)]
+    mergedCount: Annotated[int, Field(ge=0)]
 
 
 class HypothesisEmittedEvent(BaseModel):
@@ -647,6 +622,15 @@ class InstrumentationLog(BaseModel):
     timers: Annotated[list[TimerRecord] | None, Field(validate_default=True)] = []
 
 
+class IntentExtractedEvent(BaseModel):
+    auditId: str
+    timestamp: str
+    seq: Annotated[int, Field(ge=0)]
+    type: Literal['intent_extracted']
+    statedPurpose: str
+    expectedCapabilities: list[str] | None = []
+
+
 class InventoryFlag(BaseModel):
     severity: Annotated[Literal['info', 'warn', 'critical'], Field(title='Severity')]
     check: str
@@ -660,9 +644,9 @@ class InventoryMetaEvent(BaseModel):
     seq: Annotated[int, Field(ge=0)]
     type: Literal['inventory_meta']
     scripts: dict[str, str]
-    dependencies: dict[str, dict[str, str]]
+    dependencies: DependencyGroups
     entryPoints: EntryPoints
-    metadata: Metadata
+    metadata: PackageMetadata
 
 
 class InventoryReport(BaseModel):
@@ -711,7 +695,7 @@ class TriageCompleteEvent(BaseModel):
     seq: Annotated[int, Field(ge=0)]
     type: Literal['triage_complete']
     hypothesisCount: Annotated[int, Field(ge=0)]
-    hypotheses: list[Hypothes]
+    hypotheses: list[TriageHypothesis]
 
 
 class TriageProgressEvent(BaseModel):
@@ -735,47 +719,24 @@ class VerdictReachedEvent(BaseModel):
     confirmedCount: Annotated[int, Field(ge=0)]
 
 
-class VerifyStartedEvent(BaseModel):
-    auditId: str
-    timestamp: str
-    seq: Annotated[int, Field(ge=0)]
-    type: Literal['verify_started']
-    totalTests: Annotated[int, Field(ge=0)]
-
-
-class VerifyTestResultEvent(BaseModel):
-    auditId: str
-    timestamp: str
-    seq: Annotated[int, Field(ge=0)]
-    type: Literal['verify_test_result']
-    proofIndex: Annotated[int, Field(ge=0)]
-    testFile: str
-    status: Literal['confirmed', 'unconfirmed', 'infra_error']
-    error: str | None = None
-
-
 class AuditEvent(
     RootModel[
         AuditStartedEvent
         | AuditEnqueuedEvent
         | PhaseStartedEvent
         | PhaseCompletedEvent
+        | DependenciesProvisionedEvent
         | FileListEvent
+        | InventoryMetaEvent
+        | IntentExtractedEvent
         | FileAnalyzingEvent
+        | TriageProgressEvent
+        | HypothesisEmittedEvent
         | FileVerdictEvent
         | TriageCompleteEvent
-        | TriageProgressEvent
-        | AgentToolCallEvent
-        | AgentToolResultEvent
-        | AgentReasoningEvent
-        | AgentThinkingEvent
-        | FindingDiscoveredEvent
-        | HypothesisEmittedEvent
+        | GraphBuiltEvent
         | HypothesisResolvedEvent
         | VerdictReachedEvent
-        | InventoryMetaEvent
-        | VerifyStartedEvent
-        | VerifyTestResultEvent
         | AuditErrorEvent
     ]
 ):
@@ -784,22 +745,18 @@ class AuditEvent(
         | AuditEnqueuedEvent
         | PhaseStartedEvent
         | PhaseCompletedEvent
+        | DependenciesProvisionedEvent
         | FileListEvent
+        | InventoryMetaEvent
+        | IntentExtractedEvent
         | FileAnalyzingEvent
+        | TriageProgressEvent
+        | HypothesisEmittedEvent
         | FileVerdictEvent
         | TriageCompleteEvent
-        | TriageProgressEvent
-        | AgentToolCallEvent
-        | AgentToolResultEvent
-        | AgentReasoningEvent
-        | AgentThinkingEvent
-        | FindingDiscoveredEvent
-        | HypothesisEmittedEvent
+        | GraphBuiltEvent
         | HypothesisResolvedEvent
         | VerdictReachedEvent
-        | InventoryMetaEvent
-        | VerifyStartedEvent
-        | VerifyTestResultEvent
         | AuditErrorEvent,
         Field(title='AuditEvent'),
     ]

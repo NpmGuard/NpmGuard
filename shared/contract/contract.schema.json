@@ -2,148 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$comment": "GENERATED from shared Zod schemas. Do not edit.",
   "$defs": {
-    "AgentReasoningEvent": {
-      "type": "object",
-      "properties": {
-        "auditId": {
-          "type": "string"
-        },
-        "timestamp": {
-          "type": "string"
-        },
-        "seq": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "type": {
-          "type": "string",
-          "const": "agent_reasoning"
-        },
-        "text": {
-          "type": "string"
-        },
-        "step": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "auditId",
-        "timestamp",
-        "seq",
-        "type",
-        "text",
-        "step"
-      ],
-      "title": "AgentReasoningEvent"
-    },
-    "AgentThinkingEvent": {
-      "type": "object",
-      "properties": {
-        "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
-        },
-        "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
-        },
-        "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
-        },
-        "type": {
-          "type": "string",
-          "const": "agent_thinking"
-        },
-        "step": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "auditId",
-        "timestamp",
-        "seq",
-        "type",
-        "step"
-      ],
-      "title": "AgentThinkingEvent"
-    },
-    "AgentToolCallEvent": {
-      "type": "object",
-      "properties": {
-        "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
-        },
-        "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
-        },
-        "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
-        },
-        "type": {
-          "type": "string",
-          "const": "agent_tool_call"
-        },
-        "tool": {
-          "type": "string"
-        },
-        "args": {
-          "type": "object",
-          "additionalProperties": {}
-        },
-        "step": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "auditId",
-        "timestamp",
-        "seq",
-        "type",
-        "tool",
-        "args",
-        "step"
-      ],
-      "title": "AgentToolCallEvent"
-    },
-    "AgentToolResultEvent": {
-      "type": "object",
-      "properties": {
-        "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
-        },
-        "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
-        },
-        "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
-        },
-        "type": {
-          "type": "string",
-          "const": "agent_tool_result"
-        },
-        "tool": {
-          "type": "string"
-        },
-        "resultPreview": {
-          "type": "string"
-        },
-        "step": {
-          "type": "integer"
-        },
-        "injectionDetected": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "auditId",
-        "timestamp",
-        "seq",
-        "type",
-        "tool",
-        "resultPreview",
-        "step",
-        "injectionDetected"
-      ],
-      "title": "AgentToolResultEvent"
-    },
     "AttackPathway": {
       "type": "string",
       "enum": [
@@ -164,13 +22,14 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "type": "string"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "type": "string"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "type": "integer",
+          "minimum": 0
         },
         "type": {
           "type": "string",
@@ -194,13 +53,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -220,7 +79,10 @@
         "auditId",
         "timestamp",
         "seq",
-        "type"
+        "type",
+        "error",
+        "code",
+        "retryable"
       ],
       "title": "AuditErrorEvent"
     },
@@ -239,10 +101,25 @@
           "$ref": "#/$defs/PhaseCompletedEvent"
         },
         {
+          "$ref": "#/$defs/DependenciesProvisionedEvent"
+        },
+        {
           "$ref": "#/$defs/FileListEvent"
         },
         {
+          "$ref": "#/$defs/InventoryMetaEvent"
+        },
+        {
+          "$ref": "#/$defs/IntentExtractedEvent"
+        },
+        {
           "$ref": "#/$defs/FileAnalyzingEvent"
+        },
+        {
+          "$ref": "#/$defs/TriageProgressEvent"
+        },
+        {
+          "$ref": "#/$defs/HypothesisEmittedEvent"
         },
         {
           "$ref": "#/$defs/FileVerdictEvent"
@@ -251,40 +128,13 @@
           "$ref": "#/$defs/TriageCompleteEvent"
         },
         {
-          "$ref": "#/$defs/TriageProgressEvent"
-        },
-        {
-          "$ref": "#/$defs/AgentToolCallEvent"
-        },
-        {
-          "$ref": "#/$defs/AgentToolResultEvent"
-        },
-        {
-          "$ref": "#/$defs/AgentReasoningEvent"
-        },
-        {
-          "$ref": "#/$defs/AgentThinkingEvent"
-        },
-        {
-          "$ref": "#/$defs/FindingDiscoveredEvent"
-        },
-        {
-          "$ref": "#/$defs/HypothesisEmittedEvent"
+          "$ref": "#/$defs/GraphBuiltEvent"
         },
         {
           "$ref": "#/$defs/HypothesisResolvedEvent"
         },
         {
           "$ref": "#/$defs/VerdictReachedEvent"
-        },
-        {
-          "$ref": "#/$defs/InventoryMetaEvent"
-        },
-        {
-          "$ref": "#/$defs/VerifyStartedEvent"
-        },
-        {
-          "$ref": "#/$defs/VerifyTestResultEvent"
         },
         {
           "$ref": "#/$defs/AuditErrorEvent"
@@ -360,13 +210,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -389,13 +239,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         }
       },
       "required": [
@@ -563,6 +413,88 @@
         "detail"
       ],
       "title": "DealBreaker"
+    },
+    "DependenciesProvisionedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "dependencies_provisioned"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "packageCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "installed",
+        "packageCount"
+      ],
+      "title": "DependenciesProvisionedEvent"
+    },
+    "DependencyGroups": {
+      "type": "object",
+      "properties": {
+        "prod": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "dev": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "optional": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "peer": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "title": "DependencyGroups"
     },
     "EntryPoints": {
       "type": "object",
@@ -760,13 +692,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -789,13 +721,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -895,13 +827,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -941,7 +873,11 @@
           "default": []
         },
         "suspiciousLines": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "summary": {
           "type": "string"
@@ -958,35 +894,6 @@
         "riskContribution"
       ],
       "title": "FileVerdict"
-    },
-    "FindingDiscoveredEvent": {
-      "type": "object",
-      "properties": {
-        "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
-        },
-        "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
-        },
-        "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
-        },
-        "type": {
-          "type": "string",
-          "const": "finding_discovered"
-        },
-        "finding": {
-          "$ref": "#/$defs/Finding"
-        }
-      },
-      "required": [
-        "auditId",
-        "timestamp",
-        "seq",
-        "type",
-        "finding"
-      ],
-      "title": "FindingDiscoveredEvent"
     },
     "Finding": {
       "type": "object",
@@ -1030,7 +937,11 @@
           "type": "string"
         },
         "lines": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "reason": {
           "type": "string"
@@ -1089,6 +1000,46 @@
       ],
       "title": "GatingModifier"
     },
+    "GraphBuiltEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "graph_built"
+        },
+        "nodeCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "addedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mergedCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "nodeCount",
+        "addedCount",
+        "mergedCount"
+      ],
+      "title": "GraphBuiltEvent"
+    },
     "HypothesisCounts": {
       "type": "object",
       "properties": {
@@ -1131,13 +1082,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -1220,13 +1171,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -1444,6 +1395,42 @@
       },
       "title": "InstrumentationLog"
     },
+    "IntentExtractedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "intent_extracted"
+        },
+        "statedPurpose": {
+          "type": "string"
+        },
+        "expectedCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "statedPurpose"
+      ],
+      "title": "IntentExtractedEvent"
+    },
     "InventoryFlag": {
       "type": "object",
       "properties": {
@@ -1475,13 +1462,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -1494,13 +1481,7 @@
           }
         },
         "dependencies": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          }
+          "$ref": "#/$defs/DependencyGroups"
         },
         "entryPoints": {
           "type": "object",
@@ -1531,39 +1512,7 @@
           ]
         },
         "metadata": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "version": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "description": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "license": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          "required": [
-            "name",
-            "version",
-            "description",
-            "license"
-          ]
+          "$ref": "#/$defs/PackageMetadata"
         }
       },
       "required": [
@@ -1740,6 +1689,22 @@
           "default": []
         },
         "repository": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null
         }
       },
@@ -1749,13 +1714,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -1808,13 +1773,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -2291,13 +2256,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -2310,27 +2275,7 @@
         "hypotheses": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "hypId": {
-                "type": "string"
-              },
-              "claim": {
-                "$ref": "#/$defs/ClaimKind"
-              },
-              "severity": {
-                "$ref": "#/$defs/HypothesisSeverity"
-              },
-              "description": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "hypId",
-              "claim",
-              "severity",
-              "description"
-            ]
+            "$ref": "#/$defs/TriageHypothesis"
           }
         }
       },
@@ -2344,17 +2289,41 @@
       ],
       "title": "TriageCompleteEvent"
     },
+    "TriageHypothesis": {
+      "type": "object",
+      "properties": {
+        "hypId": {
+          "type": "string"
+        },
+        "claim": {
+          "$ref": "#/$defs/ClaimKind"
+        },
+        "severity": {
+          "$ref": "#/$defs/HypothesisSeverity"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hypId",
+        "claim",
+        "severity",
+        "description"
+      ],
+      "title": "TriageHypothesis"
+    },
     "TriageProgressEvent": {
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -2452,13 +2421,13 @@
       "type": "object",
       "properties": {
         "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
         },
         "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
         },
         "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
         },
         "type": {
           "type": "string",
@@ -2497,82 +2466,6 @@
         "DANGEROUS"
       ],
       "title": "Verdict"
-    },
-    "VerifyStartedEvent": {
-      "type": "object",
-      "properties": {
-        "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
-        },
-        "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
-        },
-        "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
-        },
-        "type": {
-          "type": "string",
-          "const": "verify_started"
-        },
-        "totalTests": {
-          "type": "integer",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "auditId",
-        "timestamp",
-        "seq",
-        "type",
-        "totalTests"
-      ],
-      "title": "VerifyStartedEvent"
-    },
-    "VerifyTestResultEvent": {
-      "type": "object",
-      "properties": {
-        "auditId": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/auditId"
-        },
-        "timestamp": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/timestamp"
-        },
-        "seq": {
-          "$ref": "#/$defs/AgentReasoningEvent/properties/seq"
-        },
-        "type": {
-          "type": "string",
-          "const": "verify_test_result"
-        },
-        "proofIndex": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "testFile": {
-          "type": "string"
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "confirmed",
-            "unconfirmed",
-            "infra_error"
-          ]
-        },
-        "error": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "auditId",
-        "timestamp",
-        "seq",
-        "type",
-        "proofIndex",
-        "testFile",
-        "status"
-      ],
-      "title": "VerifyTestResultEvent"
     }
   }
 }
