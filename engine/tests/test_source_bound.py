@@ -28,29 +28,12 @@
 #
 # Axes: bound (off / tripped / exactly met / p99-sized) × package (plain / dealbreaker)
 #       × what it costs (model calls, workdir, report)
-#   C1 over the bound → PackageTooLargeError, and the LLM PROVIDER SEES ZERO CALLS.
-#      The provider is fully scripted, so deleting the bound check makes this audit
-#      complete SAFE with roles ["intent", "flag"] — the zero-call assertion is what
-#      fails, not an incidental crash
-#   C2 the same refusal is a REFUSAL, not a truncation: no report is written and the
-#      workdir is removed, so nothing partial can be mistaken for a verdict
-#   C3 the wire contract: NPMGUARD-0003, HTTP 413, retryable=False, and details
-#      carrying both numbers. Retryable would tell a client to loop on an input that
-#      cannot become acceptable by waiting
-#   C4 a DEALBREAKER package over the bound still gets its DANGEROUS verdict — the
-#      free, correct early return wins over the size bound, and still costs 0 calls
-#   C5 a p99-sized package (647 files) under the recommended 1000 bound is NOT
-#      refused: the bound admits the 99th percentile of the measured corpus
-#   C6 exactly AT the bound is not refused (the comparison is `>`, not `>=`)
-#   C7 the default, 0, is OFF: 3954 files — one more than the largest package
-#      measured — proceeds. This is why shipping the mechanism does not decide the
-#      refund-versus-probe question
-# Adversarial pass: 2026-07-25 — the first map had only "too big is refused", which a
-# single `if` satisfies while quietly truncating. Missing dimensions: what the
-# refusal COSTS (C1's provider counter — a refusal placed after `intent` still
-# refuses, and still burns a model call), what it LEAVES BEHIND (C2), and which side
-# of the bound the dealbreaker return owns (C4). C6/C7 are the two boundary values
-# where an off-by-one or a falsy-check bug would otherwise pass everything above.
+# "Too big is refused" is satisfied by a single `if` that quietly truncates, so the
+# classes are about the refusal's shape: what it COSTS (C1's provider counter — a
+# refusal placed after `intent` still refuses, and still burns a model call), what it
+# LEAVES BEHIND (C2), and which side of the bound the dealbreaker return owns (C4).
+# C6/C7 are the two boundary values where an off-by-one or a falsy check would
+# otherwise pass everything above.
 from __future__ import annotations
 
 import asyncio

@@ -7,10 +7,8 @@
 #   S19b audit_error (unresolvable package) → exit 1, error rendered [C3-adjacent]
 #   S19c DANGEROUS verdict (live docker experiment, scripted judge/hypothesis) →
 #        exit 1 [C12, C15; markers cli+docker]
-# Adversarial pass: W4b — "does the CLI ever exit 0 on a non-SAFE outcome via these
-#   paths?" answered by S19b/S19c pairing against S19a. (The known es.onerror
-#   CLOSED→exit-0 hazard needs a dead events URL — the audit flow here always has a
-#   live session, so that class stays with the scenario map's exclusions.)
+# The known es.onerror CLOSED→exit-0 hazard needs a dead events URL; the audit flow
+# here always has a live session, so that class stays in the exclusions.
 #
 # Blackbox: CLI exit codes + stdout; engine observed only through its public HTTP API.
 

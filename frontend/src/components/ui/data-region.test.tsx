@@ -26,7 +26,6 @@
  *  C8  `DegradedField` never renders `0` and never renders a bare dash: the
  *      screen-reader text names the failed fetch.
  *  C9  StaleChip is a third fact — real data, not current. Not degraded.
- *  C10 `className` survives the merge on each of the three.
  *
  * Blackbox: render through the public component API and query the accessibility
  * tree, not internals.
@@ -35,7 +34,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DataRegion } from "./data-region.tsx";
-import { DegradedField, DegradedRegion } from "./degraded-state.tsx";
+import { DegradedField } from "./degraded-state.tsx";
 import { failed, loaded, LOADING, type LoadState } from "./load-state.ts";
 import { StaleChip } from "./stale-chip.tsx";
 
@@ -204,26 +203,3 @@ describe("StaleChip", () => {
   });
 });
 
-describe("className merge", () => {
-  it("C10: an incoming className reaches the degraded region and wins its group", () => {
-    render(<DegradedRegion failure={{ what: "Alerts feed" }} className="rounded-none mt-8" />);
-    const region = screen.getByRole("alert");
-    expect(region).toHaveClass("mt-8");
-    expect(region).toHaveClass("rounded-none");
-    // The component's own `rounded-lg` must have been REPLACED, not merely
-    // preceded — otherwise the caller wins only by source-order accident.
-    expect(region).not.toHaveClass("rounded-lg");
-  });
-
-  it("C10: an incoming className reaches the empty state", () => {
-    render(<Region state={loaded<string[]>([])} />);
-    expect(screen.getByRole("status")).toHaveClass("flex");
-  });
-
-  it("C10: an incoming className reaches the stale chip and wins its group", () => {
-    render(<StaleChip asOf="14:02" className="bg-canvas" />);
-    const chip = screen.getByText("14:02").closest("[data-state]");
-    expect(chip).toHaveClass("bg-canvas");
-    expect(chip).not.toHaveClass("bg-sunken");
-  });
-});

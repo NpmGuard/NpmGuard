@@ -1,196 +1,75 @@
 # CLASS MAP — the dealbreaker path: the two structural checks (inventory) and the
-# hardcoded-DANGEROUS short-circuit they trigger (pipeline). Nothing in the suite
-# covered either before this file, on the ONE path where DANGEROUS is asserted
-# with no hypothesis, no experiment and no judge (AUDIT_CORE_EXPLAINED §7.3, §9).
-# Units: analyze_inventory(package_dir) -> InventoryReport.{dealbreaker,flags} and
-#        AuditPipeline.run(...) -> the AuditReport a consumer receives, the frames
-#        it saw, and the exception it may get instead.
-# Blackbox: a package on disk in; a report / an exception / the durable event log
-# out. No private imports, no call-sequence assertions.
-# (seams: pipeline.resolve_package -> a package prepared in a private tmp workdir,
-#  exactly as the real one hands it over; the LLM provider is ScriptedLlm({}) —
-#  NO script for ANY role — so the first LLM call of any later phase is an
-#  AssertionError: that is how "no phase after inventory ran" is observed from
-#  outside the pipeline. C19 swaps in a scripted provider for the contrast. No
-#  docker: every manifest here declares no `dependencies`, so
-#  provision_dependencies short-circuits before it reaches the daemon.
-#  report_store.DATA_DIR is resolved at import, so C18 re-points that module
-#  constant, the same knob conftest documents.)
+# hardcoded-DANGEROUS short-circuit they trigger (pipeline). The ONE path where
+# DANGEROUS is asserted with no hypothesis, no experiment and no judge.
+# Units: analyze_inventory(package_dir) -> InventoryReport.{dealbreaker,flags};
+#        AuditPipeline.run(...) -> the report a consumer receives, the frames it
+#        saw, or the exception it gets instead.
+# Blackbox: a package on disk in, a report / exception / durable event log out.
 #
-# INPUT PROVENANCE (TESTING.md, "parsers of external formats"): a package.json is
-# external — its bytes come from a publisher. The NEGATIVE direction therefore
-# runs REAL captured manifests: C5b extracts the committed npm tarballs
-# (tests/fixtures/registry/{chalk-5.6.2,is-number-7.0.0}.tgz) and audits the real
-# tree, real file modes and real script values included. The POSITIVE direction
-# cannot be captured: the producer of a `curl … | sh` install hook is malware, and
-# the only such corpus here is sandbox/test-fixtures/test-pkg-bench-dd-*, which is
-# live malware banned from committed files. Those script strings are therefore
-# hand-authored adversary text and marked as such here — the mitigation is that
-# every one of them is paired with a near-miss (C5a) and with the real manifests
-# (C5b), so a regex that matched nothing, or matched everything, fails this file.
-# Manifests are built from dicts through json.dumps rather than written as
-# literals; only C15 needs raw bytes, because its subject IS a broken file.
-# The classes added for the install-hook rework (C20-C27) close the gap between
-# those two directions: PUBLISHED_HOOKS holds install-script values copied verbatim
-# out of published manifests, each naming the package it came from, because every
-# one of them is a BENIGN shape the recogniser used to get wrong. Their provenance
-# is an installed tree — the bytes npm ships — surveyed over 1334 unique
-# (name, version) manifests; a tarball per one-line `scripts` value would be out of
-# proportion, so the package@version is named and the survey is reproducible
-# against any installed tree.
+# Seam: the LLM provider is ScriptedLlm({}) — NO script for ANY role — so the
+# first model call of any later phase raises AssertionError. That is how "no phase
+# after inventory ran" is observed from outside the pipeline; C19 swaps in a real
+# scripted provider for the contrast.
+#
+# INPUT PROVENANCE. A package.json is external, so the NEGATIVE direction runs
+# real captured manifests (C5b extracts the committed npm tarballs and audits the
+# real tree, file modes and script values). The POSITIVE direction cannot be
+# captured: the producer of a `curl … | sh` install hook is malware, and the only
+# such corpus here is banned from committed files. Those script strings are
+# therefore hand-authored adversary text — mitigated by pairing every one with a
+# near-miss (C5a) and with the real manifests, so a regex matching nothing, or
+# matching everything, fails this file. PUBLISHED_HOOKS holds install-script
+# values copied verbatim out of published manifests, each naming its package,
+# because every one is a BENIGN shape the recogniser used to get wrong.
+#
+# THREE OUTCOMES, NOT TWO. An install hook whose target cannot be resolved is a
+# statement about THIS ENGINE, not about the package, so it cannot carry the
+# dealbreaker's accusation — over 227 published packages with lifecycle hooks,
+# unresolvable install hooks are dominated by ordinary native-build tooling. It is
+# still a coverage gap that must never reach SAFE, so it is a `critical`
+# `install-coverage-gap` flag under ONE closed name: a consumer refusing SAFE
+# branches on one fact rather than on a list of gap kinds that grows.
 #
 # Axes: which check trips × the scripts block's shape × manifest health × what the
 #       consumer receives (verdict, report shape, frames, persistability)
 #
-# DEALBREAKER 1 — shell-pipe
-#   C1  a piped install script trips it: check="shell-pipe", detail names the
-#       script KEY and the offending value
-#   C2  each of the six patterns, plus case-insensitivity: curl|sh, curl|bash,
-#       wget|sh, wget|bash, curl piped into ANYTHING (the broadest), and
-#       wget -O … && (sh|chmod)
-#   C3  every script key is scanned, not just the lifecycle hooks — a `build`
-#       script `npm install` would never run still produces DANGEROUS
-#   C4  the early return SUPPRESSES every advisory flag: the same package (ELF
-#       binary + non-standard dotfile + lifecycle hook) reports 3 flags with a
-#       benign script and flags == [] with the pipe. Paired, so the empty list
-#       cannot be vacuous
-#   C5  the false-positive direction, which matters more here than usual because a
-#       false dealbreaker is a DANGEROUS verdict on a clean package:
-#       C5a near misses — `node setup.js`, curl with no pipe, a pipe with no
-#           fetcher, wget with neither -O nor &&
-#       C5b the two REAL published manifests (chalk@5.6.2, is-number@7.0.0) read
-#           out of the committed tarballs: no dealbreaker, and `scripts` non-empty
-#           so the scan actually iterated real values
-# DEALBREAKER 2 — missing-install-script
-#   C6  a lifecycle hook running a file the package does not contain trips it:
-#       check="missing-install-script", detail names the reference
-#   C7  the pairing that makes C6 mean something: same manifest, file present ->
-#       no dealbreaker
-#   C8  only INSTALL-time references are checked — a `main` pointing at a missing
-#       file is not a dealbreaker (nothing executes it at install time)
-#   C9  reference normalization: `node ./setup.js` resolves to `setup.js`;
-#       `node lib/setup.js` needs the file AT `lib/setup.js`
-#   C10 (was a pinned FINDING; now the contract) the interpreter is not the fact.
-#       `sh install.sh` / `bash ./install.sh` / `python3 install.sh` /
-#       `/bin/sh install.sh` / `./install.sh` (shebang, no interpreter word) with
-#       the target ABSENT is the same dealbreaker as C6. Until this class flipped,
-#       only a `node …` command yielded a reference at all, so every other
-#       interpreter walked through with an advisory warn
-#   C11 precedence: a manifest tripping both reports shell-pipe (checked first)
-# THE INSTALL-TIME HOOK SET, AND THE THIRD OUTCOME (the coverage gap)
-#   Why there are three outcomes and not two: an install hook whose target we
-#   cannot resolve is a statement about THIS ENGINE, not about the package, so it
-#   cannot carry the dealbreaker's accusation — measured over 227 published
-#   packages with lifecycle hooks, unresolvable install hooks are dominated by
-#   ordinary native-build tooling. It is still a coverage gap and must never reach
-#   SAFE, so it is a `critical` `install-coverage-gap` flag: one closed name, so a
-#   consumer refusing SAFE branches on one fact rather than on a list of gap kinds
-#   that grows every time a new one is found.
-#   C20 `prepare` / `prepublish` are BUILD-time, not install-time: npm never runs
-#       them for a registry tarball installed as a dependency, which is the only
-#       artifact resolve.py fetches. They name no install entry point and cannot
-#       be a dealbreaker — 11 of the 14 published packages the old check called
-#       DANGEROUS were this shape. Still reported via `lifecycle-scripts`
-#   C21 an unresolvable install hook (inline `-e` code; three native-build front
-#       ends) → no dealbreaker, one `critical` `install-coverage-gap` quoting hook
-#       and command. C21b is the pairing: a fully resolved hook leaves none
-#   C22 the legitimate non-node case that must not be condemned: `sh
-#       ./scripts/postinstall.sh` WITH the file shipped is clean, its reference is
-#       recorded, AND it is now coverage — `shell` joined SOURCE_FILE_TYPES, so
-#       flag_source_files puts the .sh in front of a model. Asserted through that
-#       function, not through a missing flag: absence would also pass if the file had
-#       simply stopped being noticed. Paired with a `.js` target
-#   C22b the pairing that keeps the second gap KIND reachable: `python
-#       scripts/postinstall.py` resolves and ships, `.py` maps to no type, so the gap
-#       stands with the file named. Widening SOURCE_FILE_TYPES converts gaps into
-#       coverage one type at a time; it must not retire the branch reporting the rest
-#   C23 targets resolve the way the LOADER resolves them: `node scripts/postinstall`
-#       is `scripts/postinstall.js`, `node lib` is `lib/index.js` — node's rule,
-#       not a general one, so `sh scripts/postinstall` still misses
-#   C24 each command of a compound hook is classified separately (`node build.js;
-#       tsc …` → build.js resolved, tsc a gap). The old reference was `build.js;`
-#   C25 a fetch-then-execute shape SHELL_PIPE_PATTERNS misses (`curl -o f url && sh
-#       f`) lands anyway — as C6's fact, not as a seventh pattern
-#   C26 `entryPoints.install` order follows npm's run order, not str hash order
-#   C27 degenerate values (unbalanced quote, `$VAR` path, no operand, a bare
-#       operator, whitespace, a bare name that is a PATH lookup, a path into a
-#       SKIP_DIRS dir we never inventoried) → a gap, never a crash, never clean
-# FILE CLASSIFICATION — a shebang is a declaration too
-#   C28 an extensionless file is classified by its `#!` line, because that is what
-#       the kernel obeys: `#!/usr/bin/env node` (and `-S node --flag`, `bun`, an
-#       absolute path) → js, `#!/bin/sh` / `env bash` → shell. 13 of 94 real `bin`
-#       targets ship extensionless (typescript's bin/tsc, rollup, esbuild, acorn,
-#       uuid), so a DECLARED executable entry point was `unknown`, read by no model,
-#       and missed by `executable-outside-bin` too because it sits under `bin/`.
-#       The negative rows are the same class: an unmapped interpreter
-#       (`env python3`) and no shebang at all stay `unknown`, which is what keeps
-#       such a target a REPORTED gap instead of silently clean
-#   C28b the mapping is ONE-WAY. The name wins where there is one, so a `.json`
-#       whose first line reads like a shebang is still json and an ELF is still
-#       binary — otherwise this could demote a file that is read today, or hand FLAG
-#       a binary blob as source
-# REFUSING SAFE WHILE A COVERAGE GAP IS OPEN (NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP)
-#   Why a refusal and not a flag: the verdict vocabulary is {SAFE, DANGEROUS}, so
-#   "we could not check what runs at install time" HAS no verdict — the same position
-#   a DEFERRED hypothesis is in, refused the same way and with the same code.
-#   C29 knob ON: an unresolvable install hook cannot reach SAFE → NPMGUARD-0031,
-#       stage inventory, retryable, no report, and no verdict_reached frame. The FLAG
-#       answer is scripted clean, so nothing but the gap can end that audit
-#   C29b knob OFF (the DEFAULT, and therefore the subject): the same package ships
-#       SAFE with the `critical` flag in the inventory PhaseLog — exactly the
-#       behaviour that shipped before the refusal existed. Without this pairing C29
-#       would also pass on an incidental crash, and the default would be unpinned
-#   C30 ordering 1 — a DEALBREAKER still wins. A manifest tripping both ships
-#       DANGEROUS from the early return, at zero model calls (trace == [resolve,
-#       inventory]). Reversing it would trade a correct verdict for an error
-#   C31 ordering 2 — a CONFIRMED hypothesis still wins, and the gap is still
-#       reported. 47b8c15's rule for retrieval gaps applied here: the gap is raised
-#       AFTER the run, so it can displace an absent verdict but never a proven one.
-#       Reversing it would discard confirmed malware because a sibling `node-gyp
-#       rebuild` was unreadable — strictly worse than the SAFE this prevents
-# THE SCRIPTS BLOCK — boundaries
-#   C12 `"scripts": {}` -> no dealbreaker, no lifecycle flag
-#   C13 no `scripts` key at all -> same, and entryPoints.install == []
-#   C14 non-string script values (list / null / number) are dropped, so they can
-#       neither trip a check nor raise
-# MANIFEST HEALTH × THE CHECKS — the silent gap 95cfb38 closed
-#   C15 a manifest whose TEXT declares a piped install script but which does not
-#       parse -> AuditIncompleteError(inventory, NPMGUARD-0031, retryable) and NO
-#       report. Before 95cfb38 the parse failure became `{}`: empty scripts and an
-#       empty install list made BOTH checks pass trivially, so the audit continued
-#       with zero manifest knowledge — and the only direction that swallow could
-#       bias was toward SAFE
-# THE SHORT-CIRCUIT — what actually ships
-#   C16 the report a consumer receives, for BOTH checks: verdict DANGEROUS,
-#       rationale "Dealbreaker: <check> — <detail>", all six counts 0, hypotheses
-#       [], confirmedHypIds [], fileSummaries [], dealbreaker present,
-#       schemaVersion 2, trace exactly [resolve, inventory]. Zero hypotheses is
-#       the CONTRACT here (§9), so the assertion is the whole shape, not the
-#       verdict string
-#   C17 the frames: audit_started, the resolve and inventory phase pairs,
-#       dependencies_provisioned, file_list, inventory_meta — and nothing from a
-#       later phase (no intent_extracted / file_analyzing / file_verdict /
-#       triage_complete / graph_built), and NO terminal frame (run() never emits
-#       one; the service owns that transition)
-#   C18 the hand-built report is still persistable: extract_report_version reads
-#       the version out of the two-entry trace's inventory PhaseLog and save_report
-#       files it under it. §9's last paragraph, and the one thing a report
-#       assembled by hand could plausibly have broken
-#   C19 a package that trips NEITHER check proceeds to the normal pipeline: the
-#       scripted LLM is consulted, the trace grows past inventory, dealbreaker is
-#       None and the verdict comes from the graph
-# Adversarial pass: 2026-07-25/dealbreaker — "which dimension is missing?" ->
-# the answer was provenance (no real manifest was in the file at all: C5b), the
-# suppression pairing (C4's control run), and the persistability of a report no
-# _report() call ever assembled (C18).
-# Adversarial pass: 2026-07-25/install-hook — "what does the recogniser claim, and
-# what does it actually match?" -> C10 flipped, and the same question asked of the
-# rest produced C20-C27. Measuring first is what changed the answer: the check the
-# hole was in was ALSO calling 14 real published packages DANGEROUS (whatwg-url,
-# lru-cache@7, tr46, @lezer/*, @google/genai, whatwg-encoding, protobufjs, msw),
-# so widening it interpreter-first would have multiplied a false-positive rate
-# nobody had measured. Now 0 of that corpus is a dealbreaker and `sh install.sh`
-# with the file absent is.
+# C1-C5   shell-pipe: detail names the script key and value; every pattern incl.
+#         re.I; every script key scanned, not just lifecycle hooks; the early
+#         return suppresses advisory flags (paired with a control run that
+#         produces them); the false-positive direction — near misses (C5a) and
+#         two real published manifests (C5b)
+# C6-C11  missing-install-script: an install hook naming a file the tarball does
+#         not ship; the pairing where it does; runtime `main` is NOT checked
+#         (nothing executes it at install time); reference normalization; the
+#         interpreter is not the fact (`sh`/`bash`/`python3`/absolute path/bare
+#         shebang all count); shell-pipe wins when both trip
+# C20-C27 the install-time hook set and the coverage gap: `prepare`/`prepublish`
+#         are BUILD-time and npm never runs them for a registry tarball; an
+#         unresolvable hook is a gap, not a dealbreaker; a shipped `.sh` target is
+#         coverage (asserted through flag_source_files, not through an absent
+#         flag); targets resolve the way the LOADER resolves them; each command of
+#         a compound hook is classified separately; degenerate values are a gap,
+#         never a crash, never clean
+# C28     an extensionless file is classified by its `#!` line, because that is
+#         what the kernel obeys — 13 of 94 real `bin` targets ship extensionless.
+#         The mapping is ONE-WAY: a name wins where there is one, so a `.json`
+#         whose first line looks like a shebang is still json
+# C29-C31 refusing SAFE while a gap is open (NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP).
+#         The verdict vocabulary is {SAFE, DANGEROUS}, so "we could not check what
+#         runs at install time" HAS no verdict — refused like a DEFERRED
+#         hypothesis, same code. Knob OFF is the default and therefore the
+#         subject (C29b). A dealbreaker still wins (C30); so does a CONFIRMED
+#         hypothesis (C31) — the gap can displace an absent verdict, never a
+#         proven one, or confirmed malware would be discarded over an unreadable
+#         `node-gyp rebuild`
+# C12-C15 the scripts block and manifest health: `{}` / absent / non-string values
+#         are neither a trip nor a crash; a manifest that does not PARSE is
+#         AuditIncompleteError, not an empty dict — an empty dict made both checks
+#         pass trivially and the only direction that biased was toward SAFE
+# C16-C19 what ships: the whole report shape for both checks (zero hypotheses is
+#         the contract, so the assertion is the shape and not the verdict string);
+#         the frames, and the absence of any later phase's; the hand-built report
+#         is still persistable; a package tripping neither check proceeds normally
 from __future__ import annotations
 
 import json
@@ -539,16 +418,13 @@ async def test_install_reference_paths_are_normalized(tmp_path) -> None:
 async def test_non_node_install_hook_with_an_absent_target_is_a_dealbreaker(
     tmp_path, command: str
 ) -> None:
-    """C10: the interpreter is NOT the fact the check turns on. This class used to
-    pin the opposite — `extract_script_file_ref` read a reference only out of a
-    `node …` command, so `"install": "sh install.sh"` with install.sh ABSENT
-    produced no reference, no dealbreaker and only an advisory warn: the identical
-    unanalysable install-time execution C6 exists to catch, walking through on a
-    different interpreter. The contract is now the FACT and not the spelling — a
-    hook that names a file the tarball does not ship is a dealbreaker whatever
-    reads it, an absolute interpreter path does not evade it, and neither does
-    dropping the interpreter so the shebang runs the file (`./install.sh`) — the
-    same fact with the interpreter written inside the file instead of beside it."""
+    """C10: the interpreter is NOT the fact the check turns on — the FACT is. A hook
+    naming a file the tarball does not ship is a dealbreaker whatever reads it; an
+    absolute interpreter path does not evade it; and neither does dropping the
+    interpreter so the shebang runs the file (`./install.sh`), which is the same
+    fact with the interpreter written inside the file instead of beside it. Reading
+    a reference only out of a `node …` command let every other interpreter walk
+    through with an advisory warn."""
     package = _write(
         tmp_path,
         {"package.json": _manifest(scripts={"install": command}), "index.js": SETUP_SOURCE},
@@ -1017,7 +893,8 @@ async def test_non_string_script_values_are_dropped(tmp_path) -> None:
 
 async def test_unparseable_manifest_declaring_a_pipe_ends_the_audit(audit) -> None:
     """C15: the interaction that used to be a silent gap. This manifest's TEXT
-    declares a piped install hook, but it does not parse. Before 95cfb38 the
+    declares a piped install hook, but it does not parse. Before the loud parse
+    failure, the
     failure became `{}`, so empty scripts + an empty install list made BOTH
     dealbreaker checks pass trivially and the audit ran on with no manifest
     knowledge — a swallow that could only bias toward SAFE. Now it is a located,
@@ -1124,10 +1001,8 @@ async def test_dealbreaker_report_is_persistable_under_its_real_version(
 
 
 async def test_package_without_a_dealbreaker_proceeds_to_the_normal_pipeline(audit) -> None:
-    """C19: the contrast that proves the short-circuit is a branch and not the
-    path. The same rig, a benign hook, and a scripted LLM: intent and flag run
-    (their frames and PhaseLogs appear), dealbreaker is None, and the verdict comes
-    from the graph instead of a hardcoded string."""
+    """C19: the contrast that proves the short-circuit is a branch and not the path —
+    intent and flag run, and the verdict comes from the graph."""
     provider = ScriptedLlm(
         {
             "intent": [
@@ -1186,13 +1061,10 @@ def _clean_flag_provider() -> ScriptedLlm:
 
 
 async def test_an_unresolvable_install_hook_cannot_reach_safe(audit, monkeypatch) -> None:
-    """C29: the half of the split that was missing. With the knob on, a package whose
-    install-time hook runs code this engine could not locate does NOT get a verdict:
-    the vocabulary is {SAFE, DANGEROUS} and "we could not check" is neither, so it is
-    refused exactly as a DEFERRED hypothesis is — NPMGUARD-0031, stage inventory,
-    retryable, and no report for anyone to read as clean. Before this the gap reached
-    only the PhaseLog and the audit log (never `inventory_meta`), so it shipped SAFE.
-    The FLAG answer is scripted clean, so nothing but the gap can end this audit."""
+    """C29: with the knob on, a package whose install hook runs code this engine could
+    not locate gets NO verdict — {SAFE, DANGEROUS} has no arm for "we could not
+    check", so it is refused exactly as a DEFERRED hypothesis is. The FLAG answer is
+    scripted clean, so nothing but the gap can end this audit."""
     monkeypatch.setenv("NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP", "true")
     with pytest.raises(AuditIncompleteError) as excinfo:
         await audit(GAP_PACKAGE, provider=_clean_flag_provider())
@@ -1204,12 +1076,9 @@ async def test_an_unresolvable_install_hook_cannot_reach_safe(audit, monkeypatch
 
 
 async def test_the_same_gap_ships_safe_while_the_knob_is_off(audit) -> None:
-    """C29b: the pairing, and the statement of what the default does. OFF is exactly
-    the behaviour that shipped before the refusal existed — a `critical` flag in the
-    inventory PhaseLog beside `verdict: "SAFE"` — so C29 is proving the knob and not
-    an incidental crash, and enabling it is a visible decision rather than a silent
-    change of what the product asserts. The knob is NOT set here: the default is the
-    subject."""
+    """C29b: the knob is NOT set here — the default IS the subject. Without this
+    pairing C29 would also pass on an incidental crash, and the default would be
+    unpinned."""
     result = await audit(GAP_PACKAGE, provider=_clean_flag_provider())
     assert result.report.verdict == "SAFE"
     assert result.report.dealbreaker is None
@@ -1255,7 +1124,7 @@ async def test_a_confirmed_hypothesis_still_wins_over_a_coverage_gap(
     """C31: the second load-bearing ordering, and the one that decides whether this
     refusal can ever cost a true positive. The same unresolvable install hook, but
     the orchestrator confirms a hypothesis with cited evidence — and the report is
-    DANGEROUS, not 0031. This is the rule 47b8c15 established for retrieval gaps
+    DANGEROUS, not 0031. This is the same rule retrieval gaps follow,
     applied here: a gap is raised AFTER the run and never instead of it, so it can
     displace an absent verdict but never a proven one. Reversing it (refusing
     whenever a gap exists) would discard confirmed malware because a sibling

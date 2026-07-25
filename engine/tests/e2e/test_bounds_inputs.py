@@ -27,10 +27,6 @@
 #       then time out with nothing delivered
 #   S36b (flip) the same package at a bound of exactly 3 completes SAFE — so S36 is the
 #       bound refusing, not the package being unauditable, and `>` is not `>=`
-# Adversarial pass: W4b — "is a 503 bound rejection observable as retryable, and does the
-#   engine keep serving afterwards?" answered by the paired follow-up probes in S24/S25.
-#   S36: "does the refusal actually cost nothing?" — answered by loading the mock with
-#   NOTHING, so any model call at all lands in its unmatched log.
 #
 # Blackbox: engine HTTP + SSE + report files; bounds shrunk via public env knobs (K5).
 
