@@ -71,12 +71,20 @@ exactly why `/bench/results` is dead today — it still reads `capabilities`,
 
 ## 1. Where we actually are
 
-Scanned the repo end to end. The honest inventory:
+> **⚠ This section is a dated snapshot, not current state.** It records the
+> inventory taken when this design was written, and it is kept because the five
+> stalenesses it names are the reason Phases 0–1 exist — deleting it would
+> destroy the audit trail. **Everything below is pre-`d1c4cd7`.** Phase 0
+> (`0988bd7`), Phase 1 (`d1c4cd7`) and R-1 (`9999648`) have since landed and
+> changed most of it. Per-item resolutions are inline below; for current status
+> read the goals table in §8, which is maintained against a named commit.
+
+Scanned the repo end to end. The honest inventory **as of the design date**:
 
 | Capability | State | Evidence |
 |---|---|---|
 | Audit core (resolve→…→judge, schemaVersion 2) | **Done** | `engine/npmguard/pipeline.py`, `orchestrator.py` |
-| Durable SSE + replay cursor | **Done** | `api.py:365`, `events.py`, `kit_stream/` |
+| Durable SSE + replay cursor | **Done** | `api.py:371`, `events.py`, `kit_stream/` |
 | Payments (Stripe + Base, exact-once) | **Done** | `payments.py`, `persistence.py` |
 | Public registry API | **Done** | `/packages`, `/package/*/report`, `/resolve/*` |
 | Replay machinery (deterministic, zero-LLM) | **Exists as test plumbing** | `/demo/*`, `engine/demo-data/*.json` — only **2** recordings, no gallery, no permalink |
@@ -86,16 +94,16 @@ Scanned the repo end to end. The honest inventory:
 | ↳ Protect (push webhook → check-run) | Done | `panel/routes/gh_webhooks.py`, `panel/github/checks.py` |
 | ↳ Registry watch + daily reconcile | Done | `panel/watch.py` |
 | ↳ Caps / quotas / Stripe subs | Done for *today's* plan model (checkout 501s unconfigured) | `panel/caps.py`, `panel/routes/billing.py` |
-| ↳ Public-repo (read-only) audits | Done, but **sign-in + installation required** | `panel/routes/public_repos.py:303` |
-| ↳ Alerts feed + ack | Done (uncommitted) | `panel/routes/panel.py:830` |
+| ↳ Public-repo (read-only) audits | Done, but **sign-in + installation required** | `panel/routes/public_repos.py:247` |
+| ↳ Alerts feed + ack | Done (**now committed**) | `panel/routes/panel.py:701` |
 | **Frontend — pages exist** | Built, **substrate + data layer need rework** | Landing, Registry, PackageLookup, Cli, Pay, Dashboard, RepoDetail — see R-5/R-6 |
 | ↳ live audit watching over SSE | Done | `audit-fold.ts`, `sse.ts`, `AuditView` |
-| **Benchmark** | **Broken, and its premise is stale** | `bench.py` reads v1 fields; `METHODOLOGY.md` is v1.1 (April), pre-dating the triage/hypothesis redesign |
+| **Benchmark** | ~~Broken, and its premise is stale~~ → **v1 deleted, v2 derived from `audit_sets` (`16426a6`)** | v1's rule was vacuous by construction (fixtures carry `expected.capabilities: []` ⇒ `verified` 0/20). `bench.py`, `/bench/results` and the v1 TS runner are gone; `bench/METHODOLOGY-V2-DRAFT.md` supersedes the v1.1 doc. Goals G20/G21/G22 ✅ |
 | **Replay gallery** (the convincer) | **Missing** | machinery exists, product surface doesn't |
 | **Public repo scan, no sign-in** | **Missing** | today's public scan is authed + quota'd |
 | **"How it works" page** | **Missing** | only a 3-card strip inside `Landing.tsx:237` |
 | Dashboard e2e coverage | **Missing** | Playwright has no seeded GitHub session |
-| **Verdict domain (panel)** | **Stale — 4-state** | `PanelVerdict = SAFE\|SUSPECT\|DANGEROUS\|UNKNOWN` across ~12 files |
+| **Verdict domain (panel)** | ~~Stale — 4-state~~ → **collapsed, `d1c4cd7`** | was `PanelVerdict = SAFE\|SUSPECT\|DANGEROUS\|UNKNOWN` across ~12 files; now two axes (§4.4), enforced at `verdict_index.py:43-54` + a DB `CHECK` (alembic `0007`). Goal G3 |
 
 So the framing "kinda wired kinda not" is right, but the split is sharper than
 it looks: **the panel backend is ~complete and tested; what's missing is
@@ -103,7 +111,10 @@ honesty at the edges, proof (e2e), and the config to point it at real GitHub.**
 The genuinely unbuilt surfaces are **bench** and **the explainer site**.
 
 Five concrete stalenesses found in the scan. Each is a state the code can reach
-but cannot act on coherently — a hole in an invariant, not a cosmetic bug:
+but cannot act on coherently — a hole in an invariant, not a cosmetic bug.
+**Each now carries its resolution.** The citations are left at their original
+values, because they name code that no longer exists and re-pointing them would
+imply the defect is still there:
 
 1. **The panel verdict domain is still 4-state.** `PanelVerdict =
    SAFE|SUSPECT|DANGEROUS|UNKNOWN` (`engine-types.ts:353`), with `SUSPECT`
@@ -111,22 +122,46 @@ but cannot act on coherently — a hole in an invariant, not a cosmetic bug:
    yet" *and* "audited, couldn't tell". That conflation is precisely the "what
    the fuck does this mean" the core collapse to `SAFE / ERROR / DANGEROUS` was
    meant to kill. It survives in ~12 files: `verdict_index.py:28`,
-   `repo_scan.py:111–135`, `public_repos.py:220–224`, `checks.py:35`,
+   `repo_scan.py:111–135`, `public_repos.py:220–224`, `checks.py:33`,
    `tone.tsx:21`, `RepoDetail.tsx:41–51,189,201,219`, `Dashboard.tsx:33`,
-   `PortfolioPosture.tsx:26`, `UpgradeDialog.tsx:104`, `engine-types.ts:346–417`.
+   `PortfolioPosture.tsx:26`, `UpgradeDialog.tsx:104`, `engine-types.ts:344–417`.
    See §4.4 for the replacement model.
+   → **FIXED (`d1c4cd7`, Phase 1).** Every citation above is dead: `SUSPECT` and
+   `UNKNOWN` are gone from the wire, the DB and the frontend, replaced by two
+   axes (`Outcome` = `SAFE|ERROR|DANGEROUS`, null until concluded; `JobState` =
+   `queued|running|failed`). `verdict_index.py:28`'s `SEVERITY` map and
+   `verdict_severity` were deleted after the falsification pass **disproved their
+   own docstring** — it claimed they were retained "for the rollup ordering the
+   wire assumes" and they had zero call sites repo-wide. Goal **G3**.
 2. `panel/routes/panel.py:259` and `:688` — `"lastScan": None` is **hardcoded**
    in both `/panel/repos` and `/panel/repo/{owner}/{name}`, while
    `engine-types.ts:401` declares `lastScan: ScanSummary | null`. The field is
    structurally dead: a repo can never display when it was last scanned.
+   → **FIXED (`9999648`, R-1).** Populated at `panel.py:282-288` (list, batched
+   through `latest_set_rows` so it is not an N+1) and `panel.py:604` (detail).
+   Goal **G7**.
 3. `panelStore.refresh()` — an alerts fetch failure falls back to
    `get().alerts`, silently rendering a confident dashboard with the alerts
    banner invisibly absent.
-4. `sse.ts:120 connectScanStream` — no reconnect (unlike `connectAuditStream`).
+   → **Substrate landed (`4aebcd2`, R-6b); per-path coverage still open.** The
+   empty/degraded distinction is now enforced at the **type** level rather than
+   by convention: `LoadState`'s failed arm has no `data` field at all, so
+   `catch { setItems([]) }` has nothing to reach for. Goal **G6**.
+4. `sse.ts:126 connectScanStream` — no reconnect (unlike `connectAuditStream`).
    A dropped repo-scan stream leaves a permanent spinner.
+   → **FIXED by deletion (`9999648`).** There is no `connectScanStream` any more:
+   the polling scan stream and the client-side report poll were both removed in
+   favour of the durable log + `seq` cursor the audit stream already used. Parity
+   is structural rather than maintained. Goal **G8**.
 5. `/bench/results` returns `{runs: []}` forever instead of failing loud — a
    drift-locked reader that reports "no data" when the truth is "this code
    cannot read this engine's reports."
+   → **FIXED by deletion (`16426a6`).** `bench.py`, the `/bench/results` route, the
+   v1 TypeScript runner and its types are all gone, and v2 is derived from
+   `audit_sets`. The finding's diagnosis was right but understated: the reader was
+   not merely drift-locked against a v2 report, its detection rule was **vacuous
+   from the start** — the fixtures carry `expected.capabilities: []`, so `verified`
+   was 0/20 by construction. Goals **G20**/**G21**/**G22** ✅.
 
 ---
 
@@ -586,7 +621,7 @@ re-projection guarantee.** There are **two** report stores with different keys:
 | Store | Key | Purpose |
 |---|---|---|
 | `audit_sessions.report` (JSON column, `persistence.py:25`) | **`audit_id`** | the record of *one audit run* |
-| `data/reports/<pkg>/<version>.json` (`report_store.py:23`) | **`(name, version)`** | the *published* verdict for a package |
+| `data/reports/<pkg>/<version>.json` (`report_store.py:92`) | **`(name, version)`** | the *published* verdict for a package |
 
 A bench run audits the same `(name, version)` N times. The filesystem store keeps
 only the **last** of those N — so a projector reading `data/reports/` would
@@ -1096,40 +1131,69 @@ That is the funnel and the convincer, and it doesn't wait on the panel strand.
 
 Each is binary and observable — no "improve", no "polish".
 
-| # | Goal | Phase | Verified by |
-|---|---|---|---|
-| G1 | Panel wire shapes are generated from `shared/`, not hand-mirrored | 0 | a deliberate one-sided change fails the build |
-| G2 | `bench` + `replay` schemas exist in `shared/` before their features do | 0 | files exist, no hand-written mirror |
-| G3 | Zero `SUSPECT`/`UNKNOWN` as verdict values anywhere | 1 | grep both trees |
-| G4 | `ERROR` is a real rollup outcome — failed audits never render as green | 1 | repo with N failed deps reports `ERROR` |
-| G5 | Every branch deleted in Phase 1 is covered by a loud assert | 1 | `INVARIANT:` markers + assert at each boundary |
-| G6 | No panel sub-fetch failure renders a confident view | 2 | unit test per degraded path in `panelStore` |
-| G7 | `lastScan` is projected for real or deleted from the contract | 2 | grep: no hardcoded `None` behind a declared shape |
-| G8 | `connectScanStream` reconnects with backoff, at parity with the audit stream | 2 | `sse.test.ts` classes mirrored |
-| G9 | `panel-api.ts` has a class map and tests | 2 | map precedes tests |
-| G10 | 5 dashboard e2e specs green against a real engine | 3 | `npx playwright test` |
-| G11 | Panel classification logic is class-mapped and unit-tested | 3 | `needsAttention`, `depPriority`/`depTone`, counters |
-| G12 | Real GitHub OAuth round-trip completes | 4 | manual, once |
-| G13 | A real `push` to a real protected repo produces a push scan + check-run | 4 | check-run visible on the commit |
-| G14 | *A* payment path closes end to end, behind the F-E1 seam | 4 | entitlements change after purchase |
-| G15 | No table/wire/component encodes plan as a two-valued fact | 4 | grep: no `plan === "pro"` branching on behaviour |
-| G16 | ≥3 curated replays, browsable, permalinked, contract-pinned | 5 | `/replays` + a schema-bump test that fails loud |
-| G17 | An unauthenticated visitor can scan a public repo they don't own | 5 | e2e with no session cookie |
-| G18 | Public scan has an abuse ceiling that isn't a login | 5 | dep cap + rate limit + lane isolation tested |
-| G19 | `/how-it-works` ships as a static page with zero engine calls | 6 | network panel shows no XHR |
-| G20 | `METHODOLOGY.md` v2 defines detection against a v2 report | 7a | doc, reviewed |
-| G21 | Corpus size decision made and justified | 7a | O-3 resolved in writing |
-| G22 | `bench.py` + `/bench/results` deleted; no v1-field reader remains | 7b | grep: no `proofKinds`/`TEST_CONFIRMED` reader |
-| G23 | One full run yields rates with CIs, latency percentiles, dollar cost | 7b | `/bench/runs/{id}` payload |
-| G24 | Bench metrics re-derivable from stored `audit_id`s alone, **reading `audit_sessions.report` not `report_store`** | 7b | re-project, compare aggregates; assert N distinct reports for an N-repeat entry |
-| G25 | `/benchmark` renders a real run, misses as prominent as hits | 7b | page + e2e |
-| G26 | `ruff check` + `pytest` + `vitest` + `playwright` all green | all | `scripts/gate.sh` + `npm run gate` |
-| G27 | Engine tests stay hermetic (no `.env` read, panel off by default) | all | conftest assert |
-| G28 | A rendered timeline shows the authority the package actually requested, port included | §24 | unit: non-default port renders, default port is not invented |
-| G29 | A planted canary appearing in an exfiltrated body is citable by the judge | §24 | unit: bounded body capture, canary matchable against `setupApplied.env` |
-| G30 | No report implies a region was tested when no experiment covering it ran | §24 | unit on the merge path; `mergedCount` can no longer hide a dropped experiment |
-| G31 | No declared value in the wire vocabulary lacks a producer | §24 | grep per enum: error codes, `Trigger.kind`, `LifecycleHook`, config keys |
-| G32 | Every replay is a real capture, and derived fields equal what the engine computes | 5 | fidelity check, not just `safeParse` |
+**Status is as of `16426a6`.** ✅ = met, with the evidence named in the last
+column; ◐ = partly met, with what is missing stated; ☐ = not started or not
+verified. A goal is only ✅ when something *fails* if it regresses — a passing
+grep today is not evidence, so the column names the test or the deletion that
+enforces it. Where a goal was **overtaken** by a design change rather than
+implemented, that is said explicitly: the goal text, not the code, is what
+needs correcting.
+
+| # | Goal | Phase | Status | Verified by / what is missing |
+|---|---|---|---|---|
+| G1 | Panel wire shapes are generated from `shared/`, not hand-mirrored | 0 | ◐ | Schemas authored at target shape (`0988bd7`, 79 → 137 definitions) and `contract.schema.json` + `contract/models.py` are generated from `shared/`. But `frontend/src/lib/engine-types.ts` is still a partial hand-mirror mid-migration: `d1c4cd7` made it import from `@npmguard/shared`, and `engine-types.ts:19-23` carries a `MIGRATION IN PROGRESS (N-12)` note. Not ✅ until nothing is hand-authored on the frontend side. |
+| G2 | `bench` + `replay` schemas exist in `shared/` before their features do | 0 | ✅ | `shared/src/bench.ts` and `shared/src/replay.ts` exist at `1002b5b`; both predate their features, and neither has a hand-written mirror. |
+| G3 | Zero `SUSPECT`/`UNKNOWN` as verdict values anywhere | 1 | ✅ **now, and the earlier ✅ rested on a false claim** | `d1c4cd7` collapsed the domain, and no `SUSPECT`/`UNKNOWN` **verdict** producer exists in `engine/`, `shared/` or `frontend/src/`; surviving hits are comments recording the deletion, plus the unrelated `Confidence` enum (`SUSPECTED`), itself dead — see G31. **But `d1c4cd7`'s stated justification, "`SUSPECT` had zero producers anywhere", was false**, and `a72f1af` establishes the sharper version: a producer exists in *another lineage* (`origin/main`'s TypeScript `proof-quality.ts`, upserted by `verdict-index.ts` with no filter and no CHECK), and worse, its `report-store.ts` ran every report through a normalizer that **overwrote the stored verdict** — so the report **file** on disk carries `SUSPECT`. `data/reports/` is shared, and this checkout still holds a `schemaVersion`-1 file written by that lineage. The leak reproduced through `list_reports` **and** `load_report`, and through a public route the earlier audit never named — `/package/{name}/report`, which returns the whole report dict. Now closed at the **read boundary** rather than per route: one domain predicate at `report_store`'s only two doors out of `data/reports/`, **derived from the generated contract** rather than restated, so it cannot drift from the enum and a legitimate widening needs no edit. `api.py` needed no change at all, which is the point — a future route inherits the rule without knowing it exists. Plus durable enforcement: a `CHECK (verdict IN ('SAFE','DANGEROUS'))` on `package_verdicts.verdict`, in both the table definition (`tables.py:246`) and migration `0007`. |
+| G4 | `ERROR` is a real rollup outcome — failed audits never render as green | 1 | ✅ | `d1c4cd7`. `compute_rollup` asserts the partition (`safe + dangerous + error + pending == total`) and the progress refreshers derive their counters from it, so they cannot disagree with the wire. The falsification pass also found the **real silent green** this was aimed at: `panel.py` rolled up the repo-wide dep index and reported it as *the scan's* verdict, so a delta scan whose only item was DANGEROUS or ERROR returned SAFE. |
+| G5 | Every branch deleted in Phase 1 is covered by a loud assert | 1 | ◐ **goal text is wrong** | The intent is met; the goal as *worded* is not achievable and should be reworded. `d1c4cd7`'s falsification pass **refuted two of the proposed invariants**: "not concluded ⇒ a live job XOR a terminal failed job" is false on three reachable paths, and "the guarded finalize UPDATE always matches the row it read" is false under Postgres READ COMMITTED. Both had been written as asserts; either would have 500'd a live panel route on real data. They are explained branches, not asserts — which is the method working, not a gap. Reword to "every deleted branch is either asserted unreachable or has a recorded falsification". |
+| G6 | No panel sub-fetch failure renders a confident view | 2 | ✅ **structurally** | Two independent mechanisms. `4aebcd2` enforced the empty/degraded distinction at the **type** level: `ReadSucceeded` is branded with a module-private symbol, `LoadState`'s failed arm has no `data` field at all — not `[]`, not `null` — so `catch { setItems([]) }` has nothing to reach for, and weakening the brand fails **typecheck**, pinned by `@ts-expect-error`. Then R-5 removed the thing that made the bug possible: `panelStore.refresh()`'s five-way `Promise.allSettled` with hand-written per-branch fallbacks is gone, server state moved to react-query, and each query carries its own status so a partial fetch cannot render as a confident view. The goal's original form — "a unit test per degraded path in `panelStore`" — is now unsatisfiable in the good way: there are no degraded paths in `panelStore` because there is no server state in it. |
+| G7 | `lastScan` is projected for real or deleted from the contract | 2 | ✅ | `9999648`. Both hardcoded `None`s are gone; `lastScan` is populated at `panel.py:282-288` (list, batched via `latest_set_rows`) and `panel.py:604` (detail). |
+| G8 | `connectScanStream` reconnects with backoff, at parity with the audit stream | 2 | ✅ **by deletion** | `9999648` deleted the polling scan stream and the client-side report poll outright, replacing them with the durable log + `seq` cursor the audit stream already uses. Parity is now structural — there is one stream mechanism, not two. |
+| G9 | `panel-api.ts` has a class map and tests | 2 | ◐ **goal is stale; restate it** | `frontend/src/lib/panel-api.ts` was **deleted** in `0965319` and its job split by R-5 into `frontend/src/features/*/{api,hooks,keys}.ts`. The response-class knowledge it was meant to carry now lives at the call sites as schema parses rather than structural sniffs (e.g. `features/repos/api.ts:93-117` names the 409 as `ScanAlreadyRunning`), and `features/repos/hooks.test.tsx` plus `lib/query-client.test.tsx` cover the transport. Restate the goal against the feature modules; there is no single file left to hold a class map. |
+| G10 | 5 dashboard e2e specs green against a real engine | 3 | ☐ | Not started. |
+| G11 | Panel classification logic is class-mapped and unit-tested | 3 | ◐ | `tone.tsx` classification is unit-tested (`tone.test.ts`, added `d1c4cd7`, extended `9999648`). `needsAttention` and the counters moved into `Dashboard.tsx`/`PortfolioPosture.tsx` and are covered by the new page tests, but not yet as an extracted class map. |
+| G12 | Real GitHub OAuth round-trip completes | 4 | ☐ | Manual, not yet done. |
+| G13 | A real `push` to a real protected repo produces a push scan + check-run | 4 | ☐ | Not verified against a real repo. Note `9999648` changed the semantics being verified: `delta_repo_scan` became `push_repo_scan` covering the whole pushed lockfile, so an empty-delta push now concludes its check run instead of spinning forever. |
+| G14 | *A* payment path closes end to end, behind the F-E1 seam | 4 | ☐ | Not started. |
+| G15 | No table/wire/component encodes plan as a two-valued fact | 4 | ☐ | Not verified. |
+| G16 | ≥3 curated replays, browsable, permalinked, contract-pinned | 5 | ☐ | Not started. |
+| G17 | An unauthenticated visitor can scan a public repo they don't own | 5 | ◐ | The public-scan path exists and is exercised by `test_panel_public_billing.py` / `test_panel_scans.py`; `9999648` also made `commit_sha` real for public scans, so a snapshot is now reproducible. The no-cookie e2e assertion the goal names is not yet written. |
+| G18 | Public scan has an abuse ceiling that isn't a login | 5 | ☐ | Not verified. |
+| G19 | `/how-it-works` ships as a static page with zero engine calls | 6 | ☐ | Not started. |
+| G20 | `METHODOLOGY.md` v2 defines detection against a v2 report | 7a | ✅ | `bench/METHODOLOGY-V2-DRAFT.md` (`557c65d`, corrected by `0965319`). Owned elsewhere; not re-reviewed in this pass. |
+| G21 | Corpus size decision made and justified | 7a | ✅ | O-2/O-3 answered in the methodology draft (`557c65d`). |
+| G22 | `bench.py` + `/bench/results` deleted; no v1-field reader remains | 7b | ✅ | `16426a6` deleted `engine/npmguard/bench.py`, the `/bench/results` route, the v1 TypeScript runner and its types, and the stale v1 methodology. Worth recording *why* v1 was deleted rather than ported: its detection rule (`expectedCapabilities ⊆ report.capabilities` plus `TEST_CONFIRMED` proofs) was not merely meaningless against a v2 report — it was **already vacuous**, because its own fixtures carry `expected.capabilities: []`, so `verified` was **0/20 by construction**. Its Wilson CI also pooled entries × runs, which is pseudo-replication. A benchmark that cannot fail is worse than no benchmark. |
+| G23 | One full run yields rates with CIs, latency percentiles, dollar cost | 7b | ☐ | Not started. |
+| G24 | Bench metrics re-derivable from stored `audit_id`s alone, **reading `audit_sessions.report` not `report_store`** | 7b | ◐ **the trap is now structural** | `16426a6` builds bench v2 **on** `audit_sets` rather than beside it — a bench run *is* an audit set whose `origin` is `bench_run` — which is the payoff R-1 was for. Metrics read `audit_sessions.report` keyed by `audit_id`, never `data/reports/<pkg>/<version>.json`, precisely because the filesystem store keeps only the **last** audit of a `(name, version)`, so an N-repeat entry would silently collapse to one report. Two independent reasons that store is unsound as a re-projection base — this one, and §21.3 asymmetry 5 (a completed audit with no concrete version never reaches it at all). Not ✅ until a full run is projected and compared. |
+| G25 | `/benchmark` renders a real run, misses as prominent as hits | 7b | ☐ | Not started. |
+| G26 | `ruff check` + `pytest` + `vitest` + `playwright` all green | all | ◐ | Engine green and rising: 669 passed / 3 skipped / 1 xfailed at `0d73449`, 77 e2e at `1002b5b`. `4aebcd2` also fixed `npm run typecheck`, which had **never once run to completion** — `tsc -b --noEmit` contradicts `shared/` being a composite project reference and failed with TS6310. Not ✅: no `playwright` suite exists. (The frontend build broke for two commits mid-rename and was restored by R-5 at `10a288a` — see the note below.) Engine at `10a288a`: 727 passed / 3 skipped / 1 xfailed. |
+| G27 | Engine tests stay hermetic (no `.env` read, panel off by default) | all | ✅ | `conftest` assert, unchanged through this run of commits. |
+| G28 | A rendered timeline shows the authority the package actually requested, port included | §24 | ✅ | `ced29f2`. `test_instrumentation_l4.py` runs the real instrument under real node — the defect was unreachable from Python unit tests. Asserts a non-default port renders and that a default port is **not** invented. Explainer §24.7. |
+| G29 | A planted canary appearing in an exfiltrated body is citable by the judge | §24 | ◐ | `ced29f2`. Request bodies are captured (2 KiB/request, 64 KiB/run) with `bodyBytes` making truncation visible, and the renderer names which `setupApplied.env` canary the body or URL carries, with an 8-character floor so `CI=1` cannot be cited. **Missing:** planted **file** contents are stored as hashes only, so a *file* canary is still unmatchable. Explainer §24.8. |
+| G30 | No report implies a region was tested when no experiment covering it ran | §24 | ✅ | `ced29f2`. `add_or_merge` merges only on description similarity **and** a byte-identical `experiment` **and** an identical `claim`, so the invariant holds by construction with no new state. `test_graph.py`. Explainer §24.17. |
+| G31 | No declared value in the wire vocabulary lacks a producer | §24 | ◐ **two known counterexamples** | Error codes and config keys are ✅ and *mechanically enforced*: `test_error_taxonomy.py` reads construction sites with `ast` (not grep), and `test_config_surface.py` now enforces the config surface in **both** directions (`37a6343`) — every declared setting has a reader (C1) *and* every `NPMGUARD_*` production code reads is declared (C3), with two named-debt exemptions each carrying its one-line swap, plus a test that deletes an exemption when its read goes. C4 also scans environment **access sites** with `ast` rather than string literals, because a literal scan cannot tell a read from a write — the engine legitimately *writes* two variables into the sandbox container, and declaring those would assert the opposite of the truth. **Still open:** (a) `Trigger.kind` accepts `lifecycle` and `bin` which `build_trigger_command` cannot run, and `LifecycleHook` has no producer at all — explainer §24.19; (b) `Finding`, `Proof`, `Confidence` and `TriageResult` in `shared/src/models.ts` have **zero** producers and readers repo-wide yet are regenerated into `contract/models.py` and `contract.schema.json` on every build — explainer §24.21. The goal's own "grep per enum" is what catches (b). |
+| G32 | Every replay is a real capture, and derived fields equal what the engine computes | 5 | ◐ | `0d73449` built the mechanism for the committed demo recording: every curated value is now pinned by a test that computes engine truth **from engine code** — `classify_files` over the fixture tree for `fileType`/`permissions`, the real `provision_dependencies` for the dependency claim, `SEVERITY_SCORE` over the recording's own severities for `riskContribution` — with each docstring saying to delete the test on re-record, so a re-record turns red instead of letting a curated value rot into a specification. **Not ✅:** the recording itself is still a hybrid and still diverges on `fileType`, `permissions`, `riskContribution`, `expectedCapabilities`, `trace[].input/output` and `durationMs`. Explainer §24.1, §24.2. |
+
+**Two things the status above surfaces that are not goals yet.**
+
+1. **A two-commit window where the frontend did not build — worth recording as a
+   process fact, not a defect.** `0965319` deleted
+   `frontend/src/lib/panel-api.ts` while five modules still imported it
+   (`components/Header.tsx:4`, `pages/Dashboard.tsx:17`,
+   `pages/RepoDetail.tsx:29`, `stores/panelStore.ts:26`, and
+   `features/repos/components/PublicAuditReportDialog.tsx:15`, the last from a
+   directory one level deeper than its relative path assumed). **R-5 resolved it by
+   `10a288a`** — no `panel-api` import remains. The reason to keep this: a
+   contract-reconciliation doc verified against a commit inside that window
+   reported a build failure that was neither a finding nor a regression, which is a
+   real hazard when several agents land large renames in sequence. G26's frontend
+   half is evaluable again.
+2. **A deleted test was not recorded as deleted.** `0d73449`
+   ("tests: cover the dealbreaker path and DemoService") also deleted all 285
+   lines of `frontend/src/stores/panelStore.test.ts` without mentioning it in its
+   commit message. The B11 finding that file carried had just been *fixed* in
+   `d1c4cd7`, so the coverage was live when it disappeared. Worth a goal of its
+   own: a commit that deletes a test file says so.
 
 ---
 
@@ -1266,13 +1330,23 @@ reconnect-and-wake-everyone story, and NOTIFY carrying no payload ("a wake means
 streaming, and it already exists. **No work needed** — but it's the model R-2
 should imitate rather than invent something new.
 
-### R-5 ★ The frontend has one god store doing four jobs
+### R-5 ★ The frontend has one god store doing four jobs — **DONE (`10a288a`)**
 
-`panelStore.ts` currently owns: server fetching, response caching, staleness and
+> **Landed.** `panelStore.ts` is now **50 lines of pure UI state** — the one fact
+> that outlives a component tree (an open paywall, set by a mutation that 402'd and
+> read by a dialog rendered from two different pages, so neither end owns it).
+> Server state moved to `@tanstack/react-query` under
+> `frontend/src/features/*/{api,hooks,keys}.ts`. The file now carries an explicit
+> bar for re-entry — a field must be UI state *and* needed by two components that
+> are not each other's ancestor — plus a named list of what must not come back and
+> why. This closes **G6** structurally (see §8) and makes **G9** unsatisfiable as
+> worded, since there is no single api module left to hold a class map.
+
+`panelStore.ts` **used to own**: server fetching, response caching, staleness and
 polling, error policy, optimistic updates, *and* UI state (`paywall`,
 `billingBusyInstallationId`, `repoActionErrors`). That is why `refresh()` grew a
 five-way `Promise.allSettled` with hand-written per-branch fallbacks — the store
-is hand-rolling a cache layer.
+was hand-rolling a cache layer.
 
 The reference repos all refuse this, in the same way:
 
@@ -1461,9 +1535,9 @@ which is why the tier gets a name.
 | **D-3** | Frontend substrate rebuilt **and the visual language redesigned** | Tokens authored fresh, not ported. Adds a design phase as a real deliverable (palette light+dark, type scale, spacing, elevation, motion, component inventory). Splits R-5 into **R-5a data layer** (not gated) and **R-5b component layer** (gated on the design). |
 | **D-4** | Start with **Phase 0** — one contract | Panel/bench/replay schemas into `shared/`, generated both sides. Everything downstream gets cheaper; R-1's table collapse becomes a schema edit rather than a hunt. |
 | **D-8** | **O-8 answered — no serif.** None of the surveyed dev-tool landing pages use one, and that survey *is* the evidence; overriding it would be taste against data. The brief's type system collapses to sans (interface) + mono (machine-authored fact), which also sharpens the mono signal by removing a third voice competing with it. | Simplifies R-6a's type scale and drops a webfont from the boot path. |
-| **D-6** | **O-2 answered** — 8-value observation taxonomy, derived at read time. `ERROR` splits into **`ABSTAINED`** (the engine's own honest "couldn't determine" — stays in the denominator) and **`VOID`** (Docker/LLM/queue fault — excluded from rates but counted and reported), keyed on the stable `NpmGuardError` codes. `verified` splits too: a `DANGEROUS` verdict with `confirmedCount == 0` is not weakly-proved, it is a **dealbreaker** (`pipeline.py:249-262`) — a disjoint mechanism that produces zero hypotheses. | The design doc's own candidate was wrong in one place: "give DEFERRED its own outcome bucket" is **unreachable**. `pipeline.py:390-398` raises `AuditIncompleteError` when hypotheses are deferred and none confirmed, so a report with deferred-but-nothing-confirmed **does not exist**; the observable is no report at all. 3 projector assertions guard the states the engine makes unreachable. |
+| **D-6** | **O-2 answered** — 8-value observation taxonomy, derived at read time. `ERROR` splits into **`ABSTAINED`** (the engine's own honest "couldn't determine" — stays in the denominator) and **`VOID`** (Docker/LLM/queue fault — excluded from rates but counted and reported), keyed on the stable `NpmGuardError` codes. `verified` splits too: a `DANGEROUS` verdict with `confirmedCount == 0` is not weakly-proved, it is a **dealbreaker** (`pipeline.py:275-288`) — a disjoint mechanism that produces zero hypotheses. | The design doc's own candidate was wrong in one place: "give DEFERRED its own outcome bucket" is **unreachable**. `pipeline.py:436-444` raises `AuditIncompleteError` when hypotheses are deferred and none confirmed, so a report with deferred-but-nothing-confirmed **does not exist**; the observable is no report at all. 3 projector assertions guard the states the engine makes unreachable. |
 | **D-7** | **O-3 answered** — expand to **50 malware + 75 negative controls at N=2**, plus a 10-entry N=5 stability probe (~280 audits). Minimum viable tier 40+40. | Rests on a **statistical error in v1 worth more than the schema fix**: v1 §8 pools entries×runs to n=60 and puts a Wilson CI on that — pseudo-replication, narrowing the interval ~40% on a false independence assumption. With n = *entries*, the intuition behind N=3 **reverses**: at fixed budget, entries buy CI width and replication buys none (60 audits as N=1×60 ⇒ ≥94.0% lower bound at a perfect score; as N=3×20 ⇒ ≥83.9%). Replication measures *stability*, which is a separate question needing its own small probe. Also: v1's "precision" is actually **specificity**, and its ≥95% bar needs **73** clean entries — it set a bar it had no corpus to clear. |
-| **D-9** | **Evidence fidelity is fixed before detection is measured, and the §24 findings are triaged into the phase plan rather than filed.** Writing [`../architecture/AUDIT_CORE_EXPLAINED.md`](../architecture/AUDIT_CORE_EXPLAINED.md) surfaced 19 cited discrepancies, and one of them changes the ordering of this whole plan: on real credential-stealing malware, **13 of 14 hypotheses were refuted, and not one of the seven on the malicious file was a genuine finding of no malice** — six were decided on facts the sealed artifact *held* and the renderer dropped, one on a fact no sensor captured. The largest single cause is a missing `options.port` in the L4 URL builder (`instrumentation-monkey.js:28`), which three judges quoted verbatim as grounds to refute. ★ **Two claims in the first version of this row were wrong**, corrected by [`2026-07-25-cross-hypothesis-coherence.md`](2026-07-25-cross-hypothesis-coherence.md): (a) "refuted *citing* rendering artefacts" is impossible by contract — `validate_verdict` (`orchestrator.py:89`) forbids citations on a non-malicious verdict, so the overlap is in the judges' *prose*, and it is 8 of 13, not 13; (b) the verdict was not saved by one hypothesis being luckily phrased. The decisive fact — the IMDS `connect` **and** its `write` — is in **9 of 9** `setup.js` artifacts, but only **3 of 9** rendered anything at L2. It was a *rendering* lottery over a universally-present fact, not a framing lottery, which is why the `sensors.py` peer-address fix collapses it to 9/9. | The bench cannot run first: D-6/D-7's rates would describe an engine that loses true positives to a missing `:9999`, and publishing them would be measuring the framing lottery. So **§24 fidelity (tasks #18, #21) precedes Phase 7b**, and Phase 5's replays must be **re-recorded** — §24.1 shows the committed recording is a hybrid whose `fileType`, `riskContribution`, `trace`, and `fileSummaries` are hand-authored and contradict engine output. Contract-pinning does not catch this: a curated value can be schema-valid and still a lie, so G16 gains a *fidelity* check alongside its schema check. Also note the cost this exposes — changing the rendered timeline changes the judge prompt, so recorded LLM exchanges fail loud by design; **a re-record is an owner decision with a dollar attached, never an agent's.** |
+| **D-9** | **Evidence fidelity is fixed before detection is measured, and the §24 findings are triaged into the phase plan rather than filed.** Writing [`../architecture/AUDIT_CORE_EXPLAINED.md`](../architecture/AUDIT_CORE_EXPLAINED.md) surfaced 19 cited discrepancies (now 21 — §24.20 and §24.21 were added later), and one of them changes the ordering of this whole plan: on real credential-stealing malware, **13 of 14 hypotheses were refuted, and not one of the seven on the malicious file was a genuine finding of no malice** — six were decided on facts the sealed artifact *held* and the renderer dropped, one on a fact no sensor captured. The largest single cause is a missing `options.port` in the L4 URL builder (`instrumentation-monkey.js:28` **as it then stood**; the builder is now `:43-66` and the defect is **FIXED** in `ced29f2` — goal G28), which three judges quoted verbatim as grounds to refute. ★ **Two claims in the first version of this row were wrong**, corrected by [`2026-07-25-cross-hypothesis-coherence.md`](2026-07-25-cross-hypothesis-coherence.md): (a) "refuted *citing* rendering artefacts" is impossible by contract — `validate_verdict` (`orchestrator.py:89`) forbids citations on a non-malicious verdict, so the overlap is in the judges' *prose*, and it is 8 of 13, not 13; (b) the verdict was not saved by one hypothesis being luckily phrased. The decisive fact — the IMDS `connect` **and** its `write` — is in **9 of 9** `setup.js` artifacts, but only **3 of 9** rendered anything at L2. It was a *rendering* lottery over a universally-present fact, not a framing lottery, which is why the `sensors.py` peer-address fix collapses it to 9/9. | The bench cannot run first: D-6/D-7's rates would describe an engine that loses true positives to a missing `:9999`, and publishing them would be measuring the framing lottery. So **§24 fidelity (tasks #18, #21) precedes Phase 7b**, and Phase 5's replays must be **re-recorded** — §24.1 shows the committed recording is a hybrid whose `fileType`, `riskContribution`, `trace`, and `fileSummaries` are hand-authored and contradict engine output. Contract-pinning does not catch this: a curated value can be schema-valid and still a lie, so G16 gains a *fidelity* check alongside its schema check. Also note the cost this exposes — changing the rendered timeline changes the judge prompt, so recorded LLM exchanges fail loud by design; **a re-record is an owner decision with a dollar attached, never an agent's.** |
 | **D-5** | Phase 0 authors the contract at its **target shape** — generalized `AuditSet` (R-1) + 3-state verdict (§4.4) — not today's shape | Avoids rewriting the contract three times and touching every route + consumer three times. Inverts the usual order on purpose: the contract is the *specification*, so it leads, and Phase 1 / R-1 become **migrations to** it with a mechanical definition of done ("generated types compile against both sides") instead of a judgement call. |
 
 ---
