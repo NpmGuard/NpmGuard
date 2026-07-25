@@ -243,10 +243,8 @@ def test_truncated_flag() -> None:
 def _settings() -> Settings:
     return Settings(
         free_max_protected_repos=3,
-        free_max_public_repo_audits=10,
         free_max_audits_month=250,
         pro_max_protected_repos=25,
-        pro_max_public_repo_audits=0,
         pro_max_audits_month=5000,
     )
 
@@ -337,15 +335,15 @@ def _repo_spec(store: _Store, deps: list[LockfileDep], **overrides) -> AuditSetS
 
 
 def _public_spec(deps: list[LockfileDep], **overrides) -> AuditSetSpec:
-    # No budget hooks: a public snapshot is capped by distinct repo id, never by
-    # the monthly audit budget. That absence IS the per-origin billing difference.
+    # No budget hooks and no payer: nobody is billed for a public snapshot (D-1).
+    # Its identity is the REQUESTER, and that absence-plus-requester IS the
+    # per-origin billing difference.
     base = dict(
         origin=ORIGIN_PUBLIC_REPO_SCAN,
         origin_ref=999,
         trigger="manual",
         items=deps,
-        billed_to=1,
-        billed_org="acme",
+        requested_by=7,
     )
     base.update(overrides)
     return AuditSetSpec(**base)
@@ -476,10 +474,13 @@ async def test_create_dedupes_duplicate_pairs(store) -> None:
 async def test_create_is_cache_first_and_stamps_origin(store) -> None:
     """C19: a pair with a landed verdict is marked cached and NOT enqueued; a miss
     becomes a job carrying the SET's origin (so an alert on its verdict knows where
-    it came from) and the payer's org as the fairness key."""
+    it came from) and the set's fairness key — which for a public scan is the
+    REQUESTER, since nobody is billed for one."""
     await store.verdicts.upsert("cached-pkg", "1.0.0", "SAFE")
     set_id = await store.store.create(
-        _public_spec(_deps(("cached-pkg", "1.0.0"), ("fresh-pkg", "2.0.0")))
+        _public_spec(
+            _deps(("cached-pkg", "1.0.0"), ("fresh-pkg", "2.0.0")), billed_org="octocat"
+        )
     )
     items = {
         i["name"]: i
@@ -491,7 +492,7 @@ async def test_create_is_cache_first_and_stamps_origin(store) -> None:
     jobs = await _rows(store, tables.panel_jobs)
     assert len(jobs) == 1
     assert (jobs[0]["package_name"], jobs[0]["origin"], jobs[0]["org"]) == (
-        "fresh-pkg", ORIGIN_PUBLIC_REPO_SCAN, "acme",
+        "fresh-pkg", ORIGIN_PUBLIC_REPO_SCAN, "octocat",
     )
 
 

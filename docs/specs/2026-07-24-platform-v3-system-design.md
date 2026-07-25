@@ -620,10 +620,17 @@ depends on them:
   is that a shared job belongs to no single set, which is why a settle notifies
   every set covering the pair rather than "its own".
 - **`ix_audit_sets_active_public`** — partial-unique on
-  `(origin_ref, billed_to)` while `finished_at IS NULL AND origin =
+  `(origin_ref, requested_by)` while `finished_at IS NULL AND origin =
   'public_repo_scan'`. Origin-scoped on purpose: the same statement is **false**
   for `repo_scan`, where two pushes in quick succession legitimately open two
-  overlapping sets, each with its own check run.
+  overlapping sets, each with its own check run. The second column was
+  `billed_to` until D-1 removed the payer from this origin entirely (alembic
+  0008): a partial-unique index whose key column is NULL for every row it covers
+  guarantees nothing, since distinct NULLs are distinct — it would have kept
+  *looking* enforced while admitting unlimited duplicates. Scoped per requester
+  rather than globally because the dedupe that saves WORK is
+  `ix_panel_jobs_active_pkg`; this one only stops one user opening the same set
+  twice.
 - **No stored `status` and no stored counter on a set.** `finished_at` is the
   single liveness fact and every counter is recomputed from
   `audit_set_items ⋈ package_verdicts` on read. `status='failed'` and a set-level
@@ -1111,12 +1118,19 @@ Two features, one phase, because they share the funnel:
   linking to `/audit/:id`, and the verdict-time canonicalization suppressed so a
   permalink survives being followed. No recording step and no curated set — see
   the rewritten F-I for why that half of this plan was dropped rather than done.
-- **Public scan (F-F5/F-F6):** drop the sign-in requirement, add the abuse
-  ceiling (dep cap, rate limit, cached-only past the cap, a lane that can't
-  starve paid work).
+- **Public scan (F-F5/F-F6):** ✅ landed. The installation requirement is gone:
+  a public scan is scoped by its REQUESTER (`audit_sets.requested_by`, which also
+  became the key column of `ix_audit_sets_active_public` — see D-1's note), the
+  installation-scoped `publicRepoAudits` entitlement is retired, and the cost
+  ceiling is per user. `/scan` is the entry surface.
+  **Its lane is NOT built** and deliberately so: F-F6's "a lane that can never
+  starve paid work" belongs to R-2's one durable queue (`TODO(R-2)` at the
+  enqueue site in `panel/audit_set.py`), and building it here would have made it
+  this repo's third queue. `public` now has a live caller. Until R-2, the bound
+  is admission-side.
 _Done when:_ an unauthenticated visitor can watch a real audit replay from a
-permalink (**done**) and scan a public repo they don't own (**outstanding** —
-the public-scan half of this phase is untouched).
+permalink (**done**) and a signed-in visitor with no installation can scan a
+public repo they don't own (**done**).
 
 _Retention became a requirement here, and does not exist yet._ Promoting a
 replay to a permalink means the durable log behind it must outlive it.
@@ -1205,8 +1219,8 @@ needs correcting.
 | G14 | *A* payment path closes end to end, behind the F-E1 seam | 4 | ☐ | Not started. |
 | G15 | No table/wire/component encodes plan as a two-valued fact | 4 | ☐ | Not verified. |
 | G16 | Every finished audit is browsable and permalinked | 5 | ✅ | **Goal restated, and the restatement is the result.** It read "≥3 curated replays, browsable, permalinked, contract-pinned" — three clauses that only existed because replays were assumed to be authored artifacts. `GET /replays` projects `audit_sessions`, rows link to `/audit/:id`, and `App.tsx` no longer canonicalizes a followed permalink away (that bug would have silently repointed every link this goal asks for). Count is now a consequence of use, not a target; pinning is moot with nothing authored to pin — see the rewritten F-I. `engine/tests/test_replays.py` C1–C9 (7 of 13 fail against the pre-fix build), `frontend/src/pages/Replays.test.tsx` R1–R5. |
-| G17 | An unauthenticated visitor can scan a public repo they don't own | 5 | ◐ | The public-scan path exists and is exercised by `test_panel_public_billing.py` / `test_panel_scans.py`; `9999648` also made `commit_sha` real for public scans, so a snapshot is now reproducible. The no-cookie e2e assertion the goal names is not yet written. |
-| G18 | Public scan has an abuse ceiling that isn't a login | 5 | ☐ | Not verified. |
+| G17 | A visitor whose only credential is a GitHub sign-in can scan a public repo they don't own | 5 | ✅ | **Goal restated to match D-1**, which decided a sign-in is required and nothing more — "unauthenticated" was the pre-D-1 wording and is not what the product does. The route no longer takes an `installationId`; read authorization on the snapshot, the history and the SSE stream all run through `audit_sets.requested_by` instead of `user_installations`. `engine/tests/e2e/test_panel_public_billing.py::test_s_pub_0` is the falsifiable form: it signs in and never calls `/panel/orgs`, so `user_installations` is empty, and it asserts that precondition before scanning — every assertion in it fails on the pre-fix route (400 without an installation id, 404 on one the user lacks). |
+| G18 | Public scan has a cost ceiling that isn't a login | 5 | ✅ | A scan's cost is exactly its cache MISSES, so F-F6's dep cap and its cached-only-past-the-cap are one number: `public_limits.PublicScanLimits.new_audit_budget` (per-scan ∧ per-month, per USER), spent through `AuditSetSpec.max_new_audits`. Past it a scan covers less of the lockfile rather than being refused, and `public_repo_scans.dep_count` + `PublicRepo.lockfileDepCount` are what let the result say so — uncovered deps are NOT parked in the set as unenqueued items, because `item_outcome` maps "no verdict, no live job" to ERROR and would report each as an audit that failed. The one refusal is 429 on per-user live-scan concurrency. `engine/tests/test_panel_public_limits.py` C1–C15, `frontend/src/features/honest-states.test.tsx` H7. Note "abuse ceiling" → **cost** ceiling: D-1 makes the sign-in the abuse ceiling, so there is no IP rate limit and no captcha by decision. |
 | G19 | `/how-it-works` ships as a static page with zero engine calls | 6 | ☐ | Not started. |
 | G20 | `METHODOLOGY.md` v2 defines detection against a v2 report | 7a | ✅ | `bench/METHODOLOGY-V2-DRAFT.md` (`557c65d`, corrected by `0965319`). Owned elsewhere; not re-reviewed in this pass. |
 | G21 | Corpus size decision made and justified | 7a | ✅ | O-2/O-3 answered in the methodology draft (`557c65d`). |
@@ -1282,7 +1296,7 @@ flowchart LR
         O4["bench_run<br/>pinned corpus manifest"]
         O5["watchlist<br/>a curated package list"]
     end
-    ORIGINS --> SET["audit_sets<br/>id · origin · origin_ref · billed_to<br/>status · started/finished"]
+    ORIGINS --> SET["audit_sets<br/>id · origin · origin_ref · billed_to · requested_by<br/>started/finished"]
     SET --> ITEMS["audit_set_items<br/>set_id · name · version<br/>direct · range · cached"]
     ITEMS --> ONE["ONE progress fn<br/>ONE rollup fn<br/>ONE SSE stream<br/>ONE truncation story"]
 ```

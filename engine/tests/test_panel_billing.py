@@ -63,11 +63,9 @@ def _settings(**overrides) -> Settings:
         stripe_secret_key="sk_test_x",
         stripe_pro_price_id="price_pro",
         free_max_protected_repos=3,
-        free_max_public_repo_audits=2,
         free_max_audits_month=250,
         pro_max_protected_repos=25,
-        pro_max_public_repo_audits=0,  # unlimited
-        pro_max_audits_month=5000,
+        pro_max_audits_month=0,  # unlimited
     )
     base.update(overrides)
     return Settings(**base)
@@ -235,7 +233,7 @@ async def test_entitlements_plan_from_subscription_status(db, status, expected_p
 
 
 async def test_unlimited_bucket_remaining_is_none(db):
-    # C17 — pro plan's public_repo_audits limit is 0 (UNLIMITED) -> remaining None;
+    # C17 — pro plan's monthly_audits limit is 0 (UNLIMITED) -> remaining None;
     # a positive limit reports max(0, limit-used).
     await _add_installation(db, 21)
     store = BillingStore(db)
@@ -245,8 +243,8 @@ async def test_unlimited_bucket_remaining_is_none(db):
     caps = CapsStore(db, _settings())
     entitlements = await caps.entitlements(21)
     assert entitlements["plan"] == "pro"
-    assert entitlements["publicRepoAudits"]["limit"] == 0
-    assert entitlements["publicRepoAudits"]["remaining"] is None
+    assert entitlements["monthlyAudits"]["limit"] == 0
+    assert entitlements["monthlyAudits"]["remaining"] is None
     # protected_repos has a positive pro limit (25), nothing used yet.
     assert entitlements["protectedRepos"]["remaining"] == 25
 
