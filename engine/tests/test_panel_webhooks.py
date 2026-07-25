@@ -1,4 +1,4 @@
-# CLASS MAP — panel.routes.gh_webhooks (port of TS routes/gh-webhooks.ts)
+# CLASS MAP — panel.routes.gh_webhooks
 # (seam A: verify_signature + touches_dependencies are PURE — bytes/dict in,
 #  bool out, no IO. seam B: the /webhooks/github route runs over a real
 #  ASGITransport with a FAKE runtime on app.state — no GitHub, no DB touched by

@@ -257,25 +257,60 @@ requirement is therefore about the *seam*, not the prices.
 
 ### F-I · Replay — the convincer
 
-Replay machinery exists as e2e plumbing (`/demo/*`, 2 recordings). It is
-promoted to a **product surface**: the fastest honest way to show a skeptic the
-tool works is to let them watch a real audit happen, on demand, without paying
-or waiting.
+The fastest honest way to show a skeptic the tool works is to let them watch a
+real audit happen, on demand, without paying or waiting.
 
-- **F-I1** A curated, growing set of **recorded real audits**, replayable by
-  anyone at any time, with zero LLM and zero Docker cost.
-- **F-I2** Replays are **browsable** — a gallery listing package, verdict, and
-  what makes each one interesting — not an opaque dropdown.
-- **F-I3** Each replay has a **stable permalink** that plays it from the start.
-- **F-I4** A replay is visually indistinguishable from a live audit (same SSE
-  fold, same components) and **unmistakably labelled as a replay**. Speed is
-  tunable (`NPMGUARD_DEMO_SPEED`), which is what makes it demo-usable.
-- **F-I5** The set covers both verdicts and the interesting middles: a clean
-  popular package, a real confirmed exfil, and a DEFERRED/inconclusive
-  hypothesis — showing what the tool does when it *can't* prove something is
-  as persuasive as showing a catch.
-- **F-I6** Recordings are **contract-pinned**: a report/event-schema change
-  that would make a recording replay wrong fails loud, never plays a lie.
+**This section was rewritten after the feature landed, and the rewrite is the
+point.** It previously specified a curated set of *recorded* audits keyed by an
+authored `slug`, with `whyInteresting` prose, contract pins, and a
+`POST /replays/{slug}/start`. That model was wrong about where a replay comes
+from: the engine appends every frame of every audit to a durable, seq-cursored
+log, and `/audit/{id}/events` already replays a terminal session from `seq` 0.
+So there is nothing to record. An audit that finished **is** a replay, and the
+only thing that was ever missing was a way to learn its id.
+
+Everything the old shape added existed to compensate for scarcity — two
+hand-curated exhibits, each costing real model spend to produce, whose curated
+fields drifted from engine output and needed pinning to stay honest. Removing
+the recording step removes the scarcity, and with it the curation, the pins, and
+the divergence they were pinning.
+
+- **F-I1** Every audit that reaches a verdict is replayable by anyone, at any
+  time, with zero LLM and zero Docker cost. No recording step, no curation, and
+  no per-exhibit money.
+- **F-I2** Replays are **browsable** — `GET /replays` lists package, version,
+  verdict, duration and when it ran, newest first. Every value is read back off
+  the audit row and its stored report, so no field can describe a run
+  differently from how it went.
+- **F-I3** The permalink is `/audit/{auditId}`, and the id is load-bearing.
+  `data/reports/{name}/{version}.json` keeps only the **last** audit of a pair,
+  so a `(name, version)` link silently repoints after a re-audit while looking
+  unchanged. `audit_sessions` keeps every run. This is also why F-F3's
+  canonicalization must not apply to a replay.
+- **F-I4** A replay is byte-identical to the run it replays — same SSE fold,
+  same components, same durable frames — and is **unmistakably labelled as a
+  replay** for exactly that reason. Speed is tunable (`NPMGUARD_DEMO_SPEED`) for
+  the committed recordings; a durable-log replay streams as fast as the client
+  reads.
+- **F-I5** Coverage is a consequence of use, not a curation task: whatever this
+  engine has audited is what the gallery shows. The interesting middles — a
+  DEFERRED hypothesis, an audit that could not prove what it suspected — appear
+  the moment one is run, with no decision about whether to pay to record it.
+  Audits that could not conclude are `error`, carry no report, and are not
+  listed: a gallery row promises a verdict.
+- **F-I6** No contract pins, because there is no authored artifact to pin. A
+  replay re-emits the frames the engine actually emitted. The one read boundary
+  that remains is the **verdict domain**: `data/reports/` is shared byte-for-byte
+  with a lineage that writes a 4-state classification into `verdict`, so a report
+  outside the contract's domain is dropped rather than handed to a client with no
+  branch for it.
+
+**Not superseded, still true:** the committed recordings under
+`engine/demo-data/` remain the Landing "see it run" path and the e2e fixture, and
+they remain hybrids whose hand-authored fields contradict engine output (D-9).
+They are excluded from this gallery — listing them would show one exhibit twice
+under two identities. Whether to re-record them is unchanged and still an owner
+decision with a dollar attached.
 
 ### F-F · Public (unauthenticated / one-off) audits
 
@@ -285,7 +320,10 @@ or waiting.
   verification and the exact-once claim happen server-side before any work
   starts.
 - **F-F3** Live-watch any audit at `/audit/:id`; on verdict the URL
-  canonicalizes to the durable `/package/<name>` report.
+  canonicalizes to the durable `/package/<name>` report — **except when the
+  session was reached BY that URL** (a replay, F-I3). Canonicalizing there would
+  rewrite a link addressing one run into one addressing whichever run is stored
+  last, and nothing on screen would say so.
 - **F-F4** Read-only **public-repo** audits (scan any public GitHub repo you
   don't own) — snapshot-shaped, never joined into the owned-repo tables.
 - **F-F5** **Scanning a public repo requires a GitHub sign-in, but nothing
@@ -343,8 +381,8 @@ what replaces the scoring rule (O-2).
   pipeline, so it names the engine version it describes.
 - **F-H3** `/packages` registry + `/package/*` report view.
 - **F-H4** `/audit/:id` live audit watching over SSE.
-- **F-H5** `/replays` — **new** replay gallery (F-I2) + `/replay/:slug`
-  permalink (F-I3).
+- **F-H5** `/replays` — **new** replay gallery (F-I2). It has no permalink route
+  of its own: a row links to `/audit/:id` (F-H4), which is the permalink (F-I3).
 - **F-H6** `/scan` — **new** public-repo scan entry: paste any public repo,
   watch its supply chain resolve (F-F5).
 - **F-H7** `/dashboard` + `/repo/:owner/:name` — the GitHub panel UI.
@@ -734,18 +772,19 @@ generated-contract edit rather than a hand-mirrored one.
 
 ### 5.3 New — replay, public scan, bench
 
-**Replay** (promotes `/demo/*` from test plumbing to a product surface, F-I):
+**Replay** (F-I) — one route, because a replay is not launched:
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/replays` | gallery: slug, package, verdict, why-interesting, duration |
-| POST | `/replays/{slug}/start` | begin a replay → returns an `auditId` streaming on the ordinary audit SSE |
+| GET | `/replays` | gallery: auditId, package, version, verdict, duration, when it ran |
 
-The replay reuses `/audit/{id}/events` verbatim — that's what makes F-I4
-(indistinguishable from live) free rather than a second renderer. `/demo/*`
-stays as the internal alias the e2e harness already depends on, or is folded in;
-either way there is **one** replay implementation, not a product one and a test
-one.
+There is no `start` counterpart. A row's `auditId` streams on
+`/audit/{id}/events`, the endpoint a live audit already uses, which is what makes
+F-I4 free rather than a second renderer. The projection excludes demo rows
+(`package_path == '__demo__'`) and fixture package names, through the same
+predicate `/packages` uses, so the two lists cannot disagree about what is a
+product exhibit. `/demo/*` is untouched and still serves the Landing recordings
+and the e2e harness.
 
 **Public repo scan** (F-F5). Either a widened `/panel/public-repos/scan` or a
 new unauthenticated route, depending on O-1:
@@ -942,7 +981,7 @@ the sandbox; nothing is `npm install`ed on the host, nothing is committed.
 flowchart TD
     ROOT["/ Landing<br/>value prop · launcher · inline replay"]
     HOW["/how-it-works ★NEW · STATIC<br/>pipeline · evidence · threat model · limits"]
-    REPLAY["/replays ★NEW<br/>gallery → /replay/:slug"]
+    REPLAY["/replays ★NEW<br/>gallery → /audit/:id"]
     SCAN["/scan ★NEW<br/>paste any public repo, no sign-in"]
     BENCH["/benchmark ★NEW<br/>runs · CIs · misses"]
     PKGS["/packages registry"]
@@ -1078,15 +1117,22 @@ working behind the F-E1 seam and leave the shape changeable.
 ### Phase 5 — The convincer: replays + public scan
 **Goal: a stranger can be persuaded in 60 seconds, without paying or signing in.**
 Two features, one phase, because they share the funnel:
-- **Replays (F-I):** promote `/demo/*` to `/replays` + `/replay/:slug`. Record a
-  curated set — clean popular package, real confirmed exfil, and an honest
-  inconclusive — over the same SSE fold as live, contract-pinned so a schema
-  change can't replay a lie.
+- **Replays (F-I):** ✅ landed. `GET /replays` over the durable audit log, rows
+  linking to `/audit/:id`, and the verdict-time canonicalization suppressed so a
+  permalink survives being followed. No recording step and no curated set — see
+  the rewritten F-I for why that half of this plan was dropped rather than done.
 - **Public scan (F-F5/F-F6):** drop the sign-in requirement, add the abuse
   ceiling (dep cap, rate limit, cached-only past the cap, a lane that can't
   starve paid work).
-_Done when:_ an unauthenticated visitor can watch a real recorded audit from a
-permalink and scan a public repo they don't own.
+_Done when:_ an unauthenticated visitor can watch a real audit replay from a
+permalink (**done**) and scan a public repo they don't own (**outstanding** —
+the public-scan half of this phase is untouched).
+
+_Retention became a requirement here, and does not exist yet._ Promoting a
+replay to a permalink means the durable log behind it must outlive it.
+`kit_stream.prune` exists with **no caller**, so nothing dies today — but the
+first thing to call it must exempt anything reachable from `/replays`, or a
+permalink starts 404ing with no signal that it ever worked.
 
 ### Phase 6 — `/how-it-works` (static)
 **Goal: the method is legible without reading the code.**
@@ -1141,7 +1187,9 @@ That is the funnel and the convincer, and it doesn't wait on the panel strand.
 
 Each is binary and observable — no "improve", no "polish".
 
-**Status is as of `16426a6`.** ✅ = met, with the evidence named in the last
+**Status is as of `16426a6`, except G16 and G32 which are current.** The rest of
+the table has not been re-verified since that commit and understates several
+rows — check the code before trusting a ☐. ✅ = met, with the evidence named in the last
 column; ◐ = partly met, with what is missing stated; ☐ = not started or not
 verified. A goal is only ✅ when something *fails* if it regresses — a passing
 grep today is not evidence, so the column names the test or the deletion that
@@ -1166,7 +1214,7 @@ needs correcting.
 | G13 | A real `push` to a real protected repo produces a push scan + check-run | 4 | ☐ | Not verified against a real repo. Note `9999648` changed the semantics being verified: `delta_repo_scan` became `push_repo_scan` covering the whole pushed lockfile, so an empty-delta push now concludes its check run instead of spinning forever. |
 | G14 | *A* payment path closes end to end, behind the F-E1 seam | 4 | ☐ | Not started. |
 | G15 | No table/wire/component encodes plan as a two-valued fact | 4 | ☐ | Not verified. |
-| G16 | ≥3 curated replays, browsable, permalinked, contract-pinned | 5 | ☐ | Not started. |
+| G16 | Every finished audit is browsable and permalinked | 5 | ✅ | **Goal restated, and the restatement is the result.** It read "≥3 curated replays, browsable, permalinked, contract-pinned" — three clauses that only existed because replays were assumed to be authored artifacts. `GET /replays` projects `audit_sessions`, rows link to `/audit/:id`, and `App.tsx` no longer canonicalizes a followed permalink away (that bug would have silently repointed every link this goal asks for). Count is now a consequence of use, not a target; pinning is moot with nothing authored to pin — see the rewritten F-I. `engine/tests/test_replays.py` C1–C9 (7 of 13 fail against the pre-fix build), `frontend/src/pages/Replays.test.tsx` R1–R5. |
 | G17 | An unauthenticated visitor can scan a public repo they don't own | 5 | ◐ | The public-scan path exists and is exercised by `test_panel_public_billing.py` / `test_panel_scans.py`; `9999648` also made `commit_sha` real for public scans, so a snapshot is now reproducible. The no-cookie e2e assertion the goal names is not yet written. |
 | G18 | Public scan has an abuse ceiling that isn't a login | 5 | ☐ | Not verified. |
 | G19 | `/how-it-works` ships as a static page with zero engine calls | 6 | ☐ | Not started. |
@@ -1182,7 +1230,7 @@ needs correcting.
 | G29 | A planted canary appearing in an exfiltrated body is citable by the judge | §24 | ◐ | `ced29f2`. Request bodies are captured (2 KiB/request, 64 KiB/run) with `bodyBytes` making truncation visible, and the renderer names which `setupApplied.env` canary the body or URL carries, with an 8-character floor so `CI=1` cannot be cited. **Missing:** planted **file** contents are stored as hashes only, so a *file* canary is still unmatchable. Explainer §24.8. |
 | G30 | No report implies a region was tested when no experiment covering it ran | §24 | ✅ | `ced29f2`. `add_or_merge` merges only on description similarity **and** a byte-identical `experiment` **and** an identical `claim`, so the invariant holds by construction with no new state. `test_graph.py`. Explainer §24.17. |
 | G31 | No declared value in the wire vocabulary lacks a producer | §24 | ◐ **two known counterexamples** | Error codes and config keys are ✅ and *mechanically enforced*: `test_error_taxonomy.py` reads construction sites with `ast` (not grep), and `test_config_surface.py` now enforces the config surface in **both** directions (`37a6343`) — every declared setting has a reader (C1) *and* every `NPMGUARD_*` production code reads is declared (C3), with two named-debt exemptions each carrying its one-line swap, plus a test that deletes an exemption when its read goes. C4 also scans environment **access sites** with `ast` rather than string literals, because a literal scan cannot tell a read from a write — the engine legitimately *writes* two variables into the sandbox container, and declaring those would assert the opposite of the truth. **Still open:** (a) `Trigger.kind` accepts `lifecycle` and `bin` which `build_trigger_command` cannot run, and `LifecycleHook` has no producer at all — explainer §24.19; (b) `Finding`, `Proof`, `Confidence` and `TriageResult` in `shared/src/models.ts` have **zero** producers and readers repo-wide yet are regenerated into `contract/models.py` and `contract.schema.json` on every build — explainer §24.21. The goal's own "grep per enum" is what catches (b). |
-| G32 | Every replay is a real capture, and derived fields equal what the engine computes | 5 | ◐ | `0d73449` built the mechanism for the committed demo recording: every curated value is now pinned by a test that computes engine truth **from engine code** — `classify_files` over the fixture tree for `fileType`/`permissions`, the real `provision_dependencies` for the dependency claim, `SEVERITY_SCORE` over the recording's own severities for `riskContribution` — with each docstring saying to delete the test on re-record, so a re-record turns red instead of letting a curated value rot into a specification. **Not ✅:** the recording itself is still a hybrid and still diverges on `fileType`, `permissions`, `riskContribution`, `expectedCapabilities`, `trace[].input/output` and `durationMs`. Explainer §24.1, §24.2. |
+| G32 | Every replay is a real capture, and derived fields equal what the engine computes | 5 | ◐ **scope narrowed** | **The `/replays` gallery satisfies this by construction and is out of its scope from here on:** it replays the frames the engine emitted and reads every field back off the audit row, so there is no derived field that *could* disagree. What remains under this goal is the two committed recordings in `engine/demo-data/`, which still serve Landing and e2e. For those: `0d73449` built the mechanism for the committed demo recording: every curated value is now pinned by a test that computes engine truth **from engine code** — `classify_files` over the fixture tree for `fileType`/`permissions`, the real `provision_dependencies` for the dependency claim, `SEVERITY_SCORE` over the recording's own severities for `riskContribution` — with each docstring saying to delete the test on re-record, so a re-record turns red instead of letting a curated value rot into a specification. **Not ✅:** the recording itself is still a hybrid and still diverges on `fileType`, `permissions`, `riskContribution`, `expectedCapabilities`, `trace[].input/output` and `durationMs`. Explainer §24.1, §24.2. |
 
 **Two things the status above surfaces that are not goals yet.**
 

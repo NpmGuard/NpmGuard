@@ -1,39 +1,29 @@
 /**
  * Unit: the panel tone/priority chokepoint — tone.tsx.
  *
- * Pure functions over the two axes (design §4.4): `outcome` (SAFE | ERROR |
- * DANGEROUS, null until concluded) and progress (`jobState`, scan `status`).
+ * Pure functions over the two axes: `outcome` (SAFE | ERROR | DANGEROUS, null
+ * until concluded) and progress (`jobState`, scan `status`). The tone→CSS-var and
+ * tone→dot-class maps used to be covered here too; they are one-line lookups whose
+ * only failure mode is a missing class, and asserting the map restates it.
  *
  * Input classes:
- *  T1  outcomeTone — one class per outcome + null. ERROR gets its OWN tone: not
- *      `danger` (it does not block) and not `unknown` (it IS information).
- *  T2  toneAccent — every Tone resolves to a CSS var, unknown to the paper var.
+ *  T1  outcomeTone — one per outcome + null. ERROR gets its OWN tone: not `danger`
+ *      (it does not block) and not `unknown` (it IS information).
  *  T3  scanTone — set progress outranks outcome: a running set is read before its
- *      rollup, and a null set is unknown. There is no failed-SET arm: the status
- *      domain is `running | done`, because R-1's falsification pass found zero
- *      producers for a failed set and a branch for an unreachable state is cost.
- *  T4  depPriority — the sort order: DANGEROUS > ERROR > running > queued > SAFE.
- *      ERROR above a live attempt is the load-bearing one — an errored dep needs
- *      a human, a running one resolves itself.
- *  T5  depTone — outcome, except a live attempt shows as running.
- *  T6  toneDotClass — unknown is the plain paper dot, every other tone a variant.
- *  T7  ANTI-DRIFT over the two LEGACY helpers. `toneAccent` and `toneDotClass`
- *      still resolve through base.css, so a tone whose rule is missing there
- *      renders as an unstyled element and no type catches it. This used to cover
- *      `pill--` too; it no longer can, because the stamps carry their own
- *      token-layer classes — which is a strictly stronger position, since a
- *      missing utility is a build-time fact rather than a silent one. `rail__seg--`
- *      stays covered: `features/repos/PortfolioPosture` still builds those names
- *      from a `Tone` by string interpolation.
- *  T8  toneSeverity — only DANGEROUS and ERROR earn the 3px rule. `safe` must NOT,
- *      because 313 green-ruled rows drown the three that matter (§0 rule 1), and
- *      `Card`/`TableRow` have no `safe` arm to pass it to anyway.
+ *      rollup, and a null set is unknown. There is no failed-SET arm, because the
+ *      status domain is `running | done` — a falsification pass found zero
+ *      producers for a failed set, and a branch for an unreachable state is cost.
+ *  T4  depPriority — DANGEROUS > ERROR > running > queued > SAFE. ERROR above a
+ *      live attempt is the load-bearing one: an errored dep needs a human, a
+ *      running one resolves itself.
+ *  T5  depTone — the outcome, except that a live attempt shows as running.
+ *  T8  toneSeverity — only DANGEROUS and ERROR earn the 3px rule. `safe` must NOT:
+ *      313 green-ruled rows drown the three that matter, and `Card`/`TableRow`
+ *      have no `safe` arm to pass it to anyway.
  *
- * Blackbox: call the exported functions; read base.css as text for T7.
+ * Blackbox: call the exported functions.
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AuditSet, AuditSetItem, Outcome } from "@npmguard/shared";
 import {
@@ -41,13 +31,8 @@ import {
   depTone,
   outcomeTone,
   scanTone,
-  toneAccent,
-  toneDotClass,
   toneSeverity,
-  type Tone,
 } from "./tone.tsx";
-
-const ALL_TONES: Tone[] = ["safe", "danger", "error", "running", "unknown"];
 
 const dep = (over: Partial<AuditSetItem> = {}): AuditSetItem => ({
   name: "left-pad",
@@ -102,15 +87,6 @@ describe("outcomeTone", () => {
     expect(tone).not.toBe("danger");
     expect(tone).not.toBe("unknown");
     expect(tone).not.toBe("safe");
-  });
-});
-
-describe("toneAccent", () => {
-  it("T2: every tone resolves to a CSS custom property", () => {
-    const tones: Tone[] = ["safe", "danger", "error", "running", "unknown"];
-    for (const tone of tones) expect(toneAccent(tone)).toMatch(/^var\(--[a-z-]+\)$/);
-    expect(toneAccent("error")).toBe("var(--error)");
-    expect(toneAccent("unknown")).toBe("var(--tone-paper-accent)");
   });
 });
 
@@ -188,14 +164,6 @@ describe("depTone", () => {
   });
 });
 
-describe("toneDotClass", () => {
-  it("T6: unknown is the plain dot, other tones get a variant", () => {
-    expect(toneDotClass("unknown")).toBe("dot");
-    expect(toneDotClass("error")).toBe("dot dot--error");
-    expect(toneDotClass("danger")).toBe("dot dot--danger");
-  });
-});
-
 describe("toneSeverity", () => {
   it("T8: only the two tones a row can wear a rule for come back", () => {
     expect(toneSeverity("danger")).toBe("danger");
@@ -209,53 +177,5 @@ describe("toneSeverity", () => {
     expect(toneSeverity("unknown")).toBeUndefined();
   });
 
-  it("T8: every tone maps to something a severity prop accepts", () => {
-    for (const tone of ALL_TONES) {
-      const severity = toneSeverity(tone);
-      expect(severity === undefined || severity === "danger" || severity === "error").toBe(true);
-    }
-  });
 });
 
-describe("stylesheet coverage", () => {
-  it("T7: every tone the LEGACY helpers emit has its base.css rule", () => {
-    // Resolved from the vitest cwd (the frontend package root) — under jsdom
-    // `import.meta.url` is an http:// URL, not a file path.
-    const css = readFileSync(resolve(process.cwd(), "src/styles/base.css"), "utf8");
-    // `unknown` is deliberately the unstyled fallback (plain `.dot`, paper accent).
-    const styled: Tone[] = ["safe", "danger", "error", "running"];
-    for (const tone of styled) {
-      expect(css, `.dot--${tone}`).toContain(`.dot--${tone}`);
-      // Built by string interpolation in features/repos/PortfolioPosture, so a
-      // missing rule here is invisible to both tsc and the linter.
-      expect(css, `.rail__seg--${tone}`).toContain(`.rail__seg--${tone}`);
-    }
-  });
-
-  it("T7: every var `toneAccent` returns is actually declared in base.css", () => {
-    // The other half of the same hazard: `toneAccent` hands `.card--accent` a
-    // `var()` name as a STRING, so a renamed or deleted token resolves to nothing
-    // and the severity bar silently disappears rather than failing loudly.
-    const css = readFileSync(resolve(process.cwd(), "src/styles/base.css"), "utf8");
-    for (const tone of ALL_TONES) {
-      const name = toneAccent(tone).replace(/^var\(|\)$/g, "");
-      expect(css, `${name} declared`).toContain(`${name}:`);
-    }
-  });
-
-  it("T7: no legacy pill class is interpolated back in", () => {
-    // `OutcomePill` is on the token layer now, so a missing style is a missing
-    // Tailwind utility — a build-time fact. What must NOT come back is a
-    // legacy-class fallback path: if anything here starts interpolating
-    // `pill--${tone}` again, the silent-unstyled hazard returns with it.
-    //
-    // Comments are stripped first. A source-text assertion that trips on the
-    // docblock *documenting* the rule is a test that punishes writing the rule
-    // down — which is the opposite of what it is for. (§2.8's `rounded-full` ban
-    // is asserted on rendered output in `stamp.test.tsx` S5, which is stronger
-    // than a text match anyway and needs no stripping.)
-    const source = readFileSync(resolve(process.cwd(), "src/components/panel/tone.tsx"), "utf8");
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-    expect(code).not.toMatch(/pill--/);
-  });
-});

@@ -39,10 +39,10 @@
 #      numbers: the container spec renders SANDBOX_TMP_MB, and the import-time
 #      assert in docker.py keeps it under the cap so a WHOLE sensor file always
 #      fits (only an encoding hop can inflate past it)
-# Adversarial pass: 2026-07-25 transfer-seam — the missing dimension was WHICH
-# STREAM and WHAT HAPPENS TO THE PROCESS. A cap tested only on stdout, and only
-# for its return value, is what let the seam both lie (prefix returned) and fail
-# to protect (whole stream buffered first).
+# Both axes are load-bearing: WHICH STREAM and WHAT HAPPENS TO THE PROCESS. A cap
+# tested only on stdout, and only for its return value, is what let this seam both
+# lie (a prefix returned as the whole capture) and fail to protect (the whole
+# stream buffered before the cap was applied).
 from __future__ import annotations
 
 import asyncio

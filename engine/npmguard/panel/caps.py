@@ -1,7 +1,6 @@
 """Entitlements + quotas per GitHub App installation.
 
-Port of the TS ``caps.ts``. An installation is the billing account shared by
-every member who can access it, so caps are enforced per ``installation_id``.
+An installation is the billing account shared by every member who can access it, so caps are enforced per ``installation_id``.
 
 Plan resolution: ``plan='pro'`` iff the installation's
 ``billing_accounts.subscription_status`` is ``active`` or ``trialing`` — every

@@ -11,9 +11,6 @@
 #                           REFUTE) → AuditIncompleteError NPMGUARD-0031 retryable
 #   S18  package missing  — registry 404 (plain name) and absent local test-pkg
 #                           fixture both surface NPMGUARD-0001 on the stream
-# Adversarial pass: W4a — "can a failure leak a stale SAFE?" Negative report-file
-#   assertions here are paired with the positive probes in test_verdicts (S1/S2
-#   assert the file IS written on success via the same path helper).
 
 from __future__ import annotations
 

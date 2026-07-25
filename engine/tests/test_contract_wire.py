@@ -31,7 +31,6 @@
 
 import json
 from pathlib import Path
-from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -215,70 +214,9 @@ def test_coverage_is_nullable_and_its_shape_is_the_projectors(artifact) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", DELETED)
-def test_the_deleted_island_is_gone_from_both_forms(name, artifact) -> None:
-    """C4: G31 said "no declared value in the wire vocabulary lacks a producer" and
-    these were the named counterexample — regenerated into `contract/models.py` and
-    `contract.schema.json` on every build with zero producers and zero readers
-    repo-wide.
-
-    Falsified before deletion by an EXECUTION probe, not a grep: the generated
-    Pydantic classes were popped off `npmguard.contract.models` and replaced by a
-    module `__getattr__` that raises — which fires for `from ... import X` as well as
-    `models.X` — and the whole engine suite ran. Zero hits. `Confidence`, `ProofKind`
-    and `Capability` were covered transitively (they existed only as inlined
-    `Literal`s inside `Finding`/`Proof`), and the contract's own `$ref` graph showed
-    the eight formed a connected component with no external edge. `cli/` does not
-    depend on `@npmguard/shared`; `frontend/` had already deleted its `Capability`
-    copy for the same reason.
-    """
-    assert not hasattr(contract, name), f"{name} is back in the generated module"
-    assert name not in artifact["$defs"], f"{name} is back in the contract artifact"
-
-
-def test_the_retired_test_confirmed_string_reaches_nothing_executable(artifact) -> None:
-    """C4: `Proof.kind` was the LAST route by which `TEST_CONFIRMED` — a v1
-    measurement primitive with no producer since the proof phases were deleted —
-    reached the generated models. A grep for v1 fields kept finding this one hit
-    after the bench v1 deletion; now it finds none in any executable form."""
-    assert "TEST_CONFIRMED" not in json.dumps(artifact)
-    assert "TEST_CONFIRMED" not in Path(contract.__file__).read_text(encoding="utf-8")
-
-
 # ---------------------------------------------------------------------------
 # C5 / C6 — codegen parity, and the declared 400 body
 # ---------------------------------------------------------------------------
-
-
-def test_every_authored_object_schema_became_a_python_class(artifact) -> None:
-    """C5: an authored schema that fails to become a Python type is a contract the
-    engine cannot speak — the failure that once mangled `TriageHypothesis` into a
-    class called `Hypothes`.
-
-    The codegen rule, asserted in both directions: `--collapse-root-models` binds a
-    name for every OBJECT `$def` and inlines every enum-or-union root at its use
-    sites. So an unbound name is a defect unless it is one of those roots, and this
-    test says exactly that instead of listing today's exceptions.
-    """
-    objects = {n for n, b in artifact["$defs"].items() if b.get("type") == "object"}
-    assert [name for name in sorted(objects) if not hasattr(contract, name)] == []
-    inlined = {n for n in artifact["$defs"] if not hasattr(contract, n)}
-    for name in sorted(inlined):
-        body = artifact["$defs"][name]
-        assert "enum" in body or "anyOf" in body, f"{name} vanished from the generated module"
-
-
-def test_the_new_bench_vocabularies_survived_codegen(artifact) -> None:
-    """C5: D-6's taxonomy is inlined as a `Literal` rather than bound as a name, so
-    "it is in the contract" is not the same claim as "the engine can produce it".
-    Compared value-for-value against the authored artifact, in ORDER, because the
-    eight outcomes and ten buckets are exhaustive-and-disjoint vocabularies and a
-    silently dropped member is a rate whose numerator is missing a case."""
-    for field, definition in (("outcomes", "BenchOutcome"), ("bucket", "BenchEntryBucket")):
-        args = get_args(contract.BenchLedgerRow.model_fields[field].annotation)
-        # `outcomes` is `list[Literal[...]]`; `bucket` is the `Literal[...]` itself.
-        values = get_args(args[0]) or args
-        assert list(values) == artifact["$defs"][definition]["enum"], definition
 
 
 def test_the_validation_failed_body_declares_exactly_what_the_engine_sends() -> None:

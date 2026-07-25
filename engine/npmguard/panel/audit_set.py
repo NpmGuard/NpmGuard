@@ -396,8 +396,7 @@ def _item_state_query(set_id: int, *, limit: int | None) -> sa.Select:
     if limit is None:
         return query.order_by(audit_set_items.c.direct.desc(), audit_set_items.c.name)
     # Sort key = the outcome domain, DESC. INVARIANT: the stored verdict is SAFE or
-    # DANGEROUS (verdict_index), so these arms are exhaustive — the SUSPECT/UNKNOWN
-    # arms this CASE used to carry could not match any row. An unconcluded item
+    # DANGEROUS (verdict_index), so these arms are exhaustive. An unconcluded item
     # ranks by whether an attempt is still live: ERROR outranks pending, because a
     # truncated tail must be the least urgent and "we tried and failed" is news.
     severity = sa.case(

@@ -1,4 +1,4 @@
-# CLASS MAP — panel.jobs.PanelJobQueue + PanelScanWorker (port of TS jobs/{queue,workers})
+# CLASS MAP — panel.jobs.PanelJobQueue + PanelScanWorker
 # (seam: real throwaway sqlite over kit metadata.create_all for the durable
 #  queue; the AuditService is a FAKE whose admit() returns a resolvable future +
 #  a stubbed saved report, and load_report is injected — the real pipeline/docker

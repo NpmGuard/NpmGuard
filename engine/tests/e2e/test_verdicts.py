@@ -11,13 +11,12 @@
 #                          judge malicious=false cites nothing → all REFUTED
 #   S35 huge-file route  — >500,000-char source auto-FLAGGED without an LLM read,
 #                          forced dynamic run under docker → judged → SAFE
-# Adversarial pass: W4a — "does any verdict path share NPMGUARD_MOCK_LLM?" No:
-#   every class runs the real openai_compatible provider against the mock server
-#   (C8 is not load-bearing here). DANGEROUS bundles intentionally leave recorded
-#   judge/propose/agent exchanges unconsumed (live timelines are nondeterministic,
-#   design brief §judge/agent strategy) — those tests assert zero non-agent
-#   unmatched requests plus verdict reproduction instead of assert_consumed
-#   (agent tool-loops may diverge live; agent logic is proven at the slice tier).
+# Every class runs the real openai_compatible provider against the mock server, so
+# no verdict path shares NPMGUARD_MOCK_LLM. DANGEROUS bundles deliberately leave
+# recorded judge/propose/agent exchanges unconsumed — live timelines are
+# nondeterministic — so those tests assert zero non-agent unmatched requests plus
+# verdict reproduction instead of assert_consumed. Agent logic is proven at the
+# slice tier, where a tool-loop cannot diverge.
 
 from __future__ import annotations
 

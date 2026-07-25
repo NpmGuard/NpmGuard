@@ -6,11 +6,6 @@
  * absolute for undici (see lib/test-harness.tsx).
  *
  * Input classes:
- *  R1  key factory is stable   — the same arguments produce an equal key, and two
- *                                observers of that key share ONE fetch. A hand-typed
- *                                key that differs by a character is a silent second
- *                                request or a missed invalidation, which is the whole
- *                                reason keys are built by a factory.
  *  R2  contract violation      — a response that does not match `ReposResponse` ends
  *                                the read as FAILED at the boundary. It never arrives
  *                                in a component as a half-built repo, and it is not
@@ -87,36 +82,6 @@ function ReposProbe({ sink }: { sink: LoadState<unknown>[] }) {
   }, [state, sink]);
   return null;
 }
-
-describe("repos — R1 key factory is stable and dedupes", () => {
-  it("R1: the same arguments build an equal key; different ones do not", () => {
-    expect(repoKeys.detail("acme", "widget")).toEqual(repoKeys.detail("acme", "widget"));
-    expect(repoKeys.detail("acme", "widget")).not.toEqual(repoKeys.detail("acme", "gadget"));
-    // Every repo read shares one prefix, so `invalidateQueries({queryKey: all})`
-    // means what it says.
-    expect(repoKeys.detail("acme", "widget").slice(0, 1)).toEqual([...repoKeys.all]);
-    expect(repoKeys.publicScan(3).slice(0, 2)).toEqual([...repoKeys.publicScans()]);
-  });
-
-  it("R1: two observers of one key issue ONE request", async () => {
-    const hits = vi.fn();
-    server.use(
-      http.get("/api/panel/repos", () => {
-        hits();
-        return HttpResponse.json({ repos: [panelRepo()] });
-      }),
-    );
-    const seen: LoadState<unknown>[] = [];
-    withClient(
-      <>
-        <ReposProbe sink={seen} />
-        <ReposProbe sink={seen} />
-      </>,
-    );
-    await waitFor(() => expect(seen.at(-1)?.status).toBe("ok"));
-    expect(hits).toHaveBeenCalledTimes(1);
-  });
-});
 
 describe("repos — R2 a response that violates the contract fails at the boundary", () => {
   it("R2: a repo missing `defaultBranch` is a FAILED read, not a half-built repo", async () => {

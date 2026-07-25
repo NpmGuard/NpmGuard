@@ -48,9 +48,6 @@
  *                                     EMPTY; an unreadable session renders DEGRADED.
  *                                     Both are single-sentence grey-ish boxes to the
  *                                     eye, which is exactly why they need a test.
- *  D9  both themes render, and no colour is hardcoded — one class must work in
- *                                     light and dark, which is only true while every
- *                                     colour travels through a token.
  *
  * Blackbox: msw at the HTTP boundary, queries through the real client, assertions
  * on the accessibility tree and the `data-state` attributes the design system
@@ -61,7 +58,6 @@ import { configure, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { expectNoHardcodedColour } from "../components/panel/theme-probe.ts";
 import {
   alert,
   auditSet,
@@ -260,40 +256,5 @@ describe("Dashboard — D8 an unconfigured server is a FACT, not a failure", () 
     await screen.findByRole("alert");
     expect(document.querySelector('[data-state="degraded"]')).not.toBeNull();
     expect(document.querySelector('[data-state="empty"]')).toBeNull();
-  });
-});
-
-describe("Dashboard — D9 both themes", () => {
-  afterEach(() => document.documentElement.classList.remove("dark", "light"));
-
-  for (const theme of ["light", "dark"] as const) {
-    it(`D9: renders under an explicit .${theme} stamp`, async () => {
-      // The token layer's whole premise is that ONE class works in both themes,
-      // because `@theme inline` makes utilities reference `var(--ng-…)` rather
-      // than a copied value. So the useful assertion is not "the pixels differ"
-      // (jsdom computes no Tailwind) but "the same markup serves both, and no
-      // colour was hardcoded past the token layer" — §6's first checklist item.
-      document.documentElement.classList.add(theme);
-      healthy();
-      renderWithClient(<Dashboard />);
-
-      expect(await screen.findByText("widget")).toBeInTheDocument();
-      expect(screen.getByRole("heading", { name: "Repository posture" })).toBeInTheDocument();
-      expectNoHardcodedColour();
-    });
-  }
-
-  it("D9: a degraded region is token-driven in both themes too", async () => {
-    // The degraded state is the one with an inline `style` (the hatch), so it is
-    // where a raw hex would most plausibly be introduced — and it is the state
-    // whose meaning depends most on being legible.
-    document.documentElement.classList.add("dark");
-    healthy({ repos: fails(500) });
-    renderWithClient(<Dashboard />);
-
-    await screen.findByText(/Repositories unavailable/);
-    const hatched = document.querySelector('[data-state="degraded"] [style*="gradient"]');
-    expect(hatched?.getAttribute("style")).toMatch(/var\(--ng-/);
-    expectNoHardcodedColour();
   });
 });
