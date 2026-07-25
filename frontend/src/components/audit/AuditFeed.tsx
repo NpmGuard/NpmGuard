@@ -8,13 +8,22 @@
  * All state is fold-derived — this component never re-derives the stream.
  */
 
+import { ChevronRight, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { Badge } from "../ui/badge.tsx";
+import { Button } from "../ui/button.tsx";
+import { FOCUS_RING } from "../ui/focus.ts";
+import { cn } from "../../lib/cn.ts";
 import { useAuditStore } from "../../stores/auditStore.ts";
 import { riskContributionToStatus, type PipelineLogEntry } from "../../lib/types.ts";
 
 export interface AuditFeedProps {
   compact?: boolean;
 }
+
+/** One feed row. Kept as a const rather than repeated per arm so the rows share
+ * a rhythm and a new row kind cannot quietly land on a different one. */
+const ROW = "flex items-center gap-2 px-3 py-1.5";
 
 interface FileFlag {
   file: string;
@@ -72,9 +81,11 @@ function buildRows(log: PipelineLogEntry[]): FeedRow[] {
   return rows;
 }
 
-function riskMeterTone(risk: number): "safe" | "suspect" | "danger" {
-  const status = riskContributionToStatus(risk);
-  return status === "dangerous" ? "danger" : status === "suspicious" ? "suspect" : "safe";
+/** The risk bar's fill. `dangerous` is the only hue — see FileTree's header: a
+ * flag is not a verdict, so a merely-flagged file gets an achromatic bar on the
+ * progress axis rather than the deleted `suspect` amber. */
+function riskFillClass(risk: number): string {
+  return riskContributionToStatus(risk) === "dangerous" ? "bg-danger" : "bg-progress-mark";
 }
 
 function FeedRowView({ row, compact }: { row: FeedRow; compact: boolean }): ReactElement {
@@ -88,58 +99,78 @@ function FeedRowView({ row, compact }: { row: FeedRow; compact: boolean }): Reac
   switch (row.kind) {
     case "phase":
       return (
-        <li className="audit-feed__row audit-feed__row--phase">
-          <span className="eyebrow">{row.text}</span>
+        <li
+          data-feed-row="phase"
+          className={cn(ROW, "border-t border-border-faint bg-sunken first:border-t-0")}
+        >
+          <span className="font-mono text-2xs font-medium tracking-wide text-text-3 uppercase">
+            {row.text}
+          </span>
         </li>
       );
     case "scripts":
       return (
-        <li className="audit-feed__row audit-feed__row--scripts">
-          <span className="tag tag--suspect">scripts</span>
-          <span className="subtext">{row.text}</span>
+        <li className={ROW}>
+          {/* Neutral chips. These label WHAT the line is about — they are the
+              metadata voice (§3.2), not an assessment, and the deleted `suspect`
+              amber they used to wear made every install-script line read as a
+              finding. */}
+          <Badge>scripts</Badge>
+          <span className="text-sm text-text-2">{row.text}</span>
         </li>
       );
     case "hypothesis":
       return (
-        <li className="audit-feed__row audit-feed__row--hyp">
-          <span className="tag tag--suspect">hypothesis</span>
-          <span className="subtext">{row.text}</span>
+        <li className={ROW}>
+          <Badge>hypothesis</Badge>
+          <span className="text-sm text-text-2">{row.text}</span>
         </li>
       );
     case "file-group":
       return (
-        <li className="audit-feed__row audit-feed__row--group">
+        <li className={cn(ROW, "block")}>
           <details
-            className="audit-group"
             open={open}
             onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
           >
-            <summary className="audit-group__summary">
-              <span
-                className={`dot ${row.flagged.length > 0 ? "dot--suspect" : "dot--safe"}`}
+            <summary
+              className={cn(
+                "flex cursor-pointer list-none items-center gap-2 rounded-sm",
+                FOCUS_RING,
+              )}
+            >
+              <ChevronRight
                 aria-hidden="true"
+                className="size-icon-sm shrink-0 text-text-3 transition-transform duration-fast in-open:rotate-90"
               />
-              <span className="subtext">
+              <span className="text-sm text-text-2">
                 {row.scanned} file{row.scanned === 1 ? "" : "s"} scanned
               </span>
               {row.flagged.length > 0 ? (
-                <span className="tag tag--suspect">{row.flagged.length} flagged</span>
+                <Badge>{row.flagged.length} flagged</Badge>
               ) : (
-                <span className="microtext">· none flagged</span>
+                <span className="text-2xs text-text-3">· none flagged</span>
               )}
             </summary>
             {row.flagged.length > 0 ? (
-              <ul className="audit-group__flags">
+              <ul className="mt-2 grid gap-1.5 ps-6">
                 {row.flagged.map((f, i) => (
-                  <li key={`${f.file}-${i}`} className="audit-flag">
-                    <span className="audit-flag__file mono">{f.file || "(file)"}</span>
-                    <span className="meter audit-flag__meter" aria-hidden="true">
+                  <li key={`${f.file}-${i}`} className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate font-mono text-2xs text-text">
+                      {f.file || "(file)"}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-progress-track"
+                    >
                       <span
-                        className={`meter__fill meter__fill--${riskMeterTone(f.risk)}`}
+                        className={cn("block h-full", riskFillClass(f.risk))}
                         style={{ width: `${Math.min(100, Math.max(0, f.risk * 10))}%` }}
                       />
                     </span>
-                    {f.text ? <span className="subtext audit-flag__text">{f.text}</span> : null}
+                    {f.text ? (
+                      <span className="min-w-0 flex-1 truncate text-2xs text-text-3">{f.text}</span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -150,8 +181,8 @@ function FeedRowView({ row, compact }: { row: FeedRow; compact: boolean }): Reac
     case "info":
     default:
       return (
-        <li className="audit-feed__row audit-feed__row--info">
-          <span className="microtext">{row.text}</span>
+        <li className={ROW}>
+          <span className="text-2xs text-text-3">{row.text}</span>
         </li>
       );
   }
@@ -201,9 +232,12 @@ export function AuditFeed({ compact = false }: AuditFeedProps) {
   };
 
   return (
-    <div className={`audit-feed${compact ? " audit-feed--compact" : ""}`}>
+    <div className="relative">
       <div
-        className="audit-feed__scroll"
+        // Wide/tall content scrolls inside its own container, never the page
+        // body (§3.1). The height cap is what makes the feed a pane rather than
+        // an unbounded column that pushes the verdict dock off screen.
+        className={cn("overflow-y-auto", compact ? "max-h-64" : "max-h-[28rem]")}
         ref={scrollRef}
         onScroll={onScroll}
         role="log"
@@ -211,37 +245,38 @@ export function AuditFeed({ compact = false }: AuditFeedProps) {
         aria-live="polite"
         aria-busy={running}
       >
-        <ol className="audit-feed__list" ref={contentRef}>
+        <ol ref={contentRef}>
           {rows.map((row) => (
             <FeedRowView key={row.key} row={row} compact={compact} />
           ))}
           {running ? (
-            <li className="audit-feed__row audit-feed__indicator" aria-label="Audit running">
-              <span className="thinking-dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-              <span className="microtext">Working…</span>
+            <li className={ROW} aria-label="Audit running">
+              <LoaderCircle
+                aria-hidden="true"
+                strokeWidth={1.5}
+                className="size-icon-sm shrink-0 animate-spin text-progress-mark motion-reduce:animate-none"
+              />
+              <span className="text-2xs text-text-3">Working…</span>
             </li>
           ) : null}
           {rows.length === 0 && !running ? (
-            <li className="audit-feed__row audit-feed__row--info">
-              <span className="microtext">No activity recorded</span>
+            <li className={ROW}>
+              <span className="text-2xs text-text-3">No activity recorded</span>
             </li>
           ) : null}
         </ol>
       </div>
 
       {!atBottom ? (
-        <button
-          type="button"
-          className="btn btn--sm audit-feed__jump"
+        <Button
+          variant="outline"
+          size="sm"
           onClick={jump}
           aria-label="jump to latest activity"
+          className="absolute inset-x-0 bottom-2 mx-auto w-max shadow-pop"
         >
           Jump to latest
-        </button>
+        </Button>
       ) : null}
     </div>
   );

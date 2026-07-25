@@ -62,44 +62,65 @@ export function verdictTone(verdict: VerdictEnum): "safe" | "danger" {
  * the severity tag is neutral — not hidden, because "we tested a critical claim"
  * is worth knowing, just not worth alarming about.
  *
- *   CONFIRMED  → the threat is real: critical/high red, medium amber, low neutral
- *   REFUTED    → tested, did not happen: neutral row, GREEN state pill
- *   DEFERRED   → could not be decided: neutral everywhere (ambiguous is grey,
- *                never amber — amber reads as a weak finding, and there is no
- *                finding)
+ *   CONFIRMED  → the threat is real: `danger`
+ *   DEFERRED   → could not be decided: `error` violet, and PROMINENT
+ *   REFUTED    → tested, did not happen: neutral row, `safe` state stamp
  *   OPEN / IN_PROGRESS → the progress axis, which is never a verdict
+ *
+ * TWO CHANGES ON THE MOVE TO THE TOKEN LAYER, both forced by the design brief
+ * rather than by taste:
+ *
+ * 1. There is no amber. The v3 semantic set is exactly {safe, danger, error,
+ *    accent} (§2.2), so the old `--suspect` arm for a CONFIRMED-medium claim has
+ *    no slot. It resolves to `danger`: a confirmed medium finding IS a finding,
+ *    and severity keeps modulating the SEVERITY CHIP rather than the row hue.
+ *    That is the same "state decides, severity modulates" rule, expressed in a
+ *    palette that has one alarm colour instead of two.
+ *
+ * 2. DEFERRED stops being grey. Brief §3.3 is explicit that DEFERRED is "a
+ *    first-class, prominent state ... styled as a real outcome in `error` hue,
+ *    not as a greyed-out afterthought", because F-I5 says showing what the tool
+ *    CANNOT prove is as persuasive as a catch. It also puts DEFERRED in the same
+ *    violet slot as audit ERROR and as UI degradation, which is correct: all
+ *    three mean *we don't know*, and that is exactly one fact.
  */
 
-/** The `--accent` var for a hypothesis card's severity rule. */
-export function hypothesisAccentVar(state: HypothesisState, severity: string): string {
-  if (state !== "CONFIRMED") return "var(--tone-paper-accent)";
-  if (severity === "critical" || severity === "high") return "var(--danger)";
-  if (severity === "medium") return "var(--suspect)";
-  return "var(--tone-paper-accent)";
-}
+/** The tone a hypothesis carries, from its STATE alone. */
+export type HypothesisTone = "danger" | "error" | "safe" | "progress";
 
-/** The severity tag's class. Neutral unless the hypothesis it qualifies stands. */
-export function hypothesisSeverityTagClass(state: HypothesisState, severity: string): string {
-  if (state !== "CONFIRMED") return "tag";
-  if (severity === "critical" || severity === "high") return "tag tag--danger";
-  if (severity === "medium") return "tag tag--suspect";
-  return "tag";
-}
-
-/** The resolution pill's class. This is the one element that says what we now
- * KNOW, so it is the one element allowed a hue on a refuted row. */
-export function hypothesisStatePillClass(state: HypothesisState): string {
+export function hypothesisTone(state: HypothesisState): HypothesisTone {
   switch (state) {
     case "CONFIRMED":
-      return "pill pill--danger";
+      return "danger";
+    case "DEFERRED":
+      return "error";
     case "REFUTED":
-      return "pill pill--safe";
+      return "safe";
     case "OPEN":
     case "IN_PROGRESS":
-      return "pill pill--running";
-    case "DEFERRED":
-      return "pill";
+      return "progress";
   }
+}
+
+/** The 3px left rule (§2.8) a hypothesis card wears, or `undefined`.
+ *
+ * Only the two states that mean something actionable earn a rule. REFUTED does
+ * not: §0 rule 1 makes SAFE the quietest state, and a green-ruled card for every
+ * disproved worry is thirteen rules around the one that matters — the same
+ * mistake the old severity colouring made, in a different channel. */
+export function hypothesisRule(state: HypothesisState): "danger" | "error" | undefined {
+  const tone = hypothesisTone(state);
+  return tone === "danger" || tone === "error" ? tone : undefined;
+}
+
+/** The severity chip's tone. Neutral unless the claim it qualifies STANDS —
+ * severity modulates a real finding, it never manufactures one. */
+export function hypothesisSeverityTone(
+  state: HypothesisState,
+  severity: string,
+): "danger" | "neutral" {
+  if (state !== "CONFIRMED") return "neutral";
+  return severity === "critical" || severity === "high" ? "danger" : "neutral";
 }
 
 /** Severity-only order. Module-private: it is the right sort for a list that is
@@ -173,16 +194,4 @@ export function notableFiles(report: AuditReport): AuditReport["fileSummaries"] 
 
 export function totalTraceMs(report: AuditReport): number {
   return report.trace.reduce((sum, phase) => sum + (phase.durationMs || 0), 0);
-}
-
-/** A one-line, honest headline for the verdict. Never fabricates counts. */
-export function verdictHeadline(report: AuditReport): string {
-  if (report.verdict === "DANGEROUS") {
-    if (report.dealbreaker) return report.dealbreaker.check;
-    const n = report.confirmedHypIds.length || confirmedHypotheses(report).length;
-    return n > 0
-      ? `${n} confirmed threat${n === 1 ? "" : "s"}`
-      : "Confirmed malicious behavior";
-  }
-  return "No known threats";
 }
