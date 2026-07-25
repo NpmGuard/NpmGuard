@@ -45,7 +45,8 @@ import type { AuditSetItem } from "@npmguard/shared";
 import { ExternalLink, X } from "lucide-react";
 import { SectionLabel } from "../../../components/panel/layout.tsx";
 import { PanelDialog } from "../../../components/panel/PanelDialog.tsx";
-import { OutcomePill, ProgressPill, depTone, toneSeverity } from "../../../components/panel/tone.tsx";
+import { depTone, toneSeverity } from "../../../components/panel/tone.tsx";
+import { ProgressStamp, VerdictStamp } from "../../../components/ui/verdict-stamp.tsx";
 import { Badge } from "../../../components/ui/badge.tsx";
 import { Button } from "../../../components/ui/button.tsx";
 import { DegradedRegion } from "../../../components/ui/degraded-state.tsx";
@@ -120,9 +121,9 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
         <div className="flex flex-wrap items-center justify-end gap-2">
           {scan &&
             (running ? (
-              <ProgressPill state="running">Running</ProgressPill>
+              <ProgressStamp state="running">Running</ProgressStamp>
             ) : scan.set.rollup.outcome ? (
-              <OutcomePill outcome={scan.set.rollup.outcome} />
+              <VerdictStamp outcome={scan.set.rollup.outcome} />
             ) : (
               <Badge>Nothing to audit</Badge>
             ))}
@@ -260,9 +261,9 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
                         </TableCell>
                         <TableCell>
                           {dep.outcome ? (
-                            <OutcomePill outcome={dep.outcome} />
+                            <VerdictStamp outcome={dep.outcome} />
                           ) : (
-                            <ProgressPill state="queued">Queued</ProgressPill>
+                            <ProgressStamp state="queued">Queued</ProgressStamp>
                           )}
                         </TableCell>
                         <TableCell className="max-w-80 text-text-2">{depReason(dep)}</TableCell>

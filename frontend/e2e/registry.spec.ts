@@ -18,7 +18,7 @@ test("S5: the registry lists both seeded packages with an accurate count", async
     page.getByRole("link", { name: `view full audit of ${DANGEROUS_PKG.name}` }),
   ).toBeVisible();
   // The honest "N shown" count reflects exactly the seeded rows.
-  await expect(page.locator(".pg-registry-count")).toHaveText(/2\s+shown/i);
+  await expect(page.getByLabel("packages shown")).toHaveText(/2\s+shown/i);
 });
 
 test("S5: the verdict filter narrows the list to the matching verdict", async ({ page }) => {
@@ -26,15 +26,15 @@ test("S5: the verdict filter narrows the list to the matching verdict", async ({
   await expect(page.getByRole("link", { name: `view full audit of ${SAFE_PKG.name}` })).toBeVisible();
 
   // Filter to SAFE → only chalk survives; the DANGEROUS row is hidden.
-  await page.getByLabel("filter by verdict").selectOption("SAFE");
+  await page.getByRole("button", { name: "Safe", exact: true }).click();
   await expect(page.getByRole("link", { name: `view full audit of ${SAFE_PKG.name}` })).toBeVisible();
   await expect(
     page.getByRole("link", { name: `view full audit of ${DANGEROUS_PKG.name}` }),
   ).toHaveCount(0);
-  await expect(page.locator(".pg-registry-count")).toHaveText(/1\s+shown/i);
+  await expect(page.getByLabel("packages shown")).toHaveText(/1\s+shown/i);
 
   // Filter to DANGEROUS → the mirror image.
-  await page.getByLabel("filter by verdict").selectOption("DANGEROUS");
+  await page.getByRole("button", { name: "Dangerous", exact: true }).click();
   await expect(
     page.getByRole("link", { name: `view full audit of ${DANGEROUS_PKG.name}` }),
   ).toBeVisible();
@@ -60,7 +60,7 @@ test("S5: a search matching nothing shows a reason-aware empty, never a fake SAF
   // Reason-aware: names WHY it's empty (the search term), not a bare "empty".
   await expect(page.getByText(/No audited package matches/)).toBeVisible();
   await expect(page.getByText("no-such-package-zzz").first()).toBeVisible();
-  await expect(page.locator(".pg-registry-count")).toHaveText(/0\s+shown/i);
+  await expect(page.getByLabel("packages shown")).toHaveText(/0\s+shown/i);
   // The honest empty must never fabricate a verdict row.
   await expect(page.getByText("SAFE", { exact: true })).toHaveCount(0);
 });

@@ -31,19 +31,19 @@
 import type { Outcome } from "@npmguard/shared";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { OutcomePill, ProgressPill, type ProgressState } from "./tone.tsx";
+import { VerdictStamp, ProgressStamp, type ProgressState } from "./verdict-stamp.tsx";
 
 const OUTCOMES: Outcome[] = ["SAFE", "DANGEROUS", "ERROR"];
 const PROGRESS: ProgressState[] = ["queued", "running", "unaudited"];
 
 function stampOf(outcome: Outcome): HTMLElement {
-  const { container } = render(<OutcomePill outcome={outcome} />);
+  const { container } = render(<VerdictStamp outcome={outcome} />);
   const stamp = container.querySelector<HTMLElement>("[data-outcome]");
   expect(stamp, `a stamp rendered for ${outcome}`).not.toBeNull();
   return stamp!;
 }
 
-describe("OutcomePill — S1/S2 glyph + word, distinct silhouettes", () => {
+describe("VerdictStamp — S1/S2 glyph + word, distinct silhouettes", () => {
   it("S1: every outcome renders a glyph and its word", () => {
     for (const outcome of OUTCOMES) {
       const stamp = stampOf(outcome);
@@ -68,7 +68,7 @@ describe("OutcomePill — S1/S2 glyph + word, distinct silhouettes", () => {
 
 });
 
-describe("OutcomePill — S4/S5 the slots and the shape", () => {
+describe("VerdictStamp — S4/S5 the slots and the shape", () => {
   it("S4: ERROR is the error violet slot, never danger red", () => {
     const stamp = stampOf("ERROR");
     expect(stamp.className).toMatch(/\berror-/);
@@ -87,9 +87,9 @@ describe("OutcomePill — S4/S5 the slots and the shape", () => {
 
 });
 
-describe("ProgressPill — S6/S7 the achromatic axis", () => {
+describe("ProgressStamp — S6/S7 the achromatic axis", () => {
   function progressOf(state: ProgressState, label = "Auditing"): HTMLElement {
-    const { container } = render(<ProgressPill state={state}>{label}</ProgressPill>);
+    const { container } = render(<ProgressStamp state={state}>{label}</ProgressStamp>);
     return container.querySelector<HTMLElement>("[data-progress]")!;
   }
 

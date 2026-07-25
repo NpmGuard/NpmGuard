@@ -134,21 +134,48 @@ body {
 
 #root { isolation: isolate; display: flex; flex-direction: column; }
 
-h1, h2, h3, h4, p, dl, dd, figure { margin: 0; }
-ul, ol { margin: 0; padding: 0; list-style: none; }
-a { color: inherit; text-decoration: none; }
-code, pre, kbd, samp { font-family: var(--font-mono); }
+/* THE LEGACY ELEMENT RESET IS LAYERED, AND THAT IS LOAD-BEARING.
+   ───────────────────────────────────────────────────────────────────────────
+   These are bare *element* selectors, and the rest of this sheet is unlayered
+   on purpose (see the tier comment at the bottom) — which puts it above all
+   four of Tailwind's layers. For the legacy CLASS rules below that inversion is
+   exactly what makes the two substrates safe to stack. For an element reset it
+   is a silent catastrophe: an unlayered `button { background: none; border: 0 }`
+   beats `.bg-accent` and `.border` no matter what their specificity is, because
+   unlayered always wins over layered. Every `<Button>` in the design system was
+   therefore rendering with no background, no border and no padding, and every
+   `<Link className="text-accent-text">` was losing its colour to
+   `a { color: inherit }`. R-6b's substrate work could not see it because the
+   panel pages that shipped first lean on `Card`, `Table` and the stamps, none
+   of which are bare elements.
 
-button, input, textarea, select { font: inherit; color: inherit; }
-button { cursor: pointer; background: none; border: 0; padding: 0; }
-button:disabled { cursor: not-allowed; opacity: 0.38; }
+   `@layer base` puts them below Tailwind's `utilities` (and `components`) so a
+   utility wins, while still sitting in the AUTHOR origin — so a legacy page
+   with no utility on the element keeps the reset exactly as before. That is the
+   whole fix: legacy classes are untouched (still unlayered, still winning),
+   legacy bare elements are untouched (nothing else claims them), and the design
+   system stops being silently overruled. Verified by screenshotting `/`, `/cli`
+   and `/pay` either side of the change.
 
-:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 2px;
+   This block dies with the rest of the legacy sheet; `@layer base` in the v3
+   tier at the bottom already carries the replacements. */
+@layer base {
+  h1, h2, h3, h4, p, dl, dd, figure { margin: 0; }
+  ul, ol { margin: 0; padding: 0; list-style: none; }
+  a { color: inherit; text-decoration: none; }
+  code, pre, kbd, samp { font-family: var(--font-mono); }
+
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: 0; padding: 0; }
+  button:disabled { cursor: not-allowed; opacity: 0.38; }
+
+  :focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  ::selection { background: var(--violet-soft); color: var(--violet-dark); }
 }
-
-::selection { background: var(--violet-soft); color: var(--violet-dark); }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px;
@@ -186,16 +213,23 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 
 /* ---------- kbd — signature keycap chip ---------- */
 
-kbd {
-  min-width: 20px; height: 20px;
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 0 5px;
-  border: 1px solid #d9d6cc; border-bottom-color: #c4c0b5;
-  border-radius: var(--r-xs);
-  color: #6d695f; background: var(--surface-inset);
-  box-shadow: 0 1px 0 #fff inset, 0 1px 0 rgba(63, 58, 45, 0.1);
-  font-size: 10px; font-weight: 500;
-  line-height: 1; text-transform: uppercase; white-space: nowrap;
+/* Layered for the same reason as the element reset above: `components/ui/kbd.tsx`
+   renders a bare `<kbd>`, and unlayered this rule beat every utility on it —
+   including the colours, which are hardcoded light-only hexes, so the v3 Kbd was
+   unreadable in dark mode. Legacy pages keep it: nothing there sets a utility on
+   a `<kbd>`, so a layered rule still applies to them unchanged. */
+@layer base {
+  kbd {
+    min-width: 20px; height: 20px;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0 5px;
+    border: 1px solid #d9d6cc; border-bottom-color: #c4c0b5;
+    border-radius: var(--r-xs);
+    color: #6d695f; background: var(--surface-inset);
+    box-shadow: 0 1px 0 #fff inset, 0 1px 0 rgba(63, 58, 45, 0.1);
+    font-size: 10px; font-weight: 500;
+    line-height: 1; text-transform: uppercase; white-space: nowrap;
+  }
 }
 
 /* ---------- buttons ---------- */
