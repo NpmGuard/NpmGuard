@@ -8,14 +8,13 @@
  *   reads Last-Event-ID / ?since), but a duplicate seq is always a no-op, so a
  *   full-buffer replay would fold identically.
  * - Unknown event types are ignored, never fatal (forward compatibility): the
- *   engine emits a few events not in the typed union, and may add more.
+ *   engine may add event types ahead of this file.
  * - Terminal events (verdict_reached | audit_error) end the run; later
  *   non-terminal events are ignored.
  */
 
 import type {
   AuditEvent,
-  Finding,
   FileRecord,
   FileVerdict,
   HypothesisCounts,
@@ -30,7 +29,6 @@ import {
   PHASE_ORDER,
   RISK_SUSPICIOUS_THRESHOLD,
   riskContributionToStatus,
-  type AgentStep,
   type FileStatus,
   type PhaseInfo,
   type PipelineLogEntry,
@@ -77,9 +75,6 @@ export interface AuditFoldState {
   expectedCapabilities: string[];
 
   pipelineLog: PipelineLogEntry[];
-  agentSteps: AgentStep[];
-  agentThinking: boolean;
-  findings: Finding[];
   triage: TriageSummary | null;
   hypotheses: HypothesisView[];
 
@@ -88,7 +83,7 @@ export interface AuditFoldState {
   counts: HypothesisCounts | null;
   confirmedCount: number;
 
-  /** file the UI should auto-open (triage scan / agent readFile follow) */
+  /** file the UI should auto-open (set during the flag phase) */
   followFile: string | null;
 
   error: string | null;
@@ -112,9 +107,6 @@ export function initialFoldState(): AuditFoldState {
     statedPurpose: null,
     expectedCapabilities: [],
     pipelineLog: [],
-    agentSteps: [],
-    agentThinking: false,
-    findings: [],
     triage: null,
     hypotheses: [],
     verdict: null,
@@ -364,90 +356,10 @@ export function foldAuditEvent(state: AuditFoldState, event: AuditEvent): AuditF
         ),
       };
 
-    case "agent_thinking":
-      return { ...base, agentThinking: true };
-
-    case "agent_tool_call":
-      return {
-        ...base,
-        agentThinking: false,
-        agentSteps: [
-          ...base.agentSteps,
-          { type: "tool_call", tool: event.tool, args: event.args, step: event.step, timestamp: at },
-        ],
-        followFile:
-          event.tool === "readFile" && typeof event.args["path"] === "string"
-            ? (event.args["path"] as string)
-            : base.followFile,
-      };
-
-    case "agent_tool_result":
-      return {
-        ...base,
-        agentSteps: [
-          ...base.agentSteps,
-          {
-            type: "tool_result",
-            tool: event.tool,
-            resultPreview: event.resultPreview,
-            injectionDetected: event.injectionDetected,
-            step: event.step,
-            timestamp: at,
-          },
-        ],
-      };
-
-    case "agent_reasoning":
-      return {
-        ...base,
-        agentThinking: false,
-        agentSteps: [
-          ...base.agentSteps,
-          { type: "reasoning", text: event.text, step: event.step, timestamp: at },
-        ],
-      };
-
-    case "finding_discovered":
-      return { ...base, findings: [...base.findings, event.finding] };
-
-    case "verify_started":
-      return {
-        ...base,
-        pipelineLog: log(
-          base,
-          {
-            kind: "info",
-            text: `Running ${event.totalTests} exploit test${event.totalTests === 1 ? "" : "s"} in the sandbox…`,
-          },
-          at,
-        ),
-      };
-
-    case "verify_test_result": {
-      const label =
-        event.status === "confirmed"
-          ? "confirmed"
-          : event.status === "unconfirmed"
-            ? "not reproduced"
-            : "infra error";
-      return {
-        ...base,
-        pipelineLog: log(
-          base,
-          {
-            kind: "info",
-            text: `Test ${event.proofIndex + 1}: ${label}${event.error ? ` (${event.error})` : ""}`,
-          },
-          at,
-        ),
-      };
-    }
-
     case "verdict_reached":
       return {
         ...base,
         running: false,
-        agentThinking: false,
         verdict: event.verdict,
         verdictRationale: event.rationale,
         counts: event.counts,
@@ -458,7 +370,6 @@ export function foldAuditEvent(state: AuditFoldState, event: AuditEvent): AuditF
       return {
         ...base,
         running: false,
-        agentThinking: false,
         error: event.error ?? "The audit failed",
         errorCode: event.code ?? null,
         errorRetryable: event.retryable ?? false,
