@@ -1,38 +1,37 @@
-/* Import order is load-bearing, and two substrates are stacked here on purpose
-   (design doc R-6 / D-3 — the v3 rebuild lands alongside the legacy sheets and
-   the pages migrate onto it one at a time).
-
-   1. tokens.css brings in Tailwind, which DECLARES the layer order
-      (`@layer theme, base, components, utilities`). It must come first: the
-      first `@layer` statement in the bundle is what fixes that order, and the
-      legacy sheets below are unlayered, which puts them above all four. That
-      inversion is what makes the two systems safe to coexist — see the tier
-      comment at the bottom of base.css.
-   2. The two faces, self-hosted. §2.7 forbids a Google Fonts runtime
-      dependency; the legacy `@import` of DM Sans inside base.css is the thing
-      it is forbidding, and it dies with the legacy block. The variable Inter
-      file ships every subset as a separate `@font-face` gated on
-      `unicode-range`, so a Latin page downloads only the Latin file — that is
-      §2.7's "subset to Latin" without a hand-maintained `@font-face`. Plex Mono
-      is loaded at 400 (body) and 500 (labels, table headers) only.
-   3. base.css then the remaining SIX page sheets — the legacy substrate,
-      unchanged except for the v3 base layer appended to base.css. They are
-      deleted as their pages are recomposed, not before.
-
-      `styles/panel.css` was the seventh and is GONE: the panel cluster
-      (pages/Dashboard, pages/RepoDetail, components/panel/**, and the ten
-      components under features/{session,repos,alerts,billing}/components) is
-      fully on the token layer, so every rule in it had lost its last consumer.
-      It is the first of the eight to reach zero, and the shape of how the rest
-      go: recompose the consumers, then delete the sheet and this line. */
-/* The legacy DM Sans / DM Mono webfont, hoisted out of base.css. It has to be
-   the FIRST statement in the bundle: `@import` is only legal before any other
-   rule, and once base.css is inlined after Tailwind's layers a nested
-   `@import url(…)` becomes invalid and is dropped — which silently downgraded
-   all eight legacy pages to system-ui. Nothing else about it changes; it is a
-   third-party request on every page load (§2.7 says it should not survive the
-   rebuild) and it dies with the legacy block, not before. */
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap");
+/* The style bundle. ONE substrate now — the legacy keyline sheets are gone.
+ *
+ * This file used to open with a 30-line comment explaining how two design
+ * systems were stacked so they could coexist: Tailwind's four layers, then the
+ * unlayered legacy sheets sitting above all of them, then a note that each page
+ * sheet "is deleted with its page, not before". All eight are deleted, so the
+ * explanation goes with them.
+ *
+ * ★ THE GOOGLE FONTS `@import` IS GONE. §2.7 forbids a webfont runtime
+ * dependency and that import was the thing it was forbidding: a third-party
+ * blocking request on every page load, on a security product. It had to be the
+ * FIRST statement in the bundle — an `@import url()` is only legal before any
+ * other rule, and nested inside an inlined sheet it is silently dropped, which
+ * had once downgraded all eight legacy pages to system-ui without anyone
+ * noticing. It could only die with the legacy block that used DM Sans, and the
+ * legacy block is now dead.
+ *
+ * Order still matters, for one reason rather than three:
+ *
+ * 1. `tokens.css` brings in Tailwind, which DECLARES the layer order
+ *    (`@layer theme, base, components, utilities`). The first `@layer`
+ *    statement in the bundle is what fixes that order, so it comes first.
+ * 2. The two faces, self-hosted. The variable Inter file ships every subset as
+ *    a separate `@font-face` gated on `unicode-range`, so a Latin page
+ *    downloads only the Latin file — §2.7's "subset to Latin" without a
+ *    hand-maintained `@font-face`. Plex Mono is loaded at 400 (body) and 500
+ *    (labels, table headers) only.
+ * 3. `base.css` is the app's own base layer: element defaults, the page plane,
+ *    the one focus ring. 105 lines, down from 798.
+ * 4. `how-it-works.css` is the single page-scoped sheet that survives, and its
+ *    own header states the rule it is the exception to: a surface may own a
+ *    stylesheet for what is genuinely singular about it, and may never own one
+ *    for what the design system already provides.
+ */
 
 @import "./styles/tokens.css";
 

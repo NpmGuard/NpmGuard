@@ -18,15 +18,12 @@
  * cluster. What stays here is genuinely panel domain: the outcome→tone map and
  * the dep sort rank built on it.
  *
- * ── WHY TWO STYLING SUBSTRATES STILL APPEAR HERE ────────────────────────────
- *
- * The two class/var helpers (`toneAccent`, `toneDotClass`) are still on the
- * legacy `base.css` names, and that is deliberate rather than unfinished: their
- * only remaining callers are
- * `features/repos/components/{RepoCard,PortfolioPosture}.tsx`, which are still
- * whole-hog legacy. Handing a legacy card a token-coloured mark would put two
- * palettes inside one 18px-padded warm-paper box, which reads worse than either.
- * They die with those two components. */
+ * There is no longer a second styling substrate in here. `toneAccent` and
+ * `toneDotClass` returned legacy `base.css` names and were kept alive for
+ * `features/repos/components/{RepoCard,PortfolioPosture}.tsx`; both were
+ * recomposed onto the token layer, which left the two helpers with zero callers,
+ * so they are deleted rather than left as a door back to a palette that no
+ * longer exists. */
 
 import type { AuditSet, AuditSetItem, Outcome } from "@npmguard/shared";
 
@@ -47,26 +44,6 @@ export function outcomeTone(outcome: Outcome | null): Tone {
   }
 }
 
-/** LEGACY. `--accent` value for `base.css`'s `.card--accent` severity bars.
- * Sole surviving caller is `features/repos/components/RepoCard.tsx`; see the
- * file header for why it was not migrated with the renderers. A v3 surface uses
- * `<Card severity="danger" | "error">` instead, which carries the §2.8 3px rule
- * and deliberately has no `safe` arm. */
-export function toneAccent(tone: Tone): string {
-  switch (tone) {
-    case "safe":
-      return "var(--safe)";
-    case "danger":
-      return "var(--danger)";
-    case "error":
-      return "var(--error)";
-    case "running":
-      return "var(--running)";
-    default:
-      return "var(--tone-paper-accent)";
-  }
-}
-
 /** Card accent for a repo's last audit set: set progress first (still running),
  * then the outcome over its own items.
  *
@@ -78,16 +55,6 @@ export function scanTone(set: AuditSet | null): Tone {
   if (!set) return "unknown";
   if (set.status === "running") return "running";
   return outcomeTone(set.rollup.outcome);
-}
-
-/** LEGACY. Status-dot class for a tone; plain paper dot for unknown/pending.
- * Sole surviving caller is `features/repos/components/PortfolioPosture.tsx`,
- * whose legend sits beside a legacy `.rail` in the same card — see the file
- * header. A v3 surface does not use a colour-only mark at all: §2.4 requires
- * glyph + word + colour, in that order of priority, so the state travels on
- * `VerdictStamp` / `ProgressStamp` and severity reaches a row as a 3px rule. */
-export function toneDotClass(tone: Tone): string {
-  return tone === "unknown" ? "dot" : `dot dot--${tone}`;
 }
 
 /** Severity-first sort rank over the two axes: concluded severity first
