@@ -1,12 +1,11 @@
 /**
  * Component: the dashboard over a PARTIAL fetch — pages/Dashboard.tsx.
  *
- * The design doc's goal G6, tested where it can actually regress. The old page
- * fetched five resources through one `Promise.allSettled` and reduced them to one
- * `loading` plus one `error`, so any single failure either took the whole page
- * down or vanished. The specific lie: alerts failing left `alerts` at `[]`, the
- * banner returned `null`, and the reader concluded *no threats* from *no
- * knowledge*.
+ * The bug class, stated concretely: fetch five resources through one
+ * `Promise.allSettled`, reduce them to one `loading` plus one `error`, and any
+ * single failure either takes the whole page down or vanishes. The specific lie
+ * is alerts failing, `alerts` left at `[]`, the banner returning `null`, and the
+ * reader concluding *no threats* from *no knowledge*.
  *
  * Every case below fails one sub-fetch and asserts BOTH halves — that the failed
  * region says so by name, and that the regions which succeeded still render.
@@ -31,12 +30,10 @@
  *  D6  session read fails           — no sign-in card over an unreadable session, because
  *                                     that invites a click that cannot work.
  *
- * D7–D9 were added with the recomposition onto the design system, and D7 exists
- * because that recomposition ADDED empty-state call sites — the
- * app-not-configured branch and the "nothing matches this filter" branch. Every
- * new `EmptyState` is a new way for a failed read to end up looking like an
- * absence of threats, so the guarantee is re-pinned against the new surface
- * rather than assumed to have survived it.
+ * D7–D9 cover the page's `EmptyState` call sites — the app-not-configured branch
+ * and the "nothing matches this filter" branch. Every `EmptyState` is a way for a
+ * failed read to end up looking like an absence of threats, so the guarantee is
+ * pinned at each one.
  *
  *  D7  a failed sub-fetch renders NEITHER a confident view NOR an empty one — the
  *                                     rows that DID read are withheld (a grid over a
@@ -126,8 +123,7 @@ describe("Dashboard — D1 alerts fail while repos succeed", () => {
     // different bug with the same shape.
     expect(await screen.findByText("widget")).toBeInTheDocument();
 
-    // The half that failed NAMES itself. This is the assertion the old page could
-    // not pass: it rendered nothing at all here.
+    // The half that failed NAMES itself, rather than rendering nothing at all.
     const degraded = await screen.findByText(/Alerts feed unavailable/);
     expect(degraded).toBeInTheDocument();
     // …and it is unmistakably not an empty state.
@@ -207,18 +203,16 @@ describe("Dashboard — D6 an unreadable session is not a signed-out session", (
 
 describe("Dashboard — D7 a partial read is neither confident nor empty", () => {
   it("D7: rows that DID read are withheld, and nothing renders as empty", async () => {
-    // The discriminating shape, and the one the recomposition could plausibly
-    // break: repos SUCCEEDS with a row while installations fails. The grid's copy
-    // is a product of both reads, so a grid drawn from repos alone would be a
-    // confident view over an unknown denominator.
+    // The discriminating shape: repos SUCCEEDS with a row while installations
+    // fails. The grid's copy is a product of both reads, so a grid drawn from
+    // repos alone is a confident view over an unknown denominator.
     healthy({ orgs: fails(502) });
     renderWithClient(<Dashboard />);
 
     await screen.findByText(/Your GitHub workspace unavailable/);
     // The row exists in the response and is deliberately not shown.
     expect(screen.queryByText("widget")).toBeNull();
-    // And none of the page's empty states — including the two the recomposition
-    // added — is reachable from here.
+    // And none of the page's empty states is reachable from here.
     expect(document.querySelector('[data-state="empty"]')).toBeNull();
     expect(document.querySelector('[data-state="degraded"]')).not.toBeNull();
   });

@@ -1,13 +1,10 @@
 /**
- * Component: the ten recomposed feature components, in BOTH themes — the
- * deliverable of the panel recomposition's second half.
+ * Component: the ten feature components, in BOTH themes.
  *
- * `cabca75` shipped the panel pages onto the token layer and said so plainly in
- * its own message: "in dark mode the dashboard is MIXED — recomposed chrome is
- * dark, the seven feature components are still light-only." This file is the
- * assertion that closes that, and it is written as a measurement rather than a
- * claim because a screenshot is not available to a jsdom suite and would be the
- * wrong instrument anyway.
+ * The failure this catches is a MIXED page — recomposed chrome going dark while a
+ * feature component underneath stays light-only. Written as a measurement rather
+ * than a claim because a screenshot is not available to a jsdom suite and would
+ * be the wrong instrument anyway.
  *
  * ── WHY A CLASS ASSERTION IS THE RIGHT MEASUREMENT ─────────────────────────
  *
@@ -393,8 +390,8 @@ describe("recomposed feature dialogs — T2 both themes, portalled", () => {
       renderWithClient(<PublicAuditReportDialog scanId={1} onClose={() => {}} />);
 
       expect(await screen.findByText("acme/public-widget")).toBeInTheDocument();
-      // The dep table, the ribbon and the truncation notice are the three parts
-      // that used to be `panel-tablewrap` / `panel-summary` / `banner--suspect`.
+      // The dep table, the ribbon and the truncation notice — the three parts
+      // that carry the dialog's own chrome.
       expect(screen.getByRole("table", { name: "Snapshot dependencies" })).toBeInTheDocument();
       expect(screen.getByText(/highest-priority dependencies/)).toBeInTheDocument();
       expectThemeAgnostic();

@@ -2,15 +2,12 @@
  * Component: empty vs degraded vs refused, across the recomposed feature
  * components.
  *
- * The recomposition onto the design system ADDED and MOVED no-content call sites:
- * the snapshot report's "no npm dependencies" box became a real `EmptyState`, two
- * degraded regions moved out from under a legacy `<section>`, and two red banners
- * moved to the `error` slot. Every one of those is a fresh opportunity for the bug
- * class this codebase exists to have killed — a failed read rendering as an
- * absence of threats — so the guarantee is re-pinned against the new surface
- * rather than assumed to have survived it. `Dashboard.test.tsx` does this for the
- * page; this file does it for the components the page composes, where the failure
- * mode actually lives and is silent.
+ * Every no-content call site is a fresh opportunity for the bug class this
+ * codebase exists to have killed — a failed read rendering as an absence of
+ * threats — so the guarantee is pinned at each one rather than assumed.
+ * `Dashboard.test.tsx` does this for the page; this file does it for the
+ * components the page composes, where the failure mode actually lives and is
+ * silent.
  *
  * Input classes:
  *  H1  a failed ledger read is NAMED, never silence and never empty. `PlanLedger`
@@ -20,14 +17,12 @@
  *      component, opposite facts, and the only arm that may render nothing is the
  *      one that HELD the data.
  *  H3  a failed snapshot read renders degraded and CANNOT reach the dependency
- *      empty copy. This is the class the recomposition created: before it, the
- *      "no npm dependencies" box was hand-written and unreachable only by where a
- *      guard happened to sit.
+ *      empty copy — structurally, not by where a guard happens to sit.
  *  H4  a snapshot that READ and has zero deps renders the achromatic empty state —
  *      minted from that read's own token — with no degraded state anywhere.
  *  H5  a REFUSED MUTATION is the `error` slot, never `danger` red. §0 rule 3: red
  *      is a claim about a package, and "we could not start your audit" is our own
- *      plumbing. Two call sites, both of which were `banner--danger`.
+ *      plumbing. Two call sites.
  *  H6  a refused mutation is not a degraded region either — it carries no hatch.
  *      Hatch means "no signal here"; a refusal is a signal, because the request
  *      was answered. The three no-content vocabularies stay three.

@@ -1,49 +1,34 @@
-/** Modal shell for the panel cluster — now an ADAPTER over the Radix-backed
+/** Modal shell for the panel cluster — an ADAPTER over the Radix-backed
  * `ui/dialog`, not a modal implementation.
  *
- * What this file used to be is the exact defect the design-system layer exists to
- * fix. It hand-rolled a scrim, an Escape handler and a body-scroll lock, and then
- * asserted `role="dialog" aria-modal="true"` over the result — which is a claim,
- * not a mechanism. What it did NOT do, in any version:
+ * A hand-rolled scrim + Escape handler + body-scroll lock with
+ * `role="dialog" aria-modal="true"` asserted over it is a claim, not a
+ * mechanism: it traps no focus, restores none on close, and hides nothing from
+ * assistive tech. Radix owns all three, and `ui/dialog.test.tsx` asserts the
+ * BEHAVIOUR rather than the attribute. Note that Radix 1.1.x deliberately emits
+ * no `aria-modal` — do not "restore" it; modality comes from the aria-hidden
+ * treatment, and a second weaker mechanism beside a working one is worse than
+ * none.
  *
- *   - trap focus. Tab walked straight out of the dialog onto the page behind it.
- *   - restore focus on close. Every close dumped a keyboard user at the top of
- *     the document.
- *   - hide the rest of the page from assistive tech, so a screen reader could
- *     walk out of the modal while sighted focus stayed inside it. That is what
- *     `aria-modal` was promising and nothing was delivering.
+ * ── WHY THE SIGNATURE IS `{ariaLabel, onClose, wide}` ───────────────────────
  *
- * Radix owns all six of those now, and `ui/dialog.test.tsx` asserts the
- * behaviour rather than the attribute. Note in particular that Radix 1.1.x
- * deliberately emits no `aria-modal` — do not "restore" it; modality comes from
- * the aria-hidden treatment, and a second weaker mechanism beside a working one
- * is worse than none.
- *
- * ── WHY THE SIGNATURE IS UNCHANGED ─────────────────────────────────────────
- *
- * `{ariaLabel, onClose, wide}` is kept verbatim. Three callers live in
- * `features/**` (`UpgradeDialog`, `PublicAuditDialog`, `PublicAuditReportDialog`)
- * and each renders its own legacy `.dialog__header/__body/__footer` body. Holding
- * the seam here is what lets all three inherit real focus management without
- * being edited — which is the whole point of a shared component, and the reason
- * this was worth doing before those three are recomposed.
- *
- * Two consequences of that seam, both temporary and both deliberate:
+ * Three callers in `features/**` (`UpgradeDialog`, `PublicAuditDialog`,
+ * `PublicAuditReportDialog`) each render their own legacy
+ * `.dialog__header/__body/__footer` body. Holding the seam here is what lets all
+ * three inherit real focus management without being edited. Two consequences,
+ * both lasting only until those callers are recomposed:
  *
  *   `showClose={false}` — every caller already renders its own visible close
  *   button inside its header. Radix's built-in one would be a second, offset X.
  *
- *   The body scrolls, rather than `layout="scroll"`'s pinned header/footer. That
- *   variant needs `DialogHeader`/`DialogBody`/`DialogFooter` as the three grid
- *   rows, and the callers supply legacy divs. `max-h`/`overflow-y-auto` on the
- *   content reproduces exactly what the legacy scrim did (it was the scroller,
- *   so the header scrolled away there too) — so this is behaviour preserved, not
- *   behaviour lost. Switch to `layout="scroll"` when the callers are recomposed;
- *   the long snapshot report is the surface that wants it.
+ *   The body scrolls, rather than `layout="scroll"`'s pinned header/footer, which
+ *   needs `DialogHeader`/`DialogBody`/`DialogFooter` as its three grid rows while
+ *   the callers supply legacy divs. The long snapshot report is the surface that
+ *   wants the pinned variant.
  *
- * Rendering inside `<AnimatePresence>` is no longer needed or useful: enter is a
- * `@starting-style` transition on the primitive and exit is instant. The pages
- * mount these conditionally. */
+ * Not rendered inside `<AnimatePresence>`: enter is a `@starting-style`
+ * transition on the primitive and exit is instant. The pages mount these
+ * conditionally. */
 
 import { useState, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog.tsx";
@@ -51,8 +36,7 @@ import { Dialog, DialogContent, DialogTitle } from "../ui/dialog.tsx";
 interface PanelDialogProps {
   /** The dialog's accessible name. Rendered as an `sr-only` `DialogTitle` —
    * Radix wires `aria-labelledby` from a real node, and warns (correctly) when
-   * there is none. Callers also render a visible heading; the two agree because
-   * this string is what the old `aria-label` already carried. */
+   * there is none. Callers also render a visible heading saying the same thing. */
   ariaLabel: string;
   onClose: () => void;
   wide?: boolean;
@@ -60,31 +44,25 @@ interface PanelDialogProps {
 }
 
 export function PanelDialog({ ariaLabel, onClose, wide = false, children }: PanelDialogProps) {
-  /* ── focus restore: a SHIM, and it belongs in `ui/dialog.tsx` ──────────────
+  /* ── focus restore: a SHIM that belongs in `ui/dialog.tsx` ─────────────────
    *
    * Radix's modal Content composes `onCloseAutoFocus` with
-   * `event.preventDefault(); context.triggerRef.current?.focus()`
-   * (@radix-ui/react-dialog dist/index.mjs:154). `triggerRef` is set only by a
-   * `<DialogTrigger>`. None of the panel's dialogs have one — the paywall opens
-   * from the store, the snapshot report from page state — so `triggerRef.current`
-   * is `null`, the `preventDefault()` also cancels FocusScope's own restore, and
-   * focus is left stranded on `<body>`.
+   * `event.preventDefault(); context.triggerRef.current?.focus()`, and
+   * `triggerRef` is set only by a `<DialogTrigger>`. None of the panel's dialogs
+   * have one — the paywall opens from the store, the snapshot report from page
+   * state — so `triggerRef.current` is `null`, the `preventDefault()` also
+   * cancels FocusScope's own restore, and focus is stranded on `<body>`.
    *
-   * That is not merely incomplete, it is a REGRESSION against the shell this
-   * replaces: the old one never moved focus into the dialog at all, so focus was
-   * still sitting on the trigger when it closed. So it is fixed here rather than
-   * reported and left.
-   *
-   * This is parameterisation, not reimplementation — the trap, the portal, the
-   * ARIA and the aria-hidden treatment all stay with Radix; only the restore
-   * TARGET, which this call pattern cannot supply, is provided. It should move
-   * into `ui/dialog.tsx` as a default (`onCloseAutoFocus` falling back to the
-   * previously-focused element when there is no trigger), which would fix every
-   * future trigger-less caller at once and let this shim be deleted.
+   * Parameterisation, not reimplementation: the trap, the portal, the ARIA and
+   * the aria-hidden treatment all stay with Radix; only the restore TARGET, which
+   * this call pattern cannot supply, is provided here. It belongs in
+   * `ui/dialog.tsx` as a default (`onCloseAutoFocus` falling back to the
+   * previously-focused element when there is no trigger), which would cover every
+   * trigger-less caller and let this shim go.
    *
    * `useState`'s initialiser, not a `useEffect`: child effects run before parent
-   * effects, so by the time an effect here fired, Radix's FocusScope would
-   * already have moved focus and the answer would be wrong. */
+   * effects, so an effect here would read the answer after Radix's FocusScope has
+   * already moved focus. */
   const [restoreTo] = useState<HTMLElement | null>(() =>
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
   );

@@ -3,9 +3,9 @@
  * (vitest collects only `*.test.*`) and not imported by app code, so it never
  * reaches a bundle — same arrangement as `lib/test-harness.tsx`.
  *
- * It lives here rather than in `lib/` because it is the panel recomposition's
- * check, and both panel page tests need it; duplicating it in two files is how
- * the two copies eventually disagree about what counts as a hardcoded colour.
+ * It lives here rather than in `lib/` because it is the panel cluster's check and
+ * both panel page tests need it; duplicating it in two files is how the two
+ * copies eventually disagree about what counts as a hardcoded colour.
  *
  * WHY THIS IS THE ASSERTION. jsdom loads no Tailwind, so "render it dark and
  * compare the pixels" is not available and would be the wrong test anyway. The

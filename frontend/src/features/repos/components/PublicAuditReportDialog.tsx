@@ -2,26 +2,22 @@
  *
  * The detail body is fetched once and then advanced by the audit-set progress
  * STREAM — the same `/panel/scan/:id/events` an owned-repo scan uses, because
- * after R-1 a public audit is the same entity and its id IS a set id. The 2.5s
- * self-poll this replaced was the second progress implementation.
+ * a public audit is the same entity as any other set and its id IS a set id, so
+ * there is no second progress implementation here.
  *
- * ── PRESENTATION: what the recomposition changed ────────────────────────────
+ * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
- * Nothing about what this dialog fetches, streams, or decides. Three things about
- * what it says, and two are §3.4 corrections:
- *
- * 1. **"No npm dependencies in this lockfile" was a hand-written `.empty-state`
- *    box.** It is unreachable from a failure today only because of where the guard
- *    happens to sit — which is exactly the arrangement `EmptyState` exists to
- *    replace, since the next edit to the guard silently turns it into a failed
- *    read rendering as an absence of dependencies. It now demands `state.read`,
- *    the token minted from THIS read and impossible to forge, so the branch cannot
- *    be reached without the data behind it. That is why `state` is narrowed to an
- *    `ok` object below rather than flattened to `data | null`: flattening threw
- *    the token away.
- * 2. **The six-cell `panel-summary` is a `SeverityRibbon` plus a prose line.** The
- *    old grid coloured a bare NUMBER red/violet/green when it was non-zero, which
- *    is colour-only encoding (§2.4) and put the danger hue on a count rather than
+ * 1. **"No npm dependencies in this lockfile" is an `EmptyState`, not a
+ *    hand-written box.** A hand-written box is unreachable from a failure only
+ *    because of where the guard happens to sit, and the next edit to that guard
+ *    silently turns it into a failed read rendering as an absence of
+ *    dependencies. `EmptyState` demands `state.read`, the token minted from THIS
+ *    read and impossible to forge, so the branch cannot be reached without the
+ *    data behind it. That is why `state` is narrowed to an `ok` object below
+ *    rather than flattened to `data | null`: flattening throws the token away.
+ * 2. **The rollup is a `SeverityRibbon` plus a prose line, not a grid of
+ *    counts.** Colouring a bare NUMBER red/violet/green when it is non-zero is
+ *    colour-only encoding (§2.4) and puts the danger hue on a count rather than
  *    on a claim. The ribbon is the primitive §3.2 names for a set rollup: fixed
  *    DANGEROUS·ERROR·SAFE·pending order so the eye lands on danger first even when
  *    it is the smallest segment, a hatched pending segment so an in-flight

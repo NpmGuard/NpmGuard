@@ -10,8 +10,7 @@
  *  T2  toneAccent — every Tone resolves to a CSS var, unknown to the paper var.
  *  T3  scanTone — set progress outranks outcome: a running set is read before its
  *      rollup, and a null set is unknown. There is no failed-SET arm: the status
- *      domain is `running | done`, because R-1's falsification pass found zero
- *      producers for a failed set and a branch for an unreachable state is cost.
+ *      domain is `running | done`, and a branch for an unreachable state is cost.
  *  T4  depPriority — the sort order: DANGEROUS > ERROR > running > queued > SAFE.
  *      ERROR above a live attempt is the load-bearing one — an errored dep needs
  *      a human, a running one resolves itself.
@@ -19,12 +18,11 @@
  *  T6  toneDotClass — unknown is the plain paper dot, every other tone a variant.
  *  T7  ANTI-DRIFT over the two LEGACY helpers. `toneAccent` and `toneDotClass`
  *      still resolve through base.css, so a tone whose rule is missing there
- *      renders as an unstyled element and no type catches it. This used to cover
- *      `pill--` too; it no longer can, because the stamps carry their own
- *      token-layer classes — which is a strictly stronger position, since a
- *      missing utility is a build-time fact rather than a silent one. `rail__seg--`
- *      stays covered: `features/repos/PortfolioPosture` still builds those names
- *      from a `Tone` by string interpolation.
+ *      renders as an unstyled element and no type catches it. The stamps need no
+ *      such cover — they carry their own token-layer classes, where a missing
+ *      utility is a build-time fact. `rail__seg--` IS covered:
+ *      `features/repos/PortfolioPosture` builds those names from a `Tone` by
+ *      string interpolation.
  *  T8  toneSeverity — only DANGEROUS and ERROR earn the 3px rule. `safe` must NOT,
  *      because 313 green-ruled rows drown the three that matter (§0 rule 1), and
  *      `Card`/`TableRow` have no `safe` arm to pass it to anyway.

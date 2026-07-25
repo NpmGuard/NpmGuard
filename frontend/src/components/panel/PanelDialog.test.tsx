@@ -12,14 +12,12 @@
  *  P1  the signature still holds — `ariaLabel` becomes the accessible name,
  *      children render verbatim (the callers' legacy `.dialog__*` bodies), and
  *      `wide` widens rather than changing anything else.
- *  P2  Escape calls `onClose`. The one behaviour the old shell did have, and the
- *      adapter must not lose it.
- *  P3  a pointer-down outside calls `onClose`. The old shell did this on the
- *      backdrop element itself; Radix does it via dismissable-layer, and the
- *      observable contract is the same.
+ *  P2  Escape calls `onClose`.
+ *  P3  a pointer-down outside calls `onClose` — via Radix's dismissable-layer
+ *      rather than a backdrop element, with the same observable contract.
  *  P4  focus moves INTO the dialog, and the page behind is hidden from assistive
  *      tech. Neither was true before, and P4 is the reason the file changed.
- *  P5  focus is RESTORED to whatever had it. The old shell dumped a keyboard user
+ *  P5  focus is RESTORED to whatever had it, rather than dumping a keyboard user
  *      at the top of the document on every close.
  *  P6  the adapter renders NO close button of its own — every caller draws one in
  *      its own header, and two offset X's is the visible symptom of an adapter
@@ -89,7 +87,7 @@ describe("PanelDialog — P1 the preserved signature", () => {
   it("P1: ariaLabel is the accessible name and the caller's body renders verbatim", async () => {
     render(<Harness />);
     const dialog = await openDialog();
-    // The old shell passed this as `aria-label`; it is now an `sr-only` Title, so
+    // Carried as an `sr-only` `DialogTitle` rather than an `aria-label`, so
     // Radix can wire `aria-labelledby` from a real node. Same name either way,
     // which is what makes the three untouched callers keep working.
     expect(dialog).toHaveAccessibleName("Public audit snapshot 12");
@@ -152,7 +150,7 @@ describe("PanelDialog — P4/P5 what the hand-rolled shell never did", () => {
     render(<Harness />);
     const trigger = screen.getByRole("button", { name: "Open snapshot" });
     const dialog = await openDialog();
-    // The realistic escape route, and the one the old shell allowed outright:
+    // The realistic escape route a hand-rolled scrim allows outright:
     // it had no focus scope at all, so Tab walked straight onto the page.
     trigger.focus();
     await waitFor(() => {
@@ -164,7 +162,7 @@ describe("PanelDialog — P4/P5 what the hand-rolled shell never did", () => {
   it("P4: the page behind is hidden from assistive tech", async () => {
     render(<Harness />);
     await openDialog();
-    // This is what `aria-modal="true"` was *claiming* on the old shell while
+    // This is what a hand-asserted `aria-modal="true"` merely CLAIMS while
     // nothing delivered it: a screen reader could walk out of the modal while
     // sighted focus stayed inside.
     await waitFor(() => {

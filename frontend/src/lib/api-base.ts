@@ -36,13 +36,12 @@ export function errorDetail(raw: unknown, fallback: string): string {
 // ---------------------------------------------------------------------------
 // Named error bodies — each one a SCHEMA parse, not a structural sniff
 // ---------------------------------------------------------------------------
-// The three classifiers below used to hand-check one marker field each
-// (`body.cap === true`, `body.reauth === true`, `typeof body.scanId ===
-// "number"`). shared/src/panel.ts names all three bodies, and its B9 note is
-// exactly this: "a structural sniff is a missing type". Parsing the whole body
-// means a 402 that has lost its `entitlements` no longer reaches the paywall as
-// a half-populated object — it fails the parse and falls through to the generic
-// error path, which is honest, instead of rendering an empty meter.
+// shared/src/panel.ts names all three bodies, so each classifier below PARSES
+// one rather than sniffing a marker field (`body.cap === true`,
+// `typeof body.scanId === "number"`) — a structural sniff is a missing type.
+// Parsing the whole body means a 402 that has lost its `entitlements` fails the
+// parse and falls through to the generic error path, instead of reaching the
+// paywall as a half-populated object that renders an empty meter.
 
 /**
  * 402 cap bodies carry FRESH entitlements, so the client can patch its ledger

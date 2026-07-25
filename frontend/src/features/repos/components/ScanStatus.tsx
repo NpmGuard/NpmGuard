@@ -1,20 +1,19 @@
 /** Compact last-audit-set status: not-audited / running progress / outcome + date.
  *
- * Progress is `total - pending` over the set's ONE counters object. The three
- * counters this used to add up (`cached + audited + failed`) were a second,
- * unaudited projection of the same items — nothing made them sum to `total`, so a
- * meter built from them could exceed 100%. `pending` is the one progress counter
- * and the rollup asserts the partition.
+ * Progress is `total - pending` over the set's ONE counters object. Adding up
+ * `cached + audited + failed` instead is a second, unaudited projection of the
+ * same items with nothing making it sum to `total`, so a meter built from it can
+ * exceed 100%. `pending` is the one progress counter and the rollup asserts the
+ * partition.
  *
  * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
- * Three coloured DOTS are gone, and that is the §2.4 correction rather than a
- * restyle: a dot encodes state in colour alone, and the brief's stated test is
- * "remove all colour and every state is still readable". Each state now travels
- * on a stamp that carries a glyph and a word — `ProgressPill` on the achromatic
- * progress axis, `OutcomePill` for a concluded outcome. `dot--running` was also
- * BLUE, a hue on the progress axis, which is the pair §2.3's colourblind check
- * failed on.
+ * No coloured dots: a dot encodes state in colour alone, and the brief's stated
+ * test is "remove all colour and every state is still readable". Each state
+ * travels on a stamp that carries a glyph and a word — `ProgressPill` on the
+ * achromatic progress axis, `OutcomePill` for a concluded outcome. A blue running
+ * dot is doubly wrong: a hue on the progress axis, and against danger-red it is
+ * the pair §2.3's colourblind check fails on.
  *
  * `Progress` and not `Meter`: a scan is a task advancing toward completion, which
  * is exactly the distinction §3.2 draws between the two. Its `label` is required

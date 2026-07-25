@@ -157,8 +157,7 @@ export function billingResponse(over: Partial<BillingResponse> = {}): BillingRes
       pro: { protectedRepos: 0, publicRepoAudits: 0, monthlyAudits: 0 },
     },
     checkoutEnabled: true,
-    // `currency` is nullable on the wire; the fixture exercises the null the
-    // hand-written frontend type used to forbid.
+    // `currency` is nullable on the wire, and the fixture exercises that null.
     price: { amount: 900, currency: null, interval: "month" },
     ...over,
   };

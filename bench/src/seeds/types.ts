@@ -3,24 +3,16 @@ import { z } from "zod";
 // ---------------------------------------------------------------------------
 // Seed-corpus types.
 //
-// Lifted verbatim out of the deleted `src/types.ts`, which also declared the v1
-// MEASUREMENT primitives — `ProofKind`, `SingleAuditResult.proofKinds`,
-// `ExpectedOutcome.kind: "TEST_CONFIRMED"`, `AttackClass` + its recall weights,
-// and the `Manifest` shape whose `expected.capabilities` / `expected.kind` fields
-// methodology v2 §11 retires. Those are gone; scoring now lives in
-// `engine/npmguard/bench/` and is derived from a v2 report, never from a
-// capability subset or a proof kind.
+// The SEED CATALOGUE's shape, and nothing about MEASUREMENT: scoring lives in
+// `engine/npmguard/bench/` and is derived from a report at read time, never from
+// a stored capability subset or proof kind.
 //
-// What survives here is the SEED CATALOGUE's shape, and only because the
-// catalogue itself is curated material with locked SRI hashes
-// (`src/seeds/catalog.ts`): 28 npm packages, each pinned to a published
-// sha512. Mutation testing is DEFERRED to a future dataset version, not deleted
-// (methodology §11, changelog v3.0), and re-locking the catalogue means
-// re-fetching every tarball — so the lock/fetch/verify-loads trio stays runnable.
-//
-// `Difficulty` is deliberately NOT carried over: it was a mutation-testing field
-// with no producer (`difficulty: null` on all 20 committed entries) and it is
-// retired as a corpus field.
+// This exists because the catalogue itself is curated material with locked SRI
+// hashes (`src/seeds/catalog.ts`): 28 npm packages, each pinned to a published
+// sha512. Mutation testing is DEFERRED to a future dataset version rather than
+// abandoned, and re-locking the catalogue means re-fetching every tarball — so
+// the lock/fetch/verify-loads trio stays runnable. `Difficulty` is deliberately
+// absent: it is a mutation-testing field with no producer.
 // ---------------------------------------------------------------------------
 
 /** A behavioural profile of the unmutated seed. Used to ask questions like
