@@ -5,7 +5,10 @@
    MUST compose these primitives instead of re-inventing them.
    ============================================================ */
 
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap");
+/* The DM Sans / DM Mono @import that used to sit here now lives at the top of
+   src/index.css — a nested `@import url(…)` is dropped once this file is inlined
+   after Tailwind's layers, because @import is only legal before any other rule.
+   Moving it was the whole change; the request itself is unchanged. */
 
 :root {
   color-scheme: light;
@@ -647,3 +650,95 @@ kbd {
 /* ---------- scrollbars (subtle, warm) ---------- */
 
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v3 BASE LAYER — everything above this line is the LEGACY substrate.
+
+   Two substrates share one <body> during R-6. The rule that keeps them from
+   fighting is the CSS cascade's layer order, not discipline:
+
+     unlayered  (every rule above, and every rule in the 7 page sheets)
+       beats
+     @layer utilities  (Tailwind's `bg-surface`, `p-4`, …)
+       beats
+     @layer base       (Tailwind's preflight, and this section's global tier)
+       beats
+     @layer theme      (the token declarations)
+
+   So the legacy sheets cannot be broken by anything Tailwind emits: wherever a
+   legacy rule sets a property, it wins outright. Preflight only reaches what
+   legacy left to UA defaults — and legacy classes every heading, input, select,
+   table and img it renders, which is why preflight is imported whole rather
+   than cherry-picked. The corollary is the reason this section has two tiers:
+
+   TIER 1 — `:where(html)` / `:where(body)` / `@layer base`. Zero-specificity or
+   layered, so a legacy rule setting the same property still wins TODAY. These
+   are the v3 defaults; they switch themselves on when the legacy block above is
+   deleted, with no other edit anywhere. Do not "fix" them by raising their
+   specificity — that would repaint the eight legacy pages mid-migration.
+
+   TIER 2 — `.ng-root`. The opt-in marker a recomposed surface wears. Class
+   specificity, unlayered, so it beats the legacy `body` and `:focus-visible`
+   rules for its own subtree. This is how a v3 page gets v3 typography and the
+   v3 focus ring while legacy pages still exist. It is one class and it is
+   temporary: when the legacy block dies, tier 1 makes it redundant.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* §2.7 — the page plane. Root font-size is deliberately NOT set here: §2.7 fixes
+   the root at 16px and puts the app's 14px on the body, and every rem token in
+   tokens.css is computed against a 16px root. */
+:where(html) {
+  background-color: var(--ng-canvas);
+}
+
+:where(body),
+.ng-root {
+  font-family: var(--ng-font-sans);
+  font-size: var(--text-base); /* 14px — the app is dense */
+  line-height: 1.55; /* = --text-base--line-height */
+  color: var(--ng-text);
+  background-color: var(--ng-canvas);
+  font-synthesis: none; /* no faked bold/italic — Inter has real weights */
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* §2.8 — one ring, everywhere, no exceptions. `:focus-visible` only, so mouse
+   users don't see it and keyboard users always do; never `outline: none` without
+   this replacing it.
+   A component that carries its own shadow must COMPOSE rather than let this win
+   silently: `box-shadow: var(--ng-focus-ring), var(--ng-shadow-card)`. */
+:where(:focus-visible),
+.ng-root :focus-visible {
+  outline: none;
+  box-shadow: var(--ng-focus-ring);
+}
+
+/* §2.8 — 16px inputs below the md breakpoint. This is not a nicety: any input
+   under 16px makes iOS Safari zoom the viewport on focus, which on /scan means
+   the user's first interaction with the product visibly breaks the layout. Kept
+   in the base layer so no component has to remember it. */
+@media (width < 48rem) {
+  :where(input, select, textarea),
+  .ng-root :is(input, select, textarea) {
+    font-size: var(--text-md);
+  }
+}
+
+.ng-root,
+.ng-root * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ng-border-strong) transparent;
+}
+
+@layer base {
+  ::selection {
+    background-color: var(--ng-accent-wash);
+    color: var(--ng-accent-text);
+  }
+}
+
+.ng-root ::selection {
+  background-color: var(--ng-accent-wash);
+  color: var(--ng-accent-text);
+}

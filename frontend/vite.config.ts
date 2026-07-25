@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
@@ -9,7 +10,12 @@ import { defineConfig } from "vite";
 // bundle runs behind this proxy, the engine's static server, and the e2e
 // harness, so app code reads the base via lib/config.ts, never import.meta.env.
 export default defineConfig({
-  plugins: [react()],
+  // Tailwind v4 has no config file and no PostCSS step: the theme lives in
+  // src/styles/tokens.css and this plugin is the whole build integration. It
+  // must run alongside react(), not instead of a PostCSS chain — there is no
+  // postcss.config.* here and adding one would give Tailwind a second, slower
+  // entry point that silently shadows this one.
+  plugins: [tailwindcss(), react()],
   resolve: {
     alias: {
       // Resolve the wire contract from SOURCE, never from shared/dist.
