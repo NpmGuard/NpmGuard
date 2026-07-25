@@ -22,8 +22,7 @@ log = structlog.get_logger("npmguard.report_store")
 
 # The verdict domain, DERIVED from the generated contract rather than restated, so
 # it cannot drift from `AuditReport.verdict` and widens automatically if the audit
-# core is ever given a fourth conclusion. Restating it as a literal here would be
-# the hand-mirrored second copy N-12 exists to abolish.
+# core is ever given a fourth conclusion.
 REPORT_VERDICTS: frozenset[str] = frozenset(
     get_args(contract.AuditReport.model_fields["verdict"].annotation)
 )
@@ -32,8 +31,8 @@ REPORT_SCHEMA_VERSIONS: frozenset[int] = frozenset(
 )
 if not REPORT_VERDICTS or not REPORT_SCHEMA_VERSIONS:
     # A raise, at import: an empty domain would silently reject every report and
-    # turn this store into the fabricated empty list N-3 names as the canonical
-    # violation. `assert` would let `python -O` do exactly that.
+    # turn this store into a fabricated empty list. `assert` would let `python -O`
+    # do exactly that.
     raise AssertionError(
         "AuditReport.verdict / .schemaVersion is not a Literal, so the readable "
         "domain cannot be derived from the generated contract"
@@ -58,7 +57,7 @@ def _readable(report: Any, source: Path) -> bool:
 
     Treated as unreadable rather than fatal, matching how this module already treats
     a corrupt file: one bad report must not 500 the whole package list. Logged,
-    because N-3 forbids a silently fabricated absence.
+    because a silently fabricated absence is worse than a loud one.
     """
     if not isinstance(report, dict):
         version, verdict = None, None

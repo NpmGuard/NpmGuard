@@ -5,21 +5,12 @@
 #       lands on the client's RESUMED cursor [C9]
 #   S21 payment claim survives restart: replayed txHash after restart → same auditId,
 #       no relaunch [C10]
-#   S32 (flip) restart mid-QUEUE (max_concurrent=1): only the EXECUTING CRE session gets a
+#   S32 restart mid-QUEUE (max_concurrent=1): only the EXECUTING CRE session gets a
 #       0031; the two QUEUED sessions are RE-ENQUEUED by restart recovery and run to
 #       completion (verdict SAFE) — a claimed/queued audit is never dropped [C9,C12]
-#   S31 (flip) bounded shutdown: SIGTERM with an in-flight audit is GRACEFUL within grace —
-#       audits.close(deadline) finalizes the stalled session error/0031 and returns bounded,
-#       never the old unbounded await
-# Adversarial pass: W4b — "do queued-but-never-started sessions get abandoned silently?"
-#   answered by S32's per-channel replay assertions.
-# DB axis (§S36) — DELIBERATE narrowing: S20/S21/S32 run sqlite-only. Restart
-#   recovery + claim durability go through AuditSessionStore/claim_payment,
-#   whose engine divergence (MVCC vs serialized writers) is proven by the
-#   postgres-marked claim classes (test_payments.py C15-postgres, S5[postgres],
-#   S14[postgres]); the SIGKILL/respawn choreography itself is engine-agnostic.
-#
-# Blackbox: engine HTTP + SSE + DB rows; restart/close via the harness process controls.
+#   S31 bounded shutdown: SIGTERM with an in-flight audit is GRACEFUL within grace —
+#       audits.close(deadline) finalizes the stalled session error/0031 and returns
+#       bounded, never an unbounded await
 
 from __future__ import annotations
 
@@ -79,7 +70,7 @@ SHORT_STALL_DELAY_MS = 5_000
 # SHUTDOWN_MAX_SECONDS discriminates the three outcomes that matter and leaves
 # 3.3x headroom over the measured cost: honors the 1.5s deadline (1.8s) < 6.0s <
 # silently fell back to the 10s config default (10.1s) < never bounded at all
-# (STALL_DELAY_MS = 120s, the old unbounded await). GRACE is only the harness's
+# (STALL_DELAY_MS = 120s, an unbounded await). GRACE is only the harness's
 # SIGKILL fallback and is deliberately far above both, so a slow machine makes
 # this scenario FAIL ON ITS OWN ASSERTION with a measured number in the message
 # rather than on a SIGKILL that also destroys the row evidence below.

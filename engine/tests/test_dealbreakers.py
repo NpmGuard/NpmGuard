@@ -70,12 +70,11 @@
 #       file is not a dealbreaker (nothing executes it at install time)
 #   C9  reference normalization: `node ./setup.js` resolves to `setup.js`;
 #       `node lib/setup.js` needs the file AT `lib/setup.js`
-#   C10 (was a pinned FINDING; now the contract) the interpreter is not the fact.
+#   C10 the interpreter is not the fact.
 #       `sh install.sh` / `bash ./install.sh` / `python3 install.sh` /
 #       `/bin/sh install.sh` / `./install.sh` (shebang, no interpreter word) with
-#       the target ABSENT is the same dealbreaker as C6. Until this class flipped,
-#       only a `node …` command yielded a reference at all, so every other
-#       interpreter walked through with an advisory warn
+#       the target ABSENT is the same dealbreaker as C6. Recognising only `node …`
+#       commands lets every other interpreter walk through with an advisory warn
 #   C11 precedence: a manifest tripping both reports shell-pipe (checked first)
 # THE INSTALL-TIME HOOK SET, AND THE THIRD OUTCOME (the coverage gap)
 #   Why there are three outcomes and not two: an install hook whose target we
@@ -89,14 +88,15 @@
 #   C20 `prepare` / `prepublish` are BUILD-time, not install-time: npm never runs
 #       them for a registry tarball installed as a dependency, which is the only
 #       artifact resolve.py fetches. They name no install entry point and cannot
-#       be a dealbreaker — 11 of the 14 published packages the old check called
-#       DANGEROUS were this shape. Still reported via `lifecycle-scripts`
+#       be a dealbreaker — and they are the dominant shape among published packages
+#       a build-time-blind check calls DANGEROUS. Still reported via
+#       `lifecycle-scripts`
 #   C21 an unresolvable install hook (inline `-e` code; three native-build front
 #       ends) → no dealbreaker, one `critical` `install-coverage-gap` quoting hook
 #       and command. C21b is the pairing: a fully resolved hook leaves none
 #   C22 the legitimate non-node case that must not be condemned: `sh
 #       ./scripts/postinstall.sh` WITH the file shipped is clean, its reference is
-#       recorded, AND it is now coverage — `shell` joined SOURCE_FILE_TYPES, so
+#       recorded, AND it is coverage — `shell` is in SOURCE_FILE_TYPES, so
 #       flag_source_files puts the .sh in front of a model. Asserted through that
 #       function, not through a missing flag: absence would also pass if the file had
 #       simply stopped being noticed. Paired with a `.js` target
@@ -179,18 +179,6 @@
 #   C19 a package that trips NEITHER check proceeds to the normal pipeline: the
 #       scripted LLM is consulted, the trace grows past inventory, dealbreaker is
 #       None and the verdict comes from the graph
-# Adversarial pass: 2026-07-25/dealbreaker — "which dimension is missing?" ->
-# the answer was provenance (no real manifest was in the file at all: C5b), the
-# suppression pairing (C4's control run), and the persistability of a report no
-# _report() call ever assembled (C18).
-# Adversarial pass: 2026-07-25/install-hook — "what does the recogniser claim, and
-# what does it actually match?" -> C10 flipped, and the same question asked of the
-# rest produced C20-C27. Measuring first is what changed the answer: the check the
-# hole was in was ALSO calling 14 real published packages DANGEROUS (whatwg-url,
-# lru-cache@7, tr46, @lezer/*, @google/genai, whatwg-encoding, protobufjs, msw),
-# so widening it interpreter-first would have multiplied a false-positive rate
-# nobody had measured. Now 0 of that corpus is a dealbreaker and `sh install.sh`
-# with the file absent is.
 from __future__ import annotations
 
 import json

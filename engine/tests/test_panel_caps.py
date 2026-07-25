@@ -31,11 +31,6 @@
 # Error shape:
 #   C20 CapExceededError carries .cap True, .resource, .installation_id, .entitlements
 #   C21 unknown installation id -> LookupError (not a silent free plan)
-# Adversarial pass: 2026-07-24 — which dimension is missing? The month-boundary
-#   reset (C18) needs the account_usage.month key exercised directly rather than
-#   via wall-clock; the test seeds two month rows and reads back through
-#   entitlements pinned to the CURRENT month, plus a direct-row assertion for the
-#   other month.
 import pytest
 import sqlalchemy as sa
 

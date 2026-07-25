@@ -32,11 +32,7 @@ from .tables import package_verdicts
 # because progress is the other axis and never competes with an outcome.
 #
 # This mapping is BOTH the ranks and the domain: its keys are the panel outcomes,
-# and `outcome_severity`'s lookup is the only domain check the rollup needs. The
-# separate `OUTCOMES = frozenset(OUTCOME_SEVERITY)` that used to sit here existed
-# solely to feed two asserts that re-checked what `item_outcome` already
-# guarantees; with those gone it had no reader anywhere, and a declared name
-# nothing reads is the cost N-4b names.
+# and `outcome_severity`'s lookup is the only domain check the rollup needs.
 OUTCOME_SEVERITY: dict[str, int] = {"SAFE": 0, "ERROR": 1, "DANGEROUS": 2}
 
 # INVARIANT: package_verdicts.verdict is exactly SAFE or DANGEROUS — enforced by a
@@ -47,8 +43,8 @@ OUTCOME_SEVERITY: dict[str, int] = {"SAFE": 0, "ERROR": 1, "DANGEROUS": 2}
 # progress by ``item_outcome`` below.
 #
 # The guards here are `raise`, not `assert`, because both stand at a DB boundary and
-# `python -O` strips `assert`: under `-O` the old bare asserts vanished and the wider
-# domain flowed again, which is a license to delete that is conditionally compiled.
+# `python -O` strips `assert` — an assert here is a domain check that is
+# conditionally compiled out of production.
 LANDABLE_VERDICTS = frozenset({"SAFE", "DANGEROUS"})
 
 
@@ -57,8 +53,8 @@ def item_outcome(verdict: str | None, *, pending: bool) -> str | None:
 
     ``verdict`` is the stored audit verdict (``None`` when nothing landed);
     ``pending`` is TRUE iff an audit attempt is still live (a queued/running
-    job). The mapping is total by construction, which is what makes the old
-    ``UNKNOWN`` bucket unrepresentable:
+    job). The mapping is total by construction, so there is no ``UNKNOWN`` bucket
+    to represent:
 
     - a landed verdict IS the outcome (``SAFE``/``DANGEROUS``);
     - nothing landed but an attempt is live → ``None``, i.e. not concluded yet;
@@ -91,9 +87,8 @@ def outcome_severity(outcome: str) -> int:
 
     No domain guard: ``OUTCOME_SEVERITY[outcome]`` IS the check, and it raises a
     ``KeyError`` naming the offending value on the same input an assert would have
-    caught. An assert whose only contribution is a nicer message than the very next
-    line's exception is ceremony (N-4 rule 5), and the domain is already guaranteed
-    upstream — every production caller reaches here through ``item_outcome``.
+    caught. The domain is already guaranteed upstream — every production caller
+    reaches here through ``item_outcome``.
     """
     return OUTCOME_SEVERITY[outcome]
 

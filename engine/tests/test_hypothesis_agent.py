@@ -21,8 +21,6 @@
 #   propose, before any agent turn) has no class — needs a kit provider seam
 #   that fails the propose slug specifically; not scriptable with ScriptedLlm's
 #   per-role step lists without faking the seam. Add when kit exposes it.
-# Adversarial pass: 2026-07-23/W6 — added the nudge/budget boundary classes and
-# the migration-substitution proof the audit flagged as unmet.
 import json
 import os
 import subprocess

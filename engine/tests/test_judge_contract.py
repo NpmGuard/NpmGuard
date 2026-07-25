@@ -7,8 +7,6 @@
 #      refutation (no citations) is the only acceptable outcome
 #   C4 repair exhaustion (every attempt invalid) → judge_failed=True, never
 #      confirmed, never a crash (orchestrator turns this into DEFERRED)
-# Adversarial pass: 2026-07-23/W6 — call counts asserted via the public
-# llm_attempts capture ledger, not the provider's private counter.
 import json
 
 import sqlalchemy as sa

@@ -307,8 +307,8 @@ async def run_under_observation(
                     exit_code, timed_out = result.exit_code, result.timed_out
                     # Sound because of the seam's invariant: a returned stream is the
                     # process's complete output, or `timed_out` marks it as cut short
-                    # by the kill. docker_exec no longer hands back a silent prefix,
-                    # so these hashes cannot attest a fragment as the whole stream.
+                    # by the kill. docker_exec never hands back a silent prefix, so
+                    # these hashes cannot attest a fragment as the whole stream.
                     stdout_hash = sha256_hex(result.stdout) if result.stdout else None
                     stderr_hash = sha256_hex(result.stderr) if result.stderr else None
                     if timed_out:
@@ -345,10 +345,9 @@ async def run_under_observation(
                             # into straceLogHash and parsed into every L1 event, so a
                             # prefix would seal a hash over part of the trace and show
                             # the judge a syscall record that ENDS early — which reads
-                            # exactly like a package that stopped acting. Before the
-                            # seam raised, this surfaced as parse_strace_log's
-                            # "unrecognised line body" assert, which had to GUESS
-                            # truncation from the last line being incomplete.
+                            # exactly like a package that stopped acting. Raising at
+                            # the seam is what keeps parse_strace_log from having to
+                            # GUESS truncation from an incomplete last line.
                             error = coverage_gap(error, str(exc))
                             events.append(synthetic_event("truncated", str(exc)))
                         else:
@@ -373,12 +372,10 @@ async def run_under_observation(
                 pcap = await stop_pcap(container)
                 events.extend(pcap.events)
                 # INVARIANT: pcapHash is the hash of the WHOLE capture. stop_pcap
-                # either returns every byte tcpdump wrote or raises — a transfer that
-                # passes the cap raises at the docker seam (DockerOutputTooLargeError)
-                # instead of decoding into a short pcap, which is what used to make
-                # this line seal a 7.5 MiB prefix of a 13 MB capture as the complete
-                # packet record, with error=null. So a non-null pcapHash now MEANS
-                # "this is the capture", which is what the contract always claimed.
+                # either returns every byte tcpdump wrote or raises — a transfer past
+                # the cap raises at the docker seam (DockerOutputTooLargeError) rather
+                # than decoding into a short pcap, so a non-null pcapHash MEANS "this
+                # is the capture" instead of sealing a prefix with error=null.
                 pcap_hash = sha256_hex(pcap.raw_pcap) if pcap.raw_pcap else None
             except Exception as exc:
                 # Any failure here is missing network evidence: a capture that died

@@ -3,7 +3,7 @@
 # Axes: connect time (cold / late / resume / post-finish) × client count ×
 #   DB engine (sqlite / postgres notifier) × event volume (batch boundary) ×
 #   server lifecycle (running / finished / SIGTERM)
-#   S11 cold connect      — legacy wire frames: id==seq, event==type, flat payload,
+#   S11 cold connect      — wire frames: id==seq, event==type, flat payload,
 #                           auditId/timestamp on every frame, contiguous ordering
 #   S12 late join         — mid-run connect gets full replay + live tail, identical
 #                           to a cold listener's sequence
@@ -20,9 +20,6 @@
 #   S34 heartbeat         — keep-alive comments at an injected interval in follow
 #                           mode; never on the replay-only path (sse_events seam:
 #                           the HTTP route does not expose the interval — see caveat)
-# Adversarial pass: W4a — "which classes depend on the notifier?" Only follow-mode
-#   ones (S12/S14/S30/S34); replay classes (S13/S15/S33) are read_after-only, so
-#   the postgres axis is spent on S14 where the implementations actually diverge.
 
 from __future__ import annotations
 

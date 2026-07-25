@@ -99,8 +99,8 @@ def _load_recording(path: Path) -> DemoRecording:
             if event["type"] in TERMINAL_EVENTS
         ]
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        # The same four causes that used to be swallowed — an unreadable file,
-        # JSON that is not an object, a missing key — now located by path.
+        # Every cause — unreadable file, JSON that is not an object, missing key —
+        # reaches the caller located by path rather than swallowed.
         raise DemoRecordingError(
             f"demo recording {path} is unusable ({exc!r}); required keys are "
             f"{', '.join(REQUIRED_KEYS)}"
@@ -188,13 +188,11 @@ class DemoService:
                 # INVARIANT: the row's report is durable no later than the terminal
                 # frame — the same ordering AuditService._finish gives a real audit,
                 # for the same reason, and _load_recording guarantees this runs
-                # exactly once, on the last frame. It used to be the inverse (every
-                # frame emitted, THEN finalize), so a gallery that fetches the report
-                # when verdict_reached arrives could find a row still 'running' and
-                # no report — intermittently, under load, in front of the person the
-                # replay exists to convince. Appended straight to the stream rather
-                # than through the emitter so it JOINS this transaction: both writes
-                # commit together or neither does, exactly as _finish does it.
+                # exactly once, on the last frame. Finalizing AFTER the frames would
+                # let a gallery that fetches the report on verdict_reached find a row
+                # still 'running' with no report. Appended straight to the stream
+                # rather than through the emitter so it JOINS this transaction: both
+                # writes commit together or neither does, exactly as _finish does it.
                 async with self.sessions.transaction() as db:
                     await self.sessions.finalize(audit_id, recording.report, session=db)
                     await self.stream.append(

@@ -16,13 +16,6 @@
 #      the judge is still asked the second question
 #   C9 a legitimate merge (same experiment, same claim) carries the STRONGER
 #      severity, so a low duplicate cannot demote a critical one
-# Adversarial pass: 2026-07-23/W6 — C5 added; previously nothing pinned the
-# already-injectable clock seam, letting a wall-clock regression in silently.
-# Coverage-honesty pass: C7-C9. add_or_merge used to dedup on description alone,
-# dropping the incoming experiment/claim/severity while UNIONING focus regions
-# into the survivor — the second bait never ran, yet the report pointed at both
-# regions as if one run had covered them. The axis the old map missed is
-# "what the two nodes actually TEST", not how alike their prose is.
 from pathlib import Path
 
 import pytest

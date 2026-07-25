@@ -51,10 +51,10 @@
 #   C2  an unknown package raises KeyError naming it, and creates NO row
 #   C3  a recording that is unreadable, not JSON, not an object, or missing a
 #       required key raises DemoRecordingError NAMING THE FILE, and takes the whole
-#       load with it. Was a FINDING (skip + one log line, so a malformed gallery
-#       entry vanished and an operator saw a missing demo rather than an error);
-#       DemoService is built in the lifespan, so the gallery is now all-or-nothing
-#       at boot — the treatment config.py gives a bad NPMGUARD_* value
+#       load with it. DemoService is built in the lifespan, so the gallery is
+#       all-or-nothing at boot — the treatment config.py gives a bad NPMGUARD_*
+#       value. Skipping instead makes a malformed entry vanish, and an operator
+#       sees a missing demo rather than an error
 #   C3b INVARIANT: a recording's LAST frame is its ONLY terminal frame. No terminal
 #       frame leaves the row 'running' for ever and an SSE follower hanging (
 #       sse_events returns on a terminal frame); frames after it are frames no
@@ -84,11 +84,9 @@
 #   C11 a negative value is clamped to 0 by max(0.0, …) — never a negative sleep
 #   C12 a NON-NUMERIC value still stops the IMPORT — npmguard.api imports this
 #       module, so a bad value must kill the process rather than boot an engine
-#       that cannot replay — but as a ConfigError NAMING NPMGUARD_DEMO_SPEED. It
-#       used to be `could not convert string to float: 'fast'`, naming neither the
-#       knob nor the module. No longer a FINDING: the knob is declared in
-#       config.py, so pydantic's field-level message is rewritten to name the
-#       environment variable an operator actually set
+#       that cannot replay — but as a ConfigError NAMING NPMGUARD_DEMO_SPEED
+#       rather than a bare `could not convert string to float: 'fast'`, which
+#       names neither the knob nor the module
 #   C13 the two throttle bounds: MIN_TYPE_DELAY floors a sub-millisecond recorded
 #       gap (frames cannot fly past unreadably) and MAX_DELAY_MS caps a 10-minute
 #       recorded gap (a long pause in a recording cannot stall the gallery)
@@ -107,20 +105,12 @@
 #       written first inside that transaction — the real path's ordering
 #       (AuditService._finish: report durable, then row + terminal event in one
 #       transaction), so a gallery that fetches the report on verdict_reached always
-#       finds it. Was a FINDING: every frame was emitted and only then was the row
-#       finalised, so the terminal frame could be seen while the row was still
-#       'running' with no report
+#       finds it. Emitting every frame and only then finalising lets the terminal
+#       frame be seen while the row is still 'running' with no report
 #   C16b the two writes are one UNIT, not merely ordered: an append that fails rolls
 #       the row back to non-terminal, where restart recovery repairs it. This is
 #       what a plain finalize()-then-emit() would fail — it satisfies C16's ordering
 #       while leaving a terminal row no consumer is ever told about
-# Adversarial pass: 2026-07-25/demo — "which dimension is missing?" -> the
-# recording-count axis (C7: every replay class ran on one file), the queue-
-# visibility axis (C8), and write ORDERING as distinct from write content (C16).
-# Invariant pass: 2026-07-25/demo-gallery — C3, C15 and C16 were FINDINGS pinned as
-# they stood; Phase 5 promotes this path to a product surface, so each is now the
-# contract instead: loud located loading (C3, C3b), the recording's own version
-# loaded (C15), and the real path's terminal ordering and atomicity (C16, C16b).
 from __future__ import annotations
 
 import asyncio

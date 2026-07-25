@@ -29,20 +29,20 @@
 # Sync wire: C6 sync /audit failure → wire shape {error, message, code, retryable}
 # Recovery:  C10 start() 0031s interrupted 'running' rows (audit_error retryable + errored)
 #            C11 no running/queued rows → recovery is a no-op, zero spurious events
-#            C12 (flip) start() RE-ENQUEUES durable 'queued' rows and runs them to
+#            C12 start() RE-ENQUEUES durable 'queued' rows and runs them to
 #                verdict_reached; only interrupted 'running' rows become 0031 (never drop
 #                a claimed paid audit)
 #            DEMO demo-tagged rows (package_path == DEMO_PACKAGE_PATH) excluded from 0031
 #                recovery — recovery never runs the real pipeline on a demo replay
-# Shutdown:  C13 (flip) close(deadline) is BOUNDED — a stalled audit no longer stalls
+# Shutdown:  C13 close(deadline) is BOUNDED — a stalled audit does not stall
 #                shutdown; it returns within ~deadline and finalizes the stalled row 0031
 #            C13b (crash/graceful parity) close() 0031s only the RUNNING row; a never-
 #                started QUEUED row is LEFT 'queued' and a fresh service re-enqueues +
 #                completes it — graceful shutdown drops a claimed paid audit no more
 #                than a crash does (both futures still resolve, no hang)
-#            C14 (flip) two concurrent admits at one free slot never WEDGE — no check-then-
+#            C14 two concurrent admits at one free slot never WEDGE — no check-then-
 #                act loser blocking forever in put(); each either returns or raises QueueFull
-#            C15 (flip) close() while a worker is mid-item RESOLVES the future (exception)
+#            C15 close() while a worker is mid-item RESOLVES the future (exception)
 #                and finalizes the row 0031 — no orphaned future, no reliance on next start()
 # Lifecycle: C16 terminal coherence (success) — at the FIRST verdict_reached the report file
 #                is on disk and the row is 'done' (report → row+event, one transaction)
@@ -53,10 +53,9 @@
 #                with a durable row report; only the filesystem file is skipped. It
 #                is NOT discarded as a non-retryable 9999 — the verdict outranks the
 #                filing key, and C17 proves a REAL save failure still errors.
-# Single-owner rework: 2026 — launch()/enqueue()/_work_queue() deleted; every path funnels
-#   through submit()/admit(); status is {queued,running,done,error}; the running-count
-#   session cap (SessionLimitError) is retired in favor of the wait-queue bound + worker pool.
-#   C4/C13/C14/C15 FLIP from documenting the old divergences to asserting the new invariants.
+# Single owner: every admission path funnels through submit()/admit(); status is
+#   {queued,running,done,error}; admission is bounded by the wait queue plus the
+#   worker pool, not by a running-count session cap.
 import asyncio
 import json
 from types import SimpleNamespace

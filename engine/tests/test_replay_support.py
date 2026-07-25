@@ -8,8 +8,6 @@
 #   C4 assert_consumed: required-but-unconsumed and any-unmatched both raise
 #   C5 prompt drift: current hash != pin → FixturePromptDrift (never a skip)
 #   C6 committed bundles load clean (sha/messages/prompt pins) + fixture_lint green
-# Adversarial pass: W2 — "could a near-miss silently consume the wrong entry?"
-#   No: a wrong key raises ReplayUnmatched and is spooled, never served.
 
 from __future__ import annotations
 
