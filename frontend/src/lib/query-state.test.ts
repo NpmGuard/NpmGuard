@@ -35,6 +35,7 @@ import { describe, expect, it, vi } from "vitest";
 import { failed, loaded, LOADING, type LoadState } from "../components/ui/load-state.ts";
 import { ApiError } from "./api-base.ts";
 import { actionFailure, allLoaded, toLoadState, type QueryRead } from "./query-state.ts";
+import { entitlements } from "./test-harness.tsx";
 import { ContractViolationError } from "./wire.ts";
 
 function read<T>(over: Partial<QueryRead<T>> = {}): QueryRead<T> {
@@ -48,14 +49,10 @@ function read<T>(over: Partial<QueryRead<T>> = {}): QueryRead<T> {
   } as QueryRead<T>;
 }
 
-const ENTITLEMENTS = {
-  installationId: 7,
-  accountLogin: "acme",
-  plan: "free" as const,
-  subscriptionStatus: "inactive",
-  protectedRepos: { used: 1, limit: 1, remaining: 0 },
-  monthlyAudits: { used: 0, limit: 100, remaining: 100 },
-};
+// From the shared factory rather than hand-built: this file only needs a body
+// that PARSES, and a local copy silently rots the moment the contract gains a
+// required field.
+const ENTITLEMENTS = entitlements({ installationId: 7 });
 
 describe("toLoadState — Q1 three states, three arms", () => {
   it("Q1: a pending query with no data is loading", () => {
