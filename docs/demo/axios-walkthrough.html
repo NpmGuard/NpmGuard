@@ -19,12 +19,12 @@
      §2.8  "a stamp, not a pill" — no fully-round status elements; severity
            reaches a row through a 3px left rule, not a full tint.
      §2.2  --ng-error (purple) means AUDIT ERROR and is deliberately unused.
-     §2.9  transform and opacity only — never width/height/top/left.
 
-     THE SPINE: one pipeline, run twice, SIMULTANEOUSLY. Both packets travel the
-     same stages at the same time so the divergence is watched rather than read.
-     The stages that behave IDENTICALLY are the honest half of the claim —
-     NpmGuard does not stop the publish — so they stay muted and matched.
+     THE SPINE: one pipeline, drawn twice. Each stage carries the SAME icon on
+     both sides — that is what makes the two columns legible as one pipeline
+     rather than two lists, and it lets the colour alone carry the divergence.
+     Stages that behave identically stay grey on both sides: NpmGuard does not
+     stop the publish, and the picture must not imply that it does.
      ============================================================================= */
   :root {
     color-scheme: light;
@@ -51,7 +51,6 @@
     --ng-safe-border: #96c9a9;
     --ng-safe-wash:   #ebf8f0;
 
-    --ng-accent:      #1566c5;
     --ng-accent-text: #0052af;
 
     --ng-font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -87,103 +86,74 @@
   .num span { display: block; font-size: .65rem; letter-spacing: .13em; text-transform: uppercase; color: var(--ng-text-3); margin-top: .45rem; }
   .num.red b { color: var(--ng-danger-text); }
 
-  /* ── column headers ───────────────────────────────────────── */
-  .heads { display: grid; grid-template-columns: 1fr 7.5rem 1fr; gap: .5rem; margin-bottom: .8rem; align-items: end; }
+  /* ── headers ──────────────────────────────────────────────── */
+  .heads { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; margin-bottom: .7rem; }
   .heads b { font-size: .7rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
   .heads .l b { color: var(--ng-danger-text); }
   .heads .r { text-align: right; }
   .heads .r b { color: var(--ng-safe-text); }
-  @media (max-width: 720px) { .heads { grid-template-columns: 1fr 1fr; } .heads .mid { display: none; } }
+  @media (max-width: 760px) { .heads { grid-template-columns: 1fr 1fr; } .heads .mid { display: none; } }
 
-  /* ── the pipeline ─────────────────────────────────────────── */
+  /* ── pipeline ─────────────────────────────────────────────── */
   .pipe { display: flex; flex-direction: column; gap: 0; }
-  .stage { display: grid; grid-template-columns: 1fr 7.5rem 1fr; gap: .5rem; align-items: stretch; }
-  @media (max-width: 720px) { .stage { grid-template-columns: 1fr 1fr; gap: .4rem; } }
+  .stage { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; align-items: stretch; }
+  @media (max-width: 760px) { .stage { grid-template-columns: 1fr 1fr; gap: .4rem; } }
 
-  /* centre column: names the step, and proves both sides are one pipeline */
   .step {
     display: grid; place-items: center; text-align: center;
     font-family: var(--ng-font-mono); font-size: .64rem; line-height: 1.3;
     letter-spacing: .04em; color: var(--ng-text-3); padding: .3rem;
-    opacity: 0; transition: opacity .3s var(--ease);
   }
-  .stage.seen .step { opacity: 1; }
-  @media (max-width: 720px) {
-    .step { grid-column: 1 / -1; place-items: start; text-align: left; padding: .5rem 0 .15rem; }
+  @media (max-width: 760px) {
+    .step { grid-column: 1 / -1; place-items: start; text-align: left; padding: .55rem 0 .15rem; }
     .step br { display: none; }
   }
 
   .cell {
-    position: relative;
     background: var(--ng-sunken); border: 1px solid var(--ng-border-faint);
     border-radius: var(--r-lg); padding: .7rem .9rem;
-    display: flex; align-items: center; gap: .6rem;
-    opacity: 0; transform: translateY(10px);
-    transition: opacity .3s var(--ease), transform .3s var(--ease),
-                background-color .3s var(--ease), border-color .3s var(--ease),
-                box-shadow .3s var(--ease);
+    display: flex; align-items: center; gap: .8rem;
+    color: var(--ng-border-strong);
   }
-  .stage.seen .cell { opacity: 1; transform: none; }
+  .cell .t { font-size: .88rem; font-weight: 600; color: var(--ng-text-2); line-height: 1.3; }
+  .cell .t small { display: block; font-size: .72rem; font-weight: 400; color: var(--ng-text-3); margin-top: .1rem; }
 
-  /* the pulse that reads as "the packet is here now" */
-  .stage.live .cell { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ng-accent) 22%, transparent); border-color: var(--ng-accent); }
-
-  .m { font-family: var(--ng-font-mono); font-weight: 700; font-size: 1.05rem; line-height: 1; color: var(--ng-border-strong); flex: 0 0 auto; width: 1.1rem; text-align: center; }
-  .t { font-size: .88rem; font-weight: 600; color: var(--ng-text-2); line-height: 1.3; }
-  .t small { display: block; font-size: .72rem; font-weight: 400; color: var(--ng-text-3); margin-top: .1rem; }
-
-  /* divergence only — §2.8's 3px left rule */
-  .cell.bad { background: var(--ng-danger-wash); border-color: var(--ng-danger-border); border-left: 3px solid var(--ng-danger); }
-  .cell.bad .m { color: var(--ng-danger); }
+  /* Divergence only — §2.8's 3px left rule. */
+  .cell.bad { background: var(--ng-danger-wash); border-color: var(--ng-danger-border); border-left: 3px solid var(--ng-danger); color: var(--ng-danger); }
   .cell.bad .t { color: var(--ng-danger-text); }
-  .cell.good { background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left: 3px solid var(--ng-safe); }
-  .cell.good .m { color: var(--ng-safe); }
+  .cell.good { background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left: 3px solid var(--ng-safe); color: var(--ng-safe); }
   .cell.good .t { color: var(--ng-safe-text); }
-  .cell.void {
-    background-color: var(--ng-canvas); border-style: dashed; border-color: var(--ng-border-strong);
-    background-image: repeating-linear-gradient(45deg, var(--ng-border) 0 1px, transparent 1px 7px);
-  }
+  .cell.void { background-color: var(--ng-canvas); border-style: dashed; border-color: var(--ng-border-strong); }
 
-  /* connector between stages — scaleY only (§2.9) */
-  .link { display: grid; grid-template-columns: 1fr 7.5rem 1fr; gap: .5rem; height: 20px; }
-  @media (max-width: 720px) { .link { grid-template-columns: 1fr 1fr; gap: .4rem; } .link .mid { display: none; } }
+  /* ── icons: same glyph on both sides, colour carries the state ─────────── */
+  .ico { flex: 0 0 auto; width: 30px; height: 30px; display: block; color: inherit; }
+  .ico svg { width: 100%; height: 100%; display: block; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  /* the step that does not exist gets the same glyph, drawn as a ghost */
+  .ico.ghost svg { stroke-dasharray: 2.5 2.5; opacity: .5; }
+
+  /* the rail between stages — static, it is structure, not motion */
+  .link { display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; height: 16px; }
+  @media (max-width: 760px) { .link { display: none; } }
   .link span { position: relative; }
-  .link span::before {
-    content: ""; position: absolute; left: 1.2rem; top: 0; bottom: 0; width: 2px;
-    background: var(--ng-border-strong);
-    transform: scaleY(0); transform-origin: top;
-    transition: transform .28s var(--ease);
-  }
-  .link.on span::before { transform: scaleY(1); }
-  .link.on span.dead::before { background: var(--ng-safe); }
+  .link span::before { content: ""; position: absolute; left: 1.35rem; top: 0; bottom: 0; width: 2px; background: var(--ng-border); }
+  .link span.on::before { background: var(--ng-safe-border); }
+  .link span.off::before { background: var(--ng-danger-border); }
 
   /* ── outcome ──────────────────────────────────────────────── */
-  .out { margin-top: 20px; display: grid; grid-template-columns: 1fr 7.5rem 1fr; gap: .5rem; opacity: 0; transition: opacity .4s var(--ease); }
-  @media (max-width: 720px) { .out { grid-template-columns: 1fr 1fr; } .out .mid { display: none; } }
-  .box { border-radius: var(--r-lg); padding: .8rem .9rem; border: 1px solid var(--ng-border-faint); background: var(--ng-sunken); }
-  .box.bad { background: var(--ng-danger-wash); border-color: var(--ng-danger-border); border-left: 3px solid var(--ng-danger); }
-  .box.good { background: var(--ng-safe-wash); border-color: var(--ng-safe-border); border-left: 3px solid var(--ng-safe); }
+  .out { margin-top: 16px; display: grid; grid-template-columns: 1fr 7rem 1fr; gap: .5rem; }
+  @media (max-width: 760px) { .out { grid-template-columns: 1fr 1fr; } .out .mid { display: none; } }
+  .box { border-radius: var(--r-lg); padding: .8rem .9rem; }
+  .box.bad { background: var(--ng-danger-wash); border: 1px solid var(--ng-danger-border); border-left: 3px solid var(--ng-danger); }
+  .box.good { background: var(--ng-safe-wash); border: 1px solid var(--ng-safe-border); border-left: 3px solid var(--ng-safe); }
+  .out-h { display: flex; align-items: center; gap: .6rem; }
   .out-n { font-family: var(--ng-font-mono); font-weight: 700; font-size: clamp(1.7rem, 1.1rem + 2.2vw, 2.6rem); line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
-  .box.bad .out-n { color: var(--ng-danger-text); }
-  .box.good .out-n { color: var(--ng-safe-text); }
+  .box.bad .out-n, .box.bad .ico { color: var(--ng-danger-text); }
+  .box.good .out-n, .box.good .ico { color: var(--ng-safe-text); }
   .out-l { font-size: .65rem; letter-spacing: .11em; text-transform: uppercase; color: var(--ng-text-3); }
   .fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(8px, 1fr)); gap: 3px; margin-top: .7rem; }
-  .fleet i { display: block; aspect-ratio: 1; border-radius: 2px; background: var(--ng-border); transition: background-color .25s var(--ease); }
+  .fleet i { display: block; aspect-ratio: 1; border-radius: 2px; }
   .fleet i.hot { background: var(--ng-danger); }
   .fleet i.ok { background: var(--ng-safe-border); }
-
-  /* ── replay ───────────────────────────────────────────────── */
-  .ctl { display: flex; align-items: center; gap: .8rem; margin-top: 1.4rem; }
-  .ctl button {
-    font: inherit; font-size: .78rem; font-weight: 600;
-    letter-spacing: .1em; text-transform: uppercase;
-    background: var(--ng-surface); color: var(--ng-accent-text);
-    border: 1px solid var(--ng-border-strong); border-radius: var(--r-sm);
-    padding: .45rem 1rem; cursor: pointer;
-    transition: border-color .15s var(--ease), color .15s var(--ease);
-  }
-  .ctl button:hover { border-color: var(--ng-accent); }
-  .ctl button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ng-canvas), 0 0 0 4px var(--ng-accent); }
 
   /* ── honest ───────────────────────────────────────────────── */
   .cols { display: grid; gap: clamp(1.2rem, 4vw, 2.6rem); }
@@ -198,16 +168,53 @@
   code { font-family: var(--ng-font-mono); font-size: .88em; background: var(--ng-sunken); border: 1px solid var(--ng-border-faint); padding: .04em .28em; border-radius: var(--r-sm); }
   .foot { font-size: .64rem; line-height: 1.85; color: var(--ng-text-3); border-top: 1px solid var(--ng-border); padding-top: 1.1rem; margin-top: 1.8rem; }
 
+  /* Entrance only — no sequencing, no playback. */
   .rv { opacity: 0; transform: translateY(12px); transition: opacity .42s var(--ease), transform .42s var(--ease); }
   .rv.in { opacity: 1; transform: none; }
-
   @media (prefers-reduced-motion: reduce) {
-    .rv, .cell, .step, .link span::before { opacity: 1 !important; transform: none !important; transition: none !important; }
-    *, *::before, *::after { transition-duration: .001ms !important; }
+    .rv { opacity: 1; transform: none; transition: none; }
   }
 </style>
 </head>
 <body>
+
+<svg style="display:none" aria-hidden="true">
+  <!-- credential -->
+  <symbol id="i-key" viewBox="0 0 24 24">
+    <circle cx="7.5" cy="12" r="4.2"/>
+    <path d="M11.7 12H21M18 12v3.4M15 12v2.6"/>
+  </symbol>
+  <!-- a shield, and something getting past it -->
+  <symbol id="i-shield" viewBox="0 0 24 24">
+    <path d="M12 2.6l5.6 2.1v4.1c0 3.4-2.2 6-5.6 7.1-3.4-1.1-5.6-3.7-5.6-7.1V4.7z"/>
+    <path d="M3 20.2h15.4M18.4 20.2l-2.5-2.3M18.4 20.2l-2.5 2.3"/>
+  </symbol>
+  <!-- the published package -->
+  <symbol id="i-box" viewBox="0 0 24 24">
+    <path d="M12 2.6l8.6 4.7v9.4L12 21.4 3.4 16.7V7.3z"/>
+    <path d="M3.4 7.3L12 12l8.6-4.7M12 12v9.4"/>
+  </symbol>
+  <!-- a human -->
+  <symbol id="i-person" viewBox="0 0 24 24">
+    <circle cx="12" cy="7.8" r="4"/>
+    <path d="M4.6 20.6a7.4 7.4 0 0 1 14.8 0"/>
+  </symbol>
+  <!-- install: arriving on a machine -->
+  <symbol id="i-install" viewBox="0 0 24 24">
+    <path d="M12 3v9.6M12 12.6l-3.4-3.4M12 12.6l3.4-3.4"/>
+    <path d="M3.6 16v3.4a1.6 1.6 0 0 0 1.6 1.6h13.6a1.6 1.6 0 0 0 1.6-1.6V16"/>
+  </symbol>
+  <!-- install refused -->
+  <symbol id="i-stop" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.6"/>
+    <path d="M6 18L18 6"/>
+  </symbol>
+  <!-- the machines -->
+  <symbol id="i-fleet" viewBox="0 0 24 24">
+    <rect x="2.6" y="4.4" width="18.8" height="12.2" rx="1.6"/>
+    <path d="M8.4 20.6h7.2M12 16.6v4"/>
+  </symbol>
+</svg>
 
 <!-- 1 ── WHAT, AND WHEN ───────────────────────────────────── -->
 <section>
@@ -221,59 +228,71 @@
   </div>
 </section>
 
-<!-- 2 ── THE PIPELINE, PLAYED ─────────────────────────────── -->
-<section id="pipeSec">
+<!-- 2 ── THE PIPELINE ─────────────────────────────────────── -->
+<section>
   <div class="heads rv">
     <div class="l"><b>What happened</b></div>
     <div class="mid"></div>
     <div class="r"><b>With NpmGuard</b></div>
   </div>
 
-  <div class="pipe" id="pipe">
+  <div class="pipe rv">
 
-    <div class="stage" data-s="0">
-      <div class="cell"><span class="m">✓</span><span class="t">Attacker holds it<small>long-lived publish token</small></span></div>
+    <div class="stage">
+      <div class="cell"><span class="ico"><svg><use href="#i-key"/></svg></span><span class="t">Attacker holds it<small>long-lived publish token</small></span></div>
       <div class="step">stolen<br>credential</div>
-      <div class="cell"><span class="m">✓</span><span class="t">Attacker holds it<small>nothing changes here</small></span></div>
+      <div class="cell"><span class="ico"><svg><use href="#i-key"/></svg></span><span class="t">Attacker holds it<small>nothing changes here</small></span></div>
     </div>
     <div class="link"><span></span><span class="mid"></span><span></span></div>
 
-    <div class="stage" data-s="1">
-      <div class="cell"><span class="m">✓</span><span class="t">Walked past<small>token sat beside OIDC</small></span></div>
+    <div class="stage">
+      <div class="cell"><span class="ico"><svg><use href="#i-shield"/></svg></span><span class="t">Walked past<small>token sat beside OIDC</small></span></div>
       <div class="step">trusted<br>publishing</div>
-      <div class="cell"><span class="m">✓</span><span class="t">Walked past<small>same bypass</small></span></div>
+      <div class="cell"><span class="ico"><svg><use href="#i-shield"/></svg></span><span class="t">Walked past<small>same bypass</small></span></div>
     </div>
     <div class="link"><span></span><span class="mid"></span><span></span></div>
 
-    <div class="stage" data-s="2">
-      <div class="cell"><span class="m">✓</span><span class="t">Tagged <code>latest</code><small>one added dependency</small></span></div>
+    <div class="stage">
+      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Tagged <code>latest</code><small>one added dependency</small></span></div>
       <div class="step">npm<br>registry</div>
-      <div class="cell"><span class="m">✓</span><span class="t">Tagged <code>latest</code><small>we don't stop the publish</small></span></div>
+      <div class="cell"><span class="ico"><svg><use href="#i-box"/></svg></span><span class="t">Tagged <code>latest</code><small>we don't stop the publish</small></span></div>
     </div>
-    <div class="link"><span></span><span class="mid"></span><span class="dead"></span></div>
+    <div class="link"><span></span><span class="mid"></span><span class="on"></span></div>
 
-    <div class="stage" data-s="3" data-l="void" data-r="good">
-      <div class="cell"><span class="m">—</span><span class="t">Nobody asks<small>no such step exists</small></span></div>
+    <div class="stage">
+      <div class="cell void"><span class="ico ghost"><svg><use href="#i-person"/></svg></span><span class="t">Nobody asks<small>no such step exists</small></span></div>
       <div class="step">is a human<br>on this?</div>
-      <div class="cell"><span class="m">✗</span><span class="t">Missing<small>4 releases had one · this has none</small></span></div>
+      <div class="cell good"><span class="ico"><svg><use href="#i-person"/></svg></span><span class="t">Missing<small>4 releases had one · this has none</small></span></div>
     </div>
-    <div class="link"><span></span><span class="mid"></span><span class="dead"></span></div>
+    <div class="link"><span class="off"></span><span class="mid"></span><span class="on"></span></div>
 
-    <div class="stage" data-s="4" data-l="bad" data-r="good">
-      <div class="cell"><span class="m">✓</span><span class="t">Postinstall runs<small>89 s to the first machine</small></span></div>
+    <div class="stage">
+      <div class="cell bad"><span class="ico"><svg><use href="#i-install"/></svg></span><span class="t">Postinstall runs<small>89 s to the first machine</small></span></div>
       <div class="step">npm<br>install</div>
-      <div class="cell"><span class="m">✗</span><span class="t">PUBLISHER BREAK<small>stops before download</small></span></div>
+      <div class="cell good"><span class="ico"><svg><use href="#i-stop"/></svg></span><span class="t">PUBLISHER BREAK<small>stops before download</small></span></div>
     </div>
 
-    <div class="out" id="out">
-      <div class="box bad"><span class="out-n" id="n1">0</span> <span class="out-l">machines · one vendor</span><div class="fleet" id="f1"></div></div>
+    <div class="out">
+      <div class="box bad">
+        <div class="out-h">
+          <span class="ico"><svg><use href="#i-fleet"/></svg></span>
+          <span class="out-n">135</span>
+          <span class="out-l">machines<br>one vendor</span>
+        </div>
+        <div class="fleet" id="f1"></div>
+      </div>
       <div class="mid"></div>
-      <div class="box good"><span class="out-n">0</span> <span class="out-l">reached · same 135 machines</span><div class="fleet" id="f2"></div></div>
+      <div class="box good">
+        <div class="out-h">
+          <span class="ico"><svg><use href="#i-fleet"/></svg></span>
+          <span class="out-n">0</span>
+          <span class="out-l">reached<br>same 135 machines</span>
+        </div>
+        <div class="fleet" id="f2"></div>
+      </div>
     </div>
 
   </div>
-
-  <div class="ctl rv"><button id="replay" type="button">↻ Replay</button></div>
 </section>
 
 <!-- 3 ── HONEST ──────────────────────────────────────────── -->
@@ -306,118 +325,34 @@
 <script>
 (function () {
   "use strict";
-  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  var stages = [].slice.call(document.querySelectorAll(".stage"));
-  var links  = [].slice.call(document.querySelectorAll(".link"));
-  var out    = document.getElementById("out");
-  var n1     = document.getElementById("n1");
-  var timers = [];
-
   /* 135 dots = the confirmed-infection count in one vendor's public telemetry,
      not a made-up proportion. The right-hand grid is the SAME 135 machines. */
   var N = 135;
-  [["f1", ""], ["f2", "ok"]].forEach(function (p) {
+  [["f1", "hot"], ["f2", "ok"]].forEach(function (p) {
     var el = document.getElementById(p[0]), f = document.createDocumentFragment();
     for (var i = 0; i < N; i++) {
       var d = document.createElement("i");
-      if (p[1]) d.className = p[1];
+      d.className = p[1];
       f.appendChild(d);
     }
     el.appendChild(f);
   });
-  var hotDots = document.querySelectorAll("#f1 i");
 
-  function at(fn, ms) { timers.push(setTimeout(fn, ms)); }
+  /* Entrance only. This page is shown live, once — so if the observer is
+     missing or never fires, everything is revealed anyway. */
+  var items = document.querySelectorAll(".rv");
+  function showAll() { items.forEach(function (el) { el.classList.add("in"); }); }
 
-  function reset() {
-    timers.forEach(clearTimeout); timers = [];
-    stages.forEach(function (s) {
-      s.classList.remove("seen", "live");
-      s.children[0].className = "cell";
-      s.children[2].className = "cell";
+  if (!("IntersectionObserver" in window)) { showAll(); return; }
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      e.target.classList.add("in");
+      io.unobserve(e.target);
     });
-    links.forEach(function (l) { l.classList.remove("on"); });
-    out.style.opacity = "0";
-    n1.textContent = "0";
-    hotDots.forEach(function (d) { d.classList.remove("hot"); });
-  }
-
-  function finish() {
-    out.style.opacity = "1";
-    var n = 0;
-    function bump() {
-      if (n >= N) return;
-      hotDots[n].classList.add("hot");
-      n1.textContent = String(++n);
-      if (!reduce) at(bump, 9);
-    }
-    if (reduce) {
-      hotDots.forEach(function (d) { d.classList.add("hot"); });
-      n1.textContent = String(N);
-    } else { bump(); }
-  }
-
-  function play() {
-    reset();
-    out.style.transition = "opacity .4s var(--ease)";
-
-    if (reduce) {
-      stages.forEach(function (s) {
-        s.classList.add("seen");
-        if (s.dataset.l) s.children[0].className = "cell " + s.dataset.l;
-        if (s.dataset.r) s.children[2].className = "cell " + s.dataset.r;
-      });
-      links.forEach(function (l) { l.classList.add("on"); });
-      finish();
-      return;
-    }
-
-    var STEP = 620;
-    stages.forEach(function (s, i) {
-      at(function () {
-        s.classList.add("seen", "live");
-        at(function () {
-          s.classList.remove("live");
-          /* the divergence lands as the pulse settles */
-          if (s.dataset.l) s.children[0].className = "cell " + s.dataset.l;
-          if (s.dataset.r) s.children[2].className = "cell " + s.dataset.r;
-        }, 380);
-        if (links[i]) at(function () { links[i].classList.add("on"); }, 300);
-      }, i * STEP);
-    });
-    at(finish, stages.length * STEP + 200);
-  }
-
-  document.getElementById("replay").addEventListener("click", play);
-
-  /* This page gets shown to people once, live, with no second chance. If
-     IntersectionObserver is missing, throttled, or never fires, the fallback
-     below guarantees a readable page rather than a blank one. */
-  var started = false;
-  function start() {
-    if (started) return;
-    started = true;
-    document.querySelectorAll(".rv").forEach(function (el) { el.classList.add("in"); });
-    play();
-  }
-
-  var pipeSec = document.getElementById("pipeSec");
-  if ("IntersectionObserver" in window) {
-    var io = new IntersectionObserver(function (es) {
-      es.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        e.target.classList.add("in");
-        if (e.target === pipeSec) { started = true; play(); }
-        io.unobserve(e.target);
-      });
-    }, { rootMargin: "0px 0px -8% 0px", threshold: 0 });
-    document.querySelectorAll(".rv").forEach(function (el) { io.observe(el); });
-    io.observe(pipeSec);
-    setTimeout(start, 1500);   // nothing revealed by now => observer isn't working
-  } else {
-    start();
-  }
+  }, { rootMargin: "0px 0px -8% 0px", threshold: 0 });
+  items.forEach(function (el) { io.observe(el); });
+  setTimeout(showAll, 1500);
 })();
 </script>
 </body>
