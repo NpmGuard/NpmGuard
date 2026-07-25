@@ -5,7 +5,7 @@
 #   enumerated ONCE and then re-run per ORIGIN, which is what proves the collapse is
 #   real rather than three code paths that happen to agree today.
 # Seam B: AuditSetStore over a real throwaway sqlite — audit_sets, audit_set_items,
-#   package_verdicts and panel_jobs are the REAL tables and the REAL queue, so
+#   package_verdicts and audit_sessions are the REAL tables and the REAL queue, so
 #   creation, cache-first enqueue, progress finalization, the durable stream and the
 #   check-run hand-off are all observable without GitHub or docker.
 #
@@ -42,6 +42,7 @@ from kit_spine.notify_polling import PollingNotifier
 from kit_stream import StreamService
 from npmguard.config import Settings
 from npmguard.contract.kinds import PackageOutcome
+from npmguard.lanes import PANEL
 from npmguard.panel import tables
 from npmguard.panel.audit_set import (
     ORIGIN_BENCH_RUN,
@@ -60,9 +61,16 @@ from npmguard.panel.audit_set import (
     truncated,
 )
 from npmguard.panel.caps import CapExceededError, CapsStore
-from npmguard.panel.jobs import JobSpec, PanelJobQueue
 from npmguard.panel.lockfile import LockfileDep
 from npmguard.panel.verdict_index import VerdictIndex
+from npmguard.persistence import (
+    AuditSessionStore,
+    EnqueueSpec,
+    audit_sessions,
+    dedupe_key,
+)
+from npmguard.pipeline import AuditPipeline
+from npmguard.service import AuditService
 
 _ = tables
 
@@ -241,6 +249,13 @@ def test_truncated_flag() -> None:
 
 
 # --------------------------------------------------------------------------
+class _StubPipeline:
+    """Never runs: the pool is never started in these classes."""
+
+    async def run(self, package_name, *, audit_id, version, emitter):  # pragma: no cover
+        raise AssertionError("the pipeline must not run in audit-set tests")
+
+
 # AuditSetStore — DB-backed, real queue + verdict index
 # --------------------------------------------------------------------------
 
@@ -257,12 +272,12 @@ def _settings() -> Settings:
 class _Store:
     """The store plus the collaborators a test needs to reach around it."""
 
-    def __init__(self, store, factory, caps, verdicts, queue, concluded) -> None:
+    def __init__(self, store, factory, caps, verdicts, audits, concluded) -> None:
         self.store = store
         self.factory = factory
         self.caps = caps
         self.verdicts = verdicts
-        self.queue = queue
+        self.audits = audits
         self.concluded = concluded
 
 
@@ -305,16 +320,21 @@ async def store(tmp_path):
     await notifier.start()
     caps = CapsStore(factory, _settings())
     verdicts = VerdictIndex(factory)
-    queue = PanelJobQueue(factory)
+    # The REAL AuditService over a stub pipeline: enqueue, dedupe and lane
+    # dispatch are the production ones; nothing is started, so no worker claims and
+    # the tests drive item state by writing audit rows the way a settle would.
+    audits = AuditService(
+        cast(AuditPipeline, _StubPipeline()), AuditSessionStore(factory), StreamService(factory, notifier)
+    )
     built = build_store(
         factory,
         verdicts,
-        queue,
+        audits,
         StreamService(factory, notifier),
         notifier,
         finalize_check=finalize_check,
     )
-    yield _Store(built, factory, caps, verdicts, queue, concluded)
+    yield _Store(built, factory, caps, verdicts, audits, concluded)
     await notifier.close()
     await engine.dispose()
 
@@ -389,9 +409,18 @@ async def _rows(store: _Store, table) -> list:
 
 
 async def _drain_jobs(store: _Store, state: str = "done") -> None:
+    """Settle every enqueued audit, the way a worker's terminal transaction would.
+
+    `state` is the audit status to land on: `done` for work that produced a
+    verdict, `error` for work that exhausted its lane's attempts. Item state is
+    read from these rows, so this is what makes a set finish in a test with no
+    pool running.
+    """
     async with store.factory() as session, session.begin():
         await session.execute(
-            tables.panel_jobs.update().values(state=state, finished_at=now_iso())
+            audit_sessions.update().values(
+                status=state, claimed_by=None, lease_expires_at=None, updated_at=now_iso()
+            )
         )
 
 
@@ -474,7 +503,7 @@ async def test_create_dedupes_duplicate_pairs(store) -> None:
         ("lodash", "4.17.21"),
         ("react", "18.2.0"),
     }
-    assert len(await _rows(store, tables.panel_jobs)) == 2
+    assert len(await _rows(store, audit_sessions)) == 2
 
 
 async def test_create_is_cache_first_and_stamps_origin(store) -> None:
@@ -495,7 +524,7 @@ async def test_create_is_cache_first_and_stamps_origin(store) -> None:
     }
     assert items["cached-pkg"]["cached"] is True
     assert items["fresh-pkg"]["cached"] is False
-    jobs = await _rows(store, tables.panel_jobs)
+    jobs = await _rows(store, audit_sessions)
     assert len(jobs) == 1
     assert (jobs[0]["package_name"], jobs[0]["origin"], jobs[0]["org"]) == (
         "fresh-pkg", ORIGIN_PUBLIC_REPO_SCAN, "octocat",
@@ -517,13 +546,24 @@ async def test_refused_budget_creates_no_set(store) -> None:
         await store.store.create(spec)
     assert await _rows(store, tables.audit_sets) == []
     assert await _rows(store, tables.audit_set_items) == []
-    assert await _rows(store, tables.panel_jobs) == []
+    assert await _rows(store, audit_sessions) == []
 
 
 async def test_only_inserted_jobs_are_charged(store) -> None:
     """C21: a pair another set already queued is SHARED, not re-bought — the
     monthly meter counts inserted rows, not requested ones."""
-    await store.queue.enqueue_many([JobSpec("shared", "1.0.0", "acme", ORIGIN_REPO_SCAN)])
+    await store.audits.enqueue_many(
+        [
+            EnqueueSpec(
+                "shared",
+                "1.0.0",
+                lane=PANEL,
+                org="acme",
+                origin=ORIGIN_REPO_SCAN,
+                dedupe_key=dedupe_key("shared", "1.0.0"),
+            )
+        ]
+    )
     await store.store.create(_repo_spec(store, _deps(("shared", "1.0.0"), ("own", "1.0.0"))))
     usage = await _rows(store, tables.account_usage)
     assert [u["audits"] for u in usage] == [1]  # 'own' only

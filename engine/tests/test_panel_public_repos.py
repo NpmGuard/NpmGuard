@@ -37,7 +37,7 @@
 #   C16 a finished audit is not "running"; another USER's is not visible
 #   C17 the durable partial-unique index refuses a second live audit of the same
 #       repo by the same user (the guard, not the pre-check, is what holds)
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import sqlalchemy as sa
@@ -50,7 +50,6 @@ from kit_stream import StreamService
 from npmguard.config import Settings
 from npmguard.panel import tables
 from npmguard.panel.audit_set import build_store
-from npmguard.panel.jobs import PanelJobQueue
 from npmguard.panel.lockfile import LockfileDep
 from npmguard.panel.public_limits import PublicScanLimits, TooManyLiveScansError
 from npmguard.panel.scan.public_repo_scan import (
@@ -60,6 +59,9 @@ from npmguard.panel.scan.public_repo_scan import (
     parse_public_repo_reference,
 )
 from npmguard.panel.verdict_index import VerdictIndex
+from npmguard.persistence import AuditSessionStore
+from npmguard.pipeline import AuditPipeline
+from npmguard.service import AuditService
 
 # Import so metadata.create_all sees the panel tables.
 _ = tables
@@ -136,6 +138,13 @@ def _settings(**overrides) -> Settings:
     return Settings(**base)
 
 
+class _StubPipeline:
+    """Never runs: no worker pool is started in these classes."""
+
+    async def run(self, package_name, *, audit_id, version, emitter):  # pragma: no cover
+        raise AssertionError("the pipeline must not run here")
+
+
 @pytest.fixture
 async def public_engine(tmp_path):
     engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'public.sqlite3'}")
@@ -168,7 +177,11 @@ async def public_engine(tmp_path):
     sets = build_store(
         factory,
         VerdictIndex(factory),
-        PanelJobQueue(factory),
+        AuditService(
+            cast(AuditPipeline, _StubPipeline()),
+            AuditSessionStore(factory),
+            StreamService(factory, notifier),
+        ),
         StreamService(factory, notifier),
         notifier,
     )

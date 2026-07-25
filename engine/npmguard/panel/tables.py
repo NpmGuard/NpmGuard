@@ -8,10 +8,9 @@ autogenerate both see them. Conventions match ``persistence.py``:
   exceed int32. Surrogate keys are ``BigInteger`` autoincrement.
 - Timestamps are ``String(64)`` ISO strings written via ``now_iso()`` — never a
   SQL ``DEFAULT``.
-- The load-bearing dedupe indexes (``ix_panel_jobs_active_pkg``,
-  ``ix_audit_sets_active_public``) are PARTIAL UNIQUE — both ``postgresql_where``
-  and ``sqlite_where`` are supplied for portability across the sqlite/postgres
-  engine axis.
+- The load-bearing dedupe index (``ix_audit_sets_active_public``) is PARTIAL
+  UNIQUE — both ``postgresql_where`` and ``sqlite_where`` are supplied for
+  portability across the sqlite/postgres engine axis.
 """
 
 from __future__ import annotations
@@ -215,7 +214,7 @@ audit_sets = sa.Table(
     # every row it covers guarantees nothing — postgres treats distinct NULLs as
     # distinct, so two concurrent scans of one repo would both open a set. It is
     # scoped per requester rather than globally because the dedupe that saves
-    # WORK is `ix_panel_jobs_active_pkg` (one live audit per pair, across all
+    # WORK is the queue's active-dedupe index (one live audit per pair, across all
     # sets); this index only stops one user opening the same set twice.
     sa.Index(
         "ix_audit_sets_active_public",
@@ -276,38 +275,6 @@ package_verdicts = sa.Table(
 )
 
 # Durable audit-job queue; cross-scan dedupe via the partial unique index.
-panel_jobs = sa.Table(
-    "panel_jobs",
-    metadata,
-    sa.Column("id", _surrogate_pk(), primary_key=True, autoincrement=True),
-    sa.Column("kind", sa.String(32), nullable=False, server_default="audit_package"),
-    sa.Column("lane", sa.String(16), nullable=False, server_default="cheap"),
-    # The fairness key for claim_next, NOT a billing field: money is metered in
-    # account_usage. NULL = a registry-watch audit, which belongs to no org.
-    sa.Column("org", sa.String(255), nullable=True),
-    # Why this pair is being audited — an AuditSetOrigin, carried so an alert
-    # raised on the verdict knows its origin. It replaces a `scan_id` FK whose
-    # ONLY reader derived `"watch" if scan_id is None else "scan"`, and therefore
-    # filed every public-repo audit's finding as a registry-watch alert.
-    sa.Column("origin", sa.String(24), nullable=False, server_default="repo_scan"),
-    sa.Column("package_name", sa.String(214), nullable=False),
-    sa.Column("version", sa.String(128), nullable=False),
-    sa.Column("state", sa.String(16), nullable=False, server_default="queued"),
-    sa.Column("attempts", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("error", sa.Text, nullable=True),
-    sa.Column("created_at", sa.String(64), nullable=False),
-    sa.Column("started_at", sa.String(64), nullable=True),
-    sa.Column("finished_at", sa.String(64), nullable=True),
-    sa.Index("ix_panel_jobs_state", "state", "lane", "created_at"),
-    sa.Index(
-        "ix_panel_jobs_active_pkg",
-        "package_name",
-        "version",
-        unique=True,
-        postgresql_where=sa.text("state IN ('queued','running')"),
-        sqlite_where=sa.text("state IN ('queued','running')"),
-    ),
-)
 
 # Registry-watch state.
 watched_packages = sa.Table(

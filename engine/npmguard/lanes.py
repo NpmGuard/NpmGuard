@@ -71,6 +71,12 @@ LANES: dict[str, Lane] = {
 
 DEFAULT_LANE = PAID
 
+# The lanes whose work fills the SHARED verdict cache and belongs to audit sets, so
+# a settle has an aftermath: index the verdict, alert on DANGEROUS, advance every
+# set covering the pair. `paid` and `bench` are absent because their audits answer
+# one caller and belong to no collection.
+PANEL_LANES = frozenset({PANEL, WATCH, PUBLIC})
+
 
 def lane(name: str) -> Lane:
     """The policy for ``name``.
@@ -87,6 +93,7 @@ def lane(name: str) -> Lane:
 
 __all__ = [
     "BENCH",
+    "PANEL_LANES",
     "DEFAULT_LANE",
     "LANES",
     "PAID",

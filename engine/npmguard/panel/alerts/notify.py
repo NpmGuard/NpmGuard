@@ -83,7 +83,7 @@ async def handle_dangerous_verdict(
     """Record + notify the exposure of a DANGEROUS ``package_name@version``.
 
     ``origin`` is the AuditSetOrigin of the work that produced the verdict, carried
-    through from ``panel_jobs.origin`` rather than re-derived — the old
+    through from the audit row's recorded ``origin`` rather than re-derived — the old
     ``'scan'``/``'watch'`` pair was computed as "watch iff the job owns no scan"
     and therefore filed every public-repo audit's finding as a registry-watch
     alert. Returns the number of alert rows inserted (0 when nothing is exposed, or
@@ -95,7 +95,7 @@ async def handle_dangerous_verdict(
     # (deliberately — `alerts` is notification HISTORY rather than a derived index,
     # so a constraint failure there is not recoverable by a rebuild, and the origin
     # domain is open by design; see alembic 0007's docstring). Its input is a
-    # `panel_jobs.origin` value READ BACK from the database, including rows 0006
+    # recorded `origin` value READ BACK from the database, including rows 0006
     # backfilled, so it is a genuine foreign-data boundary and not a re-check.
     if origin not in ORIGINS:
         raise AssertionError(f"{origin!r} is not an AuditSetOrigin")
