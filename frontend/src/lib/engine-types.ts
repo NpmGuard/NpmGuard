@@ -1,11 +1,9 @@
 /**
  * Wire contract with the DEV / Python engine.
  *
- * Derived from EVIDENCE, not from @npmguard/shared:
- *  - types + typed event union: engine/npmguard/contract/models.py
- *    (generated from shared/contract/contract.schema.json)
- *  - the 3 UNTYPED-but-emitted events (dependencies_provisioned, graph_built,
- *    intent_extracted): their emit() call sites in engine/npmguard/pipeline.py
+ * Sources:
+ *  - contract shapes: @npmguard/shared (the zod the engine's Pydantic models are
+ *    generated from) — see the migration note below
  *  - SSE wire framing (named events, flattened payload): engine/npmguard/events.py
  *  - routes + response shapes: engine/npmguard/api.py, report_store.py
  *
@@ -41,8 +39,6 @@ export type Capability =
   | "DOS_LOOP" | "ANTI_AI_PROMPT" | "GEO_GATING" | "LIFECYCLE_HOOK"
   | "WORM_PROPAGATION" | "CLIPBOARD_HIJACK" | "TELEMETRY_RAT"
   | "BUILD_PLUGIN_EXFIL" | "NPM_TOKEN_ABUSE";
-
-export type Confidence = "SUSPECTED" | "LIKELY" | "CONFIRMED";
 
 export type ClaimKind =
   | "env_exfil" | "cred_theft" | "binary_drop" | "obfuscation" | "persistence"
@@ -159,15 +155,6 @@ export interface FileVerdict {
   riskContribution: number; // 0-10
 }
 
-export interface Finding {
-  capability: string; // CapabilityEnum value, may be comma-joined
-  confidence: Confidence;
-  fileLine: string; // e.g. "lib/index.js:42-67"
-  problem: string;
-  evidence: string;
-  reproductionStrategy: string;
-}
-
 export interface InventoryMeta {
   scripts: Record<string, string>;
   // KEYED from the contract, not Record<string, …>: an unkeyed map let the fold
@@ -208,7 +195,6 @@ export type AuditEvent = BaseEvent &
     | { type: "audit_enqueued"; queuePosition: number }
     | { type: "phase_started"; phase: string }
     | { type: "phase_completed"; phase: string; durationMs: number }
-    // UNTYPED-but-emitted (pipeline.py) — not in the schema's AuditEvent union.
     | {
         type: "dependencies_provisioned";
         installed: boolean;
@@ -218,7 +204,6 @@ export type AuditEvent = BaseEvent &
       }
     | { type: "file_list"; files: FileRecord[] }
     | ({ type: "inventory_meta" } & InventoryMeta)
-    // UNTYPED-but-emitted (pipeline.py).
     | { type: "intent_extracted"; statedPurpose: string; expectedCapabilities: string[] }
     | { type: "file_analyzing"; file: string }
     | { type: "triage_progress"; current: number; total: number; file: string }
@@ -231,7 +216,6 @@ export type AuditEvent = BaseEvent &
       }
     | { type: "file_verdict"; verdict: FileVerdict }
     | { type: "triage_complete"; hypothesisCount: number; hypotheses: TriageHypothesis[] }
-    // UNTYPED-but-emitted (pipeline.py).
     | { type: "graph_built"; nodeCount: number; addedCount: number; mergedCount: number }
     | {
         type: "hypothesis_resolved";
@@ -241,25 +225,6 @@ export type AuditEvent = BaseEvent &
         state: HypothesisState;
         by: string;
         reason: string;
-      }
-    | { type: "agent_thinking"; step: number }
-    | { type: "agent_tool_call"; tool: string; args: Record<string, unknown>; step: number }
-    | {
-        type: "agent_tool_result";
-        tool: string;
-        resultPreview: string;
-        step: number;
-        injectionDetected: boolean;
-      }
-    | { type: "agent_reasoning"; text: string; step: number }
-    | { type: "finding_discovered"; finding: Finding }
-    | { type: "verify_started"; totalTests: number }
-    | {
-        type: "verify_test_result";
-        proofIndex: number;
-        testFile: string;
-        status: "confirmed" | "unconfirmed" | "infra_error";
-        error?: string | null;
       }
     | {
         type: "verdict_reached";
@@ -276,12 +241,11 @@ export type AuditEventType = AuditEvent["type"];
 /** Every event type the audit stream can emit — the SSE client registers a
  * listener per name (the engine uses NAMED events; onmessage never fires). */
 export const AUDIT_EVENT_TYPES = [
-  "audit_started", "audit_enqueued", "phase_started", "phase_completed",
+  "audit_enqueued", "audit_started", "phase_started", "phase_completed",
   "dependencies_provisioned", "file_list", "inventory_meta", "intent_extracted",
   "file_analyzing", "triage_progress", "hypothesis_emitted", "file_verdict",
-  "triage_complete", "graph_built", "hypothesis_resolved", "agent_thinking",
-  "agent_tool_call", "agent_tool_result", "agent_reasoning", "finding_discovered",
-  "verify_started", "verify_test_result", "verdict_reached", "audit_error",
+  "triage_complete", "graph_built", "hypothesis_resolved", "verdict_reached",
+  "audit_error",
 ] as const satisfies readonly AuditEventType[];
 
 // ===== HTTP responses =====

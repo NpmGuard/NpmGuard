@@ -4,9 +4,12 @@
  * Input classes (the shape of the (state, event) domain this reducer folds):
  *  C1  replay / idempotence      — a seq already folded is a no-op (same ref);
  *                                  re-folding a full buffer changes nothing.
- *  C2  unknown / dead types      — truly-unknown types hit `default`; the 7 dead
+ *  C2  unknown / retired types    — truly-unknown types hit `default` and change
+ *                                  nothing but the seq guard. The 7 RETIRED
  *                                  agent_* / verify_* / finding_discovered types
- *                                  are tolerated (never throw).
+ *                                  (zero emit sites; schemas + arms deleted) are
+ *                                  now in exactly that class, and asserted INERT
+ *                                  rather than merely non-throwing.
  *  C3  lifecycle transitions     — each real emitted event moves the documented
  *                                  slice of state (audit_started … audit_error).
  *  C4  terminal freeze           — after a terminal event (verdict_reached /
@@ -94,30 +97,31 @@ describe("foldAuditEvent — C2 unknown / dead types tolerated", () => {
     expect(s1.pipelineLog).toHaveLength(0);
   });
 
-  it("C2: the 7 dead agent_*/verify_*/finding_discovered types are tolerated (never throw)", () => {
-    const dead: AuditEvent[] = [
-      ev(1, { type: "agent_thinking", step: 0 }),
-      ev(2, { type: "agent_tool_call", tool: "readFile", args: { path: "x.js" }, step: 1 }),
-      ev(3, { type: "agent_tool_result", tool: "readFile", resultPreview: "…", step: 1, injectionDetected: false }),
-      ev(4, { type: "agent_reasoning", text: "hmm", step: 2 }),
-      ev(5, {
-        type: "finding_discovered",
-        finding: {
-          capability: "NETWORK",
-          confidence: "LIKELY",
-          fileLine: "index.js:1",
-          problem: "p",
-          evidence: "e",
-          reproductionStrategy: "r",
-        },
-      }),
-      ev(6, { type: "verify_started", totalTests: 2 }),
-      ev(7, { type: "verify_test_result", proofIndex: 0, testFile: "t.js", status: "confirmed", error: null }),
-    ];
-    expect(() => foldAll(dead)).not.toThrow();
-    const s = foldAll(dead);
-    expect(s.findings).toHaveLength(1); // handled, not crashed
+  it("C2: the 7 RETIRED agent_*/verify_*/finding_discovered types are inert, not handled", () => {
+    // These had zero emit sites in the engine, so their schemas, their fold arms,
+    // and the state they wrote (agentSteps/agentThinking/findings) were deleted.
+    // They are no longer members of AuditEvent — hence the cast — and must now
+    // fall through to `default` exactly like any unknown type. Asserting they are
+    // INERT (not merely non-throwing) is what stops an arm being reintroduced.
+    const retired = [
+      { type: "agent_thinking", step: 0 },
+      { type: "agent_tool_call", tool: "readFile", args: { path: "x.js" }, step: 1 },
+      { type: "agent_tool_result", tool: "readFile", resultPreview: "…", step: 1, injectionDetected: false },
+      { type: "agent_reasoning", text: "hmm", step: 2 },
+      { type: "finding_discovered", finding: { capability: "NETWORK" } },
+      { type: "verify_started", totalTests: 2 },
+      { type: "verify_test_result", proofIndex: 0, testFile: "t.js", status: "confirmed" },
+    ].map((payload, i) => ev(i + 1, payload as never) as AuditEvent);
+
+    expect(() => foldAll(retired)).not.toThrow();
+    const s = foldAll(retired);
+    // Nothing but the seq guard moved.
+    expect(s.pipelineLog).toHaveLength(0);
+    expect(s.hypotheses).toHaveLength(0);
+    expect(s.followFile).toBeNull();
+    expect(s.verdict).toBeNull();
     expect(s.running).toBe(true); // no terminal reached
+    expect(s.seenSeqs.size).toBe(retired.length);
   });
 });
 

@@ -10,17 +10,6 @@ export interface PhaseInfo {
   durationMs?: number;
 }
 
-export interface AgentStep {
-  type: "tool_call" | "tool_result" | "reasoning";
-  step: number;
-  timestamp: string;
-  tool?: string;
-  args?: Record<string, unknown>;
-  resultPreview?: string;
-  text?: string;
-  injectionDetected?: boolean;
-}
-
 export interface PipelineLogEntry {
   kind: "phase" | "info" | "file-scan" | "file-flag" | "scripts" | "hypothesis";
   text: string;
