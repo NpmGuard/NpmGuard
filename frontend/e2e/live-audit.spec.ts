@@ -36,12 +36,15 @@ test("S1: the SAFE demo streams inline on Landing to a terminal SAFE verdict", a
   const reveal = page.locator(`[aria-label="live demo audit of ${SAFE_DEMO}"]`);
   await expect(reveal).toBeVisible();
 
-  // Terminal SAFE: the verdict badge, the honest headline, the honest empty rail.
-  await expect(reveal.locator(".report-verdict__badge")).toHaveText("SAFE", {
+  // Terminal SAFE: the verdict stamp, its mandatory §0 caveat, and honest
+  // coverage. The caveat is part of `VerdictHeadline`, so the live reveal gets
+  // it for free — which is the point of putting it in the component rather than
+  // asking each surface to remember it.
+  await expect(reveal.locator("[data-verdict]")).toHaveText("SAFE", {
     timeout: TERMINAL_MS,
   });
-  await expect(reveal.getByText("No known threats")).toBeVisible();
-  await expect(reveal.getByText("No hypotheses raised")).toBeVisible();
+  await expect(reveal.getByText("Not a proof of absence")).toBeVisible();
+  await expect(reveal.getByText("No hypotheses were raised for this package.")).toBeVisible();
   // Never a DANGEROUS pill for a clean package (all-caps is the verdict badge,
   // distinct from the Title-Case "Dangerous" legend chip).
   await expect(reveal.getByText("DANGEROUS", { exact: true })).toHaveCount(0);
@@ -60,13 +63,13 @@ test("S2: the DANGEROUS demo reveals a terminal DANGEROUS verdict + confirmed th
   const reveal = page.locator(`[aria-label="live demo audit of ${DANGEROUS_DEMO}"]`);
   await expect(reveal).toBeVisible();
 
-  await expect(reveal.locator(".report-verdict__badge")).toHaveText("DANGEROUS", {
+  await expect(reveal.locator("[data-verdict]")).toHaveText("DANGEROUS", {
     timeout: TERMINAL_MS,
   });
   // Honest headline (1 confirmed) + the counts rail (14 total) + the confirmed
   // hypothesis card. "Credential theft" is the CLAIM LABEL, not model prose.
-  await expect(reveal.getByText("1 confirmed threat")).toBeVisible();
-  await expect(reveal.getByRole("img", { name: "14 hypotheses" })).toBeVisible();
+  await expect(reveal.getByText("1 confirmed threat").first()).toBeVisible();
+  await expect(reveal.getByRole("img", { name: /^14 hypotheses/ })).toBeVisible();
   await expect(reveal.getByText("Credential theft").first()).toBeVisible();
   // A confirmed threat is DANGEROUS — never coerced to SAFE.
   await expect(reveal.getByText("SAFE", { exact: true })).toHaveCount(0);
@@ -163,16 +166,16 @@ test(
     const feed = page.getByRole("log", { name: "Audit activity" });
     await expect(feed).toBeVisible();
     await expect
-      .poll(() => page.locator(".audit-feed__row--phase").count(), { timeout: TERMINAL_MS })
+      .poll(() => page.locator('[data-feed-row="phase"]').count(), { timeout: TERMINAL_MS })
       .toBeGreaterThan(0);
 
     await page.goto(auditUrl); // reload into the same session
 
-    await expect(page.locator(".report-verdict__badge")).toHaveText("DANGEROUS", {
+    await expect(page.locator("[data-verdict]")).toHaveText("DANGEROUS", {
       timeout: TERMINAL_MS,
     });
 
-    const phaseLabels = await page.locator(".audit-feed__row--phase .eyebrow").allTextContents();
+    const phaseLabels = await page.locator('[data-feed-row="phase"]').allTextContents();
     expect(phaseLabels.length).toBeGreaterThan(1);
     expect(new Set(phaseLabels).size).toBe(phaseLabels.length);
   },

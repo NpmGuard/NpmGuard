@@ -32,7 +32,7 @@
 
 import type { PanelRepo } from "@npmguard/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { Globe, Plus, RefreshCw, Search, ServerOff, X } from "lucide-react";
+import { Globe, Plus, RefreshCw, ServerOff, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PanelPage, PanelSection, SectionLabel } from "../components/panel/layout.tsx";
 import { Button } from "../components/ui/button.tsx";
@@ -40,6 +40,7 @@ import { Card, CardBody } from "../components/ui/card.tsx";
 import { DataRegion } from "../components/ui/data-region.tsx";
 import { DegradedSurface } from "../components/ui/degraded-state.tsx";
 import { EmptyState } from "../components/ui/empty-state.tsx";
+import { SearchInput } from "../components/ui/input.tsx";
 import { loaded } from "../components/ui/load-state.ts";
 import { Skeleton } from "../components/ui/skeleton.tsx";
 import { StaleChip } from "../components/ui/stale-chip.tsx";
@@ -369,27 +370,12 @@ export function Dashboard() {
           return (
             <PanelSection className="mt-0" label="Repositories">
               <div className="mb-4 flex flex-wrap items-center gap-3">
-                <div className="relative min-w-56 flex-1 text-text-3">
-                  <Search
-                    aria-hidden="true"
-                    className="pointer-events-none absolute top-1/2 left-2.5 size-icon-sm -translate-y-1/2"
-                  />
-                  <input
-                    type="search"
-                    placeholder="Search repositories"
-                    aria-label="Search repositories"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    // `border-border-control`, not `border-border`: §2.2 added the
-                    // 3:1 control step precisely because an input's boundary is
-                    // its only affordance, and the decorative hairline is 1.3:1.
-                    className={cn(
-                      "h-control w-full rounded-md border border-border-control bg-surface",
-                      "pl-8 pr-2.5 text-sm text-text placeholder:text-text-3",
-                      "transition-colors duration-fast hover:border-border-strong",
-                    )}
-                  />
-                </div>
+                <SearchInput
+                  label="Search repositories"
+                  placeholder="Search repositories"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
                 {/* Stale data is the third fact: real, but not current. `asOf` is
                     set only when the last refresh actually FAILED, so this chip
                     appearing means one specific thing rather than "some time has

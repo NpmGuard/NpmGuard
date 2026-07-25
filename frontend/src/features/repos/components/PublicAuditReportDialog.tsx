@@ -40,7 +40,7 @@
 import { ExternalLink, X } from "lucide-react";
 import { SectionLabel } from "../../../components/panel/layout.tsx";
 import { PanelDialog } from "../../../components/panel/PanelDialog.tsx";
-import { OutcomePill, ProgressPill } from "../../../components/panel/tone.tsx";
+import { ProgressStamp, VerdictStamp } from "../../../components/ui/verdict-stamp.tsx";
 import { Badge } from "../../../components/ui/badge.tsx";
 import { Button } from "../../../components/ui/button.tsx";
 import { DialogHeader } from "../../../components/ui/dialog.tsx";
@@ -89,9 +89,9 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
         <div className="flex flex-wrap items-center justify-end gap-2">
           {scan &&
             (running ? (
-              <ProgressPill state="running">Running</ProgressPill>
+              <ProgressStamp state="running">Running</ProgressStamp>
             ) : scan.set.rollup.outcome ? (
-              <OutcomePill outcome={scan.set.rollup.outcome} />
+              <VerdictStamp outcome={scan.set.rollup.outcome} />
             ) : (
               <Badge>Nothing to audit</Badge>
             ))}

@@ -17,13 +17,16 @@ export function MiniAuditFeed() {
   const packageName = useAuditStore((s) => s.packageName);
 
   return (
-    <div className="audit-mini" aria-label={`live demo audit of ${packageName || "package"}`}>
-      <PhaseRail compact />
-      <div className="audit-mini__body">
-        <AuditFeed compact />
+    <div
+      aria-label={`live demo audit of ${packageName || "package"}`}
+      className="overflow-hidden rounded-lg border border-border bg-surface shadow-card"
+    >
+      <div className="border-b border-border-faint px-3 py-2">
+        <PhaseRail compact />
       </div>
+      <AuditFeed compact />
       {verdict || error ? (
-        <div className="audit-mini__verdict">
+        <div className="border-t border-border-faint px-3 pt-1 pb-3">
           <VerdictReveal />
         </div>
       ) : null}
