@@ -3312,20 +3312,20 @@
     "ReplayEntry": {
       "type": "object",
       "properties": {
-        "slug": {
+        "auditId": {
           "type": "string"
         },
         "packageName": {
           "type": "string"
         },
         "version": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "verdict": {
           "$ref": "#/$defs/Verdict"
-        },
-        "whyInteresting": {
-          "type": "string"
         },
         "durationMs": {
           "type": "integer",
@@ -3333,29 +3333,15 @@
         },
         "recordedAt": {
           "type": "string"
-        },
-        "reportSchemaVersion": {
-          "type": "integer",
-          "exclusiveMinimum": true,
-          "minimum": 0
-        },
-        "engineVersion": {
-          "type": [
-            "string",
-            "null"
-          ]
         }
       },
       "required": [
-        "slug",
+        "auditId",
         "packageName",
         "version",
         "verdict",
-        "whyInteresting",
         "durationMs",
-        "recordedAt",
-        "reportSchemaVersion",
-        "engineVersion"
+        "recordedAt"
       ],
       "title": "ReplayEntry"
     },
@@ -3373,22 +3359,6 @@
         "replays"
       ],
       "title": "ReplayGalleryResponse"
-    },
-    "ReplayStartResponse": {
-      "type": "object",
-      "properties": {
-        "auditId": {
-          "type": "string"
-        },
-        "slug": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "auditId",
-        "slug"
-      ],
-      "title": "ReplayStartResponse"
     },
     "RepoDetailResponse": {
       "type": "object",
