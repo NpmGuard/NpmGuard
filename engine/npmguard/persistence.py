@@ -14,6 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from kit_spine import now_iso
 from kit_spine.db import metadata
 
+from .lanes import DEFAULT_LANE, LANES
+
+# The dedupe index's predicate, shared with alembic 0009 so the declared schema
+# and the migrated schema cannot drift.
+_ACTIVE_DEDUPE_WHERE = "dedupe_key IS NOT NULL AND status IN ('queued', 'running')"
+
 audit_sessions = sa.Table(
     "audit_sessions",
     metadata,
@@ -40,11 +46,34 @@ audit_sessions = sa.Table(
     # terminalize (see AuditService.close).
     sa.Column("claimed_by", sa.String(64), nullable=True),
     sa.Column("lease_expires_at", sa.String(64), nullable=True),
+    # The DISPATCH columns (alembic 0009), lifted from `panel_jobs` so one queue
+    # can serve every class of work. `lane` decides claim order, admission bound
+    # and retry budget (npmguard/lanes.py); `org` is claim FAIRNESS and not a
+    # billing field; `origin` is the AuditSetOrigin an alert needs; `attempts`
+    # counts executions against the lane's budget; `dedupe_key` is set only by
+    # work that SHOULD be shared between callers.
+    sa.Column("lane", sa.String(16), nullable=False, server_default="paid"),
+    sa.Column("org", sa.String(255), nullable=True),
+    sa.Column("origin", sa.String(24), nullable=True),
+    sa.Column("attempts", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("dedupe_key", sa.String(400), nullable=True),
     sa.Column("created_at", sa.String(64), nullable=False),
     sa.Column("updated_at", sa.String(64), nullable=False),
     sa.Index("ix_audit_sessions_status", "status"),
     # Covers both claim scans: claimable (status + lease) and orphan sweep.
     sa.Index("ix_audit_sessions_lease", "status", "lease_expires_at"),
+    sa.Index("ix_audit_sessions_lane_claim", "lane", "status", "created_at"),
+    # At most one ACTIVE row per dedupe_key — the durable backstop for the
+    # cross-process race an enqueue-time pre-check SELECT cannot close. Partial on
+    # BOTH engines (N-11): declared with only one `*_where`, the other engine gets
+    # a FULL unique index, i.e. "at most one audit per package, ever".
+    sa.Index(
+        "ix_audit_sessions_active_dedupe",
+        "dedupe_key",
+        unique=True,
+        sqlite_where=sa.text(_ACTIVE_DEDUPE_WHERE),
+        postgresql_where=sa.text(_ACTIVE_DEDUPE_WHERE),
+    ),
 )
 
 
@@ -68,6 +97,21 @@ def lease_deadline(seconds: float) -> str:
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z")
     )
+
+def _lane_rank() -> sa.ColumnElement[int]:
+    """The lane registry rendered as a CASE, so claim order IS lane policy.
+
+    Ranking in SQL from the same table the service reads means a lane cannot be
+    ordered one way by the queue and treated another way by admission. The ELSE
+    sorts an unknown lane LAST rather than first: a row written by code newer than
+    this deployment must not preempt paid work.
+    """
+    return sa.case(
+        {name: lane.rank for name, lane in LANES.items()},
+        value=audit_sessions.c.lane,
+        else_=max(lane.rank for lane in LANES.values()) + 1,
+    )
+
 
 def _lease_dead(now: str) -> sa.ColumnElement[bool]:
     """No LIVE claim covers this row: unclaimed, or claimed with a lapsed lease.
@@ -147,6 +191,23 @@ def _not_demo() -> sa.ColumnElement[bool]:
 
 
 @dataclass(frozen=True)
+class EnqueueSpec:
+    """One row to create, for a caller enqueueing a BATCH.
+
+    ``dedupe_key`` present means "share this work with anyone already doing it";
+    absent means "this caller gets its own audit". A repo scan sets it (300 deps
+    across two sets are one audit each, not two), a paid audit never does.
+    """
+
+    package_name: str
+    version: str | None
+    lane: str
+    org: str | None = None
+    origin: str | None = None
+    dedupe_key: str | None = None
+
+
+@dataclass(frozen=True)
 class AuditSession:
     audit_id: str
     package_name: str
@@ -158,6 +219,11 @@ class AuditSession:
     error: str | None
     claimed_by: str | None
     lease_expires_at: str | None
+    lane: str
+    org: str | None
+    origin: str | None
+    attempts: int
+    dedupe_key: str | None
     created_at: str
     updated_at: str
 
@@ -177,6 +243,10 @@ class AuditSessionStore:
         *,
         file_contents: dict[str, str] | None = None,
         package_path: str | None = None,
+        lane: str = DEFAULT_LANE,
+        org: str | None = None,
+        origin: str | None = None,
+        dedupe_key: str | None = None,
     ) -> AuditSession:
         # Rows are born 'queued'. The wait-queue bound (queued_count vs queue_size)
         # is enforced by AuditService.reserve() BEFORE create/claim — there is no
@@ -190,6 +260,11 @@ class AuditSessionStore:
             package_name=package_name,
             requested_version=version,
             status="queued",
+            lane=lane,
+            org=org,
+            origin=origin,
+            attempts=0,
+            dedupe_key=dedupe_key,
             created_at=now,
             updated_at=now,
         )
@@ -248,18 +323,23 @@ class AuditSessionStore:
             ).mappings()
             return [_session(row) for row in rows]
 
-    async def queued_count(self) -> int:
-        # The real admission bound (checked by AuditService.reserve). Demo rows are
-        # excluded so a running demo never eats a real audit's queue slot.
+    async def queued_count(self, lane: str | None = None) -> int:
+        """Queued rows, optionally in ONE lane — the admission bound's denominator.
+
+        Demo rows are excluded so a running demo never eats a real audit's queue
+        slot. ``lane`` narrows it because the bound is per-lane
+        (``AuditService.reserve``): the unbounded scan lanes are the durable buffer
+        that a repo scan of 300 deps enqueues into all at once, and counting their
+        rows against a paid caller's bound would refuse the paying customer on
+        behalf of a background scan.
+        """
+        conditions = [audit_sessions.c.status == "queued", _not_demo()]
+        if lane is not None:
+            conditions.append(audit_sessions.c.lane == lane)
         async with self._sessions() as session:
             return (
                 await session.execute(
-                    sa.select(sa.func.count())
-                    .select_from(audit_sessions)
-                    .where(
-                        audit_sessions.c.status == "queued",
-                        _not_demo(),
-                    )
+                    sa.select(sa.func.count()).select_from(audit_sessions).where(*conditions)
                 )
             ).scalar_one()
 
@@ -288,6 +368,104 @@ class AuditSessionStore:
             ).mappings()
             return [_session(row) for row in rows]
 
+    async def create_deduped(self, specs: list[EnqueueSpec]) -> list[AuditSession]:
+        """Insert one row per spec, SKIPPING any whose dedupe_key is already
+        active. Returns the rows actually created — which is the budget to charge.
+
+        Lifted from ``PanelJobQueue.enqueue_many``, semantics intact: the
+        pre-check ``SELECT`` runs inside the enqueue transaction so a duplicate
+        earlier in the SAME batch is caught too (a repo's lockfile can name one
+        package at one version twice), and the partial-unique index is the durable
+        backstop for the cross-process race the pre-check cannot close.
+
+        A spec with no ``dedupe_key`` is never deduped — see the 0009 docstring on
+        why sharing is opt-in, and why paid audits must not opt in.
+        """
+        if not specs:
+            return []
+        created: list[str] = []
+        now = now_iso()
+        async with self._sessions() as session, session.begin():
+            for spec in specs:
+                if spec.dedupe_key is not None:
+                    active = (
+                        await session.execute(
+                            sa.select(audit_sessions.c.audit_id)
+                            .where(
+                                audit_sessions.c.dedupe_key == spec.dedupe_key,
+                                audit_sessions.c.status.in_(("queued", "running")),
+                            )
+                            .limit(1)
+                        )
+                    ).first()
+                    if active is not None:
+                        continue
+                audit_id = str(uuid4())
+                await session.execute(
+                    audit_sessions.insert().values(
+                        audit_id=audit_id,
+                        package_name=spec.package_name,
+                        requested_version=spec.version,
+                        status="queued",
+                        lane=spec.lane,
+                        org=spec.org,
+                        origin=spec.origin,
+                        attempts=0,
+                        dedupe_key=spec.dedupe_key,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                created.append(audit_id)
+        # Read the rows back AFTER the enqueue transaction commits, so a caller
+        # that submits them cannot hand a worker an audit_id no other connection
+        # can see yet.
+        rows = [await self.get(audit_id) for audit_id in created]
+        assert all(row is not None for row in rows), "a just-inserted row is missing"
+        return [row for row in rows if row is not None]
+
+    async def retry(self, audit_id: str, owner: str, error: str) -> bool:
+        """Send a failed row BACK to the queue instead of terminalizing it.
+
+        Returns whether this call performed the transition. Guarded on the row
+        still being ``running`` and still ours, so a row that a reclaimer or a
+        shutdown already finalized is left alone (rowcount 0, reported not
+        asserted).
+
+        `created_at` is bumped so the retry goes to the BACK of its lane, exactly
+        as ``PanelJobQueue.fail`` did — a payload that fails fast must not spin at
+        the head of the queue ahead of work that would succeed. The claim is
+        released in the same statement: we are no longer executing it, and holding
+        a claim over a queued row we have abandoned would keep it unclaimable for
+        a whole TTL.
+
+        `error` is recorded so the reason survives into the next attempt, but the
+        status stays non-terminal and NO terminal event is appended — a retry is
+        not something a consumer of the audit's event stream may see as an
+        ending. That ordering matters: `verdict_reached`/`audit_error` are the
+        stream's terminal frames and readers stop at the first one, so emitting
+        one here and then continuing to work would strand every follower.
+        """
+        statement = (
+            audit_sessions.update()
+            .where(
+                audit_sessions.c.audit_id == audit_id,
+                audit_sessions.c.claimed_by == owner,
+                audit_sessions.c.status == "running",
+            )
+            .values(
+                status="queued",
+                attempts=audit_sessions.c.attempts + 1,
+                error=error,
+                claimed_by=None,
+                lease_expires_at=None,
+                created_at=now_iso(),
+                updated_at=now_iso(),
+            )
+        )
+        async with self._sessions() as session, session.begin():
+            return (await session.execute(statement)).rowcount == 1
+
     # ----------------------------------------------------------------- claims
     # The durable work claim. These six methods ARE the ownership primitive —
     # AuditService keeps no ownership state of its own, so "who will finalize
@@ -307,21 +485,44 @@ class AuditSessionStore:
         — and is silently omitted on sqlite, which serializes writers anyway.
         The guarded UPDATE is what makes the sqlite path correct, and a second
         line of defence on postgres.
+
+        ORDER: lane rank, then org fairness, then FIFO. Both leading terms are
+        lifted from `PanelJobQueue.claim_next` because the fold has to preserve
+        what they bought — lane rank is what stops a 300-dep repo scan from
+        sitting in front of a paid audit, and org fairness (fewest rows currently
+        running for that org, NULL-safe) is what stops one big install starving
+        every other. `_lane_rank()` renders the registry as a CASE so the ordering
+        cannot disagree with the policy the rest of the code reads.
         """
         now = now_iso()
         expires = lease_deadline(ttl_seconds)
+        peer = audit_sessions.alias("peer")
+        running_for_org = (
+            sa.select(sa.func.count())
+            .select_from(peer)
+            .where(
+                peer.c.status == "running",
+                peer.c.org.is_not_distinct_from(audit_sessions.c.org),
+            )
+            .scalar_subquery()
+        )
         async with self._sessions() as session, session.begin():
             row = (
                 (
                     await session.execute(
                         sa.select(audit_sessions)
                         .where(_claimable(now))
-                        # FIFO with a STABLE tiebreak. `created_at` alone leaves
-                        # the order undefined between rows born in the same
-                        # millisecond, and those are not rare: now_iso() is
-                        # millisecond precision and two successive calls
-                        # measurably return the identical string.
-                        .order_by(audit_sessions.c.created_at, audit_sessions.c.audit_id)
+                        # Lane, then fairness, then FIFO with a STABLE tiebreak.
+                        # `created_at` alone leaves the order undefined between
+                        # rows born in the same millisecond, and those are not
+                        # rare: now_iso() is millisecond precision and two
+                        # successive calls measurably return the identical string.
+                        .order_by(
+                            _lane_rank(),
+                            running_for_org,
+                            audit_sessions.c.created_at,
+                            audit_sessions.c.audit_id,
+                        )
                         .limit(1)
                         .with_for_update(skip_locked=True)
                     )
