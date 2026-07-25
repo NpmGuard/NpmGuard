@@ -18,18 +18,16 @@
  *  T4  ok with zero deps → EMPTY, not degraded — "no dependency baseline yet" is a
  *                                     claim only a successful read can support.
  *
- * T5–T7 were added with the recomposition onto the design system.
- *
- *  T5  a failed read reaches NO empty state and NO posture claim. The page grew a
+ *  T5  a failed read reaches NO empty state and NO posture claim. The page has a
  *                                     second `EmptyState` (the "nothing matches this
  *                                     filter" branch) and a `SeverityRibbon`, and each
- *                                     is a new way to look confident over data that
- *                                     was never read.
+ *                                     is a way to look confident over data that was
+ *                                     never read.
  *  T6  the PENDING part of the posture is hatched, never coloured, and the page says
- *                                     so in words. The old rail painted pending BLUE,
- *                                     which is how a half-finished scan came to read
- *                                     as a settled posture — §2.2 rule 2 makes the
- *                                     progress axis achromatic for exactly this.
+ *                                     so in words. Painting pending BLUE is how a
+ *                                     half-finished scan reads as a settled posture —
+ *                                     §2.2 rule 2 makes the progress axis achromatic
+ *                                     for exactly this.
  *
  * Blackbox: msw at the boundary, assertions on the accessibility tree and the
  * `data-state` markers.
@@ -122,8 +120,8 @@ describe("RepoDetail — T1 a 404 is a failed read with a way out", () => {
 
     const surface = await screen.findByRole("alert");
     expect(surface).toHaveAttribute("data-degraded", "surface");
-    // Never the empty-state box it used to be: "no dependencies" and "we could
-    // not see this repository" must not look the same.
+    // Never an empty-state box: "no dependencies" and "we could not see this
+    // repository" must not look the same.
     expect(document.querySelector('[data-state="empty"]')).toBeNull();
     expect(screen.queryByRole("button", { name: /Retry/ })).toBeNull();
     expect(screen.getByRole("link", { name: /Back to dashboard/ })).toBeInTheDocument();

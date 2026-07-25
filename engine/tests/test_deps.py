@@ -22,11 +22,11 @@
 #      every require crashes → the run DEFERS, with a reason that was false
 #   C4 a UTF-8 BOM does not hide dependencies. npm strips a BOM before parsing
 #      (verified: `npm pkg get dependencies` reads a BOM'd manifest fine), so a
-#      plain utf-8 read disagreed with the tool that produced the file
+#      plain utf-8 read disagrees with the tool that produced the file
 #   C5 INVARIANT: installed=True ⇒ node_modules exists with ≥1 package. `tar c` of
-#      a missing directory exits 2 AND writes a valid EMPTY archive, which used to
-#      extract cleanly and return installed=True / package_count=0 — a claimed
-#      success for a total failure
+#      a missing directory exits 2 AND writes a valid EMPTY archive, which extracts
+#      cleanly — installed=True / package_count=0 is a claimed success for a total
+#      failure
 #   C6 a nonzero tar exit is a reported error, never a silently short archive
 #   C7 a real archive extracts and is counted
 import asyncio

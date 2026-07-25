@@ -273,14 +273,26 @@ class ExperimentSetupPlan(StrictLlmOutput):
     preloadCode: str | None
 
 
-def hypothesis_submission(targets: list[str]) -> type[BaseModel]:
+class HypothesisPlan(StrictLlmOutput):
+    """One armed hypothesis as the model returns it.
+
+    The shape is fixed; only ``triggerTarget``'s *description* varies, because it
+    names the entry points of the package under audit. ``hypothesis_submission``
+    therefore subclasses this to restate that one field rather than building the
+    whole model dynamically — the decoder gets a type it can be checked against.
+    """
+
+    description: str
+    claim: ClaimDraft
+    severity: Severity
+    setup: ExperimentSetupPlan
+    triggerTarget: str
+
+
+def hypothesis_submission(targets: list[str]) -> type[HypothesisPlan]:
     return create_model(
         "HypothesisPlan",
-        __base__=StrictLlmOutput,
-        description=(str, ...),
-        claim=(ClaimDraft, ...),
-        severity=(Severity, ...),
-        setup=(ExperimentSetupPlan, ...),
+        __base__=HypothesisPlan,
         triggerTarget=(
             str,
             Field(
@@ -631,7 +643,7 @@ class KitHypothesisGenerator:
             "Suggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
         )
 
-        def decode_plan(submission: BaseModel) -> tuple[BaseModel, list[ToolCall]]:
+        def decode_plan(submission: HypothesisPlan) -> tuple[HypothesisPlan, list[ToolCall]]:
             setup = submission.setup
             calls: list[ToolCall] = []
             target = submission.triggerTarget.strip()

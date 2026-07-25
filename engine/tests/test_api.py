@@ -186,14 +186,13 @@ def test_invalid_audit_request_matrix(make_app, tmp_path, base, payload) -> None
             # prose, which this contract forbids.
             assert parsed.details
             assert all(issue.message for issue in parsed.details)
-            # FINDING, pinned rather than blessed: `field` is `""` for most of this
-            # matrix. `validation.py` enforces the package-name and semver rules in a
+            # Pinned rather than blessed: `field` is `""` for most of this matrix.
+            # `validation.py` enforces the package-name and semver rules in a
             # `model_validator(mode="after")`, which pydantic reports with an empty
             # `loc` because the rule is declared about the body rather than about a
             # key — so only the `Field(min_length/max_length)` rules name their field.
-            # This was equally true of the raw pydantic `details` that used to be
-            # emitted, so nothing was lost in declaring the shape; moving those two
-            # rules to `field_validator`s would populate `field` for the whole matrix.
+            # Moving those two rules to `field_validator`s would populate `field`
+            # for the whole matrix.
             assert {issue.field for issue in parsed.details} <= {"", "packageName", "version"}
         assert _session_count(tmp_path) == 0  # a launch-despite-400 would fail here
 

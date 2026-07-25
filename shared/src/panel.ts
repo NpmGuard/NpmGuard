@@ -1,11 +1,10 @@
 import { z } from "zod";
 
 /**
- * The GitHub-panel wire contract, authored at its TARGET shape (design §4.4 +
- * findings C2, decision D-5): generalized `AuditSet`, 3-state `Outcome`,
- * `verdictReason` + `jobState` everywhere, every error body named. The engine
- * does not emit this yet — Phase 1 / R-1 migrate to it, and each divergence is
- * a failing boundary rather than a judgement call.
+ * The GitHub-panel wire contract: a generalized `AuditSet`, the 3-state
+ * `Outcome`, `verdictReason` + `jobState` everywhere, and a named body for
+ * every error. This file is the authority — an engine divergence from it is a
+ * failing boundary, not a judgement call.
  */
 
 // INVARIANT: a WIRE schema expresses nullability as .nullable(), never
@@ -112,21 +111,19 @@ export type AuditSetTrigger = z.infer<typeof AuditSetTriggerSchema>;
 // set. That is what makes the invariant below unrepresentable-if-violated
 // instead of merely asserted.
 //
-// `failed` was removed in R-1 after the falsification pass found zero producers:
-// every way a set can go wrong already resolves into its rollup. A refused
-// budget or a missing lockfile raises BEFORE any row exists (no set at all); a
-// lost enqueue batch leaves items with no verdict and no live job, which is
-// outcome ERROR per §4.4; a crashed engine leaves the set `running` until the
-// boot sweep finalizes it, again as ERROR. A reserved-but-unproduced status is
-// the exact class this contract deletes — and with it went `AuditSet.error`,
-// whose only stated meaning was "non-null when status === failed".
+// There is deliberately no `failed` status, and no `AuditSet.error`: every way a
+// set can go wrong already resolves into its rollup. A refused budget or a
+// missing lockfile raises BEFORE any row exists (no set at all); a lost enqueue
+// batch leaves items with no verdict and no live job, i.e. outcome ERROR; a
+// crashed engine leaves the set `running` until the boot sweep finalizes it,
+// again as ERROR. A reserved-but-unproduced status is the class this contract
+// exists to delete.
 export const AuditSetStatusSchema = z.enum(["running", "done"]);
 export type AuditSetStatus = z.infer<typeof AuditSetStatusSchema>;
 
-// The single counters object over a set's items — it replaces today's
-// `{total, cached, audited, failed}` PLUS a separate `{verdict, dangerous,
-// suspect, unknown, safe}` rollup. Two objects counting the same items, neither
-// summing to anything checkable, is how `unknown` came to mean three facts.
+// The single counters object over a set's items. Two objects counting the same
+// items, neither summing to anything checkable, is how a bucket like `unknown`
+// comes to mean three different facts.
 //
 // INVARIANT: safe + dangerous + error + pending == total. Every item is in
 // exactly one of those four states, which is what makes an `unknown` bucket
@@ -177,17 +174,16 @@ export const AuditSetSchema = z.object({
   status: AuditSetStatusSchema,
   rollup: AuditSetRollupSchema,
   // Populated for repo origins. A snapshot without a commit sha is not
-  // reproducible, which is why the public-scan path hardcoding null was a bug.
+  // reproducible.
   commitSha: z.string().nullable(),
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
 });
 export type AuditSet = z.infer<typeof AuditSetSchema>;
 
-// One (name, version) inside a set — the ONE dep projection. It replaces four
-// divergent ones (repo detail, repo list, public detail, verdict index), and
-// unifies on the richer names: `verdictReason` (not `reason`) and `jobState`
-// (not a boolean `active`, which collapsed queued/running/failed into one bit).
+// One (name, version) inside a set — the ONE dep projection, shared by repo
+// detail, repo list, public detail and the verdict index. `jobState` rather than
+// a boolean `active`, which collapses queued/running/failed into one bit.
 //
 // INVARIANT: the set's rollup counts this item as concluded iff `outcome !==
 // null`; `jobState` describes the attempt, never the result.
@@ -222,9 +218,9 @@ export const PanelRepoSchema = z.object({
   // Continuous protection: push webhooks trigger a delta scan + check-run.
   protected: z.boolean(),
   // The repo's most recent `repo_scan` set; null iff it has never been scanned.
-  // Kept deliberately (resolves O-4): the dashboard's entire triage story — the
-  // attention filter, "not audited", the posture rail, the audited counter —
-  // reads it, so the engine hardcoding null makes four surfaces inert.
+  // The dashboard's entire triage story — the attention filter, "not audited",
+  // the posture rail, the audited counter — reads this, so a null here makes
+  // four surfaces inert.
   lastScan: AuditSetSchema.nullable(),
 });
 export type PanelRepo = z.infer<typeof PanelRepoSchema>;
@@ -253,9 +249,9 @@ export const AlertSchema = z.object({
   // every tone map to accept any string) and NOT widened to Outcome: a
   // reserved-but-unproduced value is the exact class this contract deletes.
   outcome: z.literal("DANGEROUS"),
-  // Replaces the old `kind: "scan" | "watch"`, which was derived as
-  // `"watch" if scan_id is None` and therefore filed every public-repo audit's
-  // finding as a watch alert. Origin belongs to the set that raised it.
+  // The origin of the SET that raised the alert. Deriving it from the alert
+  // itself (`"watch" if scan_id is None`) files every public-repo audit's
+  // finding as a watch alert.
   origin: AuditSetOriginSchema,
   message: z.string(),
   seen: z.boolean(),
@@ -274,11 +270,10 @@ export type AlertsResponse = z.infer<typeof AlertsResponseSchema>;
 //
 // `deps` is the SET's item list, never the repo's current dep index: summing
 // `deps` must reproduce `set.rollup` (modulo truncation), and that is only true
-// when the two describe one population. R-1 therefore made every `repo_scan` set
-// cover the whole parsed lockfile — the push path's "audit only what changed" is
-// an ENQUEUE optimization that the cache-first check already performs, so a
-// narrower item set bought nothing and made `lastScan` a posture it could not
-// honestly claim.
+// when the two describe one population, so every `repo_scan` set covers the
+// whole parsed lockfile. The push path's "audit only what changed" is an ENQUEUE
+// optimization the cache-first check already performs; narrowing the ITEM set
+// instead makes `lastScan` a posture it cannot honestly claim.
 export const RepoDetailResponseSchema = z.object({
   repo: PanelRepoSchema,
   // The scan being shown: the live one if any, else the most recent. Null iff
@@ -313,9 +308,8 @@ export type RepoDetailResponse = z.infer<typeof RepoDetailResponseSchema>;
 // SNAPSHOT of its subject, so replaying one is idempotent.
 export const ScanDepFrameSchema = z.object({
   type: z.literal("dep"),
-  // The whole item, not a flattened subset. The old frame dropped direct /
-  // range / auditedAt / cached, making the stream a second, lossier projection
-  // of the same dep shape the detail response returns.
+  // The whole item, not a flattened subset — anything less makes the stream a
+  // second, lossier projection of the dep shape the detail response returns.
   item: AuditSetItemSchema,
 });
 export type ScanDepFrame = z.infer<typeof ScanDepFrameSchema>;
@@ -359,6 +353,14 @@ export const PublicRepoSchema = z.object({
   // snapshot reproducible together with `set.commitSha`.
   lockfilePath: z.string(),
   lockfileSha: z.string(),
+  // How many distinct (name, version) pairs the LOCKFILE held. `set.rollup.total`
+  // is how many this scan COVERS, and the two differ when the per-user cost
+  // ceiling bound the scan (D-1 / F-F6): past it, a scan is served from cached
+  // verdicts rather than refused. The difference is the number of packages this
+  // scan says nothing about, and a surface aimed at strangers has to be able to
+  // say that — silently reporting a partial scan as a whole one is the same
+  // credibility failure as overstating SAFE.
+  lockfileDepCount: z.number().int().nonnegative(),
 });
 export type PublicRepo = z.infer<typeof PublicRepoSchema>;
 
@@ -366,16 +368,11 @@ export const PublicRepoScanSchema = z.object({
   id: z.number().int(),
   repo: PublicRepoSchema,
   // Progress, rollup, commitSha, error and timing all live here (origin
-  // `public_repo_scan`) — not duplicated onto the scan row as they are today.
+  // `public_repo_scan`), never duplicated onto the scan row.
   set: AuditSetSchema,
   // The gh_user who asked. A sign-in is required and is the whole abuse ceiling
   // (D-1); what remains is cost control, not abuse control.
   requestedBy: z.number().int(),
-  // Nullable per D-1 / F-F5: scanning a public repo requires a GitHub sign-in
-  // and nothing more — no App installation, none charged — so a requester with
-  // no installation has neither of these.
-  installationId: z.number().int().nullable(),
-  accountLogin: z.string().nullable(),
 });
 export type PublicRepoScan = z.infer<typeof PublicRepoScanSchema>;
 
@@ -396,16 +393,14 @@ export const PublicRepoScanDetailResponseSchema = z.object({
 });
 export type PublicRepoScanDetailResponse = z.infer<typeof PublicRepoScanDetailResponseSchema>;
 
-// POST /panel/public-repos/scan (and the unauthenticated /public-scan).
+// POST /panel/public-repos/scan. The body is the repository and NOTHING else:
+// a GitHub sign-in is the whole requirement (D-1 / F-F5), so there is no account
+// to choose. Asking a visitor who has never installed the App to name an
+// installation is exactly what made this surface unreachable for the people it
+// exists for.
 export const PublicRepoScanRequestSchema = z.object({
   // Any public repo reference the engine can parse (owner/name or a URL).
   repository: z.string(),
-  // Optional (D-1): supplied only to bill a chosen account. Strict int — a
-  // boolean or "123" is not an installation id, and the two request bodies must
-  // not disagree about that. The `> 0` check stays in the one shared parser
-  // (B12): expressing it here on a NULLABLE field makes the codegen emit a
-  // field-named wrapper class into the contract module.
-  installationId: z.number().int().nullable().default(null),
 });
 export type PublicRepoScanRequest = z.infer<typeof PublicRepoScanRequestSchema>;
 
@@ -443,7 +438,6 @@ export const AccountEntitlementsSchema = z.object({
   // no billing row). Deliberately not an enum: it is the provider's fact.
   subscriptionStatus: z.string(),
   protectedRepos: UsageBucketSchema,
-  publicRepoAudits: UsageBucketSchema,
   monthlyAudits: UsageBucketSchema,
 });
 export type AccountEntitlements = z.infer<typeof AccountEntitlementsSchema>;
@@ -451,7 +445,6 @@ export type AccountEntitlements = z.infer<typeof AccountEntitlementsSchema>;
 // Deployment-tuned ceilings (Settings), same 0-means-unlimited rule as above.
 export const PlanLimitsSchema = z.object({
   protectedRepos: z.number().int().nonnegative(),
-  publicRepoAudits: z.number().int().nonnegative(),
   monthlyAudits: z.number().int().nonnegative(),
 });
 export type PlanLimits = z.infer<typeof PlanLimitsSchema>;
@@ -556,16 +549,13 @@ export const AppNotConfiguredSchema = z.object({
 });
 export type AppNotConfigured = z.infer<typeof AppNotConfiguredSchema>;
 
-export const CapResourceSchema = z.enum([
-  "protected_repos",
-  "public_repo_audits",
-  "monthly_audits",
-]);
+export const CapResourceSchema = z.enum(["protected_repos", "monthly_audits"]);
 export type CapResource = z.infer<typeof CapResourceSchema>;
 
-// 402 on scan / protect / public-scan. Carries FRESH entitlements so the client
-// patches its ledger from the very response that opened the paywall (F-E3) — no
-// second request, no stale quota render.
+// 402 on scan / protect. NOT on the public scan: that surface is not billed, so
+// its ceiling degrades coverage instead of opening a paywall. Carries FRESH
+// entitlements so the client patches its ledger from the very response that
+// opened the paywall (F-E3) — no second request, no stale quota render.
 export const CapExceededSchema = z.object({
   error: z.string(),
   cap: z.literal(true),
@@ -574,6 +564,15 @@ export const CapExceededSchema = z.object({
   entitlements: AccountEntitlementsSchema,
 });
 export type CapExceeded = z.infer<typeof CapExceededSchema>;
+
+// 429 from the public scan when the requester already has `limit` scans live.
+// A concurrency bound, not a quota — named separately from CapExceeded because
+// the honest answer is "wait for one to finish" and never "upgrade".
+export const TooManyLiveScansSchema = z.object({
+  error: z.string(),
+  limit: z.number().int().positive(),
+});
+export type TooManyLiveScans = z.infer<typeof TooManyLiveScansSchema>;
 
 // 409 from every scan trigger, repo and public alike. NOT a red banner: a set is
 // already live and streamable, so the caller streams `scanId` instead. Naming it

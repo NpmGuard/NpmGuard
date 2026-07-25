@@ -63,7 +63,9 @@ def range_satisfies(version: str, range_spec: str | None) -> bool:
         return False
     try:
         rng = NpmVersionRange.from_native(range_spec)
-        return SemverVersion(version) in rng
+        # univers' versions are attrs classes; ty does not model the attrs-generated
+        # __init__, so it reads this constructor as taking no arguments.
+        return SemverVersion(version) in rng  # ty: ignore[too-many-positional-arguments]
     except Exception:  # noqa: BLE001 - non-semver range / bad version => not adoptable
         return False
 

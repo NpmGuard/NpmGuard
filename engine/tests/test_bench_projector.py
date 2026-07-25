@@ -56,9 +56,11 @@ from npmguard.bench.projector import (
     project,
 )
 from npmguard.contract import models as contract
+from npmguard.contract.kinds import BenchVerdict
+from tests.support.optional import present
 
 
-def _entry(expected: str = "DANGEROUS", name: str = "test-pkg-fixture") -> Entry:
+def _entry(expected: BenchVerdict = "DANGEROUS", name: str = "test-pkg-fixture") -> Entry:
     return Entry(
         id=1,
         corpus_id=2,
@@ -74,7 +76,7 @@ def _entry(expected: str = "DANGEROUS", name: str = "test-pkg-fixture") -> Entry
 
 
 def _item(
-    verdict: str | None = None,
+    verdict: BenchVerdict | None = None,
     *,
     confirmed: int = 0,
     dealbreaker: str | None = None,
@@ -290,9 +292,9 @@ def test_wilson_matches_the_published_arithmetic() -> None:
     p=0.70 at n=20 -> [48.1%, 85.5%]."""
     perfect = Rate(20, 20)
     assert perfect.point == 1.0
-    assert round(perfect.lower * 1000) == 839
+    assert round(present(perfect.lower) * 1000) == 839
     fourteen = Rate(14, 20)
-    lower, upper = fourteen.interval
+    lower, upper = present(fourteen.interval)
     assert (round(lower * 1000), round(upper * 1000)) == (481, 855)
 
 
@@ -306,9 +308,9 @@ def test_rate_with_no_denominator_has_no_number() -> None:
 def test_lower_bound_makes_corpus_size_self_motivating() -> None:
     """C24: a perfect score at n=20 bounds at 83.9%; at n=60 at 94.0%. Nobody has
     to be argued into expanding the corpus — the headline number does it."""
-    assert round(Rate(20, 20).lower * 1000) == 839
-    assert round(Rate(60, 60).lower * 1000) == 940
-    assert Rate(60, 60).lower > Rate(20, 20).lower
+    assert round(present(Rate(20, 20).lower) * 1000) == 839
+    assert round(present(Rate(60, 60).lower) * 1000) == 940
+    assert present(Rate(60, 60).lower) > present(Rate(20, 20).lower)
 
 
 def test_percentile_of_nothing_is_none() -> None:
@@ -373,7 +375,7 @@ def test_proof_and_dealbreaker_share_sum_to_one() -> None:
     """C28: over caught OBSERVATIONS, not entries. Detection without the
     dealbreaker share is uninterpretable."""
     metrics = project("sha", _corpus_rows(), codes=_codes())
-    assert metrics.proof_share.point + metrics.dealbreaker_share.point == 1.0
+    assert present(metrics.proof_share.point) + present(metrics.dealbreaker_share.point) == 1.0
     assert metrics.dealbreaker_share.k == 2  # the two shell-pipe observations
 
 
@@ -402,7 +404,7 @@ def test_a_void_heavy_run_is_not_publishable() -> None:
     rows = _corpus_rows()
     rows.append((_entry(name="test-pkg-mal-9"), [_item(None, error="docker")]))
     metrics = project("sha", rows, codes={**_codes(), ("test-pkg-mal-9", 0): "NPMGUARD-0020"})
-    assert metrics.void_share > 0.05
+    assert present(metrics.void_share) > 0.05
     assert not metrics.publishable
     good = project("sha", _corpus_rows(), codes=_codes())
     assert good.void_count == 0 and good.publishable

@@ -53,12 +53,6 @@ const RESOURCE_META: Record<
     copy: (limit) =>
       `The Free plan protects up to ${limit} ${limit === 1 ? "repository" : "repositories"} with continuous monitoring. Unprotect one, or upgrade for more.`,
   },
-  public_repo_audits: {
-    title: "Free repository allowance used",
-    meterLabel: "Public repository audits",
-    copy: (limit) =>
-      `Free includes ${limit} distinct public ${limit === 1 ? "repository" : "repositories"}. Re-auditing one you already scanned remains free.`,
-  },
   monthly_audits: {
     title: "Monthly audit budget reached",
     meterLabel: "Audits this month",
@@ -83,9 +77,7 @@ export function UpgradeDialog() {
   const bucket: UsageBucket =
     paywall.resource === "protected_repos"
       ? entitlements.protectedRepos
-      : paywall.resource === "public_repo_audits"
-        ? entitlements.publicRepoAudits
-        : entitlements.monthlyAudits;
+      : entitlements.monthlyAudits;
   // The dialog's OWN subject — the exhausted bucket — comes from the 402 body, so
   // it renders in full even when the billing read failed. What the billing read
   // adds is the Pro offer beside it, and each of those is guarded on its own.
@@ -149,16 +141,14 @@ export function UpgradeDialog() {
                 </li>
                 <li>
                   <span className="font-mono tabular-nums text-text">
-                    {limitLabel(pro.publicRepoAudits)}
-                  </span>{" "}
-                  public repository audits
-                </li>
-                <li>
-                  <span className="font-mono tabular-nums text-text">
                     {limitLabel(pro.monthlyAudits)}
                   </span>{" "}
                   package audits per month
                 </li>
+                {/* Public repository scans are deliberately NOT listed as a plan
+                    perk: they are free for any signed-in user and billed to
+                    nobody (D-1), so selling them here would be selling something
+                    the Free plan already has. */}
               </ul>
             )}
             <p className="text-2xs text-text-3">

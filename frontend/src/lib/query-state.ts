@@ -12,8 +12,8 @@
  *
  * So there is exactly one vocabulary, and this file maps onto it. Do not add a
  * second one: a hook that returns `{data, isLoading, error}` hands every call
- * site the same three fields the old store handed them, and the bug class comes
- * straight back.
+ * site three fields it can combine wrongly, and the bug class comes straight
+ * back.
  *
  * HOW TO RENDER a `LoadState`, the rule this codebase follows:
  *

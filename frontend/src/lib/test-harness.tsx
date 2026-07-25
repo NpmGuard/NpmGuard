@@ -143,7 +143,6 @@ export function entitlements(over: Partial<AccountEntitlements> = {}): AccountEn
     plan: "free",
     subscriptionStatus: "inactive",
     protectedRepos: { used: 1, limit: 1, remaining: 0 },
-    publicRepoAudits: { used: 0, limit: 3, remaining: 3 },
     monthlyAudits: { used: 0, limit: 100, remaining: 100 },
     ...over,
   };
@@ -153,12 +152,11 @@ export function billingResponse(over: Partial<BillingResponse> = {}): BillingRes
   return {
     accounts: [entitlements()],
     plans: {
-      free: { protectedRepos: 1, publicRepoAudits: 3, monthlyAudits: 100 },
-      pro: { protectedRepos: 0, publicRepoAudits: 0, monthlyAudits: 0 },
+      free: { protectedRepos: 1, monthlyAudits: 100 },
+      pro: { protectedRepos: 0, monthlyAudits: 0 },
     },
     checkoutEnabled: true,
-    // `currency` is nullable on the wire; the fixture exercises the null the
-    // hand-written frontend type used to forbid.
+    // `currency` is nullable on the wire, and the fixture exercises that null.
     price: { amount: 900, currency: null, interval: "month" },
     ...over,
   };

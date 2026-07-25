@@ -1,21 +1,30 @@
 /** One typed function per DEV engine route (engine/npmguard/api.py). */
 
-import { AuditReportSchema, type AuditReport } from "@npmguard/shared";
-import { getJson, postJson } from "./api-base.ts";
+import {
+  AuditReportSchema,
+  CheckoutResponseSchema,
+  CheckoutStatusSchema,
+  DemoPackagesResponseSchema,
+  PackageIndexResponseSchema,
+  PackageReportResponseSchema,
+  PublicConfigSchema,
+  ResolveResponseSchema,
+  StartAuditResponseSchema,
+  type AuditReport,
+  type CheckoutResponse,
+  type CheckoutStatus,
+  type DemoPackagesResponse,
+  type PackageIndexResponse,
+  type PackageReportResponse,
+  type PublicConfig,
+  type ResolveResponse,
+  type StartAuditResponse,
+} from "@npmguard/shared";
 import { apiBase } from "./config.ts";
-import { ContractViolationError, getWire, parseWire } from "./wire.ts";
-import type {
-  CheckoutResponse,
-  CheckoutStatus,
-  PackageReportResponse,
-  PackageSummary,
-  PublicConfig,
-  ResolveResponse,
-  StartAuditResponse,
-} from "./engine-types.ts";
+import { getWire, postWire } from "./wire.ts";
 
 export function fetchPublicConfig(): Promise<PublicConfig> {
-  return getJson(`${apiBase()}/config/public`, "Could not load configuration");
+  return getWire(`${apiBase()}/config/public`, PublicConfigSchema, "GET /config/public");
 }
 
 /** Resolve a dist-tag ("latest") to a concrete semver. The engine rejects
@@ -23,7 +32,11 @@ export function fetchPublicConfig(): Promise<PublicConfig> {
  * (@scope/pkg) — the splat route keeps the slash unencoded. */
 export function resolveVersion(name: string, version?: string): Promise<ResolveResponse> {
   const query = version ? `?version=${encodeURIComponent(version)}` : "";
-  return getJson(`${apiBase()}/resolve/${name}${query}`, "Could not resolve the package version");
+  return getWire(
+    `${apiBase()}/resolve/${name}${query}`,
+    ResolveResponseSchema,
+    `GET /resolve/${name}`,
+  );
 }
 
 export type StartAuditPayload =
@@ -34,15 +47,31 @@ export type StartAuditPayload =
 /** POST /audit/stream — idempotent per payment proof (replays return the same
  * auditId). */
 export function startAuditStream(payload: StartAuditPayload): Promise<StartAuditResponse> {
-  return postJson(`${apiBase()}/audit/stream`, payload, "Could not start the audit");
+  return postWire(
+    `${apiBase()}/audit/stream`,
+    StartAuditResponseSchema,
+    "POST /audit/stream",
+    payload,
+    "Could not start the audit",
+  );
 }
 
 export function startDemo(packageName: string): Promise<StartAuditResponse> {
-  return postJson(`${apiBase()}/demo/start`, { packageName }, "Could not start the demo");
+  return postWire(
+    `${apiBase()}/demo/start`,
+    StartAuditResponseSchema,
+    "POST /demo/start",
+    { packageName },
+    "Could not start the demo",
+  );
 }
 
-export function fetchDemoPackages(): Promise<{ packages: string[] }> {
-  return getJson(`${apiBase()}/demo/packages`, "Could not load demo packages");
+export function fetchDemoPackages(): Promise<DemoPackagesResponse> {
+  return getWire(
+    `${apiBase()}/demo/packages`,
+    DemoPackagesResponseSchema,
+    "GET /demo/packages",
+  );
 }
 
 export function startCheckout(
@@ -50,15 +79,21 @@ export function startCheckout(
   version?: string,
   email?: string,
 ): Promise<CheckoutResponse> {
-  return postJson(
+  return postWire(
     `${apiBase()}/checkout`,
+    CheckoutResponseSchema,
+    "POST /checkout",
     { packageName, version, email },
     "Could not start checkout",
   );
 }
 
 export function fetchCheckoutStatus(sessionId: string): Promise<CheckoutStatus> {
-  return getJson(`${apiBase()}/checkout/${sessionId}/status`, "Could not read the checkout status");
+  return getWire(
+    `${apiBase()}/checkout/${sessionId}/status`,
+    CheckoutStatusSchema,
+    `GET /checkout/${sessionId}/status`,
+  );
 }
 
 /** 200 report once terminal. The engine answers 202 {status} while still
@@ -90,33 +125,24 @@ export async function fetchAuditFile(
   return res.text();
 }
 
-export function fetchPackages(): Promise<{ packages: PackageSummary[] }> {
-  return getJson(`${apiBase()}/packages`, "Could not load audited packages");
+export function fetchPackages(): Promise<PackageIndexResponse> {
+  return getWire(`${apiBase()}/packages`, PackageIndexResponseSchema, "GET /packages");
 }
 
 /** `name` may be scoped (@scope/pkg) — the slash stays unencoded, the engine
  * mounts a splat route.
  *
- * The envelope has no schema in `@npmguard/shared` (see `engine-types.ts`), so it
- * is checked structurally while the part that carries structure — the report — is
- * delegated to `AuditReportSchema`. That split is deliberate rather than lazy:
- * the report is where a drifted engine field actually corrupts a view, and it is
- * the half a hand-written check could get wrong. The two envelope strings only
- * label the page.
- * TODO(contract): author this envelope in `shared/src/backend.ts` and delete the
- * structural half. */
-export async function fetchPackageReport(
+ * The whole envelope is parsed, report included. This used to be a hand-written
+ * structural check around a delegated `AuditReportSchema` parse, because the
+ * envelope had no schema; it now has one, so there is nothing left to hand-check. */
+export function fetchPackageReport(
   name: string,
   version?: string,
 ): Promise<PackageReportResponse> {
   const query = version ? `?version=${encodeURIComponent(version)}` : "";
-  const what = `GET /package/${name}/report`;
-  const raw = await getJson<unknown>(`${apiBase()}/package/${name}/report${query}`, "No audit report found");
-  const envelope = (raw ?? {}) as Record<string, unknown>;
-  const report = parseWire(AuditReportSchema, envelope["report"], `${what} (report)`);
-  const { packageName, version: reportedVersion } = envelope;
-  if (typeof packageName !== "string" || typeof reportedVersion !== "string") {
-    throw new ContractViolationError(what, "packageName, version: expected string", raw);
-  }
-  return { report, version: reportedVersion, packageName };
+  return getWire(
+    `${apiBase()}/package/${name}/report${query}`,
+    PackageReportResponseSchema,
+    `GET /package/${name}/report`,
+  );
 }

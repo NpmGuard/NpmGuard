@@ -60,8 +60,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "npmguard_audit_claims_0008"
-down_revision = "npmguard_verdict_domain_0007"
+revision = "npmguard_audit_claims_0009"
+down_revision = "npmguard_public_requester_0008"
 branch_labels = None
 depends_on = None
 
@@ -83,7 +83,7 @@ def downgrade() -> None:
     # live claim state, which is meaningful only to a running process: every row's
     # audit_id, status, report, error and event history is untouched. A `running`
     # row that loses its claim on the way down lands in precisely the state the
-    # pre-0008 code expects, because that code recovers EVERY non-demo `running`
+    # claim-unaware code expects, because that code recovers EVERY non-demo `running`
     # row at startup and never consulted a claim in the first place.
     #
     # batch mode IS required here — sqlite has no ALTER TABLE DROP COLUMN before

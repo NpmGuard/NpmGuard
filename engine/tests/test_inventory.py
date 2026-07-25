@@ -8,29 +8,27 @@
 #   C3  unreadable manifest (absent; a directory in its place) → same class,
 #       located as "could not be read" rather than "not valid JSON"
 #   C4  valid JSON that is not an object (`[]`, `null`, `"x"`, `7`) → same class.
-#       This used to escape as an AttributeError on `package.get` → NPMGUARD-9999,
-#       non-retryable HTTP 500.
+#       Without it this escapes as an AttributeError on `package.get` →
+#       NPMGUARD-9999, non-retryable HTTP 500.
 #   C5  bytes that are not UTF-8 → the same content class, never an unmapped
-#       UnicodeDecodeError (also a 9999 before)
+#       UnicodeDecodeError
 #   C6  a UTF-8 BOM parses (npm tolerates one) — the classes above must not turn a
 #       merely byte-prefixed manifest into a failed audit
 #   C8  `exports` is a TREE, and a leaf can sit under an array of fallbacks as well
-#       as under a dict — the recursion stopped at a list, so those runtime entry
-#       points vanished (140 of 1317 installed manifests use an array fallback).
+#       as under a dict; a recursion that stops at a list drops those runtime entry
+#       points (~11% of installed manifests use an array fallback).
 #       They are what phases.trigger_targets offers an experiment as the program to
 #       execute, so a dropped leaf is a program the engine never runs
-#   C7  the swallow this replaces, stated as the state it produced: name/version
-#       None, no scripts, entryPoints.runtime == ["index.js"], dealbreaker None —
-#       an audit that looks complete with zero manifest knowledge. Asserted as
-#       unreachable: no input in C2-C5 can return an InventoryReport at all.
+#   C7  the swallowed-manifest state — name/version None, no scripts,
+#       entryPoints.runtime == ["index.js"], dealbreaker None, i.e. an audit that
+#       looks complete with zero manifest knowledge — is UNREACHABLE: no input in
+#       C2-C5 can return an InventoryReport at all.
 # Axes deliberately NOT this file's subject: file classification and the
 # structural checks / dealbreakers of run_inventory_checks, which are covered as
 # their own boundary in test_dealbreakers.py (both checks, the install-time hook
 # classification, and the hardcoded-DANGEROUS short-circuit they trigger). C1 below
 # still asserts `entryPoints.install`, so this file pins the ONE fact the two
 # boundaries share: a `preinstall` running a shipped file is an install entry point.
-# (The FINDING this header used to carry — "no test in the suite covers the
-# dealbreaker verdict path at all" — was closed by that file.)
 import json
 
 import pytest

@@ -51,14 +51,11 @@ class AuditLog:
         # this constructor then mkdirs.
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", package_name)
         run = re.sub(r"[^a-zA-Z0-9_-]", "_", audit_id)
-        # Resolved per AuditLog, which is per audit — the same cadence as the raw
-        # `os.environ` read this replaces, so the variable stays the seam eight test
-        # modules already move this directory through. Through Settings, so the value
-        # is validated absolute: a relative root silently follows the process cwd,
-        # which for the engine is whatever systemd/uvicorn/pytest started it in, and
-        # `NPMGUARD_AUDIT_LOG_DIR=` used to fall through an `or` to the default and
-        # hide the typo. `Settings()` and not `get_settings()` for the same reason —
-        # the per-call read is the seam.
+        # Resolved per AuditLog, i.e. per audit, so `NPMGUARD_AUDIT_LOG_DIR` stays the
+        # seam tests move this directory through — hence `Settings()` rather than the
+        # cached `get_settings()`. Through Settings so the value is validated
+        # absolute: a relative root silently follows the process cwd, which for the
+        # engine is whatever systemd/uvicorn/pytest started it in.
         root = Settings().audit_log_dir
         self.audit_id = audit_id
         self.run_dir = root / f"{stamp}_{safe}_{run}"

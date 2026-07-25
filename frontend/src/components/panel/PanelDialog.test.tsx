@@ -5,9 +5,9 @@
  * wrapper deeper would test Radix twice. What is the ADAPTER's own contract, and
  * can break without a type noticing:
  *  P1  `ariaLabel` still becomes the accessible name. The three `features/**`
- *      dialogs were not edited, so the name has to survive a changed mechanism —
- *      the old shell set `aria-label`, Radix wires `aria-labelledby` from a real
- *      sr-only Title node.
+ *      dialogs pass it verbatim, so the name has to survive the mechanism the
+ *      adapter chooses: Radix wires `aria-labelledby` from a real sr-only Title
+ *      node rather than taking an `aria-label`.
  *  P2  both dismissal paths reach the caller's `onClose`. Radix reports dismissal
  *      as `onOpenChange`; translating that to the callers' signature is this
  *      file's job, and a caller whose `onClose` never fires leaves state stuck.
@@ -61,7 +61,7 @@ describe("PanelDialog — P1/P3 the preserved signature", () => {
   it("P1: ariaLabel is the accessible name and the caller's body renders verbatim", async () => {
     render(<Harness />);
     const dialog = await openDialog();
-    // The old shell passed this as `aria-label`; it is now an `sr-only` Title, so
+    // Carried as an `sr-only` `DialogTitle` rather than an `aria-label`, so
     // Radix can wire `aria-labelledby` from a real node. Same name either way,
     // which is what makes the three untouched callers keep working.
     expect(dialog).toHaveAccessibleName("Public audit snapshot 12");

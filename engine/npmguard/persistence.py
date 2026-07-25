@@ -8,6 +8,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 import sqlalchemy as sa
+from sqlalchemy.engine import CursorResult, Result
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,9 +17,22 @@ from kit_spine.db import metadata
 
 from .lanes import DEFAULT_LANE, LANES
 
-# The dedupe index's predicate, shared with alembic 0009 so the declared schema
-# and the migrated schema cannot drift.
+# The dedupe index's predicate, shared with the migration that creates it so the
+# declared schema and the migrated schema cannot drift.
 _ACTIVE_DEDUPE_WHERE = "dedupe_key IS NOT NULL AND status IN ('queued', 'running')"
+
+
+def _rowcount(result: Result[Any]) -> int:
+    """How many rows a DML statement matched.
+
+    ``execute`` is typed as returning a ``Result``; every UPDATE/DELETE actually
+    returns a ``CursorResult``, which is the only kind that carries ``rowcount``.
+    Asserting that here keeps the guarded-update invariants below reading as one
+    comparison rather than one comparison plus a type apology.
+    """
+    assert isinstance(result, CursorResult)
+    return result.rowcount
+
 
 audit_sessions = sa.Table(
     "audit_sessions",
@@ -31,7 +45,7 @@ audit_sessions = sa.Table(
     sa.Column("file_contents", sa.JSON, nullable=True),
     sa.Column("report", sa.JSON, nullable=True),
     sa.Column("error", sa.Text, nullable=True),
-    # The DURABLE work claim (alembic 0008). `claimed_by` is the opaque id of the
+    # The DURABLE work claim. `claimed_by` is the opaque id of the
     # service INCARNATION holding the row, `lease_expires_at` the instant that
     # claim goes stale. Together they replace what used to be a process-local
     # `dict[audit_id, Future]`: ownership is now a committed fact any process can
@@ -46,7 +60,7 @@ audit_sessions = sa.Table(
     # terminalize (see AuditService.close).
     sa.Column("claimed_by", sa.String(64), nullable=True),
     sa.Column("lease_expires_at", sa.String(64), nullable=True),
-    # The DISPATCH columns (alembic 0009), lifted from `panel_jobs` so one queue
+    # The DISPATCH columns, lifted from `panel_jobs` so one queue
     # can serve every class of work. `lane` decides claim order, admission bound
     # and retry budget (npmguard/lanes.py); `org` is claim FAIRNESS and not a
     # billing field; `origin` is the AuditSetOrigin an alert needs; `attempts`
@@ -97,6 +111,7 @@ def lease_deadline(seconds: float) -> str:
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z")
     )
+
 
 def _lane_rank() -> sa.ColumnElement[int]:
     """The lane registry rendered as a CASE, so claim order IS lane policy.
@@ -378,8 +393,8 @@ class AuditSessionStore:
         package at one version twice), and the partial-unique index is the durable
         backstop for the cross-process race the pre-check cannot close.
 
-        A spec with no ``dedupe_key`` is never deduped — see the 0009 docstring on
-        why sharing is opt-in, and why paid audits must not opt in.
+        A spec with no ``dedupe_key`` is never deduped: sharing is opt-in, because
+        two sets needing one pair should share an audit and two PAYERS must not.
         """
         if not specs:
             return []
@@ -464,7 +479,7 @@ class AuditSessionStore:
             )
         )
         async with self._sessions() as session, session.begin():
-            return (await session.execute(statement)).rowcount == 1
+            return _rowcount(await session.execute(statement)) == 1
 
     # ----------------------------------------------------------------- claims
     # The durable work claim. These six methods ARE the ownership primitive —
@@ -532,13 +547,13 @@ class AuditSessionStore:
             )
             if row is None:
                 return None
-            rowcount = (
+            rowcount = _rowcount(
                 await session.execute(
                     audit_sessions.update()
                     .where(audit_sessions.c.audit_id == row["audit_id"], _claimable(now))
                     .values(claimed_by=owner, lease_expires_at=expires, updated_at=now)
                 )
-            ).rowcount
+            )
             if rowcount != 1:
                 return None  # lost the guarded claim; another claimer owns it
         return replace(
@@ -565,7 +580,7 @@ class AuditSessionStore:
             .values(lease_expires_at=lease_deadline(ttl_seconds))
         )
         async with self._sessions() as session, session.begin():
-            return (await session.execute(statement)).rowcount
+            return _rowcount(await session.execute(statement))
 
     async def release_lease(self, audit_id: str, owner: str) -> bool:
         """Drop this owner's claim on a row WITHOUT touching its status.
@@ -584,7 +599,7 @@ class AuditSessionStore:
             .values(claimed_by=None, lease_expires_at=None, updated_at=now_iso())
         )
         async with self._sessions() as session, session.begin():
-            return (await session.execute(statement)).rowcount == 1
+            return _rowcount(await session.execute(statement)) == 1
 
     async def leased_by(self, owner: str) -> list[AuditSession]:
         """Every non-terminal row this owner still claims — exactly what
@@ -677,7 +692,7 @@ class AuditSessionStore:
             .values(status="running", updated_at=now_iso())
         )
         async with self._sessions() as session, session.begin():
-            rowcount = (await session.execute(statement)).rowcount
+            rowcount = _rowcount(await session.execute(statement))
         return rowcount == 1
 
     async def reset_to_queued(self, audit_id: str) -> None:
@@ -692,7 +707,7 @@ class AuditSessionStore:
             .values(status="queued", error=None, report=None, updated_at=now_iso())
         )
         async with self._sessions() as session, session.begin():
-            rowcount = (await session.execute(statement)).rowcount
+            rowcount = _rowcount(await session.execute(statement))
         assert rowcount == 1, (
             f"reset_to_queued({audit_id}): matched {rowcount} error rows "
             "(row missing or not in error state)"
@@ -751,10 +766,10 @@ class AuditSessionStore:
             )
         )
         if session is not None:
-            rowcount = (await session.execute(statement)).rowcount
+            rowcount = _rowcount(await session.execute(statement))
         else:
             async with self._sessions() as own, own.begin():
-                rowcount = (await own.execute(statement)).rowcount
+                rowcount = _rowcount(await own.execute(statement))
         # INVARIANT: finalize transitions exactly one non-terminal (queued|running)
         # row -> done|error. A missing or already-terminal row is a lifecycle bug —
         # raise loudly, never a silent no-op or a done->error overwrite. The guard

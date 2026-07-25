@@ -100,7 +100,7 @@ async def record_safe() -> dict[str, Any]:
 
             terminal = terminal_frame(frames)
             assert terminal is not None and terminal.type == "verdict_reached", event_types(frames)
-            assert terminal.data["verdict"] == "SAFE", terminal.data
+            assert terminal.payload["verdict"] == "SAFE", terminal.data
 
             # Serve the source files the file_list advertised (non-binary only).
             # The live audit cleans up its extracted tarball, so the file bytes
@@ -207,7 +207,12 @@ async def _run_env_exfil_orchestrator(tmp_path: Path):
     hypotheses = [Hypothesis.model_validate(h) for h in bundle.hypotheses]
     graph, _, _ = build_graph(f"replay-{bundle.package}", hypotheses)
     sandbox = RecordedSandbox(bundle)
-    orchestrator_module.run_experiment = sandbox.run_experiment  # one-shot process
+    # One-shot process: patched globally and never restored. ty reads a bound
+    # method as a distinct type from the module-level function it replaces, even
+    # with an identical signature.
+    orchestrator_module.run_experiment = (  # ty: ignore[invalid-assignment]
+        sandbox.run_experiment
+    )
 
     log = AuditLog(bundle.package, f"replay-{bundle.package}")
     store = ArtifactStore(log.run_dir)
@@ -241,7 +246,13 @@ def _env_exfil_sources() -> dict[str, str]:
 
 
 async def record_dangerous() -> dict[str, Any]:
-    from npmguard.contract.models import FileRecord, FileSummary, FileVerdict, Metadata, PhaseLog
+    from npmguard.contract.models import (
+        FileRecord,
+        FileSummary,
+        FileVerdict,
+        PackageMetadata,
+        PhaseLog,
+    )
     from npmguard.graph import derive_graph_verdict
 
     tmp_path = Path(tempfile.mkdtemp(prefix="demo-env-exfil-"))
@@ -324,7 +335,7 @@ async def record_dangerous() -> dict[str, Any]:
                 "scripts": package_json.get("scripts", {}),
                 "dependencies": {},
                 "entryPoints": {"install": ["setup.js"], "runtime": ["index.js"], "bin": []},
-                "metadata": Metadata(
+                "metadata": PackageMetadata(
                     name=package_json.get("name"),
                     version=package_json.get("version"),
                     description=package_json.get("description"),

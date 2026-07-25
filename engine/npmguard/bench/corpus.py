@@ -40,9 +40,11 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast, get_args
 
 from ..config import REPO_ROOT
 from ..contract import models as contract
+from ..contract.kinds import BenchCorpusSource, BenchVerdict
 
 # Corpus manifests live beside the dataset material they describe.
 DATASET_DIR = (REPO_ROOT / "bench" / "dataset").resolve()
@@ -99,7 +101,7 @@ class Entry:
     package_name: str
     version: str
     category: str
-    expected_verdict: str
+    expected_verdict: BenchVerdict
     discovery_date: str | None
     rationale: str | None
     source_id: str | None
@@ -124,7 +126,7 @@ class Corpus:
     id: int
     name: str
     version: str
-    source: str
+    source: BenchCorpusSource
     dataset_version: str
     manifest_sha: str
     generated_at: str
@@ -157,6 +159,22 @@ def manifest_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+BENCH_VERDICTS: frozenset[BenchVerdict] = frozenset(get_args(BenchVerdict))
+BENCH_CORPUS_SOURCES: frozenset[BenchCorpusSource] = frozenset(get_args(BenchCorpusSource))
+
+
+def _one_of[T: str](value: object, allowed: frozenset[T], what: str) -> T:
+    """``value``, checked against the contract vocabulary it claims to be in.
+
+    A manifest is an on-disk artifact a published number cites, so a value
+    outside the contract has to fail at load with the offending value named —
+    not flow on as a string nothing downstream branches on.
+    """
+    if value not in allowed:
+        raise ValueError(f"{what}: {value!r} is not one of {sorted(allowed)}")
+    return cast(T, value)  # the membership check above IS the narrowing
+
+
 def _entries(payload: dict, dataset_version: str, cid: int) -> tuple[Entry, ...]:
     entries: list[Entry] = []
     for raw in payload["entries"]:
@@ -175,7 +193,9 @@ def _entries(payload: dict, dataset_version: str, cid: int) -> tuple[Entry, ...]
                 package_name=raw["packageName"],
                 version=raw["version"],
                 category=raw["category"],
-                expected_verdict=raw["expectedVerdict"],
+                expected_verdict=_one_of(
+                    raw["expectedVerdict"], BENCH_VERDICTS, f"{dataset_version}: expectedVerdict"
+                ),
                 discovery_date=raw["discoveryDate"],
                 rationale=raw["rationale"],
                 source_id=raw["sourceId"],
@@ -201,7 +221,7 @@ def load_manifest(path: Path) -> Corpus:
         id=cid,
         name=payload["name"],
         version=payload["version"],
-        source=payload["source"],
+        source=_one_of(payload["source"], BENCH_CORPUS_SOURCES, f"{path}: source"),
         dataset_version=dataset_version,
         manifest_sha=manifest_sha(path),
         generated_at=payload["generatedAt"],

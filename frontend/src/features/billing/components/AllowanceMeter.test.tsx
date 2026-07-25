@@ -1,27 +1,23 @@
 /**
  * Component: the usage-bucket allowance — AllowanceMeter.tsx.
  *
- * This file exists because the recomposition moved a guarantee. `quota.ts` used to
- * own `usageFraction`, and `quota.test.ts` asserted that an unlimited bucket
- * rendered "a token sliver, not a full or empty bar". That helper is deleted: the
- * magnitude is derived inside `ui/meter` now, from `(value, max)`. The property is
- * still load-bearing — a bar that looks full when nothing is exhausted, or empty
- * when everything is, is a fabricated measurement — so it is re-pinned here on the
- * RENDERED meter rather than on a number this feature no longer computes.
+ * The bar's magnitude is derived inside `ui/meter` from `(value, max)`, so the
+ * load-bearing property — a bar that looks full when nothing is exhausted, or
+ * empty when everything is, is a fabricated measurement — is pinned here against
+ * the RENDERED meter rather than against a number this feature computes.
  *
  * Input classes (the three states a `UsageBucket` collapses to, plus the semantic
  * one that has no bucket dimension at all):
  *  M1  role — a quota is `role="meter"`, never `role="progressbar"`. §3.2 draws
- *      this distinction explicitly, and it is not cosmetic: `progressbar` told a
- *      screen-reader user that "3 of 3 used" was 100% *done*, which is the opposite
- *      of what a spent allowance means. The regression is silent to the eye, which
- *      is exactly why it needs a test.
- *  M2  unlimited (`remaining === null`) — NO bar at all, and the `∞` label. The old
- *      5% sliver was a magnitude invented for a ceiling that does not exist.
+ *      this distinction explicitly, and it is not cosmetic: `progressbar` tells a
+ *      screen-reader user that "3 of 3 used" is 100% *done*, the opposite of what
+ *      a spent allowance means. The regression is silent to the eye, which is
+ *      exactly why it needs a test.
+ *  M2  unlimited (`remaining === null`) — NO bar at all, and the `∞` label. A
+ *      sliver would be a magnitude invented for a ceiling that does not exist.
  *  M3  exhausted (`remaining <= 0`) — `over-limit`, which is the `error` violet
  *      slot and never `danger` red (§0 rule 3: red is a claim about a package, and
- *      a spent quota is "we could not check"). The legacy class was
- *      `meter__fill--danger`, so this is the assertion that pins the fix.
+ *      a spent quota is "we could not check").
  *  M4  available — a real `role="meter"` carrying honest `aria-value*`, and the
  *      visible and announced readings are the SAME string.
  *

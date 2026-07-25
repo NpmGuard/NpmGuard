@@ -27,9 +27,9 @@
 #      fixture path enforces the same link boundary _safe_extract gives
 #      tarballs; internal relative symlinks stay allowed
 #   C9 INVARIANT: resolve_package either returns an owner for its workdir or
-#      leaves none behind. CANCELLATION is the third case that used to escape:
-#      CancelledError is a BaseException, so `except Exception` missed the phase
-#      timeout and engine shutdown, leaking the whole extracted tree
+#      leaves none behind. CANCELLATION is the third case: CancelledError is a
+#      BaseException, so an `except Exception` cleanup misses the phase timeout
+#      and engine shutdown and leaks the whole extracted tree
 #   C10 the real committed npm registry response parses: resolve_tarball_url
 #      reads the concrete version and dist.tarball off a captured version
 #      document, and a document missing either is a checked ValueError
@@ -39,6 +39,7 @@ import json
 import tarfile
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -239,7 +240,9 @@ async def test_cancelled_resolve_leaves_no_workdir(monkeypatch, tmp_path) -> Non
     assert set(tmp_path.glob("npmguard-*")) == before
 
 
-async def test_captured_registry_response_yields_version_and_tarball() -> None:
+async def test_captured_registry_response_yields_version_and_tarball(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """C10: the npm registry is an external producer, so this asserts against the
     committed capture of a real `GET /{name}/{version}` document (its
     `_recordedTarballUrl` records the URL it was captured from) rather than a
@@ -250,7 +253,7 @@ async def test_captured_registry_response_yields_version_and_tarball() -> None:
         for path in sorted(REGISTRY_FIXTURES.glob("*/packument-subset.json"))
     ]
     assert captured, "the committed registry captures are the point of this test"
-    served: dict[str, object] = {}
+    served: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=served)
@@ -259,16 +262,15 @@ async def test_captured_registry_response_yields_version_and_tarball() -> None:
     original = httpx.AsyncClient
 
     class Patched(original):  # the seam: resolve_tarball_url builds its own client
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **{**kwargs, "transport": transport})
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", Patched)
 
     for document in captured:
         served = document
-        httpx.AsyncClient = Patched
-        try:
-            version, tarball = await resolve_tarball_url(document["name"], document["version"])
-        finally:
-            httpx.AsyncClient = original
+        version, tarball = await resolve_tarball_url(document["name"], document["version"])
         assert version == document["version"]
         assert tarball == document["dist"]["tarball"]
         # Real registry documents resolve a concrete version even for /latest.
@@ -276,12 +278,8 @@ async def test_captured_registry_response_yields_version_and_tarball() -> None:
 
     for broken in ({"version": "1.0.0"}, {"dist": {"tarball": "http://x/y.tgz"}}, {}):
         served = broken
-        httpx.AsyncClient = Patched
-        try:
-            with pytest.raises(ValueError, match="malformed metadata"):
-                await resolve_tarball_url("chalk", "5.6.2")
-        finally:
-            httpx.AsyncClient = original
+        with pytest.raises(ValueError, match="malformed metadata"):
+            await resolve_tarball_url("chalk", "5.6.2")
 
 
 def test_package_root_over_real_npm_tarballs(tmp_path) -> None:
