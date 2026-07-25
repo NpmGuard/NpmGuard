@@ -12,7 +12,7 @@ from .errors import AuditIncompleteError, NpmGuardError, QueueFullError
 from .events import AuditEmitter, audit_channel
 from .persistence import AuditSession, AuditSessionStore
 from .pipeline import AuditPipeline
-from .report_store import save_report
+from .report_store import UnversionedReportError, save_report
 
 log = structlog.get_logger("npmguard.audit")
 
@@ -286,9 +286,32 @@ class AuditService:
                 # and verdict_reached commits atomically with running->done —
                 # a client acting on the terminal frame always finds the
                 # persisted report.
-                save_report(
-                    session.package_name, session.requested_version or "latest", result.report
-                )
+                try:
+                    save_report(
+                        session.package_name, session.requested_version or "latest", result.report
+                    )
+                except UnversionedReportError as exc:
+                    # INVARIANT: a COMPLETED audit is never discarded. Reaching
+                    # here means the verdict was computed, the graph resolved and
+                    # the evidence sealed — the only thing missing is the
+                    # (name, version) key of the SECONDARY store (the public
+                    # listing + CLI short-circuit cache). The durable record is
+                    # audit_sessions.report keyed by audit_id, which is what
+                    # GET /audit/{id}/report and the terminal SSE frame serve, so
+                    # the verdict still reaches every consumer of THIS audit.
+                    # Letting the refusal propagate (it used to escape as a bare
+                    # ValueError → NPMGUARD-9999, retryable=False, HTTP 500)
+                    # suppressed a finished — possibly DANGEROUS — verdict over a
+                    # filing key. The file is skipped, never faked: a latest.json
+                    # alias must not exist. Loud, because an unversioned package
+                    # silently missing from data/reports/ is its own gap.
+                    log.error(
+                        "report file skipped: no concrete version",
+                        audit_id=session.audit_id,
+                        package_name=session.package_name,
+                        requested_version=session.requested_version,
+                        reason=str(exc),
+                    )
                 await self._finish(
                     session.audit_id,
                     report=report,

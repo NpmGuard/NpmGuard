@@ -15,6 +15,10 @@
 #      EXPLICITLY marked degraded=True; the LLM path stays degraded=False
 #  C10 run_hypothesize postcondition: len(hypotheses) == len(flags), order kept —
 #      every suspicion armed or the phase raised (no silent drops → no false SAFE)
+#  C11 capability list normalization: real recorded responses repeat capabilities
+#      (setup.js returns FILESYSTEM/NETWORK twice, a dns-exfil file returns
+#      CREDENTIAL_THEFT five times), so the 12-value bound must be applied AFTER
+#      dedup — a repeat must never displace a distinct capability off the end
 # Adversarial pass: 2026-07-23/W6 — call-count assertions moved from the private
 # provider._calls counter to the public llm_attempts capture ledger (DB rows).
 import json
@@ -463,5 +467,71 @@ async def test_custom_hypothesis_driver_is_planted_and_triggered(tmp_path) -> No
     assert [call.tool for call in result.experiment] == ["plantFiles", "trigger"]
     assert result.experiment[0].args["files"][0]["path"] == "/pkg/npmguard-driver.js"
     assert result.experiment[1].args["target"] == "/pkg/npmguard-driver.js"
+    await llm.aclose()
+    await engine.dispose()
+
+
+REPEATED_THEN_DISTINCT = [
+    # A real FLAG response repeats itself; these three come first so a
+    # truncate-then-dedup order would spend three of the twelve slots on one value.
+    "NETWORK",
+    "NETWORK",
+    "NETWORK",
+    "DATA_EXFILTRATION",
+    "DNS_EXFIL",
+    "DOM_INJECT",
+    "FILESYSTEM",
+    "BINARY_DOWNLOAD",
+    "PROCESS_SPAWN",
+    "ENV_VARS",
+    "CREDENTIAL_THEFT",
+    "EVAL",
+    "OBFUSCATION",
+    "ENCRYPTED_PAYLOAD",  # the 12th DISTINCT value — the one a repeat would displace
+]
+
+
+async def test_repeated_capability_never_displaces_a_distinct_one(tmp_path) -> None:
+    """C11: 14 capability entries, 12 of them distinct, with the first value
+    repeated three times. Bounding before dedup would keep entries 1-12 and
+    resolve to 10 distinct capabilities, silently dropping OBFUSCATION and
+    ENCRYPTED_PAYLOAD; bounding after dedup keeps all 12, first-seen order. The
+    duplicate chip is cosmetic — this is the part that costs information."""
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'caps.sqlite3'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(metadata.create_all)
+    sessions = make_session_factory(engine)
+    provider = ScriptedLlm(
+        {
+            "flag": [
+                json.dumps(
+                    {
+                        "summary": "does a great many things",
+                        "capabilities": REPEATED_THEN_DISTINCT,
+                        "flags": [],
+                    }
+                )
+            ]
+        }
+    )
+    llm = build_npmguard_llm(sessions, Settings(_env_file=None), provider=provider)
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "package.json").write_text(
+        json.dumps({"name": "fixture", "main": "index.js"}), encoding="utf-8"
+    )
+    (package / "index.js").write_text("module.exports = 1;\n", encoding="utf-8")
+
+    result = await run_flag(
+        package,
+        await analyze_inventory(package),
+        PackageIntent(statedPurpose="fixture", expectedCapabilities=[], rationale="manifest"),
+        llm,
+        "audit-1",
+    )
+
+    expected = list(dict.fromkeys(REPEATED_THEN_DISTINCT))
+    assert len(expected) == 12
+    assert result.fileSummaries[0].capabilities == expected
     await llm.aclose()
     await engine.dispose()

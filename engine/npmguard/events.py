@@ -8,6 +8,11 @@ from kit_stream import StreamService
 from kit_stream.service import READ_BATCH
 
 TERMINAL_EVENTS = frozenset({"verdict_reached", "audit_error"})
+# The four fields _wire_event stamps on every SSE frame from the durable
+# envelope. `type` is the discriminator of the event union
+# (shared/src/events.ts: AuditEventSchema), so a payload key of the same name
+# does not merely duplicate a field — it decides which shape a consumer parses.
+ENVELOPE_KEYS = frozenset({"type", "auditId", "timestamp", "seq"})
 
 
 def _json_value(value: Any) -> Any:
@@ -32,14 +37,40 @@ class AuditEmitter:
         self._stream = stream
 
     async def emit(self, event_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        body = payload or {}
+        # INVARIANT: a payload never carries an ENVELOPE_KEYS name, so flattening
+        # it onto the envelope (_wire_event) cannot shadow the envelope's own
+        # value. Asserted at the PRODUCER because this is where such a payload
+        # would be born: the emit site is in the traceback, the audit errors
+        # honestly, and no poisoned row reaches the durable log to break every
+        # future reader of that audit's stream. Every one of the 17 declared
+        # event shapes keeps its payload fields disjoint from the envelope
+        # (shared/src/events.ts), and demo replay strips these four keys off the
+        # recorded frames before re-emitting (demo.py) — so nothing legitimate
+        # trips this.
+        assert not (body.keys() & ENVELOPE_KEYS), (
+            f"{event_type} payload would shadow envelope field(s) "
+            f"{sorted(body.keys() & ENVELOPE_KEYS)} on audit {self.audit_id}"
+        )
         return await self._stream.append(
-            audit_channel(self.audit_id), event_type, _json_value(payload or {})
+            audit_channel(self.audit_id), event_type, _json_value(body)
         )
 
 
 def _wire_event(audit_id: str, envelope: dict[str, Any]) -> dict[str, Any]:
     data = envelope.get("data")
     payload = dict(data) if isinstance(data, dict) else {}
+    # INVARIANT: the flattening below is lossless — the envelope always wins
+    # because nothing else can claim its four names. Re-asserted on the READ side
+    # because a row can reach here from a writer that never went through
+    # AuditEmitter (service._finish appends the terminal frame straight to the
+    # stream) or from an older engine that wrote the row; a shadowed `type` would
+    # otherwise hand the consumer a different event shape than the one the
+    # id:/event: framing announces.
+    assert not (payload.keys() & ENVELOPE_KEYS), (
+        f"event seq={envelope['seq']} type={envelope['type']} on audit {audit_id} "
+        f"carries envelope field(s) {sorted(payload.keys() & ENVELOPE_KEYS)} in its payload"
+    )
     return {
         "type": envelope["type"],
         "auditId": audit_id,

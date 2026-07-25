@@ -13,6 +13,7 @@ from .contract.models import (
     InventoryReport,
     PackageMetadata,
 )
+from .errors import AuditIncompleteError
 
 LIFECYCLE_SCRIPTS = frozenset({"preinstall", "install", "postinstall", "prepare", "prepublish"})
 EXTENSION_TYPE_MAP = {
@@ -234,12 +235,52 @@ def run_inventory_checks(
     return flags, None
 
 
-async def analyze_inventory(package_path: Path) -> InventoryReport:
+def load_manifest(package_path: Path) -> dict[str, Any]:
+    """Parse `package.json`, or fail loud and located.
+
+    INVARIANT: past this boundary the manifest is a real JSON object, so
+    metadata / scripts / entryPoints / dependencies describe the package that was
+    actually shipped. The previous `package = {}` fallback made an audit with NO
+    manifest knowledge look complete: no name, no version, no scripts, no
+    dependencies, `entryPoints.runtime` silently defaulting to ["index.js"], and
+    BOTH dealbreaker checks passing trivially (empty scripts, empty install list)
+    — a hidden coverage gap that can only bias toward SAFE. Two strictly smaller
+    gaps are already loud: an unreadable source file (`phases.py`, 0031) and an
+    ambiguous tarball root (`resolve.py`, ValueError).
+
+    Unreadable (OSError) and unparseable (bad JSON / bad encoding / not an
+    object) raise the SAME class with the same retryability and differ only in
+    the located detail. Justification: the resulting blindness is identical in
+    size, 0031-retryable already denotes "could not read this input" for a source
+    file, and nothing auto-retries — a retryable classification lets a caller
+    re-run a paid claim (a `latest` request can even resolve to a fixed version),
+    where a non-retryable one would burn the claim on a package the caller cannot
+    repair. `json.loads` is given bytes on purpose: it does the encoding
+    detection, so undecodable bytes are content-classified here instead of
+    escaping as an unmapped UnicodeDecodeError (an NPMGUARD-9999), and a
+    BOM-prefixed manifest parses as npm's own reader takes it rather than being
+    discarded as unreadable.
+    """
     try:
-        package = json.loads((package_path / "package.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        package = {}
-    metadata, scripts, entry_points, dependencies = parse_package_json(package)
+        raw = (package_path / "package.json").read_bytes()
+    except OSError as exc:
+        raise AuditIncompleteError(
+            "inventory", f"package.json could not be read: {type(exc).__name__}"
+        ) from exc
+    try:
+        package = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise AuditIncompleteError("inventory", f"package.json is not valid JSON: {exc}") from exc
+    if not isinstance(package, dict):
+        raise AuditIncompleteError(
+            "inventory",
+            f"package.json is not a JSON object but a {type(package).__name__}",
+        )
+    return package
+
+
+async def analyze_inventory(package_path: Path) -> InventoryReport:
+    metadata, scripts, entry_points, dependencies = parse_package_json(load_manifest(package_path))
     files = classify_files(package_path)
     flags, dealbreaker = run_inventory_checks(scripts, entry_points, files)
     return InventoryReport(

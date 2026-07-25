@@ -16,6 +16,7 @@ from .config import SOURCE_FILE_TYPES, Settings
 from .contract.models import (
     Claim,
     EntryPoints,
+    FileRecord,
     FileSummary,
     FocusRange,
     Hypothesis,
@@ -178,9 +179,22 @@ class FileFlagResponse(BaseModel):
         if isinstance(capabilities, dict):
             capabilities = [name for name, enabled in capabilities.items() if enabled]
         if isinstance(capabilities, list):
-            normalized["capabilities"] = [
-                item for item in capabilities if item in CAPABILITY_VALUES
-            ][:12]
+            # INVARIANT: dedup BEFORE the bound, so the 12 slots carry 12 DISTINCT
+            # capabilities. Real recorded FLAG responses repeat themselves — the
+            # env-exfil setup.js response returns FILESYSTEM and NETWORK twice, a
+            # dns-exfil file returns CREDENTIAL_THEFT five times — and truncating
+            # first let a repeat consume a slot and push a real capability off the
+            # end, which is information lost from FileSummary.capabilities, the
+            # report, and the file_verdict frame. (The isinstance guard is on the
+            # same line of defence: `item in CAPABILITY_VALUES` raises TypeError
+            # on an unhashable model-emitted item, and this is untrusted output.)
+            normalized["capabilities"] = list(
+                dict.fromkeys(
+                    item
+                    for item in capabilities
+                    if isinstance(item, str) and item in CAPABILITY_VALUES
+                )
+            )[:12]
         flags = normalized.get("flags")
         if isinstance(flags, list):
             normalized["flags"] = flags[:8]
@@ -389,6 +403,34 @@ def _safe_file(root: Path, relative: str) -> Path:
     return path
 
 
+def _noise(path: str) -> bool:
+    """Generated type declarations and test/mock scaffolding — not the shipped
+    program, and not what an install or a require executes."""
+    return bool(
+        path.endswith(".d.ts")
+        or re.search(r"(^|/)(test|tests|__tests__|__mocks__)/", path)
+        or re.search(r"\.(test|spec)\.(js|ts|mjs|cjs|tsx|mts)$", path)
+    )
+
+
+def flag_source_files(inventory: InventoryReport) -> list[FileRecord]:
+    """The files the FLAG pass reads — the single definition of that set.
+
+    INVARIANT: every consumer of "the files this audit will actually read" reads
+    them from here. `run_flag` fans out over exactly this list, and the pipeline
+    scales the flag / hypothesize / orchestrator timeout budgets over exactly this
+    list. While the pipeline kept its own `fileType in SOURCE_FILE_TYPES and not
+    isBinary` copy the two silently denoted different sets — the noise filter
+    lived only in `run_flag` — so a package that is 90% test files was budgeted
+    for files nobody would open. One function, so they cannot drift.
+    """
+    return [
+        file
+        for file in inventory.files
+        if file.fileType in SOURCE_FILE_TYPES and not file.isBinary and not _noise(file.path)
+    ]
+
+
 async def run_flag(
     package_path: Path,
     inventory: InventoryReport,
@@ -397,18 +439,7 @@ async def run_flag(
     audit_id: str,
     emitter: AuditEmitter | None = None,
 ) -> FlagOutput:
-    def noise(path: str) -> bool:
-        return bool(
-            path.endswith(".d.ts")
-            or re.search(r"(^|/)(test|tests|__tests__|__mocks__)/", path)
-            or re.search(r"\.(test|spec)\.(js|ts|mjs|cjs|tsx|mts)$", path)
-        )
-
-    source_files = [
-        file
-        for file in inventory.files
-        if file.fileType in SOURCE_FILE_TYPES and not file.isBinary and not noise(file.path)
-    ]
+    source_files = flag_source_files(inventory)
     facts: dict[str, list[str]] = {}
     for flag in inventory.flags:
         if flag.file:
