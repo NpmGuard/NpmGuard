@@ -1,64 +1,37 @@
 /**
- * HypothesisCard — one hypothesis node, toned by severity, carrying its claim
- * label, severity tag, resolution state pill, description and focus files.
+ * HypothesisCard — one hypothesis node, carrying its claim label, severity tag,
+ * resolution state pill, description and focus files.
  * Status lives on the datum (hyp.state / hyp.severity) — never in component state.
+ *
+ * The colour rule is NOT here: `report-helpers.ts` owns it, because the live
+ * stream (`audit/HypothesisList`) renders the same node and the two must not
+ * disagree about what red means. See the header there — severity is the severity
+ * of a CLAIM, so it earns a hue only once the claim is CONFIRMED.
  */
 
 import type { CSSProperties } from "react";
-import type { Hypothesis, HypothesisSeverity, HypothesisState } from "@npmguard/shared";
-import { claimLabel, STATE_LABELS } from "../../lib/report-helpers.ts";
+import type { Hypothesis } from "@npmguard/shared";
+import {
+  claimLabel,
+  hypothesisAccentVar,
+  hypothesisSeverityTagClass,
+  hypothesisStatePillClass,
+  STATE_LABELS,
+} from "../../lib/report-helpers.ts";
 
 export interface HypothesisCardProps {
   hyp: Hypothesis;
 }
 
-function severityAccent(severity: HypothesisSeverity): string {
-  switch (severity) {
-    case "critical":
-    case "high":
-      return "var(--danger)";
-    case "medium":
-      return "var(--suspect)";
-    case "low":
-      return "var(--tone-paper-accent)";
-  }
-}
-
-function severityTagClass(severity: HypothesisSeverity): string {
-  switch (severity) {
-    case "critical":
-    case "high":
-      return "tag tag--danger";
-    case "medium":
-      return "tag tag--suspect";
-    case "low":
-      return "tag";
-  }
-}
-
-function stateTone(state: HypothesisState): "danger" | "safe" | "suspect" | "running" {
-  switch (state) {
-    case "CONFIRMED":
-      return "danger";
-    case "REFUTED":
-      return "safe";
-    case "DEFERRED":
-      return "suspect";
-    case "OPEN":
-    case "IN_PROGRESS":
-      return "running";
-  }
-}
-
 export function HypothesisCard({ hyp }: HypothesisCardProps) {
-  const accent = { "--accent": severityAccent(hyp.severity) } as CSSProperties;
+  const accent = { "--accent": hypothesisAccentVar(hyp.state, hyp.severity) } as CSSProperties;
 
   return (
     <article className="card card--accent report-hyp" style={accent}>
       <header className="report-hyp__head">
         <span className="report-hyp__claim">{claimLabel(hyp.claim.kind)}</span>
-        <span className={severityTagClass(hyp.severity)}>{hyp.severity}</span>
-        <span className={`pill pill--${stateTone(hyp.state)}`}>{STATE_LABELS[hyp.state]}</span>
+        <span className={hypothesisSeverityTagClass(hyp.state, hyp.severity)}>{hyp.severity}</span>
+        <span className={hypothesisStatePillClass(hyp.state)}>{STATE_LABELS[hyp.state]}</span>
       </header>
 
       {hyp.description ? <p className="report-hyp__desc subtext">{hyp.description}</p> : null}
