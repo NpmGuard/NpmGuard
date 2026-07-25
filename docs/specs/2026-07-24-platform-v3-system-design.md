@@ -1432,6 +1432,7 @@ which is why the tier gets a name.
 | **D-2** | R-2 goes **seam + fold `PanelJobQueue` in** | One durable queue with lanes (`paid\|panel\|watch\|bench\|public`); `panel_jobs` + the panel worker pool deleted; two hops → one. Migration direction is *lift the panel's primitives up, move callers, then delete* — a proven path never runs on unproven code. |
 | **D-3** | Frontend substrate rebuilt **and the visual language redesigned** | Tokens authored fresh, not ported. Adds a design phase as a real deliverable (palette light+dark, type scale, spacing, elevation, motion, component inventory). Splits R-5 into **R-5a data layer** (not gated) and **R-5b component layer** (gated on the design). |
 | **D-4** | Start with **Phase 0** — one contract | Panel/bench/replay schemas into `shared/`, generated both sides. Everything downstream gets cheaper; R-1's table collapse becomes a schema edit rather than a hunt. |
+| **D-8** | **O-8 answered — no serif.** None of the surveyed dev-tool landing pages use one, and that survey *is* the evidence; overriding it would be taste against data. The brief's type system collapses to sans (interface) + mono (machine-authored fact), which also sharpens the mono signal by removing a third voice competing with it. | Simplifies R-6a's type scale and drops a webfont from the boot path. |
 | **D-6** | **O-2 answered** — 8-value observation taxonomy, derived at read time. `ERROR` splits into **`ABSTAINED`** (the engine's own honest "couldn't determine" — stays in the denominator) and **`VOID`** (Docker/LLM/queue fault — excluded from rates but counted and reported), keyed on the stable `NpmGuardError` codes. `verified` splits too: a `DANGEROUS` verdict with `confirmedCount == 0` is not weakly-proved, it is a **dealbreaker** (`pipeline.py:249-262`) — a disjoint mechanism that produces zero hypotheses. | The design doc's own candidate was wrong in one place: "give DEFERRED its own outcome bucket" is **unreachable**. `pipeline.py:390-398` raises `AuditIncompleteError` when hypotheses are deferred and none confirmed, so a report with deferred-but-nothing-confirmed **does not exist**; the observable is no report at all. 3 projector assertions guard the states the engine makes unreachable. |
 | **D-7** | **O-3 answered** — expand to **50 malware + 75 negative controls at N=2**, plus a 10-entry N=5 stability probe (~280 audits). Minimum viable tier 40+40. | Rests on a **statistical error in v1 worth more than the schema fix**: v1 §8 pools entries×runs to n=60 and puts a Wilson CI on that — pseudo-replication, narrowing the interval ~40% on a false independence assumption. With n = *entries*, the intuition behind N=3 **reverses**: at fixed budget, entries buy CI width and replication buys none (60 audits as N=1×60 ⇒ ≥94.0% lower bound at a perfect score; as N=3×20 ⇒ ≥83.9%). Replication measures *stability*, which is a separate question needing its own small probe. Also: v1's "precision" is actually **specificity**, and its ≥95% bar needs **73** clean entries — it set a bar it had no corpus to clear. |
 | **D-5** | Phase 0 authors the contract at its **target shape** — generalized `AuditSet` (R-1) + 3-state verdict (§4.4) — not today's shape | Avoids rewriting the contract three times and touching every route + consumer three times. Inverts the usual order on purpose: the contract is the *specification*, so it leads, and Phase 1 / R-1 become **migrations to** it with a mechanical definition of done ("generated types compile against both sides") instead of a judgement call. |
@@ -1440,7 +1441,7 @@ which is why the tier gets a name.
 
 ## 9. Open questions — these change the work, so they're yours to answer
 
-O-1 through O-6 are answered (D-1…D-7). What replaced them:
+O-1 through O-6 and O-8 are answered (D-1…D-8). What remains:
 
 **O-7 · Which model tier does the bench run on?** This is now the top open item,
 and it is a *cost* question, not a methodology one. A full run is ≈17.0M input +
@@ -1457,12 +1458,6 @@ which is what makes D-7's 75 controls affordable. Note this also interacts with
 textbook exfil, so the tier choice is a *detection-validity* decision as much as a
 budget one. Running the bench on a tier you would not ship is measuring the wrong
 engine.
-
-**O-8 · Is a serif used at all?** (R-6a §5) The highest-taste-risk call in the
-design brief. None of the dev-tool landing pages surveyed use one. The brief's
-typography rule reserves serif for "product voice on static surfaces only", so the
-blast radius is the landing hero and `/how-it-works`. Recommendation: build the
-hero both ways and look, rather than deciding on principle.
 
 ---
 
