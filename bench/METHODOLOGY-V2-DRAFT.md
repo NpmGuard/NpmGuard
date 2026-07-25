@@ -24,10 +24,14 @@ the code disagree, the code wins and this document is wrong.
 | **B-5** | The headline number is a **Wilson 95% lower bound**, published as a band `[reliable, optimistic]` with `k/n` always visible. Never a bare point estimate. | §5.4 |
 | **B-6** | v1.1's "precision" is actually **specificity** and is renamed. Precision proper is not computable from these corpora without a prevalence assumption, so it is not published. | §5.3 |
 | **B-7** | Per-attack-class recall keyed on `claim.kind` is **not** published as recall. `claim.kind` is an LLM self-label. It is published as a descriptive distribution of the tool's own reasoning, clearly labelled as such. | §4.6 |
-| **B-8** | **O-3: expand the corpus and drop N from 3 to 2.** At a fixed audit budget, entries buy CI width and replication does not. Target 50 malware + 75 negative controls at N=2, plus a 10-entry N=5 stability probe. Minimum publishable tier is 40 + 40 at N=2. | §6.5 |
+| **B-8** | **O-3: expand the corpus and drop N from 3 to 2.** At a fixed audit budget, entries buy CI width and replication does not. Target 50 malware + 75 negative controls at N=2, plus a ≤10-entry `m=5` probe whose purpose is **variance attribution**, not a stability rate (amended by B-14). Minimum publishable tier is 40 + 40 at N=2. | §6.5, §6.5.1 |
 | **B-9** | The per-`auditId` report for re-projection is `audit_sessions.report` in the database, **not** `data/reports/<pkg>/<version>.json` — the on-disk path keeps only the last of N repeat audits. | §8.2 |
 | **B-10** | The bench lane must force a fresh audit per run index. A cache hit is not an observation. | §8.3 |
 | **B-11** | A single `modelId` cannot describe a run — the engine splits roles across two configured models plus a fallback tail. The reproducibility identifier must be the *observed* set of `(role, actual_model)` pairs. | §7.6 |
+| **B-12** | **Per-run render fidelity and sensor capture are first-class recorded observations of every bench audit**, read from the sealed run artifact (a third observation tier). Without them a detection rate has an unquantified leak and replication variance is unattributable. | §3.4, §3.2.1 |
+| **B-13** | Observations are **not comparable across an `engineSha` boundary that crosses a fidelity fix**. The projector refuses to pool them; a pre-fix `MISSED` is not evidence of a detection failure. | §3.4.3 |
+| **B-14** | **The `m=5` probe measures the wrong stochasticity as specified.** Run-to-run variance is sensor + render + model; the probe attributes all of it to the model. It survives **re-scoped**: selected after the main run from the flip list and from fidelity-unstable entries, reporting a *decomposition* rather than a unanimity rate, and never ρ. D-7's entries-vs-replication reasoning is untouched. | §6.5.1 |
+| **B-15** | When the judge gains `UNDECIDABLE`, the bench records `undecidableCount`, a `missingObservation` histogram over the closed vocabulary, and `undecidableGaps` (distinct causes, not node count). **The undecidable rate is itself a model-tier disqualifier feeding O-7.** D-6's 8-value taxonomy is extended, never replaced. | §4.5.1 |
 
 **Scope note on what exists today.** Phase 0 already authored the bench contract
 (`shared/src/bench.ts`, generated into `engine/npmguard/contract/models.py:599-663`),
@@ -73,7 +77,9 @@ the single strongest constraint on this document.
 2. **The evidence-timeline + LLM-judge rework.** A suspicion is resolved only by
    *running* its experiment under the full oracle and having a judge cite
    specific events. `CONFIRMED`/`REFUTED` transitions structurally require at
-   least one `evidenceRef` (`engine/npmguard/graph.py:170-173`).
+   least one `evidenceRef` (`engine/npmguard/graph.py:214-218`). Note what that
+   guard does **not** buy: an `evidenceRef` proves a run was *sealed*, never that
+   the timeline rendered from it carried the decisive fact — see §3.2.1.
 3. **The schemaVersion-2 report.** `AuditReport` is now
    `{schemaVersion, verdict, rationale, counts, confirmedHypIds, hypotheses[],
    fileSummaries[], dealbreaker, trace[]}` — nine fields, listed exhaustively at
@@ -182,6 +188,15 @@ defines all headline metrics over the *row-only* tier so that a run summary
 never requires N×entries report reads, and uses the richer tier only for
 drill-down and adjudication.
 
+A **third tier** exists and this document originally omitted it: the **sealed run
+artifact** behind each hypothesis's `evidenceRefs`, which carries the raw sensor
+events and therefore the only available answer to *"did the judge see what the
+sandbox saw?"*. §3.4 makes reading it mandatory rather than optional, because
+§3.2.1 shows that without it a detection rate has an unquantified leak. It is a
+cheap tier — no LLM tokens, no Docker, a content-addressed file already on disk —
+and unlike tiers 1 and 2 it is the only one that can falsify the engine's own
+account of its coverage.
+
 ### 3.2 Four engine invariants the scoring rule can lean on
 
 These are not stylistic facts; they are asserted in code, and they are what let
@@ -189,19 +204,16 @@ the taxonomy be exhaustive rather than defensive.
 
 1. **`DANGEROUS` has exactly two producers.** Either
    `derive_graph_verdict` found `counts.confirmed > 0`
-   (`engine/npmguard/graph.py:269-276`), or the inventory dealbreaker
-   short-circuited the pipeline (`engine/npmguard/pipeline.py:249-262`). There is
+   (`engine/npmguard/graph.py:314-320`), or the inventory dealbreaker
+   short-circuited the pipeline (`engine/npmguard/pipeline.py:275-289`). There is
    no third path.
-2. **`SAFE` implies full coverage.** `derive_graph_verdict` raises
-   `AssertionError` on `SAFE` with any `DEFERRED` node
-   (`graph.py:277-280`) and on any unresolved `OPEN`/`IN_PROGRESS` node
-   (`graph.py:264-267`). So a `SAFE` verdict on known malware is a *fully
-   evaluated* false negative — every suspicion the engine raised was run and
-   came back clean. That is a much stronger statement than "the scanner didn't
-   flag it", and §4.2 relies on it.
+2. **`SAFE` implies *dispatch* coverage — not *evidentiary* coverage.** This is
+   the one invariant in this list that an earlier draft overstated, and the
+   overstatement changed what a published miss means. See §3.2.1, which replaces
+   the sentence that used to sit here.
 3. **"Couldn't check" cannot become a verdict.** If any hypothesis is `DEFERRED`
    and none is `CONFIRMED`, the pipeline raises `AuditIncompleteError`
-   (`pipeline.py:390-398`) — there is **no report at all**. The verdict domain is
+   (`pipeline.py:416-425`) — there is **no report at all**. The verdict domain is
    exactly `{SAFE, DANGEROUS}` (`shared/src/models.ts:12`, rationale at `:7-11`).
 4. **Failure is durably recorded per audit.** `audit_sessions.status ∈ {queued,
    running, done, error}` (`engine/npmguard/persistence.py:50`), and `finalize`
@@ -219,6 +231,109 @@ So the observable is not "a report with DEFERRED hypotheses" — it is
 **an audit with no report and `status = error`**. The honest third bucket is
 therefore keyed on `verdict == null`, and DEFERRED-ness is a *coverage
 annotation* on catches, not an outcome. §4.5 defines it accordingly.
+
+### 3.2.1 What a `SAFE` verdict actually guarantees
+
+An earlier draft of this section claimed:
+
+> **`SAFE` implies full coverage.** … So a `SAFE` verdict on known malware is a
+> *fully evaluated* false negative — every suspicion the engine raised was run
+> and came back clean.
+
+**That is false as written, and the corpus falsifies it directly.** The
+correction, and what it costs the `MISSED` bucket, is the single most important
+paragraph in §3–§4, because it is what a published miss *means*.
+
+**What the code asserts.** `derive_graph_verdict` raises `AssertionError` on
+`SAFE` with any `DEFERRED` node (`graph.py:322-325`) and on any unresolved
+`OPEN`/`IN_PROGRESS` node (`graph.py:309-312`). Both assertions quantify over
+**hypothesis state**. They say: *every suspicion the engine raised was dispatched,
+ran, and reached a terminal state.* That is **dispatch coverage**, and it is a
+real, load-bearing guarantee — it is what makes "the scanner didn't flag it"
+inadmissible as a description of a miss.
+
+**What the code does not assert.** Nothing in `graph.py` — or anywhere else —
+asserts that the evidence bearing on a hypothesis reached the judge that resolved
+it. Two independent gaps, both live:
+
+- **(a) The renderer is not held to the artifact.** `render_timeline`
+  (`evidence.py:281-372`) may emit a placeholder or an outright wrong target for
+  an event whose sealed `raw` carries a resolvable one, and no assertion forbids
+  it. There is no `AssertionError` between "the sensor captured it" and "the judge
+  read it". The *sensor* defects that made this bite have since been fixed, and
+  §3.4 measures how much that bought — but the fix is unasserted, and §3.4 also
+  finds a residual class the fixes do not touch.
+- **(b) The judge cannot report insufficiency.** `JudgeVerdict.malicious` is a
+  `bool` (`phases.py:204-209`) — verified in today's tree, unchanged by any of the
+  fidelity fixes. A judge that means *"the timeline does not carry the fact this
+  claim turns on"* has no way to say so, and `validate_verdict`
+  (`orchestrator.py:81-89`) forces it into `malicious=false` — which the
+  orchestrator maps to `REFUTED`, which counts toward `SAFE`. An epistemic
+  limitation is silently converted into an ontological one. **This gap is
+  structural and entirely open**; unlike (a), no landed commit narrows it.
+
+**The measured counterexample — and this is a *pre-fix* measurement, which is
+exactly why it is admissible as evidence for the correction.** On
+`test-pkg-env-exfil@2.0.1`, nine recorded runs triggered `setup.js`. **All nine**
+sealed artifacts hold the IMDS probe —
+`connect(18, {sin_port=htons(80), sin_addr=inet_addr("169.254.169.254")})` **and**
+its `write(18, "GET /latest/meta-data/ HTTP/1.1…", 82) = 82`, i.e. 82 bytes
+confirmed sent. In the timelines the judges actually read, **3 of 9** carried that
+endpoint; the other six rendered `connect socket` / `write socket` / `read socket`.
+Eight of the nine runs "came back clean", and `hyp-0005`'s judge wrote *"there is
+no evidence of a request to the IMDS (169.254.169.254/latest/meta-data/) — the stub
+was provided but never observed being accessed"* **while looking at those three
+anonymous lines.** Every one of those refutations satisfied dispatch coverage
+perfectly.
+
+Re-rendering the same sealed bytes through **today's** parser and renderer, the
+endpoint appears in **9 of 9** (§3.4, method and caveats there). So the specific
+leak that produced this counterexample is closed. **The invariant is still wrong
+as originally written**, for three reasons that survive the fix and are the reason
+this section is not simply deleted:
+
+1. Dispatch coverage and evidentiary coverage remain **different guarantees**, and
+   only the first is asserted. A benchmark sentence may only claim what is
+   asserted.
+2. Nothing prevents regression. The dead peer regex stayed green for its entire
+   life because `test_sensors.py` C2 asserted a line shape strace never emits; a
+   fix without an assert is a fix waiting to regress.
+3. Gap (b) is untouched, and it alone is sufficient to break the stronger claim:
+   a judge that had insufficient evidence still resolves to `REFUTED`, and
+   `REFUTED` still counts toward `SAFE`, no matter how faithful the render is.
+
+So, stated exactly, and this is the sentence the `MISSED` bucket rests on:
+
+> **A `SAFE` verdict guarantees that every suspicion the engine raised was
+> dispatched, run, and terminally resolved. It does not guarantee that the
+> evidence each judge needed ever reached it.** A published miss therefore means
+> *"the engine ran every suspicion, and the benchmark cannot tell you from the
+> verdict alone whether its renderer showed the proof to its judge."*
+
+**What would make the stronger claim available.** Evidentiary coverage is the
+conjunction of two properties, neither of which exists today:
+
+1. **A render-fidelity assertion.** `render_timeline` must be forbidden from
+   emitting an anonymous or non-derivable target for an event whose
+   `normalized`/`raw` carries a resolvable one — an assert, not a fix. The
+   underlying *fixes* have landed (`sensors.py:271-330` `_peer` now parses
+   `sin_addr=inet_addr("…")`, the form strace actually emits; `sensors.py:138-231`
+   `_complete_lines` splices `<unfinished ...>`/`<... resumed>` pairs); the
+   *invariant* has not. §3.4 measures the difference and explains why an unasserted
+   fix is a fix waiting to regress.
+2. **A third judge answer.** The judge must be able to return
+   `UNDECIDABLE` with a `missingObservation` drawn from a closed, sensor-shaped
+   vocabulary, routed to `DEFERRED` — which by invariant 3 cannot yield `SAFE`.
+   The enforcement machinery already exists and is untouched by the change; only
+   the judge's ability to *select* the honest outcome is missing. Designed in
+   [`../docs/specs/2026-07-25-cross-hypothesis-coherence.md`](../docs/specs/2026-07-25-cross-hypothesis-coherence.md)
+   §4 (R1/R2); §3.4 and §4.5 say what the bench records so it is measurable.
+
+With both in place, `SAFE` becomes *"every suspicion ran, and every judge
+affirmed it had what it needed"* — the property `shared/src/models.ts:7-11`
+already claims in prose. **Until both are in place, no run of this benchmark may
+describe a miss as "fully evaluated".** §4.2's `MISSED` row, §5.3's `miss_rate`,
+and §10's threats list are all worded to that weaker guarantee.
 
 ### 3.3 What is not available, and must not be resurrected
 
@@ -239,6 +354,167 @@ reasons it is the wrong instrument:
 
 The same applies to `Proof`/`ProofKind` (`shared/src/models.ts:54-62,146-170`):
 they are dead and should be deleted, not re-plumbed.
+
+### 3.4 Render fidelity is a recorded observation of every audit, not a footnote
+
+§3.2.1 established that a detection rate rests on evidentiary coverage the engine
+does not assert. The bench cannot fix that. What it can do — and this section is
+**B-12** — is **record the coverage each audit actually achieved, per run**, so
+that every published rate is a rate *at a stated evidentiary coverage* rather than
+a rate whose leak is unquantified.
+
+This matters beyond honesty in prose. It is the difference between a rate that
+survives a sensor improvement and one that must be thrown away: *"91% detection"*
+is invalidated by the next renderer fix, whereas *"91% detection at 0 fidelity
+defects / 5,733 described events"* remains a meaningful historical datum after it.
+It is also the load-bearing input to §6.5's stability probe (§6.5.1), because
+without it replication variance cannot be attributed.
+
+#### 3.4.1 The four recordables
+
+All four are **observations derived at read time** — F-G2 compliant, nothing
+stored as a judgment. Items 1–3 read the stored report (§3.1's tier 2); item 4
+reads the sealed run artifact, which is a **third** tier this document had not
+previously named.
+
+| # | Recordable | Definition | Source |
+|---|---|---|---|
+| **1** | `renderFidelityDefects` | per run: events the renderer described with an anonymous target (`socket`, `fd:N`) **while that event's own `raw`/`normalized` carried a resolvable one** | artifact + a re-render |
+| **2** | `falseTargetEvents` | per run: socket operations (`connect`/`sendto`) rendered with a **filesystem path** inherited from a recycled fd | artifact + a re-render |
+| **3** | `undecidableOutcomes` | per audit: count and `missingObservation` histogram, once the third judge answer lands (§4.5) | report `hypotheses[]` |
+| **4** | `confirmationConcentration` / `behaviourMultiplicity` | per audit: `confirmedCount / counts.total`; and the max number of distinct hypotheses whose `resolution.reason` references one normalised behaviour key | report `hypotheses[]` |
+
+**Recordable 1 is the assertion's measurable shadow, and it is deliberately
+narrower than "count the placeholders".** A placeholder is not automatically a
+defect: `read`/`write` on a descriptor whose `openat` was never captured has no
+resolvable target anywhere in the artifact, so rendering `fd:17` is honest. Only
+"anonymous *despite* a resolvable target in the same event's bytes" is a defect,
+and only that number belongs in a published caption. Both are cheap, so record
+both — but keep them separate, because conflating them is how a 5.7% headline
+gets mistaken for a 5.7% leak.
+
+**Recordable 2 is new here and is not in the coherence spec's list.** A vague
+target starves the judge; a **false** one misleads it, which is strictly worse and
+cannot be recovered by a careful reader. It earns its own counter for that reason.
+
+#### 3.4.2 Measured on the committed corpus — pre-fix vs. at `67f830f`
+
+Method, so it is re-runnable and attackable: 31 sealed artifacts across the four
+replay bundles in `engine/tests/fixtures/llm/`. **Pre-fix** = the committed
+`sandbox/*.timeline.txt`, i.e. the exact bytes the recorded judges read.
+**At `67f830f`** = the same artifacts' L1 events re-parsed from their verbatim `raw`
+through that commit's `sensors.parse_strace_log` and re-rendered through its
+`evidence.render_timeline`. No model calls, no Docker, no fixture execution.
+
+**The right-hand column is pinned to an `engineSha`, and that is not pedantry.**
+These figures were first taken against a working tree, and they moved — rendered
+rows 4,140 → 4,616, anonymous rows 236 → 251 — because `evidence.py` was being
+edited while the measurement ran. **A fidelity number without its `engineSha` is
+not a measurement**, which is the same conclusion B-13 reaches from the other
+direction, arrived at here by accident. Re-derive against a `git archive` of a named
+commit, never against a working tree.
+
+| Quantity | Pre-fix (as judged) | At `67f830f` (re-rendered) |
+|---|---|---|
+| Described events | 5,733 | 5,733 |
+| Rendered timeline rows | 4,140 | 4,140 |
+| **Fidelity defects** (anonymous despite a resolvable peer in `raw`) | **16** | **0** |
+| False targets (socket op rendered as a filesystem path) | 384 events / 146 rows | **87 events / 52 rows** |
+| Anonymous-target rows (all causes, incl. honest ones) | 277 / 4,140 (6.69%) | 236 / 4,140 (5.70%) |
+| `env-exfil` runs rendering the IMDS endpoint | **3 of 9** | **9 of 9** |
+
+Four readings of that table, in order of importance to the benchmark:
+
+1. **The defect the correction was built on is gone: 16 → 0.** Recordable 1 is
+   **zero across the entire committed corpus at `67f830f`**, and the nine-run IMDS
+   lottery collapses from 3/9 to 9/9. `hyp-0001`'s three anonymous lines now render
+   `connect 169.254.169.254:80` / `write 169.254.169.254:80` / `read
+   169.254.169.254:80`. Any pre-`67f830f` "miss" must be re-read in this light
+   before it is cited as a detection failure — **it is historical evidence about a
+   renderer, not a measurement of today's engine.**
+2. **False targets are down 4.4× but are emphatically *not* zero: 87 events
+   remain.** These are the unfixed AF_UNIX/netlink recycled-fd fallback
+   (`evidence.py:_describe`, pinned by `test_evidence.py` C14b, held back only
+   because landing it shifts event ids and needs a paid re-record). The residual
+   includes `connect /etc/localtime` ×14, `connect /etc/resolv.conf` ×17,
+   `send /etc/nsswitch.conf` ×15 — and, worst, `connect /pkg/setup.js` and
+   `connect /pkg/install-hook.js`, i.e. **a socket operation rendered as the
+   malware payload file itself.** This is a live defect at `67f830f`, not a
+   historical one, and the bench must count it.
+3. **A 5.7% anonymous-row rate is not a 5.7% leak.** After the fix, every one of
+   the 236 remaining anonymous rows is a `read`/`write` on a descriptor the
+   artifact never resolved — honest by recordable 1's definition. This is precisely
+   why the two counters are separate.
+
+   **And a caution about that pre-fix 277, because it is a lesson about the metric
+   rather than about the engine.** The coherence spec reports **244** anonymous rows
+   over the same 4,140 rows; this document counts **277**. Neither is wrong — they
+   are different predicates over "anonymous", differing on which placeholder forms
+   and which layers count. The disagreement is the point: **an unpinned fidelity
+   metric is not reproducible even between two careful readings of one immutable
+   corpus.** So recordables 1 and 2 must ship as *code with a test*, not as a
+   description in a methodology document, and the published caption must name the
+   predicate version. Two numbers 13% apart, from one static input, is exactly the
+   drift this document exists to prevent — and it appeared inside the correction
+   itself.
+4. **The corpus is lossy at the sensor boundary, so these current figures are
+   optimistic bounds.** Facts the pre-fix sensors dropped *before sealing* cannot
+   be recovered by re-parsing, because they are not in the artifact at all:
+   - **0 of 31** artifacts retain any `<unfinished ...>`/`<... resumed>` marker, so
+     the syscalls those pairs carried are simply absent. The re-parse yields
+     3,923 L1 events from 3,923 recorded ones — an exact tie, which is the
+     signature of "nothing left to recover", not of "nothing was lost".
+   - **113 of 157** corpus `connect` calls carry `= -1`, and **0 of the 113** retain
+     the errno text. The old `STRACE_CALL` regex truncated the result at the numeric
+     token, so `EINPROGRESS` (**the connect SUCCEEDED, asynchronously**) is
+     indistinguishable from `ECONNREFUSED` in the sealed bytes, permanently. Today's
+     parser splits the errno into its own field (`sensors.py`
+     `STRACE_RESULT`/`parse_strace_log`), but there is nothing here for it to split.
+   - **221** `recvfrom` events were recorded under `kind: "openat"` with
+     `normalized == {"ret": …}` — the peer discarded. Together with 85 `connect`
+     events that is **306** artifact events whose `raw` holds a parseable
+     `sin_addr`/`sin_port`. Today `recvfrom` maps to `read` and `_peer` parses it.
+   - tshark layer selection (`mdns`/`llmnr`/`ssdp` packets that produced zero
+     events) is **not re-derivable at all** — the raw tshark JSON is not sealed,
+     only the events it yielded.
+
+   **Consequence for the bench, and it is a hard one: the fidelity of the current
+   engine cannot be established from the recorded corpus. It can only be
+   established by a re-record.** §3.4.2's "current" column is the best available
+   *lower bound on the defect count*, measured against bytes that were themselves
+   filtered by the defects under study. This is the strongest argument in this
+   document for D-9's ordering: fidelity first, then measure.
+
+#### 3.4.3 What the wildcard-stub finding does to pre-fix misses
+
+One more pre-fix result changes how any historical refutation must be read, and it
+is not a rendering defect but an *experiment* defect. Across the corpus:
+
+- **22 `stubUrl` declarations** over **17 runs**, of which **8 carry a `*`**.
+- Every wildcard was inert twice over: `HTTP_PROXY`/`HTTPS_PROXY` are ignored by
+  every Node client (verified in the sandbox image), and `escapeRegex` never
+  escaped `*`, so `…/latest/meta-data/*` compiled to "…`/meta-data` followed by
+  zero-or-more slashes" and matched no sub-path.
+- **All 22 declarations carry a non-null `responseHash`** — i.e. **22 of 22 sealed
+  artifacts attest that a canned response was served, and not one was.**
+
+So a recorded refutation whose experiment declared a wildcard stub **was not
+testing what its compiled experiment claimed**, and its judge was shown a setup
+block describing a manipulation that never applied. Two `env-exfil` refutations
+used exactly that phantom manipulation as grounds to acquit. Post-`b1b0a43`,
+`responseHash` is read back from the proxy's own served ledger and is `null` when
+nothing was served, so non-null *is* the statement "this was served"; and an
+unappliable stub raises `SetupError`, which bars `REFUTED`.
+
+**Rule for the benchmark (B-13):** an observation recorded on an engine older than
+`ced29f2` + `b1b0a43` + `67f830f` is **not comparable** to one recorded after, and
+a pre-fix `MISSED` may not be counted as a detection failure. Because `engineSha`
+is already a mandatory non-nullable identifier (§8.1), this is enforceable rather
+than aspirational: **the projector must refuse to pool observations across an
+`engineSha` boundary that crosses a fidelity fix**, and the run report must name
+the boundary rather than averaging over it. The corpus of pre-fix audits is a
+corpus of *fidelity* measurements, and this document uses it as exactly that and
+nothing else.
 
 ---
 
@@ -269,7 +545,7 @@ at all. Two disjoint modes, not a strong tier and a weak tier. Renamed and split
 in §4.2/§4.4.
 
 **(b) DEFERRED is not the observable; `verdict == null` is.** Per §3.2 invariant
-3 and `pipeline.py:390-398`. And the bucket must be split by cause, because
+3 and `pipeline.py:416-425`. And the bucket must be split by cause, because
 "the engine ran and honestly could not determine" and "Docker was down" are not
 the same fact about the tool (§4.5).
 
@@ -289,7 +565,7 @@ Let `ec = item.confirmedCount`, `db = item.dealbreaker`, `v = item.verdict`.
 |---|---|---|
 | **`CAUGHT_PROVED`** | `expected=DANGEROUS ∧ v=DANGEROUS ∧ ec ≥ 1` | Flagged, and at least one hypothesis was confirmed by running it with cited evidence. |
 | **`CAUGHT_STRUCTURAL`** | `expected=DANGEROUS ∧ v=DANGEROUS ∧ ec = 0 ∧ db ≠ null` | Flagged by an inventory dealbreaker before any hypothesis existed. |
-| **`MISSED`** | `expected=DANGEROUS ∧ v=SAFE` | Fully evaluated false negative (§3.2 inv. 2). |
+| **`MISSED`** | `expected=DANGEROUS ∧ v=SAFE` | False negative at **dispatch** coverage: every suspicion ran and terminally resolved. **Not** "fully evaluated" — see §3.2.1, and publish it beside the run's fidelity counts (§3.4.1) or not at all. |
 | **`CLEARED`** | `expected=SAFE ∧ v=SAFE` | Correct clean verdict on a negative control. |
 | **`FALSE_ALARM_PROVED`** | `expected=SAFE ∧ v=DANGEROUS ∧ ec ≥ 1` | The judge cited dynamic evidence of malice in a benign package. The most serious failure mode in the taxonomy. |
 | **`FALSE_ALARM_STRUCTURAL`** | `expected=SAFE ∧ v=DANGEROUS ∧ ec = 0 ∧ db ≠ null` | A dealbreaker heuristic fired on a benign package. |
@@ -301,8 +577,8 @@ discipline. Each is unreachable given §3.2, so the projector must fail loud
 rather than branch:
 
 ```
-assert not (v == "DANGEROUS" and ec == 0 and db is None)   # graph.py:269-276 + pipeline.py:249-262 are the only DANGEROUS producers
-assert not (v == "SAFE" and ec > 0)                        # graph.py:269-276: confirmed > 0 ⟹ DANGEROUS
+assert not (v == "DANGEROUS" and ec == 0 and db is None)   # graph.py:314-320 + pipeline.py:275-289 are the only DANGEROUS producers
+assert not (v == "SAFE" and ec > 0)                        # graph.py:314-320: confirmed > 0 ⟹ DANGEROUS
 assert not (v is not None and item.auditId is None)        # shared/src/bench.ts:117-118
 ```
 
@@ -351,7 +627,7 @@ raw. **A future v3 scoring rule will thank v2 for the same reason, or curse it.*
 
 The dealbreaker path returns from the pipeline before intent extraction, flagging,
 hypothesizing, or the orchestrator ever run, with `counts=EMPTY_COUNTS` and
-`hypotheses=[]` (`pipeline.py:249-262`, `EMPTY_COUNTS` at `pipeline.py:40`).
+`hypotheses=[]` (`pipeline.py:275-289`, `EMPTY_COUNTS` at `pipeline.py:41`).
 Today there are exactly two producers, both purely structural:
 
 - `check="shell-pipe"` — an install script matches a shell-pipe pattern
@@ -382,8 +658,8 @@ Three consequences for scoring:
 
 It must not silently become a miss or a catch — and the engine has already taken
 the same position, structurally, by refusing to launder "couldn't check" into a
-verdict (`pipeline.py:390-398`, `graph.py:277-280`, and the orchestrator's four
-defer paths at `orchestrator.py:232-247`, `:257-271`, `:272-283`, `:284-303`).
+verdict (`pipeline.py:416-425`, `graph.py:322-325`, and the orchestrator's four
+defer paths at `orchestrator.py:231-248`, `:256-270`, `:271-283`, `:284-301`).
 The benchmark's job is to not undo that in its arithmetic.
 
 So `verdict == null` is split by the cause recorded in `error`, which carries a
@@ -416,6 +692,65 @@ Two rules make this honest rather than convenient:
 The asymmetry is deliberate and is the crux of B-3: an abstention is *the tool's
 output*, a void is *the harness's failure*. Collapsing them in either direction
 either flatters the tool or blames it for the weather.
+
+#### 4.5.1 `ABSTAINED` gains a machine-readable sub-cause (B-15)
+
+**D-6's eight-value taxonomy is unchanged by this subsection and must stay
+unchanged — this extends it rather than replacing it.** No outcome is added,
+renamed or merged; `ABSTAINED` gains a *second axis*.
+
+Today `ABSTAINED` is keyed on the `NpmGuardError` code, and `NPMGUARD-0031` covers
+every reason a hypothesis deferred: the sandbox broke, the judge call failed, a
+module would not load, a phase timed out. When the judge gains its third answer
+(§3.2.1 leg 2), a new and much more interesting cause joins that list: **the oracle
+did not capture the fact the claim turned on.** That is not an infrastructure
+failure and must not be filed as one.
+
+So the bench records, per audit, alongside the error code:
+
+| Field | Value | Read from |
+|---|---|---|
+| `undecidableCount` | hypotheses resolved `DEFERRED` because a judge returned `UNDECIDABLE` | report `hypotheses[].resolution` |
+| `missingObservations` | histogram over the closed vocabulary — `request_body`, `response_body`, `planted_file_content`, `network_endpoint`, `spawned_process_env`, `decrypted_payload` | same |
+| `undecidableGaps` | **distinct** `missingObservation` values, not node count | derived |
+
+Three rules on how those are read, and each exists to stop a specific misreading:
+
+1. **Group by cause, not by node.** *K* hypotheses deferring with the same
+   `missingObservation` is **one** oracle gap, not *K*. Reporting node counts would
+   let a wide FLAG fan-out inflate an oracle gap into a crisis — the same
+   multiplicity artefact §4.6 warns about for `claim.kind`. `undecidableGaps` is the
+   headline; `undecidableCount` is the drill-down.
+2. **The undecidable rate is a *model-tier disqualifier*, and this is the sharp
+   edge.** `UNDECIDABLE` is an answer that is always available and never provably
+   wrong, so a cheap judge facing a hard question can learn to reach for it as an
+   escape hatch. The closed vocabulary is the primary defence — "insufficient
+   evidence" is not a member, and a judge must name a *sensor-shaped* fact — but the
+   defence is not airtight, because the enum is validated post-hoc rather than
+   hard-constrained at decode time. The bench is therefore the instrument that
+   catches it: **a model tier whose undecidable rate is materially higher than a
+   stronger tier's on the same corpus is disqualified from the published
+   configuration**, on the same footing as this project's existing finding that a
+   cheap model returned false-SAFE on textbook exfiltration. This makes the
+   undecidable rate a **direct input to O-7** and not merely a coverage statistic —
+   see Open item 9.
+3. **Reclassification must be measured before any rate is published.** Giving the
+   judge a third answer will convert some current `REFUTED` resolutions into
+   `DEFERRED`, which converts some current `SAFE` verdicts into no-verdict
+   `ABSTAINED` observations. On the recorded corpus at least one refutation is
+   already a `DEFERRED` in all but name — `hyp-0014` reasons that *"the patched
+   version was not actually invoked because the patched `require('module')._load`
+   never triggered"*, i.e. an experiment reporting it did not test its own
+   hypothesis. The size of that shift is unknown and it moves specificity as well as
+   detection, so **the delta is measured on the corpus first and the rate is
+   published second.**
+
+One consequence worth stating plainly, because it looks like a regression and is
+not: **the honest engine abstains more often than the dishonest one.** A rising
+abstention rate against a falling miss rate is the intended direction of travel,
+and §5.3 already keeps `ABSTAINED` in the detection denominator so the trade is
+visible rather than free (§4.5's first rule). What must not happen is the reverse —
+`ABSTAINED` quietly leaving the denominator once it stops being nearly empty.
 
 ### 4.6 Does `claim.kind` give a trustworthy per-attack-class breakdown?
 
@@ -615,6 +950,15 @@ proof_share + dealbreaker_share == 1
 `UNOBSERVED` entries are outside `n_mal`/`n_neg` by construction and are reported
 as a separate count with their VOID causes.
 
+**`miss_rate` carries the weaker guarantee of §3.2.1 and its caption must say so.**
+It is the rate of *dispatch-complete* false negatives — every suspicion ran and
+terminally resolved — not of fully-evaluated ones. It is therefore published only
+beside the run's evidentiary-coverage counts (§3.4.1), and the two move together: a
+run with non-zero fidelity defects has a `miss_rate` that is, in the direction the
+defect biases, **overstated**. Detection is understated by the same mechanism, which
+is why §9 rule 7 attaches coverage to the detection caption rather than to this one
+alone.
+
 **B-6: v1.1's "precision" is renamed to specificity.** v1.1 §8 defined
 `Precision = 1 − (Σ false_positives on negative controls / Σ negative-control
 runs)`. That quantity is *specificity* (true-negative rate), not precision
@@ -660,9 +1004,17 @@ Published alongside, from the replicates:
 
 - **Unanimity rate** — fraction of entries where all non-VOID observations agreed
   on the outcome. This is the honest headline for "how deterministic is this
-  tool".
-- **Flip list** — every `*_SOMETIMES` entry, by name, with its per-run outcomes.
-  Short, concrete, and the first thing a skeptic should be shown.
+  **pipeline**". Note the noun: it is *not* "how deterministic is this model", and
+  §6.5.1 explains why that substitution is the error the N=5 probe was about to
+  make. Unanimity is a property of sensors, renderer and model jointly.
+- **Flip list** — every `*_SOMETIMES` entry, by name, with its per-run outcomes
+  **and each run's fidelity/capture counts beside them** (§3.4.1). Short, concrete,
+  and the first thing a skeptic should be shown. The fidelity columns are what let
+  that skeptic tell "the model changed its mind" from "the model was shown
+  different evidence" — the two readings that a bare flip list conflates.
+- **Attributable-flip fraction** — of the flips observed, how many occurred within a
+  constant fidelity-and-capture class (§6.5.1 change 2). Published as a count over a
+  count, never as a rate on its own, because its denominator is usually tiny.
 - **N as configured**, and the explicit statement that at N=1 the reliable and
   optimistic bands are the same measurement.
 
@@ -827,8 +1179,13 @@ Three pieces of good news on the negative-control side:
 |---|---|---|---|---|
 | Datadog malware, date-balanced across strata | 50 | 2 | 100 | detection band |
 | Negative controls from the 165-package watchlist | 75 | 2 | 150 | specificity ≥95% is demonstrable at 73 |
-| Stability probe (5 malware + 5 control, fixed) | 10 | 5 | +30 | ρ / unanimity at a useful `m` |
-| **Total per full run** | **125** | — | **≈280** | |
+| Variance-decomposition probe — **selected after the main run**, ≤10 entries | ≤10 | 5 | ≤+30 | **attributing** replication variance; see §6.5.1, which replaces this row's original purpose |
+| **Total per full run** | **125** | — | **≤280** | |
+
+**The third row changed meaning, not just wording.** It was specified as a fixed
+10-entry probe measuring "ρ / unanimity at a useful `m`". Both halves of that
+purpose were wrong — ρ is a parameter §5.2 explicitly declined to estimate, and
+unanimity at `m=5` cannot be *attributed* to the model. §6.5.1 is the correction.
 
 Expected headline shape, if the engine performs as its design intends
 (near-perfect on a corpus of known malware): `50/50` reliable detections →
@@ -857,10 +1214,107 @@ end it is a real decision — and note that the spread is driven by an
 is §7.5, not the corpus.
 
 If the full run still exceeds the acceptable spend, the honest levers in order
-are: (1) drop to the 40+40 minimum tier; (2) trim the stability probe; (3) trim
-negative controls — reluctantly, since §7.3(b) shows they are the cheap half.
+are: (1) drop to the 40+40 minimum tier; (2) trim the variance-decomposition probe
+(§6.5.1 makes it demand-driven, so it may cost nothing); (3) trim negative
+controls — reluctantly, since §7.3(b) shows they are the cheap half.
 **Never trade entries for higher N** — higher N actively worsens the number being
 published (§6.4).
+
+### 6.5.1 The N=5 probe measures the wrong stochasticity (B-14)
+
+**What is not in dispute.** D-7's reasoning — that v1 pooled entries × runs into a
+false `n`, that with `n = entries` the intuition behind N=3 reverses, and that
+replication therefore has to be a *separate, small* instrument rather than a way to
+buy CI width — is correct, corrects a real pseudo-replication error, and is
+untouched by this subsection. §5.2 and §6.4 stand. What follows is a **confound
+D-7 did not account for**, not a reversal of it.
+
+**The defect.** D-7 spends ~50 audits (+30 marginal) to measure "replication
+stability" and reports the result as a fact about the model. But a bench audit is
+not a model sampled twice — it is *sensors → renderer → model*, sampled twice, and
+**every stage of that chain is nondeterministic.** As specified, the probe cannot
+attribute what it measures, so it would report sensor variance as model variance.
+
+**The measurement that establishes it, and it is not a rendering artefact.** Across
+the nine near-identical recorded runs of one file (`test-pkg-env-exfil@2.0.1`,
+`setup.js`, same trigger, same setup, wall times **4.73–5.58 s**, all exit 0, none
+timed out), the L2 pcap sensor produced an `http_request` event in **3 of 9** —
+`hyp-0004`, `hyp-0008`, `hyp-0009` — and in **6 of 9** it captured nothing at that
+layer. This is a *capture*-level count (`events[].stream == "L2:pcap"`), taken
+directly from the sealed artifacts, and it is **not** what `67f830f` fixed: that
+commit taught the L1 parser to read the peer address, which supplies the same fact
+by a **different route**. The pcap sensor's own 3-of-9 is untouched by it and is
+intrinsic — it depends on readiness barriers and packet timing, not on a regex.
+
+**Why this is a confound and not merely a bug.** Two of the three components of
+run-to-run variance are not model behaviour at all:
+
+| Variance source | Nondeterministic? | Fixed by the landed commits? |
+|---|---|---|
+| **Capture** — which sensors observed the act (L2 pcap 3/9) | Yes, intrinsically | **No.** Independent of `67f830f`'s L1 route. |
+| **Render** — whether a captured fact reached the judge legibly | Was, badly | Largely: fidelity defects 16 → **0** on the corpus at `67f830f`; but **87 false-target events remain**, and §3.4.2(4) shows the corpus cannot bound this for today's engine without a re-record. |
+| **Model** — whether the judge, given the same legible timeline, decides the same way | Yes | Not applicable — this is the thing the probe is *supposed* to measure. |
+
+A probe that reports one number over all three, and labels it model stochasticity,
+is measuring the chain and naming the last link. That is the same class of error as
+v1's pooled `n`: a real measurement attributed to the wrong entity.
+
+**Does the probe survive? Yes — re-scoped, re-sequenced, and reporting a
+decomposition instead of a rate.** Four changes, and the first is the one that
+matters:
+
+1. **Per-run render fidelity and capture are recorded on *every* bench audit, not
+   on the ten probe entries** (B-12, §3.4.1). This is what makes variance
+   attributable, and it is why it cannot be a footnote: attribution is a property of
+   the whole run's records, not of a sub-experiment. It costs zero LLM tokens — the
+   sealed artifact is already on disk — and it turns all 250 main-run observations
+   into a variance dataset with a covariate, against the probe's 50.
+2. **The probe reports a decomposition, not a stability rate.** For every entry that
+   flipped, classify the flip: did the two observations differ in fidelity/capture
+   class, or not? Only flips **within a constant capture-and-fidelity class** are
+   evidence of model stochasticity. The published quantity is therefore
+   `flips_attributable_to_model / flips_observed`, with both counts shown — never a
+   bare unanimity number.
+3. **Entries are selected *after* the main run, from where the information is.** A
+   pre-chosen entry that returns 5/5 unanimous contributes **zero** variance to
+   decompose, so a fixed 5-malware + 5-control selection spends its whole budget
+   with no guarantee of measuring anything. Draw instead from two strata the main
+   run identifies: (a) the `*_SOMETIMES` flip list — entries known to disagree; and
+   (b) entries that were unanimous in *outcome* but varied in *fidelity or capture*
+   — the "lucky so far" entries, where a latent flip is most likely and which a
+   fixed selection would never find. This makes the probe **demand-driven**: if
+   nothing flipped and fidelity was constant, the probe is unnecessary and costs
+   nothing, and that null result is itself the finding.
+4. **Do not report ρ.** The original row's stated purpose included it, which
+   contradicts §5.2 — that section rejects the design-effect correction precisely
+   because ρ̂ from a handful of replicates is a badly-estimated nuisance parameter,
+   and `m=5` on ten entries is a *worse* estimator than the `m=3` §5.2 declined to
+   use. Publishing ρ here would resurrect the machinery §5.2 argued away.
+
+**What `m=5` actually buys, so the probe is not oversold.** Its only statistical
+gain over `m=2` is flip-detection power. Writing `p` for an entry's per-run catch
+probability, the chance of observing a disagreement in `m` runs is
+`1 − pᵐ − (1−p)ᵐ`:
+
+| `p` | `m=2` | `m=3` | `m=5` | `m=10` |
+|---|---|---|---|---|
+| 0.95 | 9.5% | 14.3% | **22.6%** | 40.1% |
+| 0.90 | 18.0% | 27.0% | **40.9%** | 65.1% |
+| 0.80 | 32.0% | 48.0% | **67.2%** | 89.3% |
+
+So `m=5` roughly **doubles** flip-detection power over `m=2` — real, and modest.
+What it emphatically does **not** buy is a per-entry catch probability: at a true
+`p = 0.90`, a unanimous 5/5 occurs 59% of the time, and Wilson on 5/5 gives only
+**≥56.6%**. §10's threat item claiming the probe "partially offsets" `m=2`'s
+inability to estimate per-entry probability is therefore **overstated, and is
+corrected there**: the probe improves *detection* of instability, never
+*estimation* of it.
+
+**Sequencing.** The probe must run after the fidelity work D-9 already ordered
+ahead of Phase 7b, and after the main run. Run it against today's renderer and it
+would decompose variance whose render component is bounded only by an optimistic
+figure (§3.4.2(4)) — which is a measurement of the wrong engine for the second time,
+in exactly the way O-7's prerequisite warns about.
 
 ---
 
@@ -1207,12 +1661,24 @@ Rules for the aggregate tiles:
    first-class tiles beside detection, not a footnote. A run with a 30%
    abstention rate must be as visually loud about that as about its detection
    rate.
-4. **Mandatory companions to the detection tile:** `dealbreaker_share` (§4.4) and
-   the `VOID` count with causes (§4.5). Detection without dealbreaker share is
-   uninterpretable; any rate without the void count is unverified.
+4. **Mandatory companions to the detection tile:** `dealbreaker_share` (§4.4), the
+   `VOID` count with causes (§4.5), and the run's **evidentiary-coverage counts**
+   (§3.4.1 — fidelity defects, false targets, `undecidableGaps`). Detection without
+   dealbreaker share is uninterpretable; any rate without the void count is
+   unverified; and **a detection rate published without its coverage counts is a
+   rate with an unquantified leak** (§3.2.1).
 5. If `VOID > 5%` of attempted observations, the page renders "run not
    publishable — N voided observations" **instead of** rates (§4.5).
 6. Empty corpus renders an explicit "no corpus", never "0%" (N-14).
+7. **The detection tile's caption states the coverage it was measured at**, not just
+   the rate — *"≥92.9% detection at 0 fidelity defects / 5,733 described events"*.
+   A caption that omits it is the sentence §3.2.1 forbids. This is also what lets a
+   future run be compared to this one after a sensor improvement instead of
+   invalidated by it.
+8. **A miss is never captioned "fully evaluated".** The ledger's `MISSED_ALWAYS`
+   rows link to the per-hypothesis timelines so a reader can check for themselves
+   whether the judge was shown the proof — which, per §3.2.1, the verdict alone
+   cannot tell them.
 
 Every one of these is a projection over stored observations. None requires a
 stored judgment.
@@ -1260,12 +1726,48 @@ stored judgment.
 - **The stability band depends on cache bypass** (§8.3). If it is not enforced,
   unanimity is 100% by construction.
 - **`m = 2` is a weak instrument for stochasticity.** It detects disagreement but
-  cannot estimate a per-entry catch probability. The N=5 stability probe (§6.5)
-  exists to partially offset this, on 10 entries only.
-- **The engine's SAFE-implies-full-coverage invariant is doing real work in
-  §4.2**, and the strength of the `MISSED` claim depends on it holding. It is
-  asserted (`graph.py:277-280`), which is why it is trustworthy — but a change to
-  that assertion changes what a published miss means.
+  cannot estimate a per-entry catch probability. The `m=5` probe (§6.5.1) improves
+  *detection* of instability — roughly doubling flip-detection power — and does
+  **not** improve *estimation*: at a true per-run catch probability of 0.90, a
+  unanimous 5/5 still occurs 59% of the time, and Wilson on 5/5 gives only ≥56.6%.
+  An earlier version of this item said the probe "partially offsets" the estimation
+  weakness. It does not, and no affordable `m` does; per-entry catch probabilities
+  are simply not on this benchmark's menu.
+- **Replication variance is a property of the whole pipeline, not of the model**
+  (§6.5.1). Sensors, renderer and judge are each nondeterministic, and the
+  attribution is only possible because fidelity and capture are recorded per run
+  (§3.4.1). Recorded evidence for the confound: the L2 pcap sensor produced an
+  `http_request` in **3 of 9** near-identical runs of one file. A run that omits the
+  coverage records cannot separate the three sources, and its unanimity number
+  should not be described as model stochasticity.
+- **`SAFE` asserts dispatch coverage, not evidentiary coverage** (§3.2.1), and this
+  is the single largest caveat on the `MISSED` bucket. The assertions
+  (`graph.py:309-312`, `:322-325`) quantify over hypothesis *state*; nothing asserts
+  that the evidence reached the judge. Two gaps carry it: the renderer is not held to
+  the artifact, and `JudgeVerdict.malicious` is a `bool` so a judge cannot report
+  insufficiency. **The pre-fix corpus falsified the stronger claim outright** (the
+  IMDS probe present in 9 of 9 artifacts, rendered in 3 of 9), and while the landed
+  fixes close that particular leak (fidelity defects 16 → 0 on re-render at `67f830f`), **the
+  judge gap is untouched and is alone sufficient to keep the weaker wording.**
+- **Today's fidelity cannot be established from the recorded corpus — only bounded
+  optimistically** (§3.4.2(4)). Facts the pre-fix sensors dropped before sealing are
+  absent from the artifacts: no `<unfinished>`/`<... resumed>` marker survives in any
+  of the 31, and **0 of 113** `= -1` connects retain the errno that distinguishes a
+  succeeded-asynchronously `EINPROGRESS` from a refused connection. A re-record can
+  only find *more* defects than the re-render found, never fewer.
+- **A residual render defect is live and is worse than an anonymous one.** At
+  `67f830f`, **87 events** still render a socket operation with a filesystem path
+  inherited from a recycled descriptor — including `connect /pkg/setup.js`, i.e. the
+  malware payload file. A vague target starves the judge; a false one misleads it.
+  Held back only because landing the one-line fix shifts event ids and needs a paid
+  re-record.
+- **`UNDECIDABLE` may become the model's escape hatch** (§4.5.1). It is an answer
+  always available and never provably wrong, the closed vocabulary is enforced
+  post-hoc rather than at decode time, and the mitigation is that the bench treats a
+  high undecidable rate as a model-tier disqualifier feeding O-7. This makes the
+  bench the detector for a failure mode the bench also depends on — an uncomfortable
+  but unavoidable arrangement, and the reason item 3 of §4.5.1 requires the
+  reclassification delta be measured before any rate is published.
 
 ---
 
@@ -1281,10 +1783,19 @@ Each dropped primitive, and why. Nothing here is dropped for the sake of change.
 | `Recall = Σ detected_i / Σ runs_i` with a CI on the pooled `n` | v1.1 §8 | Pseudo-replication: narrows the interval ~40% on a false independence assumption (§5.2). Replaced by entry-level `n` and the reliable/optimistic band. |
 | "N=3 ⟹ Wilson CI ≈ [40%, 96%]" | v1.1 §12 | Not the Wilson interval for any coherent `n` — at n=3 it is [28.8%, 97.5%], at n=20 [58.4%, 91.9%]. Symptom of `n` never being defined. |
 | "Precision" | v1.1 §6, §8 | The quantity defined is **specificity**. Precision depends on prevalence, which here is a corpus artifact (§5.3, B-6). Renamed; the ≥95% target is kept as a *specificity* target and priced at 73 clean entries. |
-| Post-mutation load verification | v1.1 §7 | Its purpose is now an **engine invariant**, which is strictly better: a fixture that cannot load produces a module-resolution defer (`orchestrator.py:227-231,240-241`) and, absent a confirmation, an `AuditIncompleteError` (`pipeline.py:390-398`). "Doesn't load" is an observable `ABSTAINED`, not something the bench must pre-screen. |
+| Post-mutation load verification | v1.1 §7 | Its purpose is now an **engine invariant**, which is strictly better: a fixture that cannot load produces a module-resolution defer (`orchestrator.py:231,240-241`) and, absent a confirmation, an `AuditIncompleteError` (`pipeline.py:416-425`). "Doesn't load" is an observable `ABSTAINED`, not something the bench must pre-screen. |
 | `bench.py` `_run_status` | `{"DANGEROUS": "detected", "SAFE": "missed"}` (`bench.py:132`) | A stored judgment — the exact F-G2 violation that killed v1 (§2.3). Delete with the module (G22). |
 | `/bench/results` and its silent-empty behaviour | `bench.py:195-196`, `:206-207` | Reports "no data" for "cannot read this engine's reports". Replaced by `/bench/runs*` (design §5.3). |
 | Temporal-slice recall as a standing metric | v1.1 §3 | n=2 at today's date (§6.3b). Retired until the corpus is refreshed on a schedule; reinstated the moment it is. |
+
+**Retired from this document's own earlier draft**, because a benchmark that will
+not correct itself has no standing to correct anyone else:
+
+| Retired | Was | Why it goes |
+|---|---|---|
+| "`SAFE` implies full coverage … a *fully evaluated* false negative" | §3.2 invariant 2 | `graph.py:309-312,322-325` assert **dispatch** coverage — every hypothesis reached a terminal state — not **evidentiary** coverage. The pre-fix corpus falsifies the stronger reading: the IMDS probe is in **9 of 9** sealed artifacts and rendered in **3 of 9**, so eight of nine runs "came back clean" over evidence their own sandbox had captured. Replaced by §3.2.1 and B-12/B-13. |
+| "10-entry N=5 **stability** probe … ρ / unanimity at a useful `m`" | §6.5, B-8 | Attributes sensor and render variance to the model, and ρ is the nuisance parameter §5.2 declined to estimate. The L2 pcap sensor fired in **3 of 9** near-identical runs of one file. Replaced by the variance-decomposition probe of §6.5.1 (B-14). |
+| Implicitly treating any recorded audit as comparable to any other | throughout | `ced29f2` / `b1b0a43` / `67f830f` each changed what the engine can see. Pooling across them measures a moving instrument (B-13, §3.4.3). |
 
 **Kept, deliberately and without rewriting:** v1.1 §1's four requirements for a
 serious benchmark; §2's entire Datadog-vs-mutation argument and its three named
@@ -1319,6 +1830,25 @@ testing to a later dataset version.
   half of the corpus (§7.3). Identified that one `modelId` cannot describe a run
   (§7.6). Statistics, corpus rationale, stratification, negative controls and
   reproducibility identifiers carried forward from v1.1 (§11).
+- **v2.0-draft, rev. 2** (2026-07-25): corrected two claims of its own that
+  changed what a published number *means*, both found by
+  [`../docs/specs/2026-07-25-cross-hypothesis-coherence.md`](../docs/specs/2026-07-25-cross-hypothesis-coherence.md).
+  **(1)** "`SAFE` implies full coverage" was false: the code asserts **dispatch**
+  coverage, not **evidentiary** coverage, so a miss may not be captioned "fully
+  evaluated" (§3.2.1). Render fidelity and sensor capture therefore become
+  first-class per-run observations from a third, artifact-level tier (§3.4, B-12),
+  and observations may not be pooled across a fidelity-fix `engineSha` boundary
+  (§3.4.3, B-13). **(2)** The N=5 probe attributed sensor and render variance to the
+  model; it survives re-scoped as a variance-*decomposition* probe, selected after
+  the main run and reporting a decomposition rather than a unanimity rate (§6.5.1,
+  B-14) — D-7's entries-vs-replication reasoning is untouched and remains correct.
+  Also folded in what the bench records for the judge's forthcoming third answer,
+  including the undecidable rate as a **model-tier disqualifier** feeding O-7
+  (§4.5.1, B-15), extending D-6's 8-value taxonomy rather than replacing it. All
+  corpus figures re-measured against the committed artifacts on today's parser and
+  renderer, and labelled pre-fix or current throughout; stale `graph.py` /
+  `pipeline.py` / `orchestrator.py` line citations refreshed against the working
+  tree.
 - _(planned)_ **v2.1**: comparative wrappers for `npm audit` and Snyk CLI on the
   same corpus.
 - _(planned)_ **v3.0**: stratified mutation testing, contingent on an
@@ -1434,3 +1964,37 @@ label. The data to populate either already exists as
 both are about pinning what actually ran. Worth doing **before** the runner is
 written — retrofitting it means re-cutting stored runs, which is the class of
 mistake this whole document exists to avoid.
+
+**9. Does the judge get its third answer before the benchmark publishes anything?**
+This is the item with the largest effect on what a published detection rate means,
+and it is not a bench decision. §3.2.1 shows that `SAFE` cannot mean "every judge
+had what it needed" while `JudgeVerdict.malicious` is a `bool`, so **every rate
+published before that change carries the weaker guarantee** — and the caption has to
+say so. Against that: the change reclassifies an unknown fraction of today's
+refutations into `DEFERRED`, which moves specificity as well as detection (§4.5.1
+rule 3), and it edits the judge prompt, which per N-5 fails every recorded exchange
+loud. **A re-record is an owner decision with a dollar attached, never an agent's.**
+*Settled by:* an owner decision on the sequence. Two coherent orders exist and the
+choice is not obvious — (a) publish now at the weaker guarantee, clearly captioned,
+and re-baseline later; or (b) land the render-fidelity assertion, then the third
+judge answer, measure the reclassification delta on the corpus, and publish once at
+the stronger guarantee. This document's own preference is **(b)**, because a
+re-baselined headline invites the "which number is real?" question that no
+methodology section can answer afterwards — but (a) is defensible if a number is
+needed before the re-record can be funded.
+
+**10. Is a run whose fidelity counts are non-zero publishable at all, and where is
+the line?**
+§4.5 sets a hard gate on `VOID > 5%`. There is no equivalent gate on evidentiary
+coverage, and I could not settle where it belongs from evidence. The two ends are
+both wrong: refusing to publish until fidelity defects are zero makes publication
+hostage to an AF_UNIX rendering nit (§3.4.2 reading 2), while publishing at any
+fidelity makes the coverage caption decorative. Note the asymmetry that makes this
+hard — a fidelity defect biases toward **false negatives**, so a non-zero count
+means the *detection* rate is understated and the *specificity* rate is, if
+anything, flattered. A single threshold across both rates is therefore probably
+wrong.
+*Settled by:* one full run's observed distribution of fidelity counts. Until then
+the coverage counts are **published beside every rate and gate nothing**, which is
+the conservative choice: a reader can apply their own threshold, and none of the
+data needed to set one later is lost.
