@@ -37,7 +37,13 @@ import sqlalchemy as sa
 
 from tests.e2e.llm_mock import SAFE_FLAG_BODY, SAFE_INTENT_BODY, scripted_safe_roles
 from tests.support.harness import DEAD_URL
-from tests.support.sse import collect_frames, event_types, find_frames, terminal_frame
+from tests.support.sse import (
+    collect_frames,
+    event_types,
+    find_frames,
+    require_terminal_frame,
+    terminal_frame,
+)
 from tests.support.waits import wait_audit_report, wait_report_file
 
 pytestmark = pytest.mark.e2e
@@ -140,7 +146,7 @@ async def test_valid_chain_tx_claims_and_launches(engine_factory, mock_llm, fake
     frames = await _finished_frames(engine, started["auditId"])
     terminal = terminal_frame(frames)
     assert terminal is not None and terminal.type == "verdict_reached"
-    assert terminal.data["verdict"] == "SAFE"
+    assert terminal.payload["verdict"] == "SAFE"
     assert len(find_frames(frames, "audit_started")) == 1
     assert _row_count(engine.db_url, "payment_claims") == 1
     assert _row_count(engine.db_url, "audit_sessions") == 1
@@ -160,7 +166,7 @@ async def test_delayed_receipt_still_verifies(engine_factory, mock_llm, fake_cha
 
     started = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION, txHash=_tx(2))
     frames = await _finished_frames(engine, started["auditId"])
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
     # positive probe that the poll loop actually ran more than once
     polls = [r for r in fake_chain.requests if r["method"] == "eth_getTransactionReceipt"]
     assert len(polls) >= 2
@@ -181,7 +187,7 @@ async def test_replayed_tx_is_idempotent(engine_factory, mock_llm, fake_chain):
 
     first = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION, txHash=_tx(3))
     frames = await _finished_frames(engine, first["auditId"])
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
 
     replay = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION, txHash=_tx(3))
     assert replay["auditId"] == first["auditId"]
@@ -217,7 +223,7 @@ async def test_concurrent_same_tx_single_claim(engine_factory, mock_llm, fake_ch
     assert first.json()["auditId"] == second.json()["auditId"]
 
     frames = await _finished_frames(engine, first.json()["auditId"])
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
     assert len(find_frames(frames, "audit_started")) == 1
     assert _row_count(db_url, "payment_claims") == 1
     assert _row_count(db_url, "audit_sessions") == 1
@@ -262,7 +268,7 @@ async def test_invalid_receipt_matrix_rejects_and_leaves_no_rows(
     fake_chain.add_receipt(_tx(30), **ok)
     started = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION, txHash=_tx(30))
     frames = await _finished_frames(engine, started["auditId"])
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
     assert _row_count(engine.db_url, "audit_sessions") == 1
     assert _row_count(engine.db_url, "payment_claims") == 1
 
@@ -396,7 +402,7 @@ async def test_stream_verifies_paid_stripe_session(engine_factory, mock_llm, str
     )
     assert response.status_code == 200, response.text
     frames = await _finished_frames(engine, response.json()["auditId"])
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
 
 
 async def test_claimed_stripe_session_is_idempotent(engine_factory, mock_llm, stripe_stub):
@@ -425,7 +431,7 @@ async def test_claimed_stripe_session_is_idempotent(engine_factory, mock_llm, st
     assert replay.json()["auditId"] == audit_id
 
     frames = await _finished_frames(engine, audit_id)
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
     assert len(find_frames(frames, "audit_started")) == 1
 
 
@@ -455,7 +461,7 @@ async def test_webhook_claims_once_across_replays(engine_factory, mock_llm, stri
     assert _row_count(engine.db_url, "payment_claims") == 1
     status = (await _get(f"{engine.base_url}/checkout/{session_id}/status")).json()
     frames = await _finished_frames(engine, status["auditId"])
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
     assert len(find_frames(frames, "audit_started")) == 1
 
     # LATE replay: redeliver AFTER the verdict, then drain the FULL finished
@@ -611,8 +617,8 @@ async def test_parallel_stream_launches_run_concurrently(engine_factory, mock_ll
         _finished_frames(engine, second["auditId"]),
     )
     elapsed = time.monotonic() - start
-    assert terminal_frame(first_frames).data["verdict"] == "SAFE"
-    assert terminal_frame(second_frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(first_frames).payload["verdict"] == "SAFE"
+    assert require_terminal_frame(second_frames).payload["verdict"] == "SAFE"
     assert first["auditId"] != second["auditId"]  # free path never dedupes (engine/CLAUDE.md)
     assert elapsed < 2 * (PARALLEL_PIN_DELAY_MS / 1000), (
         f"two stream audits took {elapsed:.1f}s — queue-serialized? (parallel ≈ "
@@ -649,7 +655,7 @@ async def test_payment_gate_and_cre_key(engine_factory, mock_llm):
     assert body["status"] == "accepted"
     assert body["queuePosition"] == 1
     frames = await _finished_frames(engine, body["auditId"])
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
 
 
 def test_invalid_payloads_rejected_before_gate(engine_factory, mock_llm):

@@ -128,6 +128,9 @@ async def _exec_raw(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    # PIPE was requested for both above, so the handles exist — say so rather
+    # than re-testing at each use.
+    assert process.stdout is not None and process.stderr is not None
     out = _CappedStream("stdout", MAX_EXEC_OUTPUT_BYTES)
     err = _CappedStream("stderr", MAX_EXEC_OUTPUT_BYTES)
 
@@ -144,6 +147,7 @@ async def _exec_raw(
         asyncio.ensure_future(process.wait()),
     ]
     if stdin is not None:
+        assert process.stdin is not None  # PIPE requested exactly when stdin is given
         watched.append(asyncio.ensure_future(_feed(process.stdin, stdin)))
     try:
         _, pending = await asyncio.wait(watched, timeout=timeout_ms / 1000)

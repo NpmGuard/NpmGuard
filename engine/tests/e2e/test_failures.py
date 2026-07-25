@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from tests.e2e.llm_mock import SAFE_FLAG_BODY, SAFE_INTENT_BODY, MockLlmClient
-from tests.support.sse import collect_frames, event_types, terminal_frame
+from tests.support.sse import collect_frames, event_types, require_terminal_frame
 
 pytestmark = pytest.mark.e2e
 
@@ -41,13 +41,13 @@ async def _expect_audit_error(engine, package_name: str) -> tuple[dict, list]:
     frames = await collect_frames(
         engine.base_url, started["auditId"], deadline=FAILURE_DEADLINE_SECONDS
     )
-    terminal = terminal_frame(frames)
-    assert terminal is not None and terminal.type == "audit_error", event_types(frames)
+    terminal = require_terminal_frame(frames)
+    assert terminal.type == "audit_error", event_types(frames)
     assert "verdict_reached" not in event_types(frames)
     # save_report only runs on the success path, strictly before the terminal
     # audit_error we already received — no wait needed for this negative.
     assert not _reports_dir(engine, package_name).exists()
-    return terminal.data, frames
+    return terminal.payload, frames
 
 
 async def test_s16a_provider_down_error_never_safe(engine_factory, mock_llm: MockLlmClient):

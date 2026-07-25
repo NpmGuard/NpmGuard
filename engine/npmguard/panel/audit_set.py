@@ -54,6 +54,7 @@ from kit_stream import StreamService
 from kit_stream.service import READ_BATCH
 
 from ..contract import models as contract
+from ..contract.kinds import JobState, PackageOutcome, SetStatus
 from .caps import CapsStore
 from .jobs import JobSpec, PanelJobQueue
 from .lockfile import LockfileDep
@@ -126,7 +127,7 @@ class RollupItem:
     the rollup pure and stops it from guessing which key holds the verdict.
     """
 
-    outcome: str | None
+    outcome: PackageOutcome | None
     cached: bool = False
 
 
@@ -140,7 +141,7 @@ class Rollup:
     three different facts.
     """
 
-    outcome: str | None = None
+    outcome: PackageOutcome | None = None
     total: int = 0
     safe: int = 0
     dangerous: int = 0
@@ -233,7 +234,7 @@ class SetProgress:
     """
 
     rollup: Rollup
-    status: str  # 'running' | 'done'
+    status: SetStatus
 
     @property
     def finished(self) -> bool:
@@ -273,11 +274,11 @@ class ItemState:
     direct: bool
     range: str | None
     cached: bool
-    outcome: str | None
+    outcome: PackageOutcome | None
     verdict_reason: str | None
     evidence_count: int
     audited_at: str | None
-    job_state: str | None
+    job_state: JobState | None
 
     def as_rollup_item(self) -> RollupItem:
         return RollupItem(outcome=self.outcome, cached=self.cached)
@@ -302,7 +303,9 @@ def rollup_items(states: Iterable[ItemState]) -> list[RollupItem]:
     return [state.as_rollup_item() for state in states]
 
 
-def job_state(active_state: str | None, has_failed: Any, verdict: str | None) -> str | None:
+def job_state(
+    active_state: JobState | None, has_failed: Any, verdict: str | None
+) -> JobState | None:
     """The wire ``jobState`` — a fact about the ATTEMPT, never an outcome.
 
     ``failed`` here means "a terminal failed job exists for this pair"; the OUTCOME
