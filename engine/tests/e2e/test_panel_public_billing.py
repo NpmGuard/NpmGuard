@@ -47,15 +47,14 @@ from pathlib import Path
 
 import httpx
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+
+from tests.support.panel import github_env
 
 pytestmark = pytest.mark.e2e
 
 HTTP_TIMEOUT_SECONDS = 30.0
 SCAN_DONE_TIMEOUT_SECONDS = 60.0
 
-ENCRYPTION_KEY = "00" * 32
 OAUTH_CODE = "stub_code"
 USER_TOKEN = "user_tok"
 
@@ -85,40 +84,6 @@ PROTECT_LOCKFILE = json.dumps(
         },
     }
 )
-
-
-@pytest.fixture
-def app_private_key(tmp_path: Path) -> str:
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
-    path = tmp_path / "app-key.pem"
-    path.write_bytes(pem)
-    return str(path)
-
-
-def _github_env(
-    *,
-    api_base: str,
-    private_key_path: str,
-    panel_base_url: str,
-    extra: dict[str, str] | None = None,
-) -> dict[str, str]:
-    env = {
-        "NPMGUARD_GITHUB_APP_ID": "12345",
-        "NPMGUARD_GITHUB_APP_PRIVATE_KEY_PATH": private_key_path,
-        "NPMGUARD_GITHUB_CLIENT_ID": "Iv1.testclient",
-        "NPMGUARD_GITHUB_CLIENT_SECRET": "test-client-secret",
-        "NPMGUARD_ENCRYPTION_KEY": ENCRYPTION_KEY,
-        "NPMGUARD_GITHUB_API_BASE": api_base,
-        "NPMGUARD_PANEL_BASE_URL": panel_base_url,
-    }
-    if extra:
-        env.update(extra)
-    return env
 
 
 def _seed_report(reports_dir: Path, name: str, version: str, report: dict) -> None:
@@ -214,7 +179,7 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
     reports = harness.data_dir / "reports"
     _seed_report(reports, "safe-dep", "1.0.0", _safe())
     _seed_report(reports, "danger-dep", "2.0.0", _dangerous())
-    harness.extra_env = _github_env(
+    harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
         panel_base_url=harness.base_url,
@@ -320,7 +285,7 @@ def test_s_bill_1_subscription_webhook_flips_plan_and_lifts_cap(
     )
     reports = harness.data_dir / "reports"
     _seed_report(reports, "safe-dep", "1.0.0", _safe())
-    harness.extra_env = _github_env(
+    harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
         panel_base_url=harness.base_url,

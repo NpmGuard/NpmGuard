@@ -27,6 +27,40 @@ _SESSION_STATE = Path(tempfile.mkdtemp(prefix="npmguard-tests-"))
 os.environ["NPMGUARD_DATA_DIR"] = str(_SESSION_STATE / "data")
 os.environ["NPMGUARD_AUDIT_LOG_DIR"] = str(_SESSION_STATE / "audit-logs")
 
+# INVARIANT: a test process never reads a developer's .env file.
+#
+# Settings declares `env_file=(REPO_ROOT/.env, cwd/.env)` and pytest runs from
+# engine/, so `engine/.env` was loaded into every in-process test. That silently
+# handed them real GitHub App credentials, the panel BOOTED inside unit tests (a
+# worker pool, a registry watcher, aiosqlite connections outliving teardown),
+# and the leaked handles surfaced as PytestUnraisableExceptionWarning under
+# `filterwarnings = ["error"]` — 14 failures + 1 collection error on a developer
+# machine, all green on a clean checkout.
+#
+# Disabling the dotenv SOURCE is the fix, not blanking the individual knobs:
+# a knob list silently rots the moment a new panel setting is added, and it
+# cannot express "off" for every field anyway (encryption_key is regex-
+# constrained, so "" is a hard ValidationError rather than absent).
+#
+# Tests that WANT the panel set the credentials explicitly (monkeypatch.setenv,
+# or EngineHarness(env=...) out of process); real env vars outrank a dotenv in
+# pydantic-settings, so opting in still works and is visible at the opt-in site.
+#
+# Class-level mutation, before any Settings() is constructed — get_settings()
+# is lru_cached and takes no arguments, so there is no per-call seam.
+#
+# Imported here rather than at the top of the file so the residue guard above
+# still means what it says: it must run before ANY npmguard import, and keeping
+# this one below it makes that ordering impossible to break by accident.
+from npmguard.config import Settings  # noqa: E402
+
+Settings.model_config["env_file"] = None
+assert not Settings().github_app_enabled, (
+    "the panel is enabled inside the test process — NPMGUARD_GITHUB_* / "
+    "NPMGUARD_ENCRYPTION_KEY are exported in your shell. Unset them: tests must "
+    "not inherit real GitHub App credentials."
+)
+
 
 @pytest.fixture(autouse=True)
 def _stub_dry_run_load(monkeypatch):

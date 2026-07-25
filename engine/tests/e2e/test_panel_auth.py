@@ -22,8 +22,8 @@ from pathlib import Path
 
 import httpx
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+
+from tests.support.panel import github_env
 
 pytestmark = pytest.mark.e2e
 
@@ -33,39 +33,8 @@ HTTP_TIMEOUT_SECONDS = 30.0
 # listing for the filename, so the content need only exist.
 LOCKFILE_CONTENT = '{"lockfileVersion": 3, "packages": {}}'
 
-ENCRYPTION_KEY = "00" * 32  # 32-byte hex; value is irrelevant, only the shape.
 OAUTH_CODE = "stub_code"  # the code GitHubStub.authorize emits by default.
 USER_TOKEN = "user_tok"  # the OAuth access token the stub hands back.
-
-
-@pytest.fixture
-def app_private_key(tmp_path: Path) -> str:
-    """A throwaway RSA private key on disk for the App-JWT signing path.
-
-    The stub trusts any Bearer, so the key only has to be a valid PEM githubkit
-    can sign an App JWT with — it is never verified.
-    """
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
-    path = tmp_path / "app-key.pem"
-    path.write_bytes(pem)
-    return str(path)
-
-
-def _github_env(*, api_base: str, private_key_path: str, panel_base_url: str) -> dict[str, str]:
-    return {
-        "NPMGUARD_GITHUB_APP_ID": "12345",
-        "NPMGUARD_GITHUB_APP_PRIVATE_KEY_PATH": private_key_path,
-        "NPMGUARD_GITHUB_CLIENT_ID": "Iv1.testclient",
-        "NPMGUARD_GITHUB_CLIENT_SECRET": "test-client-secret",
-        "NPMGUARD_ENCRYPTION_KEY": ENCRYPTION_KEY,
-        "NPMGUARD_GITHUB_API_BASE": api_base,
-        "NPMGUARD_PANEL_BASE_URL": panel_base_url,
-    }
 
 
 def _sqlite_path(db_url: str) -> str:
@@ -92,7 +61,7 @@ def test_s_panel_1_oauth_flow_orgs_repos(engine_factory, github_stub, app_privat
     # PANEL_BASE_URL points at the engine itself so the whole OAuth redirect
     # chain (login → stub authorize → callback → /dashboard) resolves back here.
     harness = engine_factory(start=False)
-    harness.extra_env = _github_env(
+    harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
         panel_base_url=harness.base_url,
@@ -184,7 +153,7 @@ def test_s_panel_1_oauth_flow_orgs_repos(engine_factory, github_stub, app_privat
 def test_s_panel_2_unauthenticated(engine_factory, github_stub, app_private_key):
     """S-panel-2: a configured engine with no session → 401 on /me and /panel/orgs."""
     harness = engine_factory(start=False)
-    harness.extra_env = _github_env(
+    harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
         panel_base_url=harness.base_url,
