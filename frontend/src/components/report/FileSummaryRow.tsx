@@ -4,6 +4,9 @@
  */
 
 import type { FileSummary } from "@npmguard/shared";
+import { Badge } from "../ui/badge.tsx";
+import { FOCUS_RING } from "../ui/focus.ts";
+import { cn } from "../../lib/cn.ts";
 
 export interface FileSummaryRowProps {
   summary: FileSummary;
@@ -12,31 +15,31 @@ export interface FileSummaryRowProps {
 
 export function FileSummaryRow({ summary, onOpen }: FileSummaryRowProps) {
   return (
-    <div className="report-file">
-      <div className="report-file__head">
+    <div className="grid gap-1.5 border-b border-border-faint px-3 py-2.5 last:border-b-0">
+      <div className="flex flex-wrap items-center gap-2">
         {onOpen ? (
           <button
             type="button"
-            className="report-file__name mono"
+            className={cn(
+              "min-w-0 truncate rounded-xs font-mono text-2xs text-text",
+              "transition-colors duration-fast hover:text-accent-text",
+              FOCUS_RING,
+            )}
             onClick={() => onOpen(summary.file)}
             aria-label={`view source of ${summary.file}`}
           >
             {summary.file}
           </button>
         ) : (
-          <span className="report-file__name mono">{summary.file}</span>
+          <span className="min-w-0 truncate font-mono text-2xs text-text">{summary.file}</span>
         )}
-        {summary.capabilities.length > 0 ? (
-          <div className="report-file__caps">
-            {summary.capabilities.map((cap) => (
-              <span key={cap} className="tag">
-                {cap}
-              </span>
-            ))}
-          </div>
-        ) : null}
+        {/* Capabilities are metadata, never an assessment: a file that can reach
+            the network is not thereby suspicious. Neutral chips (§3.2). */}
+        {summary.capabilities.map((cap) => (
+          <Badge key={cap}>{cap}</Badge>
+        ))}
       </div>
-      {summary.summary ? <p className="report-file__summary subtext">{summary.summary}</p> : null}
+      {summary.summary ? <p className="text-sm text-text-2">{summary.summary}</p> : null}
     </div>
   );
 }

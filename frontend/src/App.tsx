@@ -125,11 +125,16 @@ export function App() {
   return (
     <>
       <Header />
-      <main className="page">
+      <main className="min-h-[60vh] bg-canvas">
         <Suspense
           fallback={
-            <div className="empty-state" role="status">
-              <span className="spinner" aria-hidden="true" />
+            // A route chunk arriving is PROGRESS, not an empty result — it used
+            // `.empty-state`, which is the component that means "we read this
+            // and there was nothing". `aria-busy` + one announcement, no visual
+            // placeholder: the final layout's dimensions are unknown here, and
+            // §3.1 only permits a skeleton where they are known.
+            <div aria-busy="true" role="status" className="px-4 py-16 text-center">
+              <span className="text-sm text-text-3">Loading…</span>
             </div>
           }
         >

@@ -1,10 +1,13 @@
 # frontend — CLAUDE.md
 
 React 19 + Vite + TypeScript. **Tailwind v4** (CSS-first `@theme`, light **and**
-dark) over a vendored Radix primitive layer, alongside the older plain-CSS
-"keyline" sheets that pages migrate off one at a time. Server state is
+dark) over a vendored Radix primitive layer. Server state is
 `@tanstack/react-query`; UI state is a ~50-line zustand store. CodeMirror 6 for
 source, react-router for routes.
+
+There is **one** style substrate. The eight plain-CSS "keyline" page sheets are
+gone and so is the Google Fonts request; `styles/base.css` is 105 lines of
+element defaults, down from 798.
 
 Design authority: [`docs/specs/2026-07-25-frontend-design-direction.md`](../docs/specs/2026-07-25-frontend-design-direction.md)
 — §2 is the token spec (every value in `styles/tokens.css` is quoted from it),
@@ -199,35 +202,49 @@ so unit tests drive a fake with no timers and no network.
 mandatory class, not an edge case; `sse.test.ts` drives both clients through the
 injected ctor.
 
-### 5. Two style substrates coexist, and the rules keeping them apart are real
+### 5. One style substrate, and a short list of things that stay true
 
 Tailwind v4 is CSS-first: **no config file, no PostCSS step**.
 `@tailwindcss/vite` is the whole integration — adding a `postcss.config.*` gives
 Tailwind a second, slower entry point that silently shadows it.
 
-- `styles/tokens.css` is the v3 token layer: primitives in `:root` /
+R-5b finished the migration D-3 started. What used to be here — the two-tier
+`base.css`, the `.ng-root` opt-in marker, the rule that a page sheet dies *with*
+its page — described a transition that is over. The rules that survive:
+
+- `styles/tokens.css` is the token layer: primitives in `:root` /
   `@media (prefers-color-scheme: dark)` / `.dark`, mapped into Tailwind's
   namespaces with `@theme inline`. `inline` is what makes one class work in both
   themes *and* under a `.dark` stamped on a subtree.
-- **Every v3 primitive is `--ng-`-prefixed** because the legacy `base.css`
-  already defines `--canvas`, `--surface`, `--danger`, `--focus-ring` and others
-  at `:root` with different values — and `--focus-ring` with a different *type*
-  (a colour vs. a box-shadow list). Sharing the names would repaint the legacy
-  pages and silently delete their focus ring.
+- **Every primitive is `--ng-`-prefixed.** The original reason (a collision with
+  the legacy `:root` block) is gone, but the prefix stays: it makes a token
+  reference greppable and unmistakable in a codebase that also has CodeMirror
+  and Radix custom properties in scope.
 - Components use **utilities** (`bg-surface`, `text-text-2`). Raw CSS — a
   keyframe, an SVG `fill`, an inline style, a `calc()` — reads the **primitive**
   (`var(--ng-surface)`). `var(--color-surface)` resolves to nothing: an
   `@theme inline` key is substituted into the utility at build time and is never
   emitted as a custom property.
-- **Import order in `src/index.css` is load-bearing.** The legacy webfont
-  `@import url(…)` must be the first statement in the bundle (`@import` is only
-  legal before any other rule; nested inside an inlined sheet it is dropped,
-  which once downgraded eight pages to system-ui). `tokens.css` must come before
-  the *unlayered* legacy sheets, because the first `@layer` statement fixes the
-  layer order and unlayered rules sit above all of it — that inversion is what
-  makes the two systems safe to stack. `.ng-root` is the opt-in marker a
-  recomposed surface wears; a legacy page sheet is deleted **with** its page, not
-  before.
+- ★ **A bare-element rule in `base.css` must be inside `@layer base`.** This is
+  the one cascade rule worth memorising, and it cost the project real damage:
+  an unlayered `button { background: none; border: 0; padding: 0 }` beats
+  `.bg-accent`, `.border` and `.px-3` in `@layer utilities` no matter their
+  specificity, because **unlayered always wins over layered**. Every `<Button>`
+  in the design system rendered as unstyled text for the whole of R-6b, and
+  `a { color: inherit }` ate every link-colour utility beside it. jsdom does not
+  implement `@layer`, so no rendering test can see this — it is pinned as a text
+  contract in `styles/base-layer.test.ts`.
+- **`.ng-root` is no longer a migration marker.** It is the class that says "v3
+  styling applies here", and it is still needed for exactly one reason: Radix
+  portals dialogs, popovers and dropdowns *outside* the app root, and those
+  subtrees need the same typography and focus ring. Keep it on portalled content.
+- **One page-scoped sheet exists**, `styles/how-it-works.css`, and its header
+  states the rule it is the exception to: *a surface may own a stylesheet for
+  what is genuinely singular about it, and may never own one for what the design
+  system already provides.* That line is the durable version of "no page sheets"
+  — R-6's finding was about eight sheets **re-deriving** buttons, cards and
+  pills, not about CSS existing. A new surface starts with zero CSS; if it earns
+  some, it earns it for its own bespoke narrative and never for a primitive.
 - `lib/cn.ts` is the single `cn`. Its `extendTailwindMerge` **theme** extension
   is not optional: tailwind-merge groups a class by validating its *value*, so a
   custom `h-control` has no conflict group and `cn("h-control","h-control-lg")`
@@ -250,6 +267,26 @@ Tailwind a second, slower entry point that silently shadows it.
   red is reserved for claims about *packages*, so the UI can never cry wolf
   about its own plumbing.
 
+**The two axes, and where they are enforced.** §0 of the design direction is the
+product's whole credibility argument, and three components carry it so no page
+has to remember it:
+
+- `ui/verdict-stamp.tsx::VerdictHeadline` takes a **required** `counts` prop, so
+  a headline verdict cannot render without the coverage it was drawn from, and
+  SAFE always renders "No confirmed threat found. Not a proof of absence."
+  Overstating a clean result is a credibility failure; this is the mechanism.
+- `VerdictStamp` / `ProgressStamp` keep outcome and progress on separate axes.
+  Anything on the progress axis is **achromatic** (§2.2 rule 2) — a green
+  "completed" dot is a verdict colour on a non-verdict fact, which is how the
+  phase rail once read as a running tally of SAFE findings.
+- `ERROR` is `error` violet, never red, and shares that slot with `DegradedState`
+  and a DEFERRED hypothesis. All three mean *we don't know*. A failed audit shown
+  in red tells the user the package is dangerous, which is a false positive
+  manufactured by a stylesheet.
+
+`SUSPECT` and `UNKNOWN` are deleted from the product. Do not reintroduce either
+as a visual state.
+
 **What enforces it:** `styles/token-contract.test.ts` reads `tokens.css` as text
 and **recomputes** WCAG contrast over every ink × surface pair against the floors
 (not against pinned ratios — a palette edit that stays legal is not a
@@ -258,8 +295,10 @@ share a declaration list, so they are written twice), asserts every `@theme
 inline` key aliases a primitive that exists and inlines no literal, and asserts
 the vocabulary is **closed** (Tailwind's default palette, extra type steps,
 `font-serif` all cleared) so an off-system value cannot be spelled as a utility.
-`cn.test.ts` pins each extended namespace, so a token added to CSS but not to
-`cn.ts` fails a test rather than degrading a layout.
+`styles/base-layer.test.ts` pins the layering rule above and asserts `base.css`
+never regrows a component library. `cn.test.ts` pins each extended namespace, so
+a token added to CSS but not to `cn.ts` fails a test rather than degrading a
+layout.
 
 ---
 

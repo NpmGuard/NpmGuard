@@ -30,13 +30,11 @@
  */
 
 import type { AuditSetItem } from "@npmguard/shared";
-import { ArrowLeft, ChevronRight, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { PanelPage, PanelSection, SectionLabel } from "../components/panel/layout.tsx";
 import {
-  OutcomePill,
-  ProgressPill,
   depPriority,
   depTone,
   outcomeTone,
@@ -48,6 +46,8 @@ import { Button } from "../components/ui/button.tsx";
 import { Card, CardBody } from "../components/ui/card.tsx";
 import { DataRegion } from "../components/ui/data-region.tsx";
 import { DegradedSurface } from "../components/ui/degraded-state.tsx";
+import { SearchInput } from "../components/ui/input.tsx";
+import { ProgressStamp, VerdictStamp } from "../components/ui/verdict-stamp.tsx";
 import { EmptyState } from "../components/ui/empty-state.tsx";
 import { loaded } from "../components/ui/load-state.ts";
 import { SeverityRibbon } from "../components/ui/severity-ribbon.tsx";
@@ -99,23 +99,13 @@ const DEP_FILTERS: { key: DepFilter; label: string }[] = [
   { key: "pending", label: "Pending" },
 ];
 
-/** Search input. Duplicated shape with the dashboard's, kept local to each page
- * rather than promoted: `ui/` has no input primitive (reported as a gap), and a
- * two-page helper module for one control is the abstraction the design brief
- * warns against more than the repetition is. */
-const SEARCH_INPUT = cn(
-  "h-control w-full rounded-md border border-border-control bg-surface",
-  "pl-8 pr-2.5 text-sm text-text placeholder:text-text-3",
-  "transition-colors duration-fast hover:border-border-strong",
-);
-
 function DepStatusPill({ dep }: { dep: AuditSetItem }) {
   // Outcome first, progress only for the not-concluded case: a null outcome
   // ALWAYS resolves itself (a job is live), so it gets a spinner and never the
   // "Audit failed" copy — that belongs to ERROR, which needs a retry.
-  if (dep.outcome) return <OutcomePill outcome={dep.outcome} />;
-  if (dep.jobState === "running") return <ProgressPill state="running">Auditing</ProgressPill>;
-  return <ProgressPill state="queued">Queued</ProgressPill>;
+  if (dep.outcome) return <VerdictStamp outcome={dep.outcome} />;
+  if (dep.jobState === "running") return <ProgressStamp state="running">Auditing</ProgressStamp>;
+  return <ProgressStamp state="queued">Queued</ProgressStamp>;
 }
 
 /** One row of the review queue. A real `<Link>`, not a `<button onClick={navigate}>`:
@@ -538,7 +528,7 @@ export function RepoDetail() {
                     to={`/package/${alert.packageName}`}
                     name={alert.packageName}
                     version={alert.version}
-                    stamp={<OutcomePill outcome={alert.outcome} />}
+                    stamp={<VerdictStamp outcome={alert.outcome} />}
                     meta={`${alert.origin} · ${formatDate(alert.createdAt)}`}
                     severity={toneSeverity(outcomeTone(alert.outcome))}
                   />
@@ -549,7 +539,7 @@ export function RepoDetail() {
                     to={`/package/${dep.name}`}
                     name={dep.name}
                     version={dep.version}
-                    stamp={dep.outcome ? <OutcomePill outcome={dep.outcome} /> : null}
+                    stamp={dep.outcome ? <VerdictStamp outcome={dep.outcome} /> : null}
                     meta={dep.direct ? "Direct" : "Transitive"}
                     severity={toneSeverity(depTone(dep))}
                   />
@@ -576,20 +566,12 @@ export function RepoDetail() {
         ) : (
           <>
             <div className="mb-4 flex flex-wrap items-center gap-3">
-              <div className="relative min-w-56 flex-1 text-text-3">
-                <Search
-                  aria-hidden="true"
-                  className="pointer-events-none absolute top-1/2 left-2.5 size-icon-sm -translate-y-1/2"
-                />
-                <input
-                  type="search"
-                  placeholder="Search dependencies"
-                  aria-label="Search dependencies"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  className={SEARCH_INPUT}
-                />
-              </div>
+              <SearchInput
+                label="Search dependencies"
+                placeholder="Search dependencies"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter dependencies">
                 {DEP_FILTERS.map((entry) => (
                   <Button
