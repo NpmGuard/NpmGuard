@@ -235,9 +235,7 @@ def test_no_environment_key_is_computed() -> None:
 def test_retired_knobs_stay_retired() -> None:
     """C2: the eight deleted knobs are not back on the surface.
 
-    Each was declared without a reader here AND in the TypeScript engine this one
-    was ported from, so the port carried the shape and never any behaviour. C1
-    alone would accept `triage_max_files` again the moment any reader appeared;
+    Each was declared without a reader anywhere. C1 alone would accept `triage_max_files` again the moment any reader appeared;
     this pin makes reintroducing one an explicit act — delete the entry here, with
     the reasoning in config.py's ledger read first. Fails against the
     pre-deletion tree, which is the point."""

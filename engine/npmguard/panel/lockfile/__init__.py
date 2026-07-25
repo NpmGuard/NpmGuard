@@ -6,7 +6,7 @@ formats fail with a clear, user-facing :class:`UnsupportedLockfileError`
 naming what IS supported.
 
 The parsers are **pure**: string in → ``list[LockfileDep]`` out. No IO, no
-network, no clock. A port of the TS ``engine/src/lockfile/*`` modules.
+network, no clock.
 """
 
 from __future__ import annotations

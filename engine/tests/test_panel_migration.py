@@ -38,7 +38,7 @@
 #   C12 every in-domain package_verdicts row is present and column-for-column
 #       correct after 0007, which on sqlite recreates the table to add the CHECK
 #   C13 the out-of-domain rows (SUSPECT, UNKNOWN — representable because 0005
-#       created the column with no CHECK, and written today by the TS lineage's
+#       created the column with no CHECK, and writable by any producer bypassing the
 #       unfiltered upsertVerdict) are removed, and the constraint refuses their
 #       return, proven by attempting the insert
 import os

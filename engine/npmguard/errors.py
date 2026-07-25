@@ -16,9 +16,7 @@ from kit_spine import KitError
 # meaning silently changes what a client that already branches on it believes:
 #   NPMGUARD-0002  ValidationError      request validation is Pydantic plus
 #                                       kit_spine's RequestValidationError
-#                                       handler (api.py); nothing raised this in
-#                                       the Python engine or in the TypeScript
-#                                       one it was ported from.
+#                                       handler (api.py); nothing ever raised it.
 #   NPMGUARD-0010  LLMUnavailableError  provider exhaustion surfaces as kit's
 #                                       EndOfRope/OutputInvalid and crosses the
 #                                       wire as AuditIncompleteError (0031), or

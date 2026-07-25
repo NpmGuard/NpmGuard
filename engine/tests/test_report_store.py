@@ -28,9 +28,9 @@
 #       saved but NOT listed (the mechanism keeping malware-fixture reports out of
 #       the public listing); verdict-less files skipped; ordering newest-first
 #   C16 a report whose schemaVersion is absent or not 2 reads as ABSENT from every
-#       load path and never appears in the listing — the retired TS lineage writes
-#       an unversioned body with an IN-DOMAIN verdict into this same directory, so
-#       the verdict screen alone lets it through to a client that cannot parse it
+#       load path and never appears in the listing — a pre-v2 body carries an
+#       IN-DOMAIN verdict, so the verdict screen alone lets it through to a client
+#       that cannot parse it
 # Adversarial pass: W5 2026-07-23 — "can a reader ever see a half-written file?" →
 #   C6 probes the os.replace atomicity with live readers during repeated rewrites.
 import json
@@ -268,7 +268,7 @@ def test_listing_hides_fixture_names_skips_verdictless_orders_newest(data_dir) -
     assert (data_dir / "acme-bench-dd-probe" / "1.0.0.json").is_file()
 
 
-LEGACY_TS_REPORT = {
+PRE_V2_REPORT = {
     "verdict": "SAFE",
     "capabilities": [],
     "findings": [],
@@ -282,15 +282,14 @@ LEGACY_TS_REPORT = {
 def test_foreign_schema_version_reads_as_absent(data_dir) -> None:
     """C16: the shape screen, not just the verdict screen.
 
-    `LEGACY_TS_REPORT` is verbatim the body the retired TS engine lands in this
-    same `data/reports/` — no `schemaVersion`, and a verdict of `SAFE` that the
-    verdict screen happily passes. Reaching a client it fails the contract parse on
-    the first missing v2 field and bricks that package's page, so absence is the
-    only honest answer here.
+    `PRE_V2_REPORT` has no `schemaVersion` and a verdict of `SAFE` that the verdict
+    screen happily passes. Reaching a client it fails the contract parse on the
+    first missing v2 field and bricks that package's page, so absence is the only
+    honest answer here.
     """
     directory = data_dir / "event-stream"
     directory.mkdir(parents=True)
-    (directory / "4.0.1.json").write_text(json.dumps(LEGACY_TS_REPORT), encoding="utf-8")
+    (directory / "4.0.1.json").write_text(json.dumps(PRE_V2_REPORT), encoding="utf-8")
 
     assert load_report("event-stream") is None  # newest-mtime path
     assert load_report("event-stream", "4.0.1") is None  # exact-filename path
@@ -300,7 +299,7 @@ def test_foreign_schema_version_reads_as_absent(data_dir) -> None:
 
     # And it is the VERSION that rejects it: the same body at 2 is served.
     (directory / "renamed-by-hand.json").write_text(
-        json.dumps({**LEGACY_TS_REPORT, "schemaVersion": 2}), encoding="utf-8"
+        json.dumps({**PRE_V2_REPORT, "schemaVersion": 2}), encoding="utf-8"
     )
     loaded = load_report("event-stream", "4.0.1")
     assert loaded is not None and loaded[1] == "4.0.1"

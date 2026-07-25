@@ -27,7 +27,7 @@ const VERDICTS: readonly string[] = ["SAFE", "DANGEROUS"];
  * protocol violation — a stale server, a proxy rewriting the body — and every
  * caller must surface it as one. It is NOT a soft "we're not sure": inventing a
  * middle state is how "we couldn't check" gets rendered as a hedge instead of a
- * failure, and the retired SUSPECT/UNKNOWN vocabulary is exactly that mistake.
+ * failure.
  */
 export function asVerdict(value: unknown): Verdict | null {
   const upper = typeof value === "string" ? value.toUpperCase() : "";

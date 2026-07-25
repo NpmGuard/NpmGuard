@@ -1,4 +1,4 @@
-# CLASS MAP — panel.verdict_index.VerdictIndex (port of TS verdict-index.ts)
+# CLASS MAP — panel.verdict_index.VerdictIndex
 # (seam: real throwaway sqlite over kit metadata.create_all; the report LISTER
 #  is injected as a fake so rebuild is exercised without touching data/reports/)
 # upsert / get:
@@ -26,9 +26,9 @@
 #       the total mapping — the dict lookup IS the check)
 #   C18 the DATABASE refuses an out-of-domain verdict on an insert that BYPASSES
 #       upsert (the 0007 CHECK), which is the only guard that also binds the
-#       cross-lineage producer at origin/main
+#       producer that never runs this Python
 # Adversarial pass: the 2-state guard (C10/C15/C16/C18) is the load-bearing
-#   invariant — a SUSPECT/UNKNOWN verdict must never reach a dep row, and if one
+#   invariant — an out-of-domain verdict must never reach a dep row, and if one
 #   is already stored the read boundary must fail loud rather than render it. C15
 #   and C16 are `raise`, not `assert`, so `python -O` cannot strip them; C18 is the
 #   constraint that holds when no Python of ours runs at all.
@@ -130,7 +130,7 @@ def test_assess_report_extracts_fields() -> None:
 
 async def test_rebuild_from_fake_lister(index_engine) -> None:
     """C9/C10: rebuild lands every SAFE|DANGEROUS report and returns the count;
-    a SUSPECT report (never legal in dev) is dropped, not stored."""
+    a SUSPECT report (never legal) is dropped, not stored."""
     index = index_engine
 
     def fake_list_reports():
@@ -233,7 +233,7 @@ async def test_stored_verdict_domain_is_enforced_by_the_database(index_engine) -
     is proven is the CHECK constraint (alembic 0007) and nothing about Python.
 
     That distinction is the point of the constraint. The one producer this column
-    has outside this codebase — ``origin/main``'s ``upsertVerdict``, writing an
+    has outside this Python — a repair script or psql session writing an
     unfiltered 4-state classification into an identically-named table — never runs
     ``upsert``, so a guard inside it could not have stopped this insert either.
     """
