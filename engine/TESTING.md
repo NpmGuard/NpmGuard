@@ -1,9 +1,14 @@
 # Testing
 
-Two pillars: **prove the logic** (blackbox units over enumerated equivalence
-classes) and **prove the artifact** (e2e: a real uvicorn engine on an ephemeral
-port, throwaway DB, deterministic mocks behind real HTTP boundaries, replaying
-real captured production LLM traffic).
+Three things get proven here, and they are not substitutes for one another:
+
+- **the logic** — blackbox units over enumerated equivalence classes (Pillar A);
+- **the wiring** — a real route against a real database with every external
+  stubbed (Pillar B). Most of this project's proof lives in this tier, and it
+  spent a long time unnamed;
+- **the artifact** — a real uvicorn engine on an ephemeral port, throwaway DB,
+  deterministic stubs behind real HTTP boundaries, replaying real captured
+  production LLM traffic (Pillar C).
 
 **Clone-and-run rule:** `uv run pytest` passes on a fresh clone with nothing
 running (units + in-process replay slices, seconds). Everything needing infra
@@ -21,6 +26,12 @@ the per-change gate (minutes), opt-in via `-m e2e`.
 | e2e + postgres | `uv run pytest -m "e2e and postgres"` | `NPMGUARD_TEST_PG_DSN`, else a throwaway `postgres:17-alpine` container via docker, else loud skip |
 | cli | `uv run pytest -m "e2e and cli"` | `cli/dist/` built (+ node on PATH; the DANGEROUS-verdict test also needs docker) |
 | llm_live | `uv run pytest -m llm_live` | `NPMGUARD_TEST_LLM_LIVE=1` + a real key. Opt-in smoke, **never the gate**. Tier reserved; no tests exist yet |
+
+**The wiring tier (Pillar B) has no marker of its own**, and that is a known
+gap rather than a design: its in-process half runs inside `unit` and its
+out-of-process half inside `e2e sqlite`, so `-m e2e` cannot separate "a route
+over stubs" from "the artifact against real docker". Read the tier by its shape
+(Pillar B), not by a selector.
 
 "Current" image matters: `stubUrl` installs its redirect with `iptables` from
 the sandbox image, so a `Dockerfile.sandbox` change needs
@@ -98,7 +109,78 @@ classes rather than a single test id).
 E2e scenario files use the same convention with scenarios as classes; every e2e
 test docstring carries `S<id> [C<claims>]`.
 
-## Pillar B — e2e: the artifact, proven
+## Pillar B — the wiring: route ⇄ real DB ⇄ stubbed external
+
+The tier a two-pillar framing hides, and where most of this project's proof
+actually lives. Its shape is fixed and is what identifies it: **a real handler,
+a real database, and every external replaced by a stub** — GitHub, Stripe, the
+npm registry, the chain RPC, the LLM provider. Nothing of *ours* is faked: the
+app is `create_app()` (or a real uvicorn), the SQL is real SQL against the real
+schema, the report store is the real report store.
+
+Two forms, differing only in whether the process boundary is real:
+
+- **in-process** — `fastapi.testclient.TestClient` / `httpx.ASGITransport` over
+  the real app (or the real router mounted directly, where reaching it through
+  `api.py` would add nothing), a throwaway sqlite file, externals pointed at a
+  stub or at a **dead port**. Runs in the default suite, so the tier stays
+  clone-and-run.
+  Exemplars: `test_api.py` (every launch path + the `/api` mirror),
+  `test_panel_alerts_routes.py` (scoping), `test_panel_verdict_domain.py` (a
+  domain constraint the DB itself emits), `test_events_sse.py` (wire + cursor
+  semantics), `test_panel_webhooks.py`, `test_bench_routes.py`.
+- **out-of-process** — `tests/support/harness.py` spawns real uvicorn and the
+  stubs are real HTTP servers on port 0 (`tests/support/stubs.py`). Marked
+  `e2e`, which is exactly how the tier stayed unnamed. Exemplars:
+  `tests/e2e/test_panel_*.py` (the whole OAuth → orgs → repos → scan flow
+  against `GitHubStub`), `test_payments_flow.py`, and the non-docker legs of
+  `test_stream.py` / `test_failures.py` / `test_verdicts.py`.
+
+Some files have the tier's shape without a route — a real component driving real
+SQL, with a stub (or nothing at all) where an external would be:
+`test_service_queue.py`, `test_persistence.py`, `test_payments.py`. **The real
+database is what defines the tier**, not whether HTTP is involved; a test that
+mocks the store away is a Pillar A unit no matter how many layers it calls. Every test file's class-map
+header opens by naming its seam, so `grep -n "seam" tests/*.py` is how you find
+which tier a file is in.
+
+**What belongs here:** anything whose defect lives in the *join* rather than in a
+function — a route's auth and scoping, a wire projection, a cookie/redirect flow,
+a webhook's idempotency, a payment claim, SSE replay off the durable log, a
+rollup computed in SQL, a constraint that only exists once `create_all` has run.
+
+**Assert on the database after the response, not only on the response body.**
+"No launch", "not acknowledged", "no orphan row" are claims about state, and a
+200 does not prove any of them. `test_api.py`'s `_session_count` probe (zero
+`audit_sessions` rows after each 402) and `test_panel_alerts_routes.py` C2/C11
+(another org's unseen alert is untouched *in the DB* after an ack) are the
+pattern.
+
+### What this tier cannot prove
+
+- **A concurrency invariant.** SQLite serializes writers and these tests hold
+  one connection to one file, so twelve simultaneous claims execute one at a
+  time — a passing "exactly once" assertion is **vacuous**, because it would
+  also pass against code with no atomicity at all. Postgres MVCC is the axis
+  where the race is real. That is why C10's only honest proof is
+  `test_payments.py::test_concurrent_claims_exactly_once_postgres`, DSN-gated on
+  `NPMGUARD_TEST_PG_DSN`, with `scripts/gate.sh` provisioning a throwaway
+  container so it actually runs at the gate. The sqlite twin beside it is kept
+  for the orphan-row probe, not for the race. Both are prod engines, so this is
+  a real second strand, not a CI luxury — and a claim that says "concurrent"
+  belongs in the postgres strand or it says nothing.
+- **A live stream, in-process.** `ASGITransport` buffers whole bodies, so the
+  in-process form can only assert a *replay*; following a stream to its
+  termination needs the real uvicorn (S11–S15) or the `sse_events` generator
+  consumed directly.
+- **Anything the stub decided.** A stub answers what we told it to answer, so it
+  can never falsify a belief about the real producer's format. That is the whole
+  subject of "Parsers of external formats" below, and the reason
+  `tests/fixtures/` exists.
+- **The sandbox, or model judgment.** Real docker experiments are the docker
+  tier; the judge's reasoning over real recorded evidence is the slice tier.
+
+## Pillar C — e2e: the artifact, proven
 
 `tests/support/harness.py` spawns `uv run --frozen uvicorn npmguard.api:app` in
 its own process group, waits on `/health` (bounded, stderr tail on failure),
@@ -107,7 +189,10 @@ and offers `restart()` (SIGKILL group + respawn, same port/db) and `close()`
 port 0 (`tests/support/stubs.py`): registry (serves committed packuments +
 tarballs, rewrites `dist.tarball` to itself), fake chain JSON-RPC (real
 ABI-encoded `AuditRequested` logs; delayed/reverted/wrong-event modes), stripe
-(via the `stripe_api_base` seam). SSE assertions go through the bounded frame
+(via the `stripe_api_base` seam), and `GitHubStub` — a deterministic GitHub REST
++ OAuth subset that githubkit reaches through `NPMGUARD_GITHUB_API_BASE`, so no
+test can touch api.github.com. (The module's own docstring still lists only the
+first three; the class is there.) SSE assertions go through the bounded frame
 parser in `tests/support/sse.py`. httpx `ASGITransport` buffers whole bodies —
 live SSE follow needs the real uvicorn; in-process tests consume the
 `sse_events` generator directly.
@@ -213,12 +298,32 @@ fixture. Docstrings and comments are prose and are not scanned — otherwise the
 class map that *records* a bad shape would fail the rule forbidding it. Marker
 tokens are the JSON-quoted form where a bare one would collide with ordinary code
 (`http.request(` is a Node call, not tshark output). Adding a parser for a new
-external format means adding its markers; a format with no marker is an
-unenforced gap, not a licence.
+external format means adding its markers (`MARKERS` in that module); a format
+with no marker is an unenforced gap, not a licence. The pass criterion is
+deliberately dumb and therefore hard to argue with: **every non-blank line of
+the literal must be a substring of some file under `tests/fixtures/`.** The
+lint's own test file is exempted structurally by name (`SELF_TEST`) — it has to
+contain the shapes it detects, and sprinkling escape markers through it would
+have made the exemption invisible.
 
-**The escape hatch, and its price.** A function may opt out with
-`NOT-A-CAPTURED-SHAPE` in its docstring. There are two honest uses, both of which
-make the admission part of the assertion:
+**`PINNED_UNFIXED` is the debt list, and it cannot rot.**
+`test_parser_fixture_lint.py` holds a set of file names allowed to still offend
+and asserts **both** directions: an offender outside the set fails, *and* a name
+in the set that no longer offends fails too — "delete it from `PINNED_UNFIXED`
+so the exemption cannot rot". Adding a name is how you deliberately leave a
+known offender in the tree; the second assertion takes it back out, loudly, the
+moment it stops offending. The set is empty, and its one historical entry
+(`test_evidence.py`, four hand-written strace `raw` values) was cleared by
+driving those classes through the real `parse_strace_log` over committed
+captures — not by widening anything.
+
+**The escape hatch, and its price.** A function may opt out by putting
+`NOT-A-CAPTURED-SHAPE` in its docstring. The hatch is **per-function**, not
+per-file (`test_escape_marker_is_scoped_to_the_function_that_admits_it`, C5), so
+admitting one constructed shape never licenses the rest of the file — and the
+admission is a *documented reason at the assertion*, which is the whole price.
+There are two honest uses, both of which make the admission part of the
+assertion:
 
 - the shape is one the producer **cannot** emit, and rejecting it is the point —
   committing it as a fixture would be a category error, since a fixture claims
@@ -297,19 +402,65 @@ Wall-clock waits the engine hardcodes (30s receipt wait, 15s heartbeat) are
 never burned: timing is proven at stub/seam level (delayed receipt + poll
 count; injected 0.2s heartbeat). PIN tests document current divergent behavior
 with an `UNENFORCED`/finding comment instead of silently blessing it; xfail
-pins assert the *correct* contract so they flip green when the bug is fixed.
+pins assert the *correct* contract so they flip green when the bug is fixed —
+see the `xfail(strict=True)` section below for why strict is the load-bearing
+part.
 
 ## Failure protocol
 
 | failure | meaning | the move |
 |---|---|---|
 | unit | bug — or the class map missed a class | fix the code; if the map was wrong, add the class **first** |
+| wiring | the *join* is wrong: a route, its SQL, a projection, or a stub's contract | fix the join. If the response was right and the DB was wrong, the missing assertion is the DB probe — add it |
 | slice | replay drift (prompt/contract/fixture) | `FixturePromptDrift` → re-record; contract change → re-export + lint |
 | e2e | boundary bug | fix the seam; never mock it away |
 
 Every bug that escapes names its missing equivalence class; the fix adds that
 class to the map before touching the code. Never weaken a test to pass — if a
 test encodes the wrong convention, change the convention's document first.
+
+## A correct fix blocked on a cost — `xfail(strict=True)`
+
+Some fixes are written, understood, and right, and still cannot land, because
+landing them costs something that is not code. The convention is to pin the
+**correct contract** as a strict xfail with the whole diagnosis in the marker's
+`reason`, at the assertion — not as a TODO, and never as a test that blesses the
+wrong behaviour, because a test asserting current behaviour is how a defect
+becomes a requirement.
+
+- **`strict=True` is the load-bearing half.** A non-strict xfail that starts
+  passing is reported as XPASS and nobody looks; a **strict** one that passes
+  **fails the gate**. That is how a pin announces that its blocker has cleared
+  instead of rotting as a comment nobody re-measures. `xfail_strict` is *not* set
+  in `pyproject.toml`, so `strict=True` has to be written at every site — a
+  forgotten one is a pin that will silently keep its own secret.
+- **The `reason` carries the diagnosis, the fix, and the blocker**, so a reader
+  never has to reconstruct why the test is red or what would make it green.
+  Enumerate the live pins with `grep -rn xfail tests/`.
+
+**The two blocker kinds cost differently, and the difference decides who
+approves clearing them:**
+
+| blocker | cost | who decides |
+|---|---|---|
+| **fixture re-seal** — the change alters a committed fixture's canonical form (re-seal each `fixtures/llm/*/sandbox/*.runartifact.json`, update its `sha256` in the bundle manifest) | zero money, mechanical, and verifiable by replaying the bundle afterwards | still the owner's, because it edits recorded evidence — but it is a decision, not a purchase |
+| **re-record** — the change alters a prompt or the transcript shape, so bundles must be regenerated against a LIVE provider (plus docker for DANGEROUS runs) | real money on real model calls | the owner's, explicitly. Never re-record to make a test green — see the re-record runbook, step 3 |
+
+The live example is `test_evidence.py` C18: *a sealed artifact carries no field
+asserting a bound or a hash the run did not produce.* The fix is deleting
+`inspectorLogHash` and the two dead `Budget` fields; the blocker is that removing
+a sealed field changes the canonical form and hence the `contentHash` of every
+artifact ever sealed, which the orchestrator cross-checks against an independent
+recomputation — so 31 runartifacts and three slice replays go red until they are
+re-sealed. Re-seal, not re-record: free and mechanical, owner's call anyway. The
+finding is tracked in FINDINGS and the assertion states the correct contract.
+
+Guessing the blocker's cost is itself a trap in both directions. The C14b
+recycled-fd / unix-peer fix was carried as blocked on a *re-record* and turned
+out to cost nothing once measured over the 31 committed artifacts — rendering a
+syscall's result splits more timeline rows than it merges, so no id set shrank
+and it landed for free. **Measure the fixture cost before pricing a pin**, and
+say in the `reason` that you did.
 
 ## Exclusions (deliberate, with reasons)
 
@@ -319,7 +470,8 @@ test encodes the wrong convention, change the convention's document first.
 - WalletConnect UX: the engine-side class is covered by the fake chain.
 - bench-dd malware fixtures in CI: banned from committed files by policy.
 - Interactive TTY prompt (DANGEROUS confirm): manual; `--force` branch covered.
-- Frontend rendering: mid-rewrite, reference-only.
+- Frontend rendering: owned by `frontend/TESTING.md` (vitest units + a Playwright
+  gate that boots this engine in demo mode), not by this suite.
 - nginx SSE buffering: deploy config (no-ephemeral-facts rule).
 - Real-scale load: bounds tested shrunken via `NPMGUARD_QUEUE_SIZE`/`…_MAX_RUNNING_SESSIONS`.
 - sqlite corruption / disk-full: tests the OS, not the engine.
@@ -383,8 +535,10 @@ Open (report-only; tracked here, not silently fixed):
 - **strace escapes are not unescaped.** `_quoted` returns strace's own C escaping,
   so a committed artifact renders `require(\"/pkg/…\")` and a non-ASCII path would
   reach the judge as `\303\251`. Faithful but noisy. Not fixed here because execve
-  `argv` IS rendered, so unescaping shifts timeline text and needs the same
-  re-record budget as the pinned C14b unix-socket fix.
+  `argv` IS rendered, so unescaping shifts timeline text. Its fixture cost has
+  **not been measured** — the C14b unix-socket fix was expected to need a
+  re-record and turned out to cost nothing, so assume neither; measure before
+  pricing it (see the `xfail(strict=True)` section).
 
 - **CLI exit-0-on-CLOSED hazard** (`cli/` scope, out of engine): `es.onerror`
   resolves verdict UNKNOWN / exit 0 when EventSource reaches readyState CLOSED
