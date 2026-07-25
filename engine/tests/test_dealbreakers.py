@@ -20,7 +20,7 @@
 # near-miss (C5a) and with the real manifests, so a regex matching nothing, or
 # matching everything, fails this file. PUBLISHED_HOOKS holds install-script
 # values copied verbatim out of published manifests, each naming its package,
-# because every one is a BENIGN shape the recogniser used to get wrong.
+# every one a BENIGN shape a narrow recogniser calls DANGEROUS.
 #
 # THREE OUTCOMES, NOT TWO. An install hook whose target cannot be resolved is a
 # statement about THIS ENGINE, not about the package, so it cannot carry the

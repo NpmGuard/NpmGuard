@@ -2,7 +2,7 @@
  * the counts every dashboard surface derives from it.
  *
  * This is the panel's answer to "what does this repo's last audit set MEAN",
- * and it lives here rather than inside the two components that used to hold it
+ * and it lives here rather than inside the two components that consume it
  * (`Dashboard.tsx`'s `needsAttention` + filter counters, `PortfolioPosture.tsx`'s
  * four-way tally) for one reason: they are the same classification read twice,
  * and the rail's counts and the filter's counts are shown side by side. Two

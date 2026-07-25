@@ -8,8 +8,7 @@
  * Input classes:
  *  R1  needsAttention — DANGEROUS and ERROR yes; SAFE, null-outcome and no-set
  *      no. ERROR is the load-bearing one: "we tried and failed" is a coverage
- *      gap a human has to close, and folding it in with "never scanned" is what
- *      used to hide it.
+ *      gap a human has to close, and folding it in with "never scanned" hides it.
  *  R2  needsAttention ignores PROGRESS: a still-running set with a DANGEROUS
  *      partial rollup already needs a human — that finding will not un-happen.
  *  R3  repoBucket — total, exactly one bucket per repo, and PROGRESS WINS: the

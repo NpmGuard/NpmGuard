@@ -2,7 +2,7 @@
 # real GitHub stub behind HTTP).
 #   R1  a session that has NEVER called /panel/orgs still gets its repos from
 #       /panel/repos. The route reads the user's installations from GitHub, not
-#       from the `user_installations` mirror that only /panel/orgs used to write.
+#       from the `user_installations` mirror, which only /panel/orgs writes.
 #
 # WHY THIS EXISTS AS ITS OWN TEST: the dashboard fires /panel/orgs and
 # /panel/repos CONCURRENTLY, so on a first sign-in /panel/repos could win the

@@ -122,8 +122,8 @@ def downgrade() -> None:
     # which installation once paid for a public scan is genuinely gone, and
     # inventing one (say, any installation the requester can access) would be a
     # fabricated billing record. A downgraded database therefore has public sets
-    # with a NULL `billed_to`, and the OLD index over that column no longer
-    # constrains them. Named here rather than discovered later.
+    # with a NULL `billed_to`, which the index over that column does not
+    # constrain. Named here rather than discovered later.
     with op.batch_alter_table("public_repo_scans") as batch:
         batch.add_column(
             sa.Column(
