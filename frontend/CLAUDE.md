@@ -340,9 +340,18 @@ layout.
   exists in the repo. Crypto contract + fee come from `GET /config/public`
   (`crypto: {chain, chainId, contract, auditFeeWei}`, or `crypto: null`), never
   hardcoded.
-- Every engine route is mirrored under `/api`. App code reads `apiBase()`
-  (`lib/config.ts`), never `import.meta.env` — the same built artifact must run
-  behind the vite proxy, the engine's static server, and the e2e harness.
+- Every engine route answers under `/api`, and that is the only surface with no
+  ambiguity. App code reads `apiBase()` (`lib/config.ts`), never
+  `import.meta.env` — the same built artifact must run behind the vite proxy,
+  the engine's static server, and the e2e harness.
+- **A page path and a root API path cannot both exist.** In production the engine
+  serves `dist/` itself, so its own routes are matched before the SPA fallback: a
+  root route named like a page wins, and a hard navigation, a refresh or a pasted
+  link gets JSON. `/replays` and `/packages` are therefore `/api`-only
+  (`api.py::client_owned_router`), and `/audit/{id}` is a page while everything
+  below it is API. Vite is blind to all of this — it serves the SPA for every path
+  and proxies only `/api` — so the guard is `e2e/static-serving.spec.ts`, the one
+  Playwright project pointed at the engine origin.
 - Demo / e2e determinism: `GET /demo/packages` + `POST /demo/start` replay
   committed recordings (`engine/demo-data/*.json`) with zero LLM and zero
   docker; `NPMGUARD_DEMO_SPEED` (an engine knob) fast-plays them. An empty demo

@@ -11,10 +11,14 @@ App-JWT signing path, so they live here once rather than in each test module.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Literal
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+
+from npmguard.contract.models import AuditReport, HypothesisCounts
 
 # 32-byte AES-256-GCM key, hex-encoded. Settings only enforces the SHAPE
 # (64 hex chars), and no test asserts on ciphertext, so the value is arbitrary.
@@ -63,3 +67,45 @@ def github_env(
     if extra:
         env.update(extra)
     return env
+
+
+def seed_report(
+    reports_dir: Path,
+    name: str,
+    version: str,
+    *,
+    verdict: Literal["SAFE", "DANGEROUS"],
+    rationale: str = "",
+    confirmed: list[str] | None = None,
+) -> None:
+    """Write a report file the boot-time verdict-index rebuild turns into a
+    ``package_verdicts`` cache hit, so the dep needs no real audit.
+
+    Built through the GENERATED contract rather than as a dict literal, because
+    the store screens what it hands out: ``report_store._readable`` drops any
+    report whose ``schemaVersion``/``verdict`` is outside the contract's domain.
+    A literal that omits ``schemaVersion`` is therefore invisible rather than
+    rejected — every seeded dep becomes a cache MISS and the scan rolls up ERROR
+    instead of the verdict it seeded, which reads as a product bug rather than a
+    fixture one. Constructing the model also means a contract change moves the
+    fixture with it.
+    """
+    confirmed_ids = confirmed or []
+    report = AuditReport(
+        verdict=verdict,
+        rationale=rationale,
+        counts=HypothesisCounts(
+            total=len(confirmed_ids),
+            open=0,
+            inProgress=0,
+            confirmed=len(confirmed_ids),
+            refuted=0,
+            deferred=0,
+        ),
+        confirmedHypIds=confirmed_ids,
+    )
+    directory = reports_dir / name
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{version}.json").write_text(
+        json.dumps(report.model_dump(mode="json")) + "\n", encoding="utf-8"
+    )

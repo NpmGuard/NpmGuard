@@ -266,5 +266,5 @@ def test_a_staged_audit_never_enters_the_published_report_store(make_app, tmp_pa
         started = client.post("/audit/stream", json=staged("test-pkg-child-success"))
         audit_id = started.json()["auditId"]
         assert _wait_report(client, "", audit_id).status_code == 200
-        assert client.get("/packages").json()["packages"] == []
+        assert client.get("/api/packages").json()["packages"] == []
         assert not list((tmp_path / "data" / "reports").rglob("*.json"))

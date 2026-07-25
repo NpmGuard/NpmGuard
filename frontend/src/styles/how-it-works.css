@@ -136,8 +136,89 @@
 /* Split lines clip their own overflow so glyphs rise into place. */
 .hiw-splitline { display: block; overflow: hidden; }
 
-/* --- Buttons ------------------------------------------------------------- */
+/* --- Hero ---------------------------------------------------------------- */
 
+.hiw-hero { padding-block: var(--ng-space-16) var(--ng-space-20); position: relative; }
+@media (min-width: 768px) { .hiw-hero { padding-block: var(--ng-space-20) var(--ng-space-24); } }
+.hiw-hero__grid { display: grid; gap: var(--ng-space-12); align-items: center; }
+@media (min-width: 1024px) {
+  .hiw-hero__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
+    gap: var(--ng-space-16);
+  }
+}
+.hiw-hero__lead { margin-top: var(--ng-space-6); }
+.hiw-hero__cta { margin-top: var(--ng-space-8); display: flex; flex-wrap: wrap; gap: var(--ng-space-3); }
+
+.hiw-cue {
+  position: absolute; left: 50%; bottom: var(--ng-space-8);
+  width: 1px; height: 40px; background: var(--ng-border); overflow: hidden;
+}
+.hiw-cue span { display: block; width: 100%; height: 14px; background: var(--ng-text-3); }
+@media (max-width: 1023px) { .hiw-cue { display: none; } }
+
+/* --- The exhibit (one real audit, replayed) ------------------------------ */
+
+.hiw-exhibit {
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  box-shadow: var(--ng-shadow-pop);
+  overflow: hidden;
+}
+.hiw-exhibit__bar {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  padding: var(--ng-space-3) var(--ng-space-4);
+  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
+  background: var(--ng-sunken);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs); color: var(--ng-text-3);
+}
+.hiw-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ng-border-strong); flex: none; }
+.hiw-exhibit__body { padding: var(--ng-space-4); }
+.hiw-replay {
+  margin-inline-start: auto;
+  color: var(--ng-text-3);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  padding: var(--ng-space-1) var(--ng-space-2); border-radius: var(--radius-xs);
+}
+.hiw-replay:hover { color: var(--ng-text); background: var(--ng-border-faint); }
+
+.hiw-step {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--ng-space-3);
+  padding-block: var(--ng-space-3);
+  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
+}
+.hiw-step:last-child { border-bottom: 0; padding-bottom: 0; }
+.hiw-step__n {
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-3); padding-top: 3px;
+}
+.hiw-step__label {
+  font-size: var(--text-xs); color: var(--ng-text-3);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.hiw-step__val {
+  font-family: var(--ng-font-mono); font-size: var(--text-sm);
+  margin-top: 2px; word-break: break-word;
+}
+.hiw-step__val em { font-style: normal; color: var(--ng-danger-text); }
+.hiw-step__val--verdict {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  flex-wrap: wrap; margin-top: var(--ng-space-2);
+}
+.hiw-step__cited { color: var(--ng-text-3); font-size: var(--text-xs); }
+.hiw-cite { color: var(--ng-accent-text); }
+
+.hiw-evlist { display: grid; gap: 2px; margin-top: var(--ng-space-2); }
+.hiw-ev {
+  display: grid; grid-template-columns: 30px 42px minmax(0, 1fr); gap: var(--ng-space-2);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-2);
+  padding: 2px var(--ng-space-2); border-radius: var(--radius-xs);
+}
+.hiw-ev__id, .hiw-ev__tag { color: var(--ng-text-3); }
+.hiw-ev.is-cited { background: var(--ng-accent-wash); color: var(--ng-accent-text); }
+.hiw-ev.is-cited .hiw-ev__id { color: var(--ng-accent-text); font-weight: 500; }
 
 /* --- Act 1: the theft ---------------------------------------------------- */
 
@@ -292,6 +373,29 @@
 }
 .hiw-filerow__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
+/* station 02 */
+.hiw-pbox {
+  border: var(--ng-border-hairline) solid var(--ng-border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--ng-sunken);
+  padding: var(--ng-space-3);
+}
+.hiw-pbox--out { border-color: var(--ng-border-control); background: var(--ng-surface); }
+.hiw-pbox__k {
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-3); text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--ng-space-2);
+}
+.hiw-pbox p {
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  line-height: 1.6; color: var(--ng-text-3);
+}
+.hiw-pbox--out p { color: var(--ng-text); }
+.hiw-typeline { min-height: 2.6em; }
+.hiw-caret {
+  display: inline-block; width: 7px; height: 1em;
+  background: var(--ng-accent); vertical-align: -0.16em; margin-left: 1px;
+}
 .hiw-chiprow { margin-top: var(--ng-space-3); }
 
 /* station 03 */
