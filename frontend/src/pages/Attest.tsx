@@ -25,6 +25,7 @@ import {
   type AttestSessionResponse,
 } from "../lib/api.ts";
 import { ApiError } from "../lib/api-base.ts";
+import { readCompletion } from "../lib/idkit-completion.ts";
 import "../styles/attest.css";
 
 const TIER_LABEL: Record<number, string> = {
@@ -70,7 +71,7 @@ export function Attest() {
   // Once ownership is proven the engine will mint an RP signature; fetch it so
   // the widget has something to bind to.
   useEffect(() => {
-    if (session?.status !== "owned") return;
+    if (session?.status !== "owned" && session?.status !== "failed") return;
     let cancelled = false;
     void fetchAttestRequest(sessionId)
       .then((value) => {
@@ -141,7 +142,10 @@ export function Attest() {
     );
   }
 
-  const owned = session.status === "owned" || session.status === "verified";
+  // "failed" keeps its proven ownership — a rejected proof is retryable, and
+  // bouncing the maintainer back to step 2 would suggest they lost it.
+  const owned =
+    session.status === "owned" || session.status === "verified" || session.status === "failed";
   const verified = session.status === "verified";
   const attestation = session.attestation;
   const staging = config !== null && !config.isProduction;
@@ -322,8 +326,14 @@ function WorldProof({
       setUri(request.connectorURI);
       setQr(await qrcode.toDataURL(request.connectorURI, { margin: 1, width: 240 }));
 
-      const completion = await request.pollUntilCompletion();
-      await onProof(completion);
+      // `pollUntilCompletion` resolves to an envelope, not a proof. Posting the
+      // envelope is what World's /verify answers `validation_error` to.
+      const outcome = readCompletion(await request.pollUntilCompletion());
+      if (outcome.kind !== "proof") {
+        setLoadError(outcome.message);
+        return;
+      }
+      await onProof(outcome.proof);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "World ID returned an error");
     } finally {

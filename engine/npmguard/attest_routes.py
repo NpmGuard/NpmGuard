@@ -283,7 +283,13 @@ async def submit_proof(request: Request, session_id: str) -> JSONResponse:
     session = await runtime.attest.get_session(session_id)
     if session is None:
         return JSONResponse({"error": "Unknown attestation session"}, status_code=404)
-    if session.status != "owned" or not session.signal:
+    # "failed" is retryable and must stay so: `/request` already re-issues an RP
+    # signature for it, and a rejected proof means the maintainer produced the
+    # wrong proof, not that they lost the right to attest. Requiring "owned" here
+    # would let a single rejection brick a session that still holds a frozen,
+    # ownership-checked signal. What is NOT retryable is a signal-less session —
+    # that is the one that never passed the ownership gate.
+    if session.status not in ("owned", "failed") or not session.signal:
         return JSONResponse(
             {"error": "Prove repository ownership before submitting a proof"}, status_code=409
         )

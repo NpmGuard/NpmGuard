@@ -148,6 +148,26 @@ async def test_a_rejected_proof_is_never_partially_accepted() -> None:
         ).verify({}, expected_signal=SIGNAL)
 
 
+async def test_a_rejection_carries_worlds_own_explanation() -> None:
+    """A bare code is not a diagnosis.
+
+    A real `validation_error` cost real debugging time because the reason —
+    which field World could not read — was dropped on the floor and the operator
+    saw only "World rejected the proof". Whatever World says about why must
+    reach the operator.
+    """
+    with pytest.raises(AttestationError) as caught:
+        await _verify_with(
+            {
+                "success": False,
+                "code": "validation_error",
+                "detail": "responses: field required",
+            }
+        ).verify({}, expected_signal=SIGNAL)
+    assert "validation_error" in str(caught.value)
+    assert "responses: field required" in str(caught.value)
+
+
 async def test_a_signal_hash_for_another_artifact_is_refused() -> None:
     """THE replay defence: a proof minted for one tarball must be worthless for
     any other. Without this the whole design is decorative."""

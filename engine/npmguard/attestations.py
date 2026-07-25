@@ -213,6 +213,31 @@ def _signal_hashes(payload: dict[str, Any], request_payload: dict[str, Any]) -> 
     return found
 
 
+def _reject_reason(payload: dict[str, Any], *, sent: dict[str, Any]) -> str:
+    """Say why World refused, in terms someone can act on.
+
+    World's error body carries a ``code`` plus a human ``detail``; reporting only
+    the code cost real debugging time once already — a bare ``validation_error``
+    names no field and reads as "your proof was bad" when the actual fault was
+    the *shape of our request*. So the detail travels with the code, and the keys
+    we sent are logged beside it: for a validation error, what is missing from
+    that list IS the diagnosis. Keys only, never values — a proof body is not
+    something to spray into logs.
+    """
+    code = str(payload.get("code") or "verification_failed")
+    detail = payload.get("detail") or payload.get("message")
+    attribute = payload.get("attribute")
+    log.warning(
+        "world verify rejected the proof",
+        code=code,
+        detail=detail,
+        attribute=attribute,
+        sent_keys=sorted(sent),
+    )
+    parts = [p for p in (detail, f"attribute {attribute}" if attribute else None) if p]
+    return f"World rejected the proof: {code}" + (f" — {'; '.join(map(str, parts))}" if parts else "")
+
+
 def assign_tier(
     *, identity_attested: bool, has_jurisdiction: bool = False
 ) -> Tier:
@@ -267,8 +292,7 @@ class WorldVerifier:
             raise AttestationError(f"World verify request failed: {exc}") from exc
 
         if not payload.get("success"):
-            code = payload.get("code") or "verification_failed"
-            raise AttestationError(f"World rejected the proof: {code}")
+            raise AttestationError(_reject_reason(payload, sent=body))
 
         # The action scopes the nullifier. A proof minted for another action is
         # a different pseudonym namespace and must not be admitted here.

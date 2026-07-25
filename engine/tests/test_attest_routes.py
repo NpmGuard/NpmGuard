@@ -275,6 +275,32 @@ def test_a_refused_proof_records_the_failure_and_does_not_attest(make_app, npm, 
         assert "attestation" not in after
 
 
+def test_a_failed_session_can_still_be_retried(make_app, npm, monkeypatch) -> None:
+    """A rejected proof must not brick the session.
+
+    Ownership is already proven and the signal already frozen; the maintainer
+    simply produced the wrong proof. `/request` re-issues an RP signature for a
+    failed session, so `/proof` has to accept one too — otherwise the retry path
+    dead-ends at 409 and the only way out is opening a new session.
+    """
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        session_id = _open(client)
+        _sign_in(monkeypatch, app)
+        client.post(f"/attest/session/{session_id}/own")
+
+        _stub_world(app, error="proof carries no signal_hash — it is not artifact-bound")
+        assert client.post(f"/attest/session/{session_id}/proof", json={}).status_code == 422
+        assert client.get(f"/attest/session/{session_id}").json()["status"] == "failed"
+
+        # the retry: same session, a proof World now accepts
+        assert client.get(f"/attest/session/{session_id}/request").status_code == 200
+        _stub_world(app)
+        retried = client.post(f"/attest/session/{session_id}/proof", json={})
+        assert retried.status_code == 200
+        assert retried.json()["status"] == "verified"
+
+
 def test_a_verified_proof_is_recorded_and_surfaced(make_app, npm, monkeypatch) -> None:
     app = make_app(**WORLD_ENV, **GITHUB_ENV)
     with TestClient(app) as client:
