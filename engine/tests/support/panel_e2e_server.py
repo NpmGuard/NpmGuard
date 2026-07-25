@@ -129,6 +129,13 @@ def build_app(scenario: dict[str, Any], database_url: str | None) -> FastAPI:
     async def dangerous_fanout(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         """Run the engine's OWN alert producer for one DANGEROUS pair.
 
+        ⚠ REVISIT IN PHASE 4. This endpoint is the only synthetic trigger in the
+        panel browser tier and it should not outlive the constraint that forced
+        it: once Phase 4 can run an audit that genuinely concludes DANGEROUS,
+        delete it and let a real scan raise the alert. Its presence means the
+        alert TRIGGER is unproven in the browser — only the feed downstream of it
+        is.
+
         This is the one panel fact a browser harness cannot reach by driving the
         product: alerts are raised by ``PanelScanWorker`` at the moment a real
         audit lands a DANGEROUS verdict (jobs.py), and a real audit needs docker
