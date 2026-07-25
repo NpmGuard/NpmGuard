@@ -68,6 +68,7 @@
 
     --col-l: #f9f3f1;   /* danger 3.5% over canvas */
     --col-r: #f1f4f0;   /* safe 4.5% over canvas   */
+    --mid: clamp(8.5rem, 14.5vw, 13rem);   /* wide enough for the step text at full size */
     --node: clamp(92px, 11vw, 152px);
     --rail: 3px;
   }
@@ -100,7 +101,7 @@
   /* ── column headers, pinned so you always know which side is which ──────── */
   .heads {
     position: sticky; top: 0; z-index: 5;
-    display: grid; grid-template-columns: 1fr 7rem 1fr; gap: 1rem;
+    display: grid; grid-template-columns: 1fr var(--mid) 1fr; gap: 1rem;
     padding: .9rem 0; margin-bottom: .4rem;
     background: color-mix(in srgb, var(--ng-canvas) 94%, transparent);
     backdrop-filter: blur(6px);
@@ -119,7 +120,7 @@
 
   /* ── a stage: two big nodes and the step that names them ───────────────── */
   .stage {
-    display: grid; grid-template-columns: 1fr 7rem 1fr; gap: 1rem;
+    display: grid; grid-template-columns: 1fr var(--mid) 1fr; gap: 1rem;
     /* `stretch`, not `center`: the sides must fill the stage so the rail drawn
        inside them spans its full height and joins stage to stage. Centring here
        shrink-wraps the side to the circle and the rail vanishes. The content is
@@ -188,8 +189,9 @@
   .step {
     display: grid; place-items: center;
     text-align: center; font-family: var(--ng-font-mono);
-    font-size: .68rem; line-height: 1.35; letter-spacing: .05em;
-    color: var(--ng-text-3);
+    font-size: clamp(1rem, .75rem + 1vw, 1.7rem);
+    line-height: 1.25; letter-spacing: .01em; font-weight: 500;
+    color: var(--ng-text-2);
   }
   @media (max-width: 780px) { .step { grid-column: 1 / -1; text-align: left; order: -1; } .step br { display: none; } }
 
@@ -258,8 +260,8 @@
   <!-- 2 · the split -->
   <div class="stage rv">
     <div class="side void"><span class="node"><svg><use href="#i-person"/></svg></span><span class="ttl">Nobody asks</span></div>
-    <div class="step">is a human<br>on this?</div>
-    <div class="side good"><span class="node"><svg><use href="#i-person"/></svg></span><span class="ttl">No human proof</span></div>
+    <div class="step">the real<br>maintainer?</div>
+    <div class="side good"><span class="node"><svg><use href="#i-person"/></svg></span><span class="ttl">No proof it's them</span></div>
   </div>
 
   <!-- 3 · identical, AFTER the split. We do not stop the publish. -->
