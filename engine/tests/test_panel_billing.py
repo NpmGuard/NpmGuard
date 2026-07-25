@@ -43,10 +43,6 @@
 #       (so the one-off audit branch runs) and no billing row is touched
 #   C22 customer.subscription.deleted, no metadata + no stored row -> None
 #
-# Adversarial pass: 2026-07-24 — which dimension is missing? The COALESCE customer
-#   retention (C7) is the load-bearing subtlety a naive upsert would drop (it
-#   breaks the billing portal, which needs the customer id). Exercised directly
-#   with an update carrying customer_id=None after a prior customer was stored.
 import pytest
 import sqlalchemy as sa
 

@@ -11,8 +11,6 @@
 #        {report, version, packageName} [C1, CLI tolerates both]
 #   S23  CLI short-circuit: an existing report makes `npmguard audit` exit 0 without
 #        starting a new audit session [C12-adjacent; real CLI subprocess]
-# Adversarial pass: W4b — "can a versionless request still mint a latest.json alias?"
-#   answered by S22b's rglob probe over the whole data dir.
 #
 # Blackbox: engine HTTP + report files + sessions row count + a real `node cli/dist`.
 

@@ -9,10 +9,10 @@
 #   C3 DANGEROUS, multiple confirmed (dns)                       — verdict DANGEROUS, every recorded-confirmed reproduces
 #   C4 stale artifacts (unresolved-module crash) vs current defer rule (is-number)
 #      — PIN/finding: current orchestrator DEFERs → SAFE-with-deferred is unreachable
-# Adversarial pass: W2 — "does render_timeline over the PERSISTED (canonicalized)
-#   artifact reproduce the record-time judge prompt?" No — RFC-8785 sorts keys and
-#   normalizes whole floats, so the record-time timeline TEXT is committed and replayed;
-#   render_timeline still supplies the (stable) event-id set. See llm_replay.RecordedSandbox.
+# render_timeline over the PERSISTED artifact does NOT reproduce the record-time
+# judge prompt: RFC-8785 sorts keys and normalizes whole floats. So the record-time
+# timeline TEXT is committed and replayed, while render_timeline still supplies the
+# (stable) event-id set. See llm_replay.RecordedSandbox.
 #
 # Blackbox: drives the public orchestrator seam and asserts observable effects
 # (graph verdict, confirmed citations, provider consumption). No private provider

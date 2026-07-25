@@ -10,7 +10,7 @@
 # to hold for both.
 #
 # Why any of this exists — the falsification pass behind it, so the next reader does
-# not have to redo it. The verdict collapse (`d1c4cd7`) justified deleting the
+# not have to redo it. The verdict collapse justified deleting the
 # retired `SUSPECT` state with "SUSPECT had zero producers anywhere." That claim is
 # FALSE. At `origin/main`'s tip:
 #   * `engine/src/proof-quality.ts`  assessAuditReport() returns
@@ -44,11 +44,9 @@
 # N-7: C1-C5 were each checked against their reverted production hunk in an isolated
 # worktree and all five go red. C6 does not, by construction, and says so.
 #
-# Adversarial pass: the question that changed this file was "which reader is not
-# covered?" — the audit named `/packages` only, and enumerating callers of
-# `report_store` found `/package/{name}/report` leaking the whole report body too.
-# That is why C5 asserts the property of the STORE rather than of two routes: a
-# per-route filter is what left the second one open in the first place.
+# C5 asserts the property of the STORE rather than of its two routes: a per-route
+# filter is what left `/package/{name}/report` leaking a whole out-of-domain report
+# body while `/packages` was filtered.
 import json
 import subprocess
 import sys

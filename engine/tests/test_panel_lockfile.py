@@ -26,9 +26,6 @@
 #   C18 manifest_ranges: garbage (None / non-JSON string / non-object) → empty, no raise
 #   C19 parse_lockfile dispatch: unknown filename → error naming supported formats
 #   C20 LOCKFILE_CANDIDATES: the ordered candidate filenames
-# Adversarial pass: W1 — "which dimension is missing?" → the manifest-fallback
-#   dimension for direct-range on npm (C7) and the multi-spec yarn header (C15)
-#   were added; both are real lockfile shapes the single-spec fixtures hid.
 import json
 
 import pytest

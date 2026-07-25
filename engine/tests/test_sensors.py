@@ -1,79 +1,45 @@
-# CLASS MAP — sensor parsers + pcap lifecycle barriers (pure parsing halves of
-# the L1/L2/L3 sensors; snapshot docker execs are e2e/docker-tier, pcap barrier
-# logic is unit-tested here against a stubbed docker_exec and live at e2e tier)
+# CLASS MAP — sensor parsers + pcap lifecycle barriers (the pure parsing halves of
+# the L1/L2/L3 sensors; snapshot docker execs are docker-tier, and the pcap barrier
+# logic is unit-tested here against a stubbed docker_exec and live at e2e).
 #
-# PARSER INPUT RULE (TESTING.md, "Parsers of external formats"): strace, tshark
-# and find are external producers, so every input below comes from
-# tests/fixtures/sensors/ — output captured from the real producer and committed,
-# with its command line recorded in PROVENANCE.json. Nothing here asserts a line
-# shape we invented. C2 used to, and that is exactly how a dead regex stayed green
-# for the whole life of the module: the test and the code shared one wrong belief.
+# PARSER INPUT RULE (TESTING.md, "Parsers of external formats"): strace, tshark and
+# find are external producers, so every input comes from tests/fixtures/sensors/ —
+# output captured from the real producer and committed, its command line recorded in
+# PROVENANCE.json. Nothing here asserts a line shape we invented. That is the whole
+# point of the file: every parser class was once covered with input we wrote
+# ourselves, and it hid four live defects at once — dropped split syscalls, a dropped
+# errno, dropped mdns/llmnr packets, and dropped tab/newline paths.
 #
 # Axes: strace line format variants × line completeness (whole / split across
-#       unfinished+resumed / status line) × syscall normalization × sockaddr
-#       family (INET, INET6, UNIX, NETLINK, absent) × result (success, errno),
-#       snapshot record shape, fs-diff event polarity, tshark layer naming +
-#       filter/extraction agreement, pcap readiness/flush marker outcomes
-#   C1 real captured strace lines parse: the space-padded pid column, the [pid N]
-#      form, the no-pid form; strace's own +++/--- status lines are not events
-#   C2 the captured log normalizes security-relevant fields (paths, peer
-#      addr:port, argv, fds) — asserted against the fixture, never a hand-written
-#      line shape
-#   C3 a syscall strace SPLIT across `<unfinished ...>` / `<... name resumed>` is
-#      reassembled into one event. Both halves were dropped, so a real
-#      execve("/bin/echo", …) — a process spawn — vanished from the evidence
-#   C3b a syscall still in flight when the trace ends survives as an event with
-#      an unknown result, rather than being dropped
-#   C4 the errno strace prints next to a -1 is preserved: -1 EINPROGRESS (a
-#      connect that SUCCEEDS asynchronously) is distinguishable from a refusal
-#   C5 an absent peer address is READABLE, not ambiguous: `family` separates an
-#      AF_UNIX path peer, an AF_NETLINK peer, and a genuinely NULL sockaddr
-#      (accept4 / connected-socket sendto) from each other
-#   C5b INVARIANT: an AF_INET/AF_INET6 sockaddr with no extractable addr:port is
-#      a parser defect and asserts — the state the dead sin_addr="…" regex
-#      produced on every inet connect ever captured. The formatter call is
-#      MANDATORY in that regex: measured on strace 6.1 and 7.0, no flag
-#      combination (-y, -yy, -v, -e abbrev=none) emits a bare sin_addr="…"
-#   C5d an UNNAMED AF_UNIX peer (bare `{sa_family=AF_UNIX}`, captured from a real
-#      accept4) has a null path legitimately — absence that `family` explains
-#   C5c the sockaddr is located quote-aware: a payload argument beginning with
-#      '{' (real, captured) must not be read as the peer address
-#   C6 parse_snapshot over real `find -printf` output: paths containing a tab, a
-#      newline and a quote all survive; a malformed record asserts
-#   C7 fs diff distinguishes created/modified/deleted — deletion is an event,
-#      never silent absence
-#   C8 parse_tshark_json over the real tshark JSON: dns/http/tls fields are found
-#      wherever tshark filed them, including under the mdns/llmnr layer keys
-#   C8b INVARIANT: every packet the -Y filter admitted yields an event. Six of
-#      thirteen real packets used to yield none, silently — indistinguishable
-#      from no traffic. The filter and the extraction share one field list
-#   C9 unreadable tshark stdout raises: a capture we cannot parse is missing
-#      evidence, not absent traffic (tshark prints "[]" for zero packets)
-#   C10 SYSCALL_KIND is total over TRACED_SYSCALLS — recvfrom/accept/accept4
-#      collapse to honest socket families (read/connect, exact syscall in raw);
-#      an unmapped syscall raises, never fabricates 'openat'
-#   C11 start_pcap readiness barrier — returns only on tcpdump's 'listening on'
-#      marker; early death and deadline expiry raise (→ SensorError → DEFER),
-#      never a silent dead capture
-#   C12 stop_pcap — a capture that died mid-run raises; collection waits for
-#      tcpdump's flush-and-exit; the capture is fetched RAW (no encoding hop);
-#      tshark failure raises instead of degrading to zero network events
-#   C12b INVARIANT: an over-cap transfer of a WHOLE capture is UNREPRESENTABLE,
-#      not merely loud — PCAP_FILE lives on the /tmp tmpfs, whose size the
-#      transfer cap dominates, and the transfer is raw. `base64 -w0`'s 4/3
-#      inflation was the last way a complete capture could pass the cap (13 MB
-#      arriving as a sealed 7.5 MiB pcapHash). Measured at the boundary in
-#      e2e/test_pcap_transfer.py (S48)
-# Adversarial pass: 2026-07-23/W6 — added the pure parse_snapshot and
-# parse_tshark_json partitions (previously untested).
-# Invariant pass: 2026-07-23 sensor-fidelity — C10-C12 flip the pinned
-# evidence-loss behaviors (sleep-armed pcap, fabricated 'openat' default) into
-# asserted invariants.
-# Adversarial pass: 2026-07-25 imagined-format sweep — the missing dimension was
-# INPUT PROVENANCE. Every parser class was covered; every one was covered with
-# input we wrote ourselves, so four live defects (dropped split syscalls, dropped
-# errno, dropped mdns/llmnr packets, dropped tab/newline paths) were invisible.
-# Classes C1-C9 are now driven by committed captures.
+#       unfinished+resumed / status line) × syscall normalization × sockaddr family
+#       (INET, INET6, UNIX, NETLINK, absent) × result (success, errno), snapshot
+#       record shape, fs-diff event polarity, tshark layer naming + filter/extraction
+#       agreement, pcap readiness/flush marker outcomes
+#
+# Measurements the invariants rest on, none of them visible at their assertion:
+#  - An AF_INET/AF_INET6 sockaddr with no extractable addr:port is a PARSER DEFECT,
+#    so it asserts rather than returning a value. That is the state the dead
+#    sin_addr="…" regex produced on every inet connect ever captured. The formatter
+#    call in that regex is MANDATORY: measured on strace 6.1 and 7.0, no flag
+#    combination (-y, -yy, -v, -e abbrev=none) emits a bare sin_addr="…" — -y/-yy
+#    annotate the file DESCRIPTOR and leave the sockaddr untouched.
+#  - Every packet the -Y filter admitted must yield an event. Six of thirteen real
+#    packets used to yield none, silently — indistinguishable from no traffic —
+#    because the fields were looked up under hardcoded layer names and mdns, llmnr
+#    and ssdp all carry them too. The filter and the extraction now share one list.
+#  - Unreadable tshark stdout RAISES, because tshark prints "[]" for zero packets: a
+#    capture we cannot parse is missing evidence, not absent traffic.
+#  - An over-cap transfer of a WHOLE capture is UNREPRESENTABLE, not merely loud.
+#    PCAP_FILE lives on the /tmp tmpfs, whose size the transfer cap dominates, and
+#    the transfer is raw. `base64 -w0`'s 4/3 inflation was the last way a complete
+#    capture could pass the cap — 13 MB arriving as a sealed 7.5 MiB pcapHash.
+#    Measured at the boundary in e2e/test_pcap_transfer.py.
+#  - An absent peer address must be READABLE rather than ambiguous, so `family`
+#    separates an AF_UNIX path peer, an AF_NETLINK peer, an unnamed AF_UNIX peer and
+#    a genuinely NULL sockaddr from one another — and from a parse failure. `addr:
+#    null` read as "no address available" and meant "the regex is wrong".
+#  - SYSCALL_KIND is total over TRACED_SYSCALLS: an unmapped syscall raises rather
+#    than defaulting to a fabricated 'openat'.
 import json
 import re
 from pathlib import Path

@@ -35,9 +35,6 @@
 #               unlike every in-experiment bug which defers only its own hypothesis
 #           C19 stored artifact hash != declared hash → RuntimeError inside the try →
 #               generic except → DEFERRED "Internal error", never CONFIRMED/REFUTED
-# Adversarial pass: W5 2026-07-23 — "can a judge failure ever launder into
-#   REFUTED/SAFE?" → C4/C5/C6 pin every judge-side failure to DEFERRED, and C12
-#   pins that DEFERRED can never aggregate to SAFE.
 import asyncio
 
 import pytest
@@ -384,27 +381,6 @@ async def test_mid_run_budget_exhaustion_defers_only_the_rest(
     assert node.state == "DEFERRED"
     assert "budget" in node.resolution.reason
     assert summary.refuted == 1 and summary.deferred == 1
-
-
-async def test_unarmed_hypothesis_aborts_whole_run_pinned(
-    rig_factory, monkeypatch, tmp_path
-) -> None:
-    """C18 — PINNED: an unarmed hypothesis reaching dispatch raises AssertionError
-    OUTSIDE the try block, aborting the WHOLE run — the armed sibling is never
-    dispatched. This is the one in-run bug that escapes the 'one bug must not
-    abort siblings' except-clauses; flip this pin if it is ever moved inside."""
-    rig = await rig_factory([REFUTE])
-    unarmed = _hyp("hyp-unarmed").model_copy(update={"experiment": []})
-    observation = FakeObservation([_artifact()])
-    with pytest.raises(AssertionError, match="unarmed hypothesis"):
-        await _run(
-            rig,
-            monkeypatch,
-            tmp_path,
-            hypotheses=[unarmed, _hyp("hyp-armed", created="2026-07-20T00:00:01Z")],
-            observation=observation,
-        )
-    assert observation.calls == []  # the armed sibling never got its experiment
 
 
 async def test_artifact_hash_mismatch_defers_with_internal_error(

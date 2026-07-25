@@ -2,73 +2,39 @@
 # (pure functions + a filesystem ArtifactStore under tmp_path)
 # Axes: value shape (order/numbers/non-finite), leaf parity, trace framing,
 #       artifact integrity (round-trip/tamper/dedupe), timeline sections + collapse
-#   C1 canonicalization is recursive and key-order independent
-#   C2 number formatting matches ECMAScript JSON.stringify (RFC 8785)
-#   C3 non-finite numbers are rejected, never silently encoded
-#   C4 odd merkle leaf is duplicated, not dropped
-#   C5 L4 parser uses the LAST complete trace and normalizes events
-#   C6 seal_run_artifact: contentHash is self-consistent and deterministic
-#   C7 ArtifactStore artifact round-trip — write → read equal, verify true
-#   C8 tampered artifact file → verify_artifact false (integrity is checked, not trusted)
-#   C9 blob write is content-addressed — identical content dedupes to one file
-#  C10 render_timeline: sequential ids, node/clock sections, setup header,
-#      consecutive-duplicate collapse [xN]
-#  C11 render_timeline boundary: zero events → "(no events captured)", empty id set;
-#      run error surfaces as a note
-#  C12 compute_event_summary buckets hosts / syscalls / files / dns from
-#      normalized events
-#  C13 a captured request body renders bounded, with its true size, and names the
-#      MINTED canary it carries; no body renders no body clause
-# C13b a request that coincidentally contains a planted value — the recorded
-#      corpus's own `HOME=/home/node` and `MYAPP_DB_HOST=localhost` — is NOT
-#      reported as carrying bait, while a minted canary in the same run still is
-#  C14 an L1 connect renders the peer host:port it dialled, not "socket"
-# C14b …and never a FILE inherited from a recycled fd; a named AF_UNIX peer
-#      renders as the socket path it actually dialled
-# C14c a syscall's RESULT is rendered, so `= 0`, `= -1 EINPROGRESS` (a non-blocking
-#      connect that SUCCEEDED) and `= -1 ECONNREFUSED` are three distinguishable
-#      rows that _collapse does not merge
-# C14d a recvfrom names the peer it read FROM, and a failed socket read says so
-# C14e a legacy artifact's `-1` with no recorded errno states its own coverage
-#      instead of claiming a failure it cannot support
-#  C15 parse_l4_trace refuses a trace attributing an INSTRUMENT require to the
-#      package; a parentless (node-bootstrap) require is named, never dropped
-#  C16 a stub whose responseHash is null (nothing served) is named in the setup
-#      header; a stub that served changes nothing about the header
-#  C17 a setup_bypass event renders WHY the manipulation did not hold, and a
-#      `truncated` event renders WHICH coverage was lost (both were bare verbs)
-#  C18 a sealed artifact carries no field asserting a bound or a hash the run did
-#      not produce (xfail PIN — deleting a sealed field rehashes every recorded
-#      artifact; see the marker's reason)
-#  C19 an L1 write/sendto buffer is rendered, bounded, with the size the program
-#      passed — the bytes strace has captured with `-s 4096` since the first run and
-#      the renderer never showed; both cuts (render, tracer) are visible
-# C19b a MINTED canary inside a write buffer is named and quotable; a benign buffer
-#      carrying a coincidentally-planted value is not — C13b's axis on the L1 path
-# C19c the per-run buffer budget bounds one timeline, and a clipped row still states
-#      the buffer's true size instead of reverting to a bare descriptor
-# C19d a sendto whose payload strace DECODED (AF_NETLINK) renders no buffer and
-#      invents no byte count
-# Adversarial pass: 2026-07-23/W6 — added the artifact-integrity and timeline
-# axes (previously only the pure canonicalization half of the module was mapped).
-# Evidence-fidelity pass: C13-C15 close the rendering-loss classes that made real
-# malware refute — the timeline said less than the run did. The JS half of the
-# same axis (what the instrument EMITS) is proven in test_instrumentation_l4.py;
-# these classes prove what the renderer does with it.
-# Manufactured-evidence pass: 2026-07-25 — the missing dimension was the
-# NEGATIVE direction of C13. Every canary class asserted that a real exfil is
-# named; none asserted that an ordinary string is not, and under a length floor
-# two values the recorded corpus actually plants (`/home/node`, `localhost`)
-# manufactured a citation for a benign request. C13b is that axis.
-# Captured-but-unrendered pass: 2026-07-25 — C13's fix (capture the L4 request body)
-# answered "what was in the payload" only for node's http module, while L1 had held up
-# to 4 KiB of EVERY write/sendto buffer, sealed and hashed, since the first run. C19*
-# is that layer: the renderer showed a descriptor and the bytes went unread.
-# Parser-input pass: 2026-07-25 — C10/C14/C14b's strace `raw` values were written
-# by hand (two real forms with the errno stripped, one with no sa_family at all,
-# one plausible and unverified). They now come from committed captures through
-# the real `parse_strace_log`, so the sensor→renderer seam is closed end to end
-# and the shapes are the producer's rather than ours.
+#
+# The timeline classes are the expensive half of this file, because a timeline that
+# says LESS than the run did is what made real malware refute — three judges cannot
+# cite an endpoint no layer showed them. Four facts they turn on:
+#
+#  - The NEGATIVE direction is the more expensive one. Asserting that a real exfil is
+#    NAMED says nothing about an ordinary string being left alone, and under a length
+#    floor two values the recorded corpus actually plants (`HOME=/home/node`,
+#    `MYAPP_DB_HOST=localhost`) manufactured a citation for a benign request — a
+#    bodyless GET "carried planted env MYAPP_DB_HOST" because `localhost` occurs in
+#    its own URL. One CONFIRM is DANGEROUS and DANGEROUS blocks an install, so bait
+#    is now a token the engine MINTS and only that token is matched: the
+#    discriminator is provenance, not length.
+#  - A syscall's RESULT is part of the row. Without it `= 0` and `= -1 ECONNREFUSED`
+#    are the same row and _collapse merges them, while `-1 EINPROGRESS` — a
+#    non-blocking connect that SUCCEEDED — is indistinguishable from a refusal.
+#  - L1 has held up to 4 KiB of EVERY write/sendto buffer, sealed and hashed, since
+#    the first run, and the renderer showed a bare descriptor. Capturing the L4
+#    request body answers "what was in the payload" only for node's http module, so
+#    the write-buffer classes are a second cut at the same question — and both cuts
+#    (renderer, tracer) are asserted, because either one silently dropping the bytes
+#    looks identical from the judge's side.
+#  - The strace `raw` values come from committed captures through the real
+#    `parse_strace_log`, so the sensor→renderer seam is closed end to end and the
+#    shapes are the producer's rather than ours. Hand-writing them is what hid a
+#    regex that matched nothing, ever.
+#
+# The JS half of the same axis — what the instrument EMITS — is proven in
+# test_instrumentation_l4.py; these classes prove what the renderer does with it.
+#
+# C18 is an xfail PIN, not a test of current behaviour: a sealed artifact must carry
+# no field asserting a bound or a hash the run did not produce, and deleting such a
+# field rehashes every recorded artifact. See the marker's reason.
 import math
 from pathlib import Path
 
