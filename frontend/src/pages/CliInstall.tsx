@@ -21,40 +21,20 @@
  * instead of contradicting it — on the one surface whose whole job is explaining
  * that model to a newcomer.
  *
- * `CommandCard` also drops its hand-rolled copy button for `ui/copy-button.tsx`.
- * The local one swallowed a failed clipboard write (`?.` then a `.then` that
- * never runs on an insecure origin), which leaves the user pasting stale
- * content; the primitive surfaces that failure inline.
+ * The command cards drop their hand-rolled copy button for the shared
+ * `ui/command-line.tsx`. The local one swallowed a failed clipboard write
+ * (`?.` then a `.then` that never runs on an insecure origin), which leaves the
+ * user pasting stale content believing they copied.
  */
 
 import { CreditCard, Smartphone } from "lucide-react";
 import { PanelPage, SectionLabel } from "../components/panel/layout.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Card } from "../components/ui/card.tsx";
-import { CopyButton } from "../components/ui/copy-button.tsx";
+import { CommandLine } from "../components/ui/command-line.tsx";
 import { Kbd } from "../components/ui/kbd.tsx";
 import { ProgressStamp, VerdictStamp } from "../components/ui/verdict-stamp.tsx";
 import type { Outcome } from "@npmguard/shared";
-
-/** A single shell command in a sunken card with a copy affordance. */
-function CommandCard({ command, note }: { command: string; note?: string }) {
-  return (
-    <div className="grid gap-1.5">
-      <div className="flex items-center gap-2.5 rounded-md border border-border bg-sunken py-2.5 pr-2 pl-3 shadow-card">
-        <span aria-hidden="true" className="font-mono text-sm text-accent-text select-none">
-          $
-        </span>
-        {/* The command scrolls inside its own box rather than widening the page —
-            §2.7's rule for long mono content. */}
-        <code className="min-w-0 flex-1 overflow-x-auto font-mono text-sm whitespace-nowrap text-text">
-          {command}
-        </code>
-        <CopyButton value={command} label={`copy command ${command}`} className="shrink-0" />
-      </div>
-      {note ? <span className="text-2xs text-text-3">{note}</span> : null}
-    </div>
-  );
-}
 
 const STEPS: { n: string; label: string; body: string }[] = [
   {
@@ -135,11 +115,11 @@ export function CliInstall() {
 
       <Section id="pg-cli-run" label="Run">
         <div className="grid gap-3 sm:grid-cols-2">
-          <CommandCard
+          <CommandLine
             command="npx npmguard-cli install express"
             note="Resolves, checks the verdict, then installs — or stops."
           />
-          <CommandCard
+          <CommandLine
             command="npx npmguard-cli check"
             note="Walks package.json and reports every dependency's status."
           />

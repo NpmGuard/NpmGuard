@@ -10,9 +10,14 @@
 import type { ComponentProps } from "react";
 import { cn } from "../../lib/cn.ts";
 
+/* `normal-case` is load-bearing while the legacy sheet exists: `base.css` styles
+   a bare `kbd` with `text-transform: uppercase`, and this component sets no
+   case utility of its own, so `<Kbd>npx</Kbd>` rendered as "NPX". A utility here
+   wins (the legacy rule is in `@layer base`) and, unlike relying on that rule
+   dying, it makes the component's own appearance self-contained. */
 const KEY_CAP =
   "inline-flex min-w-[1.25rem] items-center justify-center rounded-xs border border-border " +
-  "bg-sunken px-1 py-0.5 font-mono text-2xs leading-none text-text-2";
+  "bg-sunken px-1 py-0.5 font-mono text-2xs leading-none normal-case text-text-2";
 
 export function Kbd({ className, ...props }: ComponentProps<"kbd">) {
   return <kbd className={cn(KEY_CAP, className)} {...props} />;
