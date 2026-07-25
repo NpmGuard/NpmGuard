@@ -560,7 +560,29 @@ directory of snapshot JSON.
 (`detected`, `status`, `proofKinds`). Outcome and every aggregate are derived
 on read from `expected × observed`. When the report schema evolves again, the
 projector changes and historical runs keep rendering — because the row holds
-the `audit_id` and the report is still on disk.
+the `audit_id` and the report is still retrievable.
+
+★ **Retrieved from where, exactly — this trap would have silently voided the
+re-projection guarantee.** There are **two** report stores with different keys:
+
+| Store | Key | Purpose |
+|---|---|---|
+| `audit_sessions.report` (JSON column, `persistence.py:25`) | **`audit_id`** | the record of *one audit run* |
+| `data/reports/<pkg>/<version>.json` (`report_store.py:23`) | **`(name, version)`** | the *published* verdict for a package |
+
+A bench run audits the same `(name, version)` N times. The filesystem store keeps
+only the **last** of those N — so a projector reading `data/reports/` would
+silently collapse N observations into one and G24's "re-derive from stored
+`audit_id`s" would fail while appearing to work.
+
+**The bench projector reads `audit_sessions.report` by `audit_id`. Never
+`report_store`.** (Related: `TESTING.md`'s FINDINGS already records an observed
+reports-vs-DB desync — the two stores are not guaranteed consistent, which is a
+second reason not to treat them as interchangeable.)
+
+★ **And the bench lane must force a fresh audit per run index.** Otherwise the
+cache serves the first run's report to every repeat, unanimity is 100% *by
+construction*, and any stability/variance number the bench publishes is a lie.
 
 ### 4.4 The verdict model — two axes, three states
 
@@ -1076,7 +1098,7 @@ Each is binary and observable — no "improve", no "polish".
 | G21 | Corpus size decision made and justified | 7a | O-3 resolved in writing |
 | G22 | `bench.py` + `/bench/results` deleted; no v1-field reader remains | 7b | grep: no `proofKinds`/`TEST_CONFIRMED` reader |
 | G23 | One full run yields rates with CIs, latency percentiles, dollar cost | 7b | `/bench/runs/{id}` payload |
-| G24 | Bench metrics re-derivable from stored `audit_id`s alone | 7b | re-project, compare aggregates |
+| G24 | Bench metrics re-derivable from stored `audit_id`s alone, **reading `audit_sessions.report` not `report_store`** | 7b | re-project, compare aggregates; assert N distinct reports for an N-repeat entry |
 | G25 | `/benchmark` renders a real run, misses as prominent as hits | 7b | page + e2e |
 | G26 | `ruff check` + `pytest` + `vitest` + `playwright` all green | all | `scripts/gate.sh` + `npm run gate` |
 | G27 | Engine tests stay hermetic (no `.env` read, panel off by default) | all | conftest assert |
@@ -1410,32 +1432,37 @@ which is why the tier gets a name.
 | **D-2** | R-2 goes **seam + fold `PanelJobQueue` in** | One durable queue with lanes (`paid\|panel\|watch\|bench\|public`); `panel_jobs` + the panel worker pool deleted; two hops → one. Migration direction is *lift the panel's primitives up, move callers, then delete* — a proven path never runs on unproven code. |
 | **D-3** | Frontend substrate rebuilt **and the visual language redesigned** | Tokens authored fresh, not ported. Adds a design phase as a real deliverable (palette light+dark, type scale, spacing, elevation, motion, component inventory). Splits R-5 into **R-5a data layer** (not gated) and **R-5b component layer** (gated on the design). |
 | **D-4** | Start with **Phase 0** — one contract | Panel/bench/replay schemas into `shared/`, generated both sides. Everything downstream gets cheaper; R-1's table collapse becomes a schema edit rather than a hunt. |
+| **D-6** | **O-2 answered** — 8-value observation taxonomy, derived at read time. `ERROR` splits into **`ABSTAINED`** (the engine's own honest "couldn't determine" — stays in the denominator) and **`VOID`** (Docker/LLM/queue fault — excluded from rates but counted and reported), keyed on the stable `NpmGuardError` codes. `verified` splits too: a `DANGEROUS` verdict with `confirmedCount == 0` is not weakly-proved, it is a **dealbreaker** (`pipeline.py:249-262`) — a disjoint mechanism that produces zero hypotheses. | The design doc's own candidate was wrong in one place: "give DEFERRED its own outcome bucket" is **unreachable**. `pipeline.py:390-398` raises `AuditIncompleteError` when hypotheses are deferred and none confirmed, so a report with deferred-but-nothing-confirmed **does not exist**; the observable is no report at all. 3 projector assertions guard the states the engine makes unreachable. |
+| **D-7** | **O-3 answered** — expand to **50 malware + 75 negative controls at N=2**, plus a 10-entry N=5 stability probe (~280 audits). Minimum viable tier 40+40. | Rests on a **statistical error in v1 worth more than the schema fix**: v1 §8 pools entries×runs to n=60 and puts a Wilson CI on that — pseudo-replication, narrowing the interval ~40% on a false independence assumption. With n = *entries*, the intuition behind N=3 **reverses**: at fixed budget, entries buy CI width and replication buys none (60 audits as N=1×60 ⇒ ≥94.0% lower bound at a perfect score; as N=3×20 ⇒ ≥83.9%). Replication measures *stability*, which is a separate question needing its own small probe. Also: v1's "precision" is actually **specificity**, and its ≥95% bar needs **73** clean entries — it set a bar it had no corpus to clear. |
 | **D-5** | Phase 0 authors the contract at its **target shape** — generalized `AuditSet` (R-1) + 3-state verdict (§4.4) — not today's shape | Avoids rewriting the contract three times and touching every route + consumer three times. Inverts the usual order on purpose: the contract is the *specification*, so it leads, and Phase 1 / R-1 become **migrations to** it with a mechanical definition of done ("generated types compile against both sides") instead of a judgement call. |
 
 ---
 
 ## 9. Open questions — these change the work, so they're yours to answer
 
-**O-2 · What replaces the v1 detection rule?** (F-G, Phase 7a)
-V1 scored `expectedCapabilities ⊆ report.capabilities` AND a `TEST_CONFIRMED`
-proof. Neither field exists. The report now gives you `verdict`,
-`confirmedHypIds`, `hypotheses[]` with `CONFIRMED/REFUTED/DEFERRED`, `counts`,
-`dealbreaker`. Candidate: **detected = verdict DANGEROUS**, with a second
-stricter tier **verified = DANGEROUS ∧ ≥1 CONFIRMED hypothesis** (so
-"flagged on static suspicion alone" and "proved by running it" are separate
-numbers). And DEFERRED gets its own outcome bucket instead of counting as a
-miss — because "we couldn't determine" is the honest third answer, same argument
-as `ERROR` in §4.4.
+O-1 through O-6 are answered (D-1…D-7). What replaced them:
 
-**O-3 · How big is the corpus?** The pinned manifest has **20** entries. At N=3
-that's 60 audits, and a Wilson 95% CI around 80% on n=20 is roughly [58%, 92%] —
-too wide to headline. Options: expand the corpus (more Datadog samples, cheap to
-select, expensive to audit), accept wide CIs and say so, or report per-stratum
-only. This is a cost decision, so it's yours.
+**O-7 · Which model tier does the bench run on?** This is now the top open item,
+and it is a *cost* question, not a methodology one. A full run is ≈17.0M input +
+2.3M output tokens; depending on model configuration that prices between **≈\$8
+and ≈\$262** — a **33×** spread. The configuration used for the recorded fixture
+corpus isn't captured anywhere, so the number cannot be derived from the repo.
 
-**O-4 · Is `lastScan` wanted?** (G7) Projecting it is a small join; deleting it
-is a two-line contract change. Which one depends on whether the repo list should
-show scan recency — a product question, not a technical one.
+Related finding that inverts the obvious assumption: **a DANGEROUS audit costs
+7–24× a SAFE one** (124k–209k vs 8.7k–16.7k input tokens), because cost is
+dominated by the orchestrator loop, which only runs when suspicions exist. So the
+**negative controls are the cheap half** of the corpus, not the expensive half —
+which is what makes D-7's 75 controls affordable. Note this also interacts with
+[[prod-triage-model-deepseek-blind]]: a cheap model returned false-SAFE on
+textbook exfil, so the tier choice is a *detection-validity* decision as much as a
+budget one. Running the bench on a tier you would not ship is measuring the wrong
+engine.
+
+**O-8 · Is a serif used at all?** (R-6a §5) The highest-taste-risk call in the
+design brief. None of the dev-tool landing pages surveyed use one. The brief's
+typography rule reserves serif for "product voice on static surfaces only", so the
+blast radius is the landing hero and `/how-it-works`. Recommendation: build the
+hero both ways and look, rather than deciding on principle.
 
 ---
 
