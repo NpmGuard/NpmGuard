@@ -1,12 +1,18 @@
-# CLASS MAP — the settings surface as a set of knobs that must all be READ
+# CLASS MAP — the settings surface as a set of knobs, checked in BOTH directions
 # (npmguard.config.Settings through its declared fields plus an `ast` scan of the
 # production package; no private imports)
-# Axes: is a declared knob wired × was a retired knob quietly re-declared
+# Axes: is a declared knob wired × is a read knob declared × was a retired knob
+#       quietly re-declared
 #   C1 every own Settings field   — read as `settings.<field>` somewhere under npmguard/
 #   C2 the eight retired knobs    — still absent, so re-adding one is a decision
 #                                   rather than an accident
+#   C3 every NPMGUARD_* variable READ under npmguard/ — declared on Settings, so a
+#                                   bad value is a named boot rejection and not a
+#                                   crash on whichever code path first touches it
+#   C4 the scan C3 depends on is COMPLETE — no dynamic environment key can hide a
+#                                   read from it
 #
-# Why this is worth a test rather than a comment: an unread knob is not merely
+# Why C1 is worth a test rather than a comment: an unread knob is not merely
 # untidy. `triage_max_files` (default 80) read as a bound on the FLAG pass's model
 # calls while `run_flag` in fact analysed every non-noise source file, and
 # `max_docker_exec_timeout_sec` (default 30) read as a ceiling on docker execs
@@ -14,13 +20,28 @@
 # reads is a protection that does not exist, and it is invisible to review because
 # the declaration looks exactly like a working one.
 #
+# Why C3 is the other half, and why it was not added earlier: it needed a large
+# exemption list until the reads were moved. `NPMGUARD_DEMO_SPEED=fast` stopped the
+# engine BOOTING (`float()` on the raw string at demo.py module scope, and
+# npmguard.api imports demo) with a ValueError naming neither the knob nor the
+# module; `NPMGUARD_TRIAGE_CONCURRENCY` — the knob that sets model-call concurrency,
+# i.e. the audit's cost behaviour — was `int(os.environ.get(...))` inside the FLAG
+# fan-out, where a typo fails MID-AUDIT as a bare ValueError → NPMGUARD-9999,
+# non-retryable, discarding an audit already paid for. So the cleanup and the test
+# land together, and every surviving exemption is named below with its reason.
+#
 # Adversarial pass: 2026-07-25 — the first version of C1 scanned the whole engine
 # tree, which counted a TEST as a reader; a knob only tests read is still dead
 # vocabulary in production, so the scan is restricted to `npmguard/`. Second
 # missing dimension: inherited `KitSettings` fields (llm_*, env, log_level) are
 # Kit's surface and are read inside Kit, so policing them here would fail on code
-# this test cannot see — the scan is over OWN fields only.
+# this test cannot see — C1's scan is over OWN fields only. C3 has no such split:
+# an inherited field is still reached through the NPMGUARD_ prefix, so it counts as
+# declared. Third: C3 alone is satisfiable by writing `os.environ[PREFIX + name]`,
+# which is why C4 exists — a literal-only scan that cannot see a computed key would
+# report a clean surface while the hole stayed open.
 import ast
+import re
 from pathlib import Path
 
 from kit_spine import KitSettings
@@ -28,6 +49,25 @@ from npmguard import config as config_module
 from npmguard.config import Settings
 
 PRODUCTION = Path(config_module.__file__).parent
+ENV_PREFIX = Settings.model_config["env_prefix"]
+ENV_VARIABLE = re.compile(rf"{re.escape(ENV_PREFIX)}[A-Z0-9_]+")
+# Environment reads C3 does not require a Settings field for. Each entry is debt
+# with a named owner, not a design choice — delete the entry together with the swap.
+UNDECLARED_READS = {
+    "NPMGUARD_TRIAGE_CONCURRENCY": (
+        "read at two sites in phases.py (the run_flag and run_hypothesize fan-outs). "
+        "The swap is `max(1, get_settings().triage_concurrency)` plus a "
+        "`triage_concurrency: int = Field(default=8, ge=1, le=64)` here — and the "
+        "field CANNOT land first, because C1 forbids a declared knob with no reader. "
+        "Declaration and swap must land in one change; phases.py was owned by another "
+        "change in flight when this test was written."
+    ),
+    "NPMGUARD_DATA_DIR": (
+        "read once at report_store.py module scope, into the DATA_DIR constant that "
+        "tests/conftest.py's residue guard and several fixtures re-point. Same "
+        "coupling as above: `data_dir: Path` here plus that one line there, together."
+    ),
+}
 RETIRED_KNOBS = (
     "triage_max_files",
     "max_agent_turns",
@@ -76,6 +116,118 @@ def test_every_declared_setting_is_read_by_production_code() -> None:
         f"declared but read by nothing under {PRODUCTION}: {unread}. A knob lands "
         "together with its reader — an unread cap reads as a protection that is "
         "not there."
+    )
+
+
+def _production_trees() -> list[tuple[Path, ast.Module]]:
+    return [
+        (path, ast.parse(path.read_text(encoding="utf-8")))
+        for path in sorted(PRODUCTION.rglob("*.py"))
+        if "__pycache__" not in path.parts
+    ]
+
+
+def _environment_access() -> tuple[dict[str, set[str]], list[str]]:
+    """Every site where production code reads THIS process's environment, split into
+    (literal `NPMGUARD_*` keys → the files reading them, sites with a computed key).
+
+    Access SITES rather than string literals, because the two are not the same
+    question. `experiments.py` builds `{"NPMGUARD_STUBS": …}` to hand to a Node
+    process inside the sandbox container — the engine never reads it, an operator
+    setting it in `.env` must have no effect, and declaring it on Settings would
+    assert the opposite. A literal-only scan cannot tell that apart from a read.
+
+    Covered spellings, all four of them: `os.environ[…]`, any method on `os.environ`
+    (`get`/`setdefault`/`pop`), `os.getenv(…)`, and `"…" in os.environ`. `environ`
+    and `getenv` are matched by NAME, so `from os import environ` and an aliased
+    import are both caught."""
+    found: dict[str, set[str]] = {}
+    computed: list[str] = []
+    for path, tree in _production_trees():
+        for node in ast.walk(tree):
+            for key in _environment_keys(node):
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    if ENV_VARIABLE.fullmatch(key.value):
+                        found.setdefault(key.value, set()).add(path.name)
+                else:
+                    computed.append(f"{path.name}:{node.lineno}")
+    return found, sorted(computed)
+
+
+def _environment_keys(node: ast.AST) -> list[ast.expr]:
+    if isinstance(node, ast.Subscript) and _names_environ(node.value):
+        return [node.slice]
+    if isinstance(node, ast.Compare) and any(
+        isinstance(operator, ast.In | ast.NotIn) for operator in node.ops
+    ):
+        return [node.left for comparator in node.comparators if _names_environ(comparator)]
+    if isinstance(node, ast.Call):
+        function = node.func
+        named = getattr(function, "id", None) == "getenv" or (
+            isinstance(function, ast.Attribute)
+            and (function.attr == "getenv" or _names_environ(function.value))
+        )
+        if named and node.args:
+            return [node.args[0]]
+    return []
+
+
+def _names_environ(node: ast.expr) -> bool:
+    if isinstance(node, ast.Attribute):
+        return node.attr == "environ" or _names_environ(node.value)
+    return isinstance(node, ast.Name) and node.id == "environ"
+
+
+def test_every_environment_variable_read_is_declared() -> None:
+    """C3: the inverse of C1. A variable production code reads is declared on
+    Settings, so a malformed value is refused at boot with the variable named —
+    instead of a bare ValueError from whichever `int()` or `float()` first sees it,
+    which for a knob inside the FLAG fan-out means mid-audit on an audit already
+    paid for.
+
+    Measured against the pre-cleanup tree (this file dropped onto 0d73449): fails
+    naming NPMGUARD_DEMO_SPEED (demo.py), NPMGUARD_NPM_REGISTRY (resolve.py),
+    NPMGUARD_AUDIT_LOG_DIR (audit_log.py) and NPMGUARD_API_URL (ops.py) — four of the
+    six then-undeclared reads, the other two being the pair in UNDECLARED_READS. That
+    is the falsification: the four this change fixed all show up, and each surviving
+    exemption is a named reader in a file a concurrent change owned, with its
+    one-line swap written out — not a judgement that the knob is fine where it is."""
+    declared = set(Settings.model_fields)  # inherited included: same prefix, same file
+    read, _ = _environment_access()
+    undeclared = {
+        variable: sorted(files)
+        for variable, files in read.items()
+        if variable.removeprefix(ENV_PREFIX).lower() not in declared
+        and variable not in UNDECLARED_READS
+    }
+    assert undeclared == {}, (
+        f"read from the environment but not declared on Settings: {undeclared}. "
+        "Declare it with real Field validation and read it from settings, or add it "
+        "to UNDECLARED_READS with the reason and the swap it is waiting on."
+    )
+
+
+def test_no_exemption_outlives_its_reader() -> None:
+    """C3, the other direction: an exemption is deleted when its read is. Left
+    standing it becomes a permanent licence — the exact way an exemption list rots
+    from 'two items of named debt' into 'the rule does not apply here'."""
+    read, _ = _environment_access()
+    stale = sorted(variable for variable in UNDECLARED_READS if variable not in read)
+    assert stale == [], (
+        f"exempted but no longer read anywhere under {PRODUCTION}: {stale}. "
+        "The swap landed — delete the entry."
+    )
+
+
+def test_no_environment_key_is_computed() -> None:
+    """C4: C3 reads string literals, so a computed key would be invisible to it. This
+    is what keeps that from being a silent gap: `os.environ[PREFIX + name]` fails
+    here, loudly, naming the file and line."""
+    _, computed = _environment_access()
+    assert computed == [], (
+        f"environment accessed with a non-literal key: {computed}. The declared "
+        "surface cannot be checked against a name that only exists at runtime — "
+        "read it from Settings instead."
     )
 
 

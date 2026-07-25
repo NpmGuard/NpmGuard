@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import json
 import math
-import os
 import sys
 import time
 from collections import Counter
@@ -15,9 +14,7 @@ from urllib.parse import quote
 
 import httpx
 
-from .config import REPO_ROOT
-
-DEFAULT_API = "http://127.0.0.1:8000"
+from .config import REPO_ROOT, get_settings
 
 
 def _package_path(package_name: str) -> str:
@@ -158,7 +155,7 @@ async def audit_batch(args: argparse.Namespace) -> int:
         specs.extend(await asyncio.to_thread(_read_list, args.file))
     if not specs:
         raise ValueError("provide package specs or --file")
-    api = Api(args.api, os.environ.get("NPMGUARD_CRE_API_KEY"))
+    api = Api(args.api, get_settings().cre_api_key)
     results = []
     try:
         for package_name, version in map(_spec, specs):
@@ -223,7 +220,10 @@ async def audit_batch(args: argparse.Namespace) -> int:
 
 async def audit_latest(args: argparse.Namespace) -> int:
     packages = await asyncio.to_thread(_read_list, args.watchlist)
-    key = os.environ.get("NPMGUARD_CRE_API_KEY")
+    # Through Settings, like every other knob: the raw os.environ read this
+    # replaces could not see a key supplied in `.env`, so an operator with the key
+    # configured exactly where the engine reads it was told it was missing.
+    key = get_settings().cre_api_key
     if not args.dry_run and not key:
         raise RuntimeError("NPMGUARD_CRE_API_KEY is required")
     api = Api(args.api, key)
@@ -381,17 +381,21 @@ def bench_check(args: argparse.Namespace) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
+    # NPMGUARD_API_URL through the validated setting, so a scheme-less value is a
+    # named rejection here rather than an httpx UnsupportedProtocol on the first
+    # request of a batch that may be hundreds of packages long.
+    default_api = get_settings().api_url
     root = argparse.ArgumentParser(prog="npmguard-ops")
     commands = root.add_subparsers(dest="command", required=True)
     batch = commands.add_parser("audit-batch")
     batch.add_argument("packages", nargs="*")
-    batch.add_argument("--api", default=os.environ.get("NPMGUARD_API_URL", DEFAULT_API))
+    batch.add_argument("--api", default=default_api)
     batch.add_argument("--file", type=Path)
     batch.add_argument("--timeout-ms", type=int, default=1_200_000)
     batch.add_argument("--poll-ms", type=int, default=5_000)
     batch.add_argument("--no-skip", action="store_false", dest="skip_existing")
     latest = commands.add_parser("audit-latest")
-    latest.add_argument("--api", default=os.environ.get("NPMGUARD_API_URL", DEFAULT_API))
+    latest.add_argument("--api", default=default_api)
     latest.add_argument(
         "--watchlist",
         type=Path,

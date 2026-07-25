@@ -54,6 +54,36 @@ class PackageNotFoundError(NpmGuardError):
         super().__init__(f'Package "{package_name}" not found on npm registry')
 
 
+class PackageTooLargeError(NpmGuardError):
+    """The package needs more FLAG model calls than `max_source_files` allows.
+
+    A REFUSAL, not a truncation: FLAG issues at most one triage call per file in
+    `phases.flag_source_files` (an empty file and a >500 KB file are answered without
+    a model, so the count is the worst case, not the exact one), and reading the first
+    N of 3953 files would let a payload in any unread file reach a `SAFE` verdict —
+    a coverage gap wearing a green badge. Non-retryable because the
+    input is what is out of bounds — nothing about waiting changes it, and a
+    retryable 413 would tell a client to loop forever (see test_error_taxonomy C5).
+    413 rather than 400: the request is well-formed, the *entity* it resolves to is
+    too large, which is exactly what 413 means.
+    """
+
+    code = "NPMGUARD-0003"
+    http_status = 413
+    retryable = False
+
+    def __init__(self, package_name: str, source_files: int, bound: int) -> None:
+        # No `stage`: this is not a phase that failed. Inventory succeeded and FLAG
+        # never started, so naming either would send a reader to the wrong place —
+        # the same reason QueueFullError carries none.
+        super().__init__(
+            f'Package "{package_name}" has {source_files} source files to analyse, over the '
+            f"{bound}-file bound (NPMGUARD_MAX_SOURCE_FILES). Refused before any model "
+            "call rather than analysed in part — a partial read cannot yield a verdict.",
+            details={"sourceFiles": source_files, "maxSourceFiles": bound},
+        )
+
+
 class DockerUnavailableError(NpmGuardError):
     code = "NPMGUARD-0020"
     http_status = 503

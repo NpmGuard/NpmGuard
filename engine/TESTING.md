@@ -51,6 +51,29 @@ Test-only engine knobs (all default to prod behavior when unset):
 test can write `engine/data/` or `engine/audit-logs/`; an import-time guard in
 `tests/conftest.py` enforces the same for in-process tests.
 
+Bounds shrunk by tests, all real prod knobs rather than test hatches — a test
+lowers the number, never the mechanism: `NPMGUARD_QUEUE_SIZE` and
+`NPMGUARD_MAX_RUNNING_SESSIONS` (capacity, `tests/e2e/test_bounds_inputs.py`
+S24/S25), `NPMGUARD_MAX_SOURCE_FILES` (per-audit model spend, same file S36 and
+`tests/test_source_bound.py`), `NPMGUARD_TRIAGE_CONCURRENCY` (model-call
+concurrency, set explicitly by the e2e harness so a scenario's fan-out is not
+inherited).
+
+`NPMGUARD_DEMO_SPEED` divides the demo replay's human throttle; 0 emits
+instantly, which is what Playwright and the e2e tier use. It is read at
+`npmguard.demo` import scope, so the environment variable is the only seam and a
+test that wants a different value reloads the module (`test_demo.py`'s
+`at_speed`).
+
+**Every `NPMGUARD_*` variable production code reads is declared on `Settings`**,
+so a malformed value is refused at boot with the *variable* named — not the
+pydantic field, and not a bare `ValueError` from whichever `int()` or `float()`
+first touches it. Both directions are enforced by
+`tests/test_config_surface.py` (C1 declared⇒read, C3 read⇒declared, C4 no
+computed env keys) and the rejection messages by `tests/test_config_boot.py`.
+Two reads are still exempt in C3's table, each with its reason and the one-line
+swap it is waiting on.
+
 ## Pillar A — blackbox units over equivalence classes
 
 The unit is every exported function/class; private helpers are covered through
