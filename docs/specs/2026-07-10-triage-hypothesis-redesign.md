@@ -2,6 +2,11 @@
 
 _Status: proposed · 2026-07-10 · brainstormed + approved · builds on 2026-07-08-evidence-timeline-judge_
 
+> **Landed, in Python.** This spec was written against the retired TypeScript
+> engine, so every `engine/src/**.ts` path below is that lineage's, not a live
+> file. The design it describes is implemented in `engine/npmguard/`; read it as
+> the record of a decision, not as a map of the code.
+
 Rewrite the detection front-end so the LLM does the understanding and the code holds invariants — no
 hand-coded taxonomy, per-category strategy tables, static clearing, or coverage-gap verdicts. Same job,
 far simpler system.
