@@ -1,12 +1,11 @@
 """Panel core routes: the user's orgs (installations) and repos.
 
-A port of the TS engine's ``routes/panel.ts`` orgs/repos handlers. Both are
-session-gated and scoped to the GitHub App installations the user can access
-(the org-shared view). BOTH routes (re)build the ``user_installations`` cache
-from GitHub via ``_sync_user_installations`` — neither reads what the other
-wrote, because the dashboard calls them concurrently and a read that depends on
-another route's side effect answers with a fabricated empty when it wins the
-race.
+The orgs/repos handlers. Both are session-gated and scoped to the GitHub App
+installations the user can access (the org-shared view). BOTH routes (re)build
+the ``user_installations`` cache from GitHub via ``_sync_user_installations`` —
+neither reads what the other wrote, because the dashboard calls them
+concurrently and a read that depends on another route's side effect answers with
+a fabricated empty when it wins the race.
 
 Two load-bearing error behaviours (the frontend branches on the *field*, never
 the message):
@@ -324,7 +323,7 @@ async def panel_repos(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# Scan / repo-detail / scan-progress SSE (port of TS routes/panel.ts)
+# Scan / repo-detail / scan-progress SSE
 # ---------------------------------------------------------------------------
 
 

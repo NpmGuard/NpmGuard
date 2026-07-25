@@ -5126,15 +5126,26 @@ to say so, and `orchestrator.py:248-256` launders that answer into `REFUTED`,
 which contributes to `SAFE`. Two of the seven refutations say exactly that in
 their prose.
 
-> **Still a `bool` on `dev`, and this is the one place not to read ahead.** A
-> three-valued `decision` — which would let a judge say "the timeline does not carry
-> this fact" as a *third* answer rather than as prose inside a refutation — is built,
-> but it lives on branch **`judge-third-answer`** and is **not merged**, because
-> landing it changes the judge prompt and therefore needs a paid re-record (the
-> fixture loader fails loud by design). So: `malicious: bool` is the current
-> contract, `REFUTED` is still where an "I cannot tell" lands, and any reasoning
-> about verdict quality on `dev` must assume that. Do not describe the third answer
-> as shipped.
+> **The judge stays a `bool`, and that is now a decision rather than a pending
+> one.** A three-valued `decision` — letting a judge say "the timeline does not
+> carry this fact" as a *third* answer instead of as prose inside a refutation —
+> was built on branch **`judge-third-answer`**. It is **rejected on design
+> grounds.** Not deferred on cost: the re-record price is real, but it is not why.
+>
+> The owner's reasoning, and it is the load-bearing part of this whole section:
+> **`UNDECIDABLE` is duct tape over the defect, not a fix for it.** If a judge
+> cannot see the deciding fact, the thing that is broken is the *observation* — the
+> sensors, the transfer, the rendering — and the correct response is to make the
+> timeline carry that fact. A third answer instead makes the gap **survivable**,
+> and a survivable gap stops exerting any pressure to close it. The pipeline's job
+> is to observe what it needs to observe.
+>
+> So: `malicious: bool` is the contract, `REFUTED` is where an "I cannot tell"
+> lands, and the consequence named above — a sensor gap can still contribute to
+> `SAFE` — is **accepted and unmitigated**, precisely so it keeps reading as a
+> sensor bug. Everything in §24 about evidence fidelity is the actual fix, and
+> that is where effort belongs. Do not re-propose the third answer, and do not
+> re-raise it as a funding question.
 
 Finally, a note on why all of this survived a green suite: **the C2 test in
 `test_sensors.py` asserted a line shape strace never emits**
@@ -5157,8 +5168,8 @@ mechanical rather than advisory.
 > §19.3, §24.18, §24.20) and `16426a6` (bench v1 deleted — design-doc G22).
 > §14.3, §16.1–16.5, §17.4 and §24.8 remain the sections whose subjects move most
 > often. One thing deliberately **not** written ahead: the judge's three-valued
-> `decision` lives on branch `judge-third-answer` and is not merged, so
-> `JudgeVerdict.malicious` is described as the `bool` it still is on `dev`.
+> `decision` was rejected on design grounds (see the note in §24 above), so
+> `JudgeVerdict.malicious` is described as the `bool` it is and will remain.
 
 ### 24.1 The committed demo recording is a hybrid of real and curated data
 

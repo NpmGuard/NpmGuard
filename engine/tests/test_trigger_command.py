@@ -9,8 +9,6 @@
 #   C6 subpath is a module specifier, never a filesystem path
 #   C7 lifecycle/bin kinds have no run command (None)
 #   C8 l4=True injects the --require instrumentation preamble; l4=False does not
-# Adversarial pass: 2026-07-23/W6 — already the best-partitioned file in the
-# audit; header added, partitions unchanged.
 from npmguard.contract.models import Trigger
 from npmguard.observation import build_trigger_command
 

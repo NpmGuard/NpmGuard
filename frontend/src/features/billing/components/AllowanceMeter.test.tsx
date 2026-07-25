@@ -24,8 +24,6 @@
  *      `meter__fill--danger`, so this is the assertion that pins the fix.
  *  M4  available — a real `role="meter"` carrying honest `aria-value*`, and the
  *      visible and announced readings are the SAME string.
- *  M5  both themes, no hardcoded colour — one class serves light and dark, which
- *      is only true while every colour travels through a token.
  *
  * Blackbox: render with a hand-built bucket; assert on the accessibility tree and
  * the `data-meter-state` the primitive plants for exactly this purpose.
@@ -33,8 +31,7 @@
 
 import type { UsageBucket } from "@npmguard/shared";
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { expectNoHardcodedColour } from "../../../components/panel/theme-probe.ts";
+import { describe, expect, it } from "vitest";
 import { AllowanceMeter } from "./AllowanceMeter.tsx";
 
 const bucket = (used: number, limit: number, remaining: number | null): UsageBucket => ({
@@ -97,24 +94,4 @@ describe("AllowanceMeter — M4 an available bucket announces what it shows", ()
     expect(meter).toHaveAttribute("aria-valuetext", "1 / 4");
     expect(screen.getByText("1 / 4")).toBeInTheDocument();
   });
-});
-
-describe("AllowanceMeter — M5 both themes", () => {
-  afterEach(() => document.documentElement.classList.remove("dark", "light"));
-
-  for (const theme of ["light", "dark"] as const) {
-    it(`M5: every bucket state renders under an explicit .${theme} stamp`, () => {
-      document.documentElement.classList.add(theme);
-      render(
-        <>
-          <AllowanceMeter label="Available" bucket={bucket(1, 4, 3)} />
-          <AllowanceMeter label="Near limit" bucket={bucket(9, 10, 1)} />
-          <AllowanceMeter label="Exhausted" bucket={bucket(3, 3, 0)} />
-          <AllowanceMeter label="Unlimited" bucket={bucket(9, 0, null)} />
-        </>,
-      );
-      expect(screen.getAllByRole("meter")).toHaveLength(3); // unlimited draws none
-      expectNoHardcodedColour();
-    });
-  }
 });

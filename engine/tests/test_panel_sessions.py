@@ -1,4 +1,4 @@
-# CLASS MAP — PanelSessionStore opaque-token sessions (port of TS session.ts)
+# CLASS MAP — PanelSessionStore opaque-token sessions
 # (seam: real sqlite DB per test; the clock is INJECTED so the expiry / sliding-
 #  extend boundaries are observable without reading a private clock)
 # Axes: token issue+resolve, expiry boundary, sliding-extend rate limit, unknown

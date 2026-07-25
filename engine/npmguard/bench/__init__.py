@@ -1,10 +1,9 @@
 """The bench domain (v2) — a pinned corpus driven through the LIVE engine, with
 every judgement DERIVED at read time.
 
-Replaces ``npmguard/bench.py``, which read a directory of snapshot JSON written by
-a TypeScript runner and scored it on two primitives that no longer exist
-(``expectedCapabilities ⊆ report.capabilities``, ``proof.kind ==
-"TEST_CONFIRMED"``). Both were already vacuous on the pinned corpus before the
+Replaces ``npmguard/bench.py``, which read a directory of snapshot JSON and scored
+it on two primitives that no longer exist (``expectedCapabilities ⊆
+report.capabilities``, ``proof.kind == "TEST_CONFIRMED"``). Both were already vacuous on the pinned corpus before the
 schema moved — every entry carried ``expected.capabilities: []``, so ``detected``
 had degenerated to ``verdict == "DANGEROUS"`` and ``verified`` was 0/20 by
 construction. The module's core line was a stored JUDGEMENT

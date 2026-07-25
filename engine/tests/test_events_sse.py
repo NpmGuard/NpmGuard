@@ -33,9 +33,6 @@
 #             gated on NPMGUARD_TEST_PG_DSN — the notifier implementation differs]
 #         C15 events durable: full replay from a FRESH engine over the same DB file
 # API:    C16 unknown audit id → 404 (route layer)
-# Adversarial pass: W5 2026-07-23 — "can a follower hang forever on a finished
-#   audit?" → C8/C11 bound replay-only and terminal-in-replay completion; every
-#   follow consumer runs under asyncio.timeout.
 import asyncio
 import json
 import os

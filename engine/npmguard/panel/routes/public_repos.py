@@ -1,4 +1,4 @@
-"""Public-repo audit routes (port of TS ``routes/public-repos.ts``).
+"""Public-repo audit routes.
 
 A signed-in user can audit any *public* GitHub repository against the shared
 verdict cache.

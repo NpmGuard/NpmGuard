@@ -33,6 +33,7 @@ export function AuditView() {
   const verdict = useAuditStore((s) => s.verdict);
   const error = useAuditStore((s) => s.error);
   const reconnecting = useAuditStore((s) => s.reconnecting);
+  const replaying = useAuditStore((s) => s.replaying);
   const reset = useAuditStore((s) => s.reset);
   const navigate = useNavigate();
   const queuedText = useAuditStore(
@@ -75,11 +76,14 @@ export function AuditView() {
   return (
     <section
       className="page__inner audit-view fade-up"
-      aria-label={`live audit of ${packageName || "package"}`}
+      aria-label={`${replaying ? "replay" : "live audit"} of ${packageName || "package"}`}
     >
       <header className="audit-header">
         <div className="audit-header__title">
-          <span className="eyebrow">Live audit</span>
+          {/* A replay is byte-identical to the run it replays, which is exactly why
+              it has to say which one it is. "Live audit" over stored frames is the
+              only untrue thing this view could say. */}
+          <span className="eyebrow">{replaying ? "Replay" : "Live audit"}</span>
           <h1 className="headline mono audit-header__pkg">
             {packageName || "…"}
             {version ? <span className="audit-header__ver">@{version}</span> : null}

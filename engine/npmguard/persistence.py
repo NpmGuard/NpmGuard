@@ -174,6 +174,31 @@ class AuditSessionStore:
                 )
             ).scalar_one()
 
+    async def replayable(self) -> list[AuditSession]:
+        """Every finished audit, newest first — the replay gallery's whole source.
+
+        There is no recorded/not-recorded distinction to filter on: `/audit/{id}/events`
+        replays any terminal session straight off `stream_events`, so an audit that
+        reached a report IS a replay. Demo rows are excluded (see _not_demo) because
+        they are the committed-recording lineage and already have their own entry.
+
+        `report.isnot(None)` rather than status alone: a gallery row promises a
+        conclusion, and an errored audit has none.
+        """
+        async with self._sessions() as session:
+            rows = (
+                await session.execute(
+                    sa.select(audit_sessions)
+                    .where(
+                        audit_sessions.c.status == "done",
+                        audit_sessions.c.report.isnot(None),
+                        _not_demo(),
+                    )
+                    .order_by(audit_sessions.c.created_at.desc())
+                )
+            ).mappings()
+            return [_session(row) for row in rows]
+
     async def mark_running(self, audit_id: str) -> bool:
         # Guarded queued->running transition. Returns whether THIS call won it.
         # A rowcount of 0 means the row was closed/reset/already-running between

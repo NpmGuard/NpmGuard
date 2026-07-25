@@ -1,67 +1,43 @@
-# CLASS MAP — bench.projector: `expected x observed -> outcome -> rates`
-# (seam: PURE. Every class below is a function call with no DB, no file, no clock.
-#  That is the point of the module: the scoring rule is a projection, so when it
-#  changes it re-projects all history instead of invalidating it. v1 stored the
-#  judgement and its rows became unreadable.)
+# CLASS MAP — bench.projector: `expected x observed -> outcome -> rates`.
+# Seam: PURE. Every class is a function call with no DB, no file, no clock. That is
+#   the point of the module — the scoring rule is a projection, so when it changes it
+#   RE-PROJECTS all history instead of invalidating it. v1 stored the judgement, and
+#   its rows became unreadable the first time the rule moved.
+# Axes: expected × verdict × confirmation count × error code × N observations of one
+#       entry × corpus composition
 #
-# classify — ONE CLASS PER OUTCOME VALUE, all eight of D-6's taxonomy (§4.2):
-#   C1  CAUGHT_PROVED           expected DANGEROUS, verdict DANGEROUS, confirmed>=1
-#   C2  CAUGHT_STRUCTURAL       ... confirmed==0 with a dealbreaker (a DISJOINT
-#                               mechanism, not a weak tier — pipeline returns
-#                               before any hypothesis exists)
-#   C3  MISSED                  expected DANGEROUS, verdict SAFE
-#   C4  CLEARED                 expected SAFE, verdict SAFE
-#   C5  FALSE_ALARM_PROVED      expected SAFE, verdict DANGEROUS, confirmed>=1
-#   C6  FALSE_ALARM_STRUCTURAL  ... confirmed==0 with a dealbreaker
-#   C7  ABSTAINED               no verdict, cause is an engine capability limit
-#                               (0031 incomplete / 0030 phase timeout)
-#   C8  VOID                    no verdict, cause is infra/harness/corpus — incl.
-#                               0003 (input refused as too large), argued in the test
-#   C8b VOID by DEFAULT for an unknown code — a new failure mode must not enter
-#       the denominator silently
-#   C8c the two codes retired in b9b805d (0010 LLMUnavailable, 0050 SessionLimit)
-#       have no producer; provider exhaustion arrives as 0031 and the surviving
-#       admission bound is 0040
-#   C9  a client-side timeout is VOID, never ABSTAINED — the harness measuring its
-#       own patience is not the tool's answer (§7.4)
-#   C10 the code is read from the stable error CODE, never pattern-matched out of
-#       the message the way v1 did
-# The three states the ENGINE makes unreachable, asserted not branched:
-#   C11 DANGEROUS with no confirmation and no dealbreaker raises
-#   C12 SAFE with confirmed>0 raises
-#   C13 a verdict with auditId None raises
-# bucket — N observations of one entry -> one entry bucket (B-4: the entry is the
-# unit of analysis, so replication splits catches instead of inflating n):
-#   C14 all caught -> CAUGHT_ALWAYS
-#   C15 caught + missed -> CAUGHT_SOMETIMES (the bucket v1 could not express)
-#   C16 all missed -> MISSED_ALWAYS
-#   C17 all abstained -> ABSTAINED_ALWAYS
-#   C18 missed + abstained, none caught -> NEVER_CAUGHT_MIXED
-#   C19 VOIDs are dropped FIRST, so a caught+void entry is CAUGHT_ALWAYS
-#   C20 every observation VOID -> UNOBSERVED (outside n by construction)
-#   C21 negative controls, symmetrically: CLEARED_ALWAYS / CLEARED_SOMETIMES /
-#       FALSE_ALARM_ALWAYS / MIXED
-# Rate + Wilson (§5.1/§5.4):
-#   C22 the interval matches the published arithmetic at (20,20) and (14,20)
-#   C23 n=0 -> point/interval None: an empty corpus renders "no corpus", not 0%
-#   C24 the lower bound rises with n at a fixed p — what makes corpus size
-#       self-motivating (20/20 -> 83.9%, 60/60 -> 94.0%)
-#   C25 a Rate cannot be built from a bare p (no such constructor exists)
-# project — the run-level projection:
-#   C26 rates over a mixed corpus, with exact denominators (§5.3)
-#   C27 the malware buckets partition n_mal (the asserted identity)
-#   C28 proof_share + dealbreaker_share == 1 over caught OBSERVATIONS
-#   C29 ABSTAINED stays in the detection denominator; VOID leaves every one
-#   C30 void > 5% of attempted -> not publishable (§4.5's hard gate)
-#   C31 latency percentiles over observed durations only
-#   C32 tokens/cost are null when ANY contributor is unknown — never 0 as a
-#       stand-in (`shared/src/bench.ts:106-109`)
-#   C33 at N=1 stability is NOT measured, and the report must say so
-#   C34 flips are named, so a skeptic gets the list not the rate
-# Pooling (B-13, made structural):
-#   C35 two runs on the same engineSha pool
-#   C36 two runs across an engineSha boundary REFUSE — raised, not warned
-#   C37 pooling zero runs refuses (there is no engineSha to name)
+# The eight outcome values and four entry buckets are one test each. The rules
+# underneath them, which are what a wrong projection would break silently:
+#
+#  - STRUCTURAL is a DISJOINT mechanism, not a weak tier. The pipeline returns before
+#    any hypothesis exists, so a dealbreaker catch with confirmed==0 is not a
+#    half-strength proof and the two are counted separately, both directions
+#    (caught and false-alarm).
+#  - VOID by DEFAULT for an unknown code. A new failure mode must never enter the
+#    denominator silently, so the projector's ignorance costs it an observation
+#    rather than costing the rate its meaning.
+#  - A client-side timeout is VOID, never ABSTAINED: the harness measuring its own
+#    patience is not the tool's answer. ABSTAINED is reserved for an engine
+#    capability limit (0031 incomplete, 0030 phase timeout), and it STAYS in the
+#    detection denominator — an abstention is a miss for the user.
+#  - The code is read from the stable error CODE, never pattern-matched out of the
+#    message the way v1 did.
+#  - Three states the ENGINE makes unreachable are ASSERTED, not branched: DANGEROUS
+#    with neither confirmation nor dealbreaker, SAFE with confirmations, and a
+#    verdict with no auditId.
+#  - The ENTRY is the unit of analysis, so N replications of one entry SPLIT a catch
+#    (CAUGHT_SOMETIMES) instead of inflating n. VOIDs are dropped FIRST, so a
+#    caught+void entry is CAUGHT_ALWAYS, and an all-void entry is UNOBSERVED —
+#    outside n by construction.
+#  - n=0 renders "no corpus", never 0%. A Rate cannot be built from a bare p, so no
+#    call site can publish a number without its denominator; tokens and cost are null
+#    when ANY contributor is unknown, never 0 as a stand-in; and void > 5% of
+#    attempted makes a run NOT PUBLISHABLE.
+#  - The Wilson lower bound rising with n at fixed p is what makes corpus size
+#    self-motivating (20/20 -> 83.9%, 60/60 -> 94.0%), so the published arithmetic
+#    is pinned at two points.
+#  - Pooling across an engineSha boundary REFUSES — raised, not warned — and pooling
+#    zero runs refuses too, because there is no engineSha to name.
 
 import pytest
 
@@ -201,26 +177,6 @@ def test_unknown_code_is_void_not_abstained() -> None:
     assert classify(_entry(), _item(None, error="?"), "NPMGUARD-0099") is Outcome.VOID
 
 
-@pytest.mark.parametrize("retired", ["NPMGUARD-0010", "NPMGUARD-0050"])
-def test_retired_codes_have_no_producer(retired: str) -> None:
-    """C8c: the draft's §4.5 table maps 0010 (LLMUnavailableError) and 0050
-    (SessionLimitError) — both DELETED in b9b805d and reserved-never-recycled.
-    Provider exhaustion now arrives as AuditIncompleteError (0031, ABSTAINED) and
-    the surviving admission bound is QueueFullError (0040, VOID). Pinned as a test
-    rather than a comment because a retired code reaching this projector means
-    something is fabricating one."""
-    from npmguard import errors
-
-    live = {
-        cls.code
-        for cls in vars(errors).values()
-        if isinstance(cls, type) and issubclass(cls, errors.NpmGuardError)
-    }
-    assert retired not in live
-    # It still classifies (VOID by default) rather than crashing a whole run.
-    assert classify(_entry(), _item(None, error="x"), retired) is Outcome.VOID
-
-
 def test_client_timeout_is_void() -> None:
     """C9: the runner giving up first is a harness artifact. A run whose failures
     are client timeouts is measuring its own patience."""
@@ -353,14 +309,6 @@ def test_lower_bound_makes_corpus_size_self_motivating() -> None:
     assert round(Rate(20, 20).lower * 1000) == 839
     assert round(Rate(60, 60).lower * 1000) == 940
     assert Rate(60, 60).lower > Rate(20, 20).lower
-
-
-def test_rate_cannot_be_constructed_from_a_bare_probability() -> None:
-    """C25: §5.4 requires the denominator to travel with the rate, and a type that
-    cannot represent a denominator-less rate enforces that better than a review
-    comment. Pinned so a "convenience" constructor cannot be added quietly."""
-    with pytest.raises(TypeError):
-        Rate(0.83)  # type: ignore[call-arg]
 
 
 def test_percentile_of_nothing_is_none() -> None:

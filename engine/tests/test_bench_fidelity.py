@@ -214,7 +214,7 @@ def test_resolvability_is_per_event_never_inherited() -> None:
 
 
 def test_an_inherited_filesystem_path_on_a_socket_op_is_a_false_target() -> None:
-    """C6: recordable 2. At 67f830f, 87 events still rendered a socket operation
+    """C6: recordable 2. Before the recycled-fd fix, 87 events still rendered a socket operation
     with a path inherited from a recycled descriptor — including
     `connect /pkg/setup.js`, i.e. the malware payload file itself."""
     described = fidelity.DescribedEvent(
@@ -284,7 +284,7 @@ def test_pinned_counts_over_the_committed_corpus() -> None:
     so it is pinned hard and matches the 5,733 the methodology publishes.
 
     `fidelityDefects = 157` is a measurement of the SEALED corpus, and it does NOT
-    contradict §3.4.2's "0 at 67f830f": that column re-parsed each event's `raw`
+    contradict §3.4.2's pre-fix "0": that column re-parsed each event's `raw`
     through today's `sensors.parse_strace_log` before rendering, which recovers the
     306 peers the pre-fix sensors dropped BEFORE sealing. This predicate reads the
     artifact AS SEALED, which is what a live bench audit can do without a re-parse,
@@ -297,7 +297,7 @@ def test_pinned_counts_over_the_committed_corpus() -> None:
     `falseTargetEvents = 0` is the current engine's answer, and it is a real
     improvement rather than a predicate artifact: the recycled-fd fallback now
     consults whether the descriptor was last bound to a SOCKET, so the 87 residual
-    events §3.4.2 measured at 67f830f no longer render."""
+    events §3.4.2 measured before it no longer render."""
     artifacts = _artifacts()
     assert len(artifacts) == PINNED_ARTIFACTS
     total = fidelity.counts_over(artifacts)
@@ -313,7 +313,7 @@ def test_pinned_counts_over_the_committed_corpus() -> None:
 
 def test_row_counts_hold_their_invariant_relations() -> None:
     """C12: row counts depend on `_collapse`, so they move whenever the renderer
-    splits or merges rows — 5a88984 rendering the syscall RESULT took them from
+    splits or merges rows — rendering the syscall RESULT took them from
     4,140 to 4,606, which the methodology predicted. Asserting equality here would
     make an unrelated renderer improvement fail the bench suite, so what is
     asserted is what cannot change: rows <= events, anonymous <= rows, and every

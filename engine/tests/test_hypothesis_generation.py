@@ -19,8 +19,6 @@
 #      (setup.js returns FILESYSTEM/NETWORK twice, a dns-exfil file returns
 #      CREDENTIAL_THEFT five times), so the 12-value bound must be applied AFTER
 #      dedup — a repeat must never displace a distinct capability off the end
-# Adversarial pass: 2026-07-23/W6 — call-count assertions moved from the private
-# provider._calls counter to the public llm_attempts capture ledger (DB rows).
 import json
 
 import pytest

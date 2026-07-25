@@ -27,48 +27,52 @@ log = structlog.get_logger("npmguard.report_store")
 REPORT_VERDICTS: frozenset[str] = frozenset(
     get_args(contract.AuditReport.model_fields["verdict"].annotation)
 )
-if not REPORT_VERDICTS:
+REPORT_SCHEMA_VERSIONS: frozenset[int] = frozenset(
+    get_args(contract.AuditReport.model_fields["schemaVersion"].annotation)
+)
+if not REPORT_VERDICTS or not REPORT_SCHEMA_VERSIONS:
     # A raise, at import: an empty domain would silently reject every report and
     # turn this store into the fabricated empty list N-3 names as the canonical
     # violation. `assert` would let `python -O` do exactly that.
     raise AssertionError(
-        "AuditReport.verdict is not a Literal, so the verdict domain cannot be "
-        "derived from the generated contract"
+        "AuditReport.verdict / .schemaVersion is not a Literal, so the readable "
+        "domain cannot be derived from the generated contract"
     )
 
 
-def _in_domain(report: Any, source: Path) -> bool:
-    """Whether ``report``'s verdict is one this store may hand out.
+def _readable(report: Any, source: Path) -> bool:
+    """Whether ``report`` is one this store may hand out.
 
-    INVARIANT: no value outside ``REPORT_VERDICTS`` leaves this module — so no route
-    can put one on a wire, including routes that do not exist yet. This is the read
-    boundary rather than a per-route filter on purpose: `/packages` and
+    INVARIANT: every report leaving this module carries a `schemaVersion` and a
+    `verdict` the generated contract declares — so no route can put a shape the
+    client cannot parse on a wire, including routes that do not exist yet. This is
+    the read boundary rather than a per-route filter on purpose: `/packages` and
     `/package/{name}/report` both read straight through here, and screening them one
     at a time is how the next reader gets forgotten.
 
-    The threat is concrete, not hypothetical. `data/reports/` is shared BYTE FOR BYTE
-    with the TS lineage at `origin/main` (`report-store.ts` resolves the identical
-    path, and this checkout's own `event-stream/4.0.1.json` was written by it), and
-    that lineage's `saveReport` runs every report through `normalizeReportVerdict`,
-    which OVERWRITES the stored `verdict` with a 4-state
-    `assessAuditReport().classification` — so a report file carrying
-    `"verdict": "SUSPECT"` has a live writer, while the generated contract declares
-    `AuditReport.verdict: Literal['SAFE', 'DANGEROUS']`. A consumer parsing against
-    the generated model would fail on it, and a lenient one would render a value the
-    frontend has no branch for.
+    Both halves are needed. An out-of-domain verdict is a value the frontend has no
+    branch for; an in-domain verdict on an off-version body is worse, because it
+    passes a verdict check and then fails the client's contract parse on the first
+    missing field — bricking that package's page for as long as the file sits on
+    disk, since the store re-serves it on every request.
 
     Treated as unreadable rather than fatal, matching how this module already treats
-    a corrupt file: one foreign report must not 500 the whole package list. Logged,
+    a corrupt file: one bad report must not 500 the whole package list. Logged,
     because N-3 forbids a silently fabricated absence.
     """
-    verdict = report.get("verdict") if isinstance(report, dict) else None
-    if verdict in REPORT_VERDICTS:
+    if not isinstance(report, dict):
+        version, verdict = None, None
+    else:
+        version, verdict = report.get("schemaVersion"), report.get("verdict")
+    if version in REPORT_SCHEMA_VERSIONS and verdict in REPORT_VERDICTS:
         return True
     log.warning(
-        "ignoring report outside the verdict domain",
+        "ignoring report outside the readable domain",
         path=str(source),
+        schemaVersion=version,
         verdict=verdict,
-        expected=sorted(REPORT_VERDICTS),
+        expectedSchemaVersions=sorted(REPORT_SCHEMA_VERSIONS),
+        expectedVerdicts=sorted(REPORT_VERDICTS),
     )
     return False
 
@@ -147,7 +151,7 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
         exact = _report_path(package_name, version)
         try:
             report = json.loads(exact.read_text(encoding="utf-8"))
-            if _in_domain(report, exact):
+            if _readable(report, exact):
                 return report, version
         except (OSError, json.JSONDecodeError):
             pass  # missing or corrupt: the exact hit is only a fast path — scan instead
@@ -156,7 +160,7 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
                 report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            if extract_report_version(report) == version and _in_domain(report, file):
+            if extract_report_version(report) == version and _readable(report, file):
                 return report, version
         return None
     files = sorted(directory.glob("*.json"), key=lambda file: file.stat().st_mtime, reverse=True)
@@ -165,13 +169,19 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
             report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if not _in_domain(report, file):
+        if not _readable(report, file):
             continue
         return report, extract_report_version(report) or file.stem
     return None
 
 
-def _public(package_name: str) -> bool:
+def public_package(package_name: str) -> bool:
+    """Whether a package name belongs on a product surface.
+
+    Exported because the replay gallery reads `audit_sessions` rather than this
+    store and must hide the same fixtures the registry hides — a second copy of
+    this predicate would drift the two lists apart.
+    """
     return not (
         package_name.startswith("test-pkg-")
         or package_name.startswith("test-package")
@@ -185,15 +195,13 @@ def list_reports() -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for file in DATA_DIR.rglob("*.json"):
         package_name = file.parent.relative_to(DATA_DIR).as_posix()
-        if not _public(package_name):
+        if not public_package(package_name):
             continue
         try:
             report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        # Subsumes the old `if not report.get("verdict")` skip: a falsy verdict is
-        # outside the domain too, and the wire field is non-nullable.
-        if not _in_domain(report, file):
+        if not _readable(report, file):
             continue
         summaries.append(
             {

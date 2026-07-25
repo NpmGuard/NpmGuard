@@ -18,8 +18,6 @@
 # Residue: conftest pins NPMGUARD_DATA_DIR/NPMGUARD_AUDIT_LOG_DIR to a temp dir at
 # import; this file re-points both knobs to tmp_path per test (report_store's is an
 # import-time constant, so its module value is re-pointed to the same tmp target).
-# Adversarial pass: 2026-07-23/W6 — sleep-poll replaced with a deadline-bounded
-# condition wait; background CRE audit no longer races repo data/ writes.
 import contextlib
 import sqlite3
 import time

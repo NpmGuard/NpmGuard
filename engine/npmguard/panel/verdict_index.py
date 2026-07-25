@@ -1,7 +1,6 @@
 """Derived, rebuildable verdict index over ``package_verdicts``.
 
-Port of the TS ``verdict-index.ts``. This table is the panel's fast
-``(name, version) -> verdict`` lookup for rollups and cache-first scans. The
+This table is the panel's fast ``(name, version) -> verdict`` lookup for rollups and cache-first scans. The
 report files under ``data/reports/`` stay authoritative; this index is
 rebuildable at any time (``rebuild`` at boot) and kept in sync by the panel
 worker after each audit's future resolves.
@@ -42,15 +41,14 @@ OUTCOME_SEVERITY: dict[str, int] = {"SAFE": 0, "ERROR": 1, "DANGEROUS": 2}
 
 # INVARIANT: package_verdicts.verdict is exactly SAFE or DANGEROUS — enforced by a
 # DB ``CHECK`` (alembic 0007), not only by the writers. Every write is gated on this
-# set (``rebuild`` here, the worker in jobs.py) and ``upsert`` raises on it, so a
-# stored SUSPECT/UNKNOWN is corruption rather than a state the readers have to
-# model. An audit that could not conclude lands NO row at all — its outcome is
-# derived from progress by ``item_outcome`` below.
+# set (``rebuild`` here, the worker in jobs.py) and ``upsert`` raises on it, so any
+# other stored value is corruption rather than a state the readers have to model. An
+# audit that could not conclude lands NO row at all — its outcome is derived from
+# progress by ``item_outcome`` below.
 #
-# The constraint is what makes that statement unconditional. The guards here are
-# `raise`, not `assert`, because both stand at a DB boundary and `python -O` strips
-# `assert`: under `-O` the old bare asserts vanished and the retired 4-state domain
-# flowed again, which is a license to delete that is conditionally compiled.
+# The guards here are `raise`, not `assert`, because both stand at a DB boundary and
+# `python -O` strips `assert`: under `-O` the old bare asserts vanished and the wider
+# domain flowed again, which is a license to delete that is conditionally compiled.
 LANDABLE_VERDICTS = frozenset({"SAFE", "DANGEROUS"})
 
 
@@ -71,16 +69,14 @@ def item_outcome(verdict: str | None, *, pending: bool) -> str | None:
       never "not checked yet" and never SAFE.
     """
     if verdict is not None:
-        # INVARIANT (read side): only a landable verdict is stored. A legacy row
-        # from the 4-state vocabulary fails HERE, loudly and located, instead of
-        # silently rendering as a bucket nobody branches on.
+        # INVARIANT (read side): only a landable verdict is stored. Anything else
+        # fails HERE, loudly and located, instead of silently rendering as a bucket
+        # nobody branches on.
         #
-        # `raise`, not `assert`: this is the DB -> panel-domain read boundary and it
-        # is the one guard the falsification pass proved CAN fire on real data (a
-        # row predating the 2-state collapse, or one written by the TS lineage's
-        # unfiltered `upsertVerdict`). The 0007 CHECK forbids such a row from
-        # existing in a MIGRATED database; this covers the database that has not
-        # been migrated yet, which is precisely the case a constraint cannot.
+        # `raise`, not `assert`: this is the DB -> panel-domain read boundary. The
+        # 0007 CHECK forbids such a row from existing in a MIGRATED database; this
+        # covers the database that has not been migrated yet, which is precisely the
+        # case a constraint cannot.
         if verdict not in LANDABLE_VERDICTS:
             raise AssertionError(
                 f"package_verdicts holds {verdict!r}; the panel outcome domain is "
@@ -147,12 +143,10 @@ class VerdictIndex:
         """Insert or replace the verdict row for ``(name, version)``."""
         # INVARIANT (write side): the index is the 2-state audit verdict. Callers
         # filter on LANDABLE_VERDICTS; this refuses it at the boundary that owns the
-        # column, so a new producer cannot reintroduce a 4-state vocabulary.
+        # column, so a new producer cannot widen the vocabulary by accident.
         #
-        # `raise`, not `assert`, and it is NOT redundant with the 0007 CHECK: the
-        # constraint is the durable backstop for a producer that never runs this
-        # code (the TS lineage writes the same table directly), while this names the
-        # offending pair before the round-trip instead of surfacing as an
+        # `raise`, not `assert`, and it is NOT redundant with the 0007 CHECK: this
+        # names the offending pair before the round-trip instead of surfacing as an
         # `IntegrityError` from whichever engine is configured.
         if verdict not in LANDABLE_VERDICTS:
             raise AssertionError(

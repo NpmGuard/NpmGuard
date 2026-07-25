@@ -47,18 +47,14 @@
 #      would discard a true positive, so the gap is raised after the run (C3)
 #   C8 positive control: a run whose transfers all fit seals every hash and no
 #      error, so the gap machinery cannot suppress evidence that WAS retrieved
-# Not covered here, deliberately: the verdict routing — a CONFIRMED judgement is
-# read BEFORE the error kind, so a gap can only remove REFUTED from the table — is
-# orchestrator.py's own behaviour over its own dataclass. It was pinned here first
-# (real orchestrator, this artifact, a confirming judgement -> CONFIRMED, green at
-# 67f830f) and withdrawn when the concurrent three-valued-judge rework changed
-# ExperimentResult's fields: a coverage-gap test that pins another module's
-# in-flight shape is a compatibility shim, which is the smell this suite exists to
-# refuse. No orchestrator class covers CONFIRMED-with-an-error today.
-# Adversarial pass: 2026-07-25 transfer-seam — the missing dimension was WHAT ELSE
-# HAD ALREADY FAILED. A gap tested only on an otherwise-clean run passes while
-# `if error is None` quietly leaves the crashed-run case refutable on evidence
-# nobody knows was lost (C2, C6).
+# NOT covered here, deliberately: the verdict routing — a CONFIRMED judgement is
+# read BEFORE the error kind, so a gap can only remove REFUTED from the table. That
+# is orchestrator.py's behaviour over its own dataclass, and pinning another
+# module's in-flight shape from here makes this file a compatibility shim. Known
+# gap: no orchestrator class covers CONFIRMED-with-an-error.
+# C2/C6 carry the axis that matters most: WHAT ELSE HAD ALREADY FAILED. A gap
+# tested only on an otherwise-clean run passes while `if error is None` quietly
+# leaves the crashed-run case refutable on evidence nobody knows was lost.
 from __future__ import annotations
 
 import json

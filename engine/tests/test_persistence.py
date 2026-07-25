@@ -22,12 +22,10 @@
 #   C8 transaction() seam — a raise inside the block rolls back a joined
 #      finalize (row stays 'queued'); this is what makes the row transition and
 #      the terminal-event append atomic in AuditService._finish.
-# Adversarial pass: 2026-07-23/W6 — C1 alone was vacuous for the concurrency
-# clause (sqlite serializes); C2/C3/C5 add the MVCC, atomicity, and restart axes.
-# Adversarial pass: 2026-07-23/A1 — the Claim axis and the Cap axis never
-# intersected in any file; C6 adds the missing claim×cap class as a pin.
-# Invariant pass: 2026-07-23/lifecycle-coherence — finalize was an unconditional
-# UPDATE (no rowcount, no WHERE status); C7/C8 assert the enforced guard.
+# C1 is VACUOUS for the concurrency clause on its own — sqlite serializes writers,
+# so twelve simultaneous claims execute one at a time and the assertion would pass
+# against code with no atomicity at all. C2 is the postgres twin, where the race is
+# real; C3/C5 add the atomicity and restart axes.
 import asyncio
 import os
 

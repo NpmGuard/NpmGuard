@@ -36,9 +36,6 @@
 #               C21 webhook construct: valid HMAC accepted / bad signature rejected (offline)
 #               C22 GLOBAL stripe.api_key/api_base mutation across two Settings — PINNED,
 #                   UNENFORCED (module-global config is process-wide, last writer wins)
-# Adversarial pass: W5 2026-07-23 — "does any error path fall through to an implicit
-#   success?" → every refusal class asserts ChainVerificationError/typed stripe error;
-#   C17 pairs the negative (no dup claims) with a positive probe (exactly one live session).
 import asyncio
 import os
 

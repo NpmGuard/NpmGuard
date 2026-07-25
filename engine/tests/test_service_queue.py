@@ -1,62 +1,35 @@
-# CLASS MAP — AuditService single execution owner: wait-queue + worker pool +
-# restart recovery + bounded shutdown
-# (seams: constructor-injected queue_size / max_concurrent; throwaway sqlite DB;
-#  stub pipeline; StreamService for the durable event probe)
-# Admission: C1 admit below bound → 1-based queue_position reported per SubmitResult
-#            C2 queue full (queue_size=2) → QueueFullError NPMGUARD-0040, 503, retryable,
-#               refused by reserve() BEFORE create → the refused audit gets NO row
-#            C9 queued rows count toward the QUEUE bound (queue_size), not a session cap
-# Pool:      C3 max_concurrent=1: two queued audits never overlap (observed max == 1)
-#            C4 (single-owner flip) ALL paths share the one owner queue — submit() (the
-#               stream/paid entry) is NOT privileged: it queues behind a busy worker just
-#               like admit(). The old launch()-bypass is deleted.
-#            C7 max_concurrent bounds CONCURRENCY (N workers → observed max_active == N);
-#               over-cap audits QUEUE, they are not refused (the running-count cap is gone)
-#            C5 a poisoned item errors its own session (durable audit_error, future raises)
-#               and the pool still processes the next item
-#            C8 queued_count() counts only 'queued' rows (running/terminal excluded) — the
-#               admission bound's denominator
-# Idempotency/retry:
-#            IDEM submit() is audit_id-keyed: a second submit of the same session returns
-#               the SAME future, created=False, and enqueues exactly once (one execution)
-#            RETRY submit() on an 'error' row resets it to 'queued' and re-runs it —
-#               a claimed-but-errored (paid) audit is genuinely retryable
-#            RETRY-RACE two concurrent submits of the SAME errored claim (double paid
-#               replay) dedup on _pending → one reset+enqueue+execution, no losing-
-#               reset AssertionError (register-before-reset closes the race)
-#            NOTIFY audit_enqueued is emitted at submit and precedes audit_started (the
-#               "your scan is starting" notification) in the durable log
-# Sync wire: C6 sync /audit failure → wire shape {error, message, code, retryable}
-# Recovery:  C10 start() 0031s interrupted 'running' rows (audit_error retryable + errored)
-#            C11 no running/queued rows → recovery is a no-op, zero spurious events
-#            C12 (flip) start() RE-ENQUEUES durable 'queued' rows and runs them to
-#                verdict_reached; only interrupted 'running' rows become 0031 (never drop
-#                a claimed paid audit)
-#            DEMO demo-tagged rows (package_path == DEMO_PACKAGE_PATH) excluded from 0031
-#                recovery — recovery never runs the real pipeline on a demo replay
-# Shutdown:  C13 (flip) close(deadline) is BOUNDED — a stalled audit no longer stalls
-#                shutdown; it returns within ~deadline and finalizes the stalled row 0031
-#            C13b (crash/graceful parity) close() 0031s only the RUNNING row; a never-
-#                started QUEUED row is LEFT 'queued' and a fresh service re-enqueues +
-#                completes it — graceful shutdown drops a claimed paid audit no more
-#                than a crash does (both futures still resolve, no hang)
-#            C14 (flip) two concurrent admits at one free slot never WEDGE — no check-then-
-#                act loser blocking forever in put(); each either returns or raises QueueFull
-#            C15 (flip) close() while a worker is mid-item RESOLVES the future (exception)
-#                and finalizes the row 0031 — no orphaned future, no reliance on next start()
-# Lifecycle: C16 terminal coherence (success) — at the FIRST verdict_reached the report file
-#                is on disk and the row is 'done' (report → row+event, one transaction)
-#            C17 terminal coherence (failure) — a save_report failure lands running->error +
-#                audit_error (never done->error) and workspace cleanup still runs
-#            C18 a COMPLETED audit whose (name, version) key cannot be formed (no
-#                version in the report, none requested) still reaches verdict_reached
-#                with a durable row report; only the filesystem file is skipped. It
-#                is NOT discarded as a non-retryable 9999 — the verdict outranks the
-#                filing key, and C17 proves a REAL save failure still errors.
-# Single-owner rework: 2026 — launch()/enqueue()/_work_queue() deleted; every path funnels
-#   through submit()/admit(); status is {queued,running,done,error}; the running-count
-#   session cap (SessionLimitError) is retired in favor of the wait-queue bound + worker pool.
-#   C4/C13/C14/C15 FLIP from documenting the old divergences to asserting the new invariants.
+# CLASS MAP — AuditService as the single execution owner: wait-queue + worker pool
+# + restart recovery + bounded shutdown.
+# Seams: constructor-injected queue_size / max_concurrent; a throwaway sqlite DB; a
+#        stub pipeline; StreamService for the durable event probe.
+# Axes: admission (below bound / at bound) × which path submitted × pool occupancy ×
+#       what a restart or a close finds (queued / running / terminal) × what the
+#       caller's future does.
+#
+# What the shape of this file is arguing, since no single test says it: every path
+# funnels through submit()/admit(), and `status` splits queued/running so that
+# running ⟺ an owned worker will finalize it. Before that there were five
+# session-creation paths and no execution owner, which produced one cluster of bugs
+# with one cause — paid audits bypassing the cap, an enqueue check-then-act, close()
+# orphaning the queued item, an unbounded shutdown await, and /audit/stream skipping
+# the queue. So submit() is deliberately NOT privileged: it queues behind a busy
+# worker exactly like admit(), and the running-count session cap is retired in favour
+# of the wait-queue bound plus the worker pool.
+#
+# Four facts the assertions turn on:
+#  - A refusal at the queue bound happens in reserve(), BEFORE the row is created, so
+#    the refused audit leaves NO row. The bound's denominator is 'queued' rows only.
+#  - A restart RE-ENQUEUES durable 'queued' rows and 0031s only interrupted 'running'
+#    ones, because dropping a queued row drops a claimed paid audit. close() draws the
+#    same line, so a graceful shutdown loses no more than a crash does — that parity is
+#    the thing to preserve if this code is touched.
+#  - Terminal coherence runs report-then-row+event in ONE transaction, so at the first
+#    verdict_reached the report is already durable. A terminal frame therefore implies
+#    a readable report.
+#  - A COMPLETED audit whose (name, version) key cannot be formed still reaches
+#    verdict_reached with a durable row report; only the filesystem file is skipped.
+#    The verdict outranks the filing key — and the paired class proves a REAL save
+#    failure still errors, so this is not a swallowed write.
 import asyncio
 import json
 from types import SimpleNamespace

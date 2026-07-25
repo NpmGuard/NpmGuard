@@ -1,18 +1,15 @@
 """AES-256-GCM encryption for panel secrets at rest.
 
-A faithful port of the TS engine's ``crypto.ts``. Only user OAuth access /
-refresh tokens are encrypted at rest — the DB file must never be a credential
+Only user OAuth access / refresh tokens are encrypted at rest — the DB file must never be a credential
 dump. Installation tokens are minted on demand and never persisted.
 
-Blob format (byte-for-byte compatible with the TS implementation)::
+Blob format::
 
     base64(iv).base64(tag).base64(ciphertext)
 
 three dot-joined base64 parts, a 12-byte random IV, a 16-byte GCM auth tag.
-Node's ``createCipheriv`` exposes the tag separately via ``getAuthTag()``;
-Python's :meth:`AESGCM.encrypt` instead returns ``ciphertext || tag``, so we
-split the trailing 16 bytes back out on encrypt and re-append them on decrypt
-to reproduce the exact same wire format.
+:meth:`AESGCM.encrypt` returns ``ciphertext || tag``, so the trailing 16 bytes
+are split back out on encrypt and re-appended on decrypt.
 
 The key is ``settings.encryption_key`` — 32 bytes, hex-encoded (64 hex chars,
 regex-validated in :class:`~npmguard.config.Settings`).

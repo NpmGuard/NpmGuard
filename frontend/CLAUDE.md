@@ -247,9 +247,11 @@ Tailwind a second, slower entry point that silently shadows it.
   about its own plumbing.
 
 **What enforces it:** `styles/token-contract.test.ts` reads `tokens.css` as text
-and **recomputes** the brief's contrast ratios, asserts the two dark blocks are
-byte-equal after parsing (CSS cannot share a declaration list, so they are
-written twice), asserts the `@theme inline` mapping is a bijection, and asserts
+and **recomputes** WCAG contrast over every ink × surface pair against the floors
+(not against pinned ratios — a palette edit that stays legal is not a
+regression), asserts the two dark blocks are byte-equal after parsing (CSS cannot
+share a declaration list, so they are written twice), asserts every `@theme
+inline` key aliases a primitive that exists and inlines no literal, and asserts
 the vocabulary is **closed** (Tailwind's default palette, extra type steps,
 `font-serif` all cleared) so an off-system value cannot be spelled as a utility.
 `cn.test.ts` pins each extended namespace, so a token added to CSS but not to
@@ -264,8 +266,8 @@ the vocabulary is **closed** (Tailwind's default palette, extra type steps,
   crash.
 - **The report is schemaVersion 2**: `{schemaVersion:2, verdict, rationale,
   counts, confirmedHypIds, hypotheses[], fileSummaries[], dealbreaker, trace[]}`.
-  There is **no** `proofs[]` / `runtimeEvidence` / top-level `capabilities`
-  (that was the retired TS-engine shape). `verdict_reached` carries
+  There is **no** `proofs[]` / `runtimeEvidence` / top-level `capabilities`.
+  `verdict_reached` carries
   `{verdict, rationale, counts, confirmedCount}`.
 - **The audit event union is exactly 17 types**, and `EVENT_TYPES`
   (`shared/src/events.ts`) is the one list — the engine registers its emit names
