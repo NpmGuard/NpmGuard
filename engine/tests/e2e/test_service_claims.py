@@ -14,6 +14,13 @@
 # that scoping causes; two writers against a real server can. Every test here is
 # about a fact that must be TRUE IN THE DATABASE rather than in some process's heap.
 #
+#   P2  concurrent claimers never hand one row to two workers. Sixteen claim_next
+#       calls against one queued row on a real server: exactly one wins.
+#   P3  an ORPHAN is recovered by an instance that is not its owner — the half a
+#       process-local map could not do at all, and the reason the lease exists.
+#   P4  a LIVE claim survives contention with a sweeper: the heartbeat keeps a
+#       long audit's claim fresh against a TTL shorter than the audit, while a
+#       peer sweeps continuously and must decline to touch it.
 #   P1  a LIVE audit is not terminalized by another instance's arrival. This is the
 #       one that fails against process-local ownership: `_recover()` sweeps every
 #       `running` row it can see, so instance B's boot declares instance A's
@@ -179,3 +186,89 @@ async def test_p1_a_live_audit_survives_another_instances_boot(cluster) -> None:
         "verdict_reached",
     ]
     assert cluster.pipeline.started.count("pkg-live") == 1  # executed exactly once
+
+
+async def test_p2_concurrent_claimers_split_one_row_exactly_once(cluster) -> None:
+    """P2: with ONE claimable row and sixteen simultaneous claimers, exactly one
+    comes back with the row and the rest come back empty.
+
+    The claim is a SELECT followed by a guarded UPDATE, so "two claimers read the
+    same candidate" is the failure to hunt. Postgres is the only backend that can
+    exhibit it — sqlite serializes writers, which is why this cannot be a unit
+    test — and `FOR UPDATE SKIP LOCKED` plus the guard on the UPDATE are the two
+    independent defences being probed here.
+    """
+    row = await cluster.sessions.create("pkg-contended", "1.0.0")
+    claimers = [
+        cluster.sessions.claim_next(f"claimer-{index}", ttl_seconds=60.0)
+        for index in range(16)
+    ]
+    claimed = [result for result in await asyncio.gather(*claimers) if result is not None]
+
+    assert len(claimed) == 1, [session.claimed_by for session in claimed]
+    assert claimed[0].audit_id == row.audit_id
+    stored = await cluster.sessions.get(row.audit_id)
+    assert stored.claimed_by == claimed[0].claimed_by  # the winner is the row's owner
+    assert stored.status == "queued"  # a claim is not a start
+
+
+async def test_p3_an_orphan_is_recovered_by_someone_other_than_its_owner(cluster) -> None:
+    """P3: a `running` row whose owner stopped renewing is repaired by a DIFFERENT
+    instance — 0031, retryable, exactly once.
+
+    This is the capability the whole rework is for. Under process-local ownership
+    an orphan was repairable only by its own process's next boot, so a node that
+    never came back stranded its audits indefinitely. Here nobody restarts: a peer
+    that is merely running notices the lapsed claim and finishes the job.
+    """
+    dead_owner = "some-host:99999:deadbeef"
+    orphan = await cluster.sessions.create("pkg-orphan", "1.0.0")
+    assert await cluster.sessions.mark_running(orphan.audit_id)
+    # the owner claimed it and then died: the lease is already in the past
+    await cluster.sessions.claim_next(dead_owner, ttl_seconds=-1.0)
+
+    peer = cluster.instance()
+    assert await peer.reclaim_expired() == 1
+
+    repaired = await cluster.sessions.get(orphan.audit_id)
+    assert repaired.status == "error"
+    assert repaired.error == "Audit interrupted by engine restart"
+    assert repaired.claimed_by is None  # finalize released the claim with the row
+    events = await cluster.stream.read_after(audit_channel(orphan.audit_id), -1)
+    assert [event["type"] for event in events] == ["audit_error"]
+    assert events[0]["data"]["code"] == "NPMGUARD-0031"
+    assert events[0]["data"]["retryable"] is True
+    assert await peer.reclaim_expired() == 0  # terminal rows are not re-reclaimed
+
+
+async def test_p4_the_heartbeat_defends_a_live_claim_from_a_sweeper(cluster) -> None:
+    """P4: an audit that outlives its own TTL keeps its claim, and a peer sweeping
+    the whole time never takes it.
+
+    The TTL here (1.5s) is deliberately shorter than the audit, so the claim
+    survives only if the heartbeat is actually renewing it. Without renewal the
+    sweeping peer would 0031 a live paid audit and the owner's terminal
+    transaction would then meet an already-terminal row — the same wreck P1
+    describes, reached by clock rather than by boot.
+    """
+    owner = cluster.instance(lease_ttl_seconds=1.5, heartbeat_seconds=0.25)
+    peer = cluster.instance()
+    cluster.pipeline.blockers["pkg-slow"] = asyncio.Event()
+    await owner.start()
+
+    slow = await owner.admit("pkg-slow", "1.0.0")
+    async with asyncio.timeout(WAIT_SECONDS):
+        await cluster.pipeline.first_started.wait()
+
+    # sweep continuously for several TTLs while the audit is still executing
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while asyncio.get_running_loop().time() < deadline:
+        assert await peer.reclaim_expired() == 0
+        assert (await cluster.sessions.get(slow.audit_id)).status == "running"
+        await asyncio.sleep(0.1)
+
+    cluster.pipeline.blockers["pkg-slow"].set()
+    async with asyncio.timeout(WAIT_SECONDS):
+        report = await slow.future
+    assert report["verdict"] == "SAFE"
+    assert (await cluster.sessions.get(slow.audit_id)).status == "done"
