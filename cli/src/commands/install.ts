@@ -12,6 +12,7 @@ import {
 import { auditCommand } from "./audit.js";
 import { payViaWalletConnect, readAuditFee } from "../wallet/walletconnect.js";
 import { streamAuditEvents } from "../stream.js";
+import { renderUnusableVerdict } from "../render.js";
 
 interface InstallOpts {
   api: string;
@@ -37,8 +38,8 @@ function reportField<T>(report: api.PackageReport, key: string): T | undefined {
   return (r?.report?.[key] ?? r?.[key]) as T | undefined;
 }
 
-function extractVerdict(report: api.PackageReport): string {
-  return (reportField<string>(report, "verdict") ?? "UNKNOWN").toUpperCase();
+function extractVerdict(report: api.PackageReport): api.Verdict | null {
+  return api.asVerdict(reportField<string>(report, "verdict"));
 }
 
 function extractRationale(report: api.PackageReport): string {
@@ -156,6 +157,14 @@ function handleExistingReport(
   const rationale = extractRationale(report);
   const reportUrl = `${apiUrl}/package/${encodeURIComponent(name)}/report`;
 
+  // Not a verdict the engine can produce — a version skew or a rewritten body.
+  // Refused rather than prompted: an unreadable answer is not a weak yes.
+  if (verdict === null) {
+    renderUnusableVerdict(reportField<string>(report, "verdict"));
+    console.log(chalk.dim(`  Full report: ${reportUrl}`));
+    process.exit(1);
+  }
+
   // SAFE — the only silent-install path.
   if (verdict === "SAFE") {
     console.log(chalk.green("  ✓ SAFE — audited by NpmGuard"));
@@ -165,37 +174,9 @@ function handleExistingReport(
 
   // DANGEROUS — the only hard block. A CONFIRMED hypothesis with reproduced
   // evidence. --force overrides.
-  if (verdict === "DANGEROUS") {
-    console.log(chalk.bgRed.white.bold("  DANGEROUS  "));
-    if (rationale) console.log(chalk.red(`  ${rationale}`));
-    printConfirmed(report);
-    console.log(chalk.dim(`  Full report: ${reportUrl}`));
-    console.log();
-
-    if (opts.force) {
-      console.log(chalk.yellow("  --force passed, installing anyway..."));
-      process.exit(runInstall(fullSpec));
-    }
-    promptAndInstallIfAccepted(
-      fullSpec,
-      "  Install anyway? This package has confirmed malicious behavior. (y/N) ",
-    );
-    return;
-  }
-
-  // SUSPECT / UNKNOWN — do not block, but warn honestly and prompt. UNKNOWN is
-  // called out loudly: "couldn't analyze" must never read as a clean pass.
-  console.log(chalk.bgYellow.black.bold(`  ${verdict}  `));
-  if (verdict === "UNKNOWN") {
-    console.log(
-      chalk.yellow(
-        "  Coverage gap — NpmGuard could not analyze part of this package. This is NOT a clean bill of health.",
-      ),
-    );
-  } else {
-    console.log(chalk.yellow("  Some hypotheses are still unresolved."));
-  }
-  if (rationale) console.log(chalk.yellow(`  ${rationale}`));
+  console.log(chalk.bgRed.white.bold("  DANGEROUS  "));
+  if (rationale) console.log(chalk.red(`  ${rationale}`));
+  printConfirmed(report);
   console.log(chalk.dim(`  Full report: ${reportUrl}`));
   console.log();
 
@@ -203,7 +184,10 @@ function handleExistingReport(
     console.log(chalk.yellow("  --force passed, installing anyway..."));
     process.exit(runInstall(fullSpec));
   }
-  promptAndInstallIfAccepted(fullSpec, "  Proceed with install? (y/N) ");
+  promptAndInstallIfAccepted(
+    fullSpec,
+    "  Install anyway? This package has confirmed malicious behavior. (y/N) ",
+  );
 }
 
 async function promptAndInstallIfAccepted(
@@ -317,7 +301,5 @@ async function finalizeAfterAudit(
     console.log(chalk.red("  Audit finished but report not found."));
     process.exit(1);
   }
-  // Same 4-state gate as a pre-existing report: SAFE installs, DANGEROUS blocks
-  // (prompt), SUSPECT/UNKNOWN warn + prompt.
   handleExistingReport(freshReport, name, fullSpec, apiUrl, { api: apiUrl });
 }
