@@ -115,8 +115,14 @@ export async function installCommand(
     return;
   }
 
-  // No audit found — ask how to pay
+  // No audit found — but attestation history is a separate axis and exists
+  // whether or not anyone audited this package. This is the case the signal
+  // matters most in: a worm's freshly published version has no audit yet, and
+  // it is precisely then that "the previous releases were attested and this one
+  // is not" is the only thing anyone can act on.
+  const continuity = await api.getPublisherContinuity(apiUrl, name, version);
   console.log(chalk.gray("  NOT AUDITED — no NpmGuard record for this version."));
+  if (continuity) printContinuity({ publisherContinuity: continuity } as api.PackageReport);
   console.log();
   console.log(chalk.bold("  How do you want to pay for the audit?"));
   console.log("    1) Stripe (credit card)");

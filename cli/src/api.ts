@@ -193,6 +193,34 @@ export async function getPackageReport(
   }
 }
 
+/**
+ * Publisher continuity for one release, independent of any audit.
+ *
+ * Deliberately its own call. Attestation history exists whether or not the
+ * package was ever audited, and the case this signal matters most in is exactly
+ * the un-audited one: a worm's freshly published version has no audit yet, but
+ * it does break the streak. Requiring a report first would blind the check at
+ * the only moment it is urgent.
+ *
+ * Returns null on any failure — continuity is supplementary, and an engine that
+ * cannot answer must degrade to silence rather than block an install.
+ */
+export async function getPublisherContinuity(
+  apiUrl: string,
+  packageName: string,
+  version: string,
+): Promise<PublisherContinuity | null> {
+  const url =
+    `${apiUrl}/package/${encodeURIComponent(packageName)}/continuity` +
+    `?version=${encodeURIComponent(version)}`;
+  try {
+    const body = await request<{ publisherContinuity?: PublisherContinuity }>(url);
+    return body.publisherContinuity ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // --- publisher attestation ---------------------------------------------------
 
 export interface AttestSession {
