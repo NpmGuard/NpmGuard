@@ -265,11 +265,10 @@ class AuditPipeline:
             await emitter.emit("audit_started", {"packageName": package_name})
         # The workdir has exactly one owner from the instant resolve_package
         # returns it: `acquired` is assigned inside the phase operation, so the
-        # cleanup handler below covers every step after acquisition — including
-        # the ones that used to sit OUTSIDE the try (the resolve PhaseLog write
-        # and set_package_path, whose disk/DB errors left an extracted package in
-        # /tmp/npmguard-* with no owner) and including the phase wrapper's own
-        # phase_completed emit.
+        # cleanup handler below covers every step after acquisition — the resolve
+        # PhaseLog write, set_package_path, and the phase wrapper's own
+        # phase_completed emit. Anything outside the try leaks an extracted package
+        # into /tmp/npmguard-* with no owner when it raises.
         acquired: ResolvedPackage | None = None
 
         async def acquire() -> ResolvedPackage:
@@ -356,11 +355,10 @@ class AuditPipeline:
                     },
                 )
 
-            # The budgets below are scaled over the files FLAG will actually read
-            # — the same list run_flag fans out over, from the one function that
-            # defines it (phases.flag_source_files). A local copy of the filter
-            # used to omit the noise rule, so a test-heavy package was budgeted
-            # for files nobody opens.
+            # The budgets below are scaled over the files FLAG will actually read —
+            # the same list run_flag fans out over, from the one function that
+            # defines it. A local copy of the filter drifts from the noise rule and
+            # budgets a test-heavy package for files nobody opens.
             sources = flag_source_files(inventory)
             source_kb = sum(file.sizeBytes for file in sources) / 1024
             timeout_scale = max(

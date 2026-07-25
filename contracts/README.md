@@ -5,7 +5,7 @@ Solidity contracts for on-chain audit payments on Base.
 ## Stack
 
 - **Foundry** (`forge` + `cast`) — build, test, deploy
-- **web3.py** is used in `engine/`; **viem** remains in `cli/`
+- Chain reads: **web3.py** in `engine/`, **viem** in `cli/`
 
 ## 1. Install Foundry (one-time)
 

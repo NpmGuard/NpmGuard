@@ -220,9 +220,8 @@ async def audit_batch(args: argparse.Namespace) -> int:
 
 async def audit_latest(args: argparse.Namespace) -> int:
     packages = await asyncio.to_thread(_read_list, args.watchlist)
-    # Through Settings, like every other knob: the raw os.environ read this
-    # replaces could not see a key supplied in `.env`, so an operator with the key
-    # configured exactly where the engine reads it was told it was missing.
+    # Through Settings, like every other knob — a raw os.environ read cannot see a
+    # key supplied in `.env`, which is exactly where the engine reads it from.
     key = get_settings().cre_api_key
     if not args.dry_run and not key:
         raise RuntimeError("NPMGUARD_CRE_API_KEY is required")

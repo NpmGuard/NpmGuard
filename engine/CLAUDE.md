@@ -9,11 +9,10 @@
   a bad value is then refused at boot with the *variable* named
   (`npmguard.config.ConfigError`), never as a `ValueError` from whichever `int()`
   or `float()` happens to see it first. **`os.environ` is not a config source.**
-  Two reads are still exempt in C3's table, each with its reason and the one-line
-  swap it waits on: `NPMGUARD_TRIAGE_CONCURRENCY` (`phases.py`) and
-  `NPMGUARD_DATA_DIR` (`report_store.py`). AUDIT_CORE_EXPLAINED §24.20 now records
-  the landed fix, including the part the original finding missed: declaring a knob
-  is necessary but not sufficient, because pydantic-settings names the *field*.
+  C3's exemption table is EMPTY and that is the property it protects — land a knob
+  together with its reader rather than adding an entry. Declaring a knob is
+  necessary but not sufficient: pydantic-settings names the *field*, so
+  `config.py` re-renders the error against the variable name.
 - `NPMGUARD_MAX_SOURCE_FILES` is the only bound on **one audit's** model spend
   (`llm_budget_usd_24h` is deployment-wide). It defaults to `0` = off because the
   refusal it enables lands *after* the payment claim — see the ledger comment on
@@ -70,9 +69,8 @@ shape, and read it instead of re-deriving the pipeline from the code.
 
 **Read §24.0 first.** It is the status section for §24's findings and states, per
 finding, whether it is fixed, tracked, or superseded — plus the places §24's own
-analysis was wrong. Several findings there have been fixed since they were
-written, and acting on a fixed finding is the failure mode this section exists to
-prevent. §24.0 names the commit it is verified against.
+analysis was wrong. Acting on a finding that has already been fixed is the failure
+mode that section exists to prevent.
 
 It is the reference for the questions that keep recurring: what a hypothesis /
 claim / experiment actually are, what "full oracle" observes, why a DEFERRED
@@ -93,4 +91,4 @@ of every local-fixture audit). Only the DB is complete.
 - `orchestrator.py`: full-oracle experiment loop and evidence-bound judgment
 - `payments.py`: Stripe and Base verification
 - `persistence.py`: sessions and exact-once claims
-- `events.py`: durable event log and legacy-compatible SSE wire format
+- `events.py`: durable event log and the SSE wire format (`id`==seq, `event`==type)

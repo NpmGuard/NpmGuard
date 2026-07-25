@@ -39,43 +39,26 @@ TRACE_NO_PARENT = "<root>"
 # over that prefix rather than this truncation, so a value past the cut is still named.
 _BODY_RENDER_CHARS = 200
 # ── The L1 buffer contract ───────────────────────────────────────────────────────
-# strace runs with `-s 4096` (sensors.wrap_with_strace), so up to 4 KiB of EVERY
-# write/sendto buffer has been captured verbatim into the event's `raw` — and hashed
-# into `contentHash` — since the first run this engine ever did. Only the descriptor
-# was rendered. AUDIT_CORE_EXPLAINED §24.8 describes L1 as recording "only an fd";
-# measured over the 31 committed runartifacts, 241 of 241 writes and 220 of 253
-# sendtos carry a quoted buffer (the other 33 are netlink, whose payload strace
-# DECODES into `[{nlmsg_…}]` rather than printing bytes). The capture was never the
-# missing half. The rendering was.
+# strace runs with `-s 4096` (sensors.wrap_with_strace), so up to 4 KiB of every
+# write/sendto buffer is captured verbatim into the event's `raw` and hashed into
+# `contentHash`. This is the seam that RENDERS it into the judge prompt — without it
+# 44 DNS packets spelling out a hex-encoded `{"env":{"GITHUB_TOKEN":"ghp_np…` render
+# as `send socket [x44]` and the judge refutes exfiltration for want of the payload.
 #
-# What that cost, measured on the corpus rather than argued: dns-exfil hyp-0003
-# rendered `send socket  [x44]` for 44 DNS packets whose payloads spell out a
-# hex-encoded `{"env":{"GITHUB_TOKEN":"ghp_np…` one chunk at a time. Judges refuted
-# exfiltration hypotheses for want of exactly that. Note what this does NOT explain,
-# because the tempting reading is wrong: env-exfil hyp-0004's refutation ("the POST
-# request is recorded but its payload is not specified") was CORRECT on its run —
-# `connect(20, 127.0.0.1:9999)` returned -1, no write to that descriptor exists at any
-# layer, and there were no bytes to render. Rendering buffers does not, and must not,
-# flip it.
-#
-# Rendered for `write`/`sendto` and deliberately NOT for `read`. The line is
-# evidentiary first: a write/sendto buffer is what LEFT the process, which is what
-# exfiltration is made of, while a read buffer is what came IN and is already located
-# by the `openat`/`read` pair above it. It is a cost line second, and the cost was
-# MEASURED rather than assumed, because the obvious guess is wrong: rendering the
-# corpus's 1440 read buffers as well would add 556 rows (4828 → 5384, +11.5%) but
-# +78% of timeline TEXT (312k → 554k characters). Reads do not explode the ROW count —
-# they roughly double the prompt. Extending this to reads is therefore a prompt-budget
-# decision someone can make on evidence, not a line this comment forbids.
+# Rendered for `write`/`sendto` and deliberately NOT for `read`. A write/sendto
+# buffer is what LEFT the process, which is what exfiltration is made of; a read
+# buffer is what came IN and is already located by the `openat`/`read` pair above it.
+# The cost of extending to reads was measured, and the obvious guess is wrong:
+# +11.5% rows but +78% timeline TEXT. Reads roughly double the prompt, so that is a
+# prompt-budget decision on evidence, not a line this comment forbids.
 _BUFFER_RENDER_CHARS = 200
-# The only bound on how much buffer text ONE run can push into a judge prompt. The
-# L4 body has two (instrumentation-monkey.js: `_BODY_CAP` 2048/request and
-# `_BODY_TOTAL_CAP` 65536/run) because an unbounded payload capture grows without
-# limit; strace caps per call and not per run, so the run bound has to live at the
-# render seam. Sized from the corpus — the heaviest of the 31 artifacts consumes 5351
-# characters of it — so this is a ceiling on pathology, not a limiter on a
-# normal run. When it is spent the clause still states the true size and says why it
-# is not rendered: going silent is the defect this whole path exists to remove.
+# The only bound on how much buffer text ONE run can push into a judge prompt. strace
+# caps per call and not per run, so the run bound has to live at the render seam (the
+# L4 body is already twice-capped at capture in instrumentation-monkey.js). Sized
+# from the recorded corpus at ~1.5x its heaviest artifact: a ceiling on pathology,
+# not a limiter on a normal run. When it is spent the clause still states the true
+# size and says why it is not rendered — going silent is the defect this whole path
+# exists to remove.
 _BUFFER_RUN_BUDGET = 8_000
 # `write(fd, "…", count)` and `sendto(fd, "…", len, flags, …)`: the buffer is
 # argument 1 and its byte count argument 2. Anchored on the descriptor and requiring
@@ -101,15 +84,11 @@ _L1_BUFFER = re.compile(r'^\w+\(\s*-?\d+,\s*"((?:[^"\\]|\\.)*)"(\.\.\.)?,\s*(\d+
 #   * membership in the bait set is decided by the minted FORMAT, so a value the
 #     engine did not mint cannot enter the bait set at all.
 #
-# What this replaces: a LENGTH floor (`len(value) >= 8`) applied to whatever the
-# model happened to plant. Under it the recorded corpus's own `HOME=/home/node` and
-# `MYAPP_DB_HOST=localhost` were bait, so a benign crash reporter POSTing a stack
-# trace containing `/home/node` rendered `· carries planted env HOME`, and a GET
-# with no body at all rendered `· carries planted env MYAPP_DB_HOST` because
-# `localhost` occurs in its own URL. That clause is written to be cited, one
-# CONFIRM carries the whole verdict (§18), and DANGEROUS blocks an install behind a
-# GitHub check — a manufactured citation is the most expensive error this renderer
-# can make. Length is not a discriminator. Provenance is.
+# Length is not a discriminator; provenance is. Screening bait on value LENGTH makes
+# `HOME=/home/node` bait, so a crash reporter POSTing a stack trace earns
+# `· carries planted env HOME`. That clause is written to be cited and one CONFIRM
+# carries the whole verdict, so a manufactured citation is the most expensive error
+# this renderer can make.
 CANARY_PREFIX = "npmguard-canary-"
 _CANARY_HEX_CHARS = 32
 CANARY_PATTERN = re.compile(re.escape(CANARY_PREFIX) + f"[0-9a-f]{{{_CANARY_HEX_CHARS}}}")
@@ -128,7 +107,7 @@ def mint_canary() -> str:
     Bait is synthetic by construction and never a real secret, so it stays plaintext
     in the sealed artifact — which is what makes correlating a captured request body
     with it possible at all (planted FILE contents are recorded as hashes only, so a
-    file canary is unmatchable from an artifact; see §24.8).
+    file canary is unmatchable from an artifact).
 
     A caller may embed the token inside a realistic-looking value —
     ``"npm_" + mint_canary()`` — when the package's exfil branch depends on the
@@ -290,10 +269,9 @@ def _normalize_l4(entry: dict[str, Any]) -> tuple[EventKind, dict[str, Any]]:
         return "fs_op", {"method": str(entry.get("method", "")), "path": str(entry.get("path", ""))}
     if event_type == "network":
         # `body`/`bodyBytes` are always projected so the shape is uniform: bodyBytes
-        # 0 means the package submitted no request body, and `len(body) < bodyBytes`
-        # means the instrument's cap truncated it. An artifact recorded before body
-        # capture existed also reads as 0 — the renderer says nothing in either case,
-        # so neither is ever presented as evidence of an empty payload.
+        # 0 means no request body was captured, and `len(body) < bodyBytes` means the
+        # instrument's cap truncated it. The renderer says nothing at bodyBytes 0, so
+        # absence is never presented as evidence of an empty payload.
         return "network", {
             "method": str(entry.get("method", "GET")),
             "url": str(entry.get("url", "")),
@@ -378,14 +356,10 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
     home = (artifact.setupApplied.env or {}).get("HOME", "/home/node")
     # INVARIANT: every seed in `bait` is a token this engine minted (`mint_canary`),
     # so a seed cannot appear in a request the package did not build out of the
-    # planted value. That makes the "carries planted env <KEY>" clause unfalsifiable
-    # as evidence of a read-and-send, instead of a coincidence detector — see the
-    # canary contract above for the two properties and the citations it used to
-    # manufacture. A planted value with no minted token in it is not bait and is
-    # never named: `HOME=/home/node` is *expected* here (the path shortener reads it
-    # one line up), and it is exactly the value the length floor turned into a
-    # citation. The engine-minted token is matched alone, so a value may carry any
-    # realistic wrapper around it.
+    # planted value. That is what makes the "carries planted env <KEY>" clause
+    # evidence of a read-and-send rather than a coincidence detector. A planted value
+    # with no minted token in it is not bait and is never named. The token is matched
+    # alone, so a value may carry any realistic wrapper around it.
     bait = {
         key: match.group(0)
         for key, value in (artifact.setupApplied.env or {}).items()
@@ -410,8 +384,7 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
     }
     # ONE budget across both passes: it bounds the buffer text in a single judge
     # prompt, and both sections go into the same prompt. L4 bodies do not draw on it —
-    # they are already twice-capped at capture (instrumentation-monkey.js), which is
-    # the bound strace does not provide per run.
+    # they are already capped at capture.
     budget = _BufferBudget()
     node_rows = _collapse([_describe(event, shorten, fds, bait, budget) for event in node])
     clock_rows = _collapse([_describe(event, shorten, fds, bait, budget) for event in clock])
@@ -440,11 +413,8 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
     env_keys = list((artifact.setupApplied.env or {}).keys())
     planted = [shorten(file.path) for file in artifact.setupApplied.plantFiles or []]
     # A stub that answered nothing is named, because "the endpoint you were told is
-    # stubbed was never contacted" is evidence about the run — and without it a
-    # timeline is silent on whether the experiment's central manipulation ever fired.
-    # `responseHash is None` is reachable only for artifacts produced by the stub
-    # ledger: every recorded artifact carries the old plan hash, so no committed
-    # timeline gains a line here (and no event id shifts either way — this is header).
+    # stubbed was never contacted" is evidence about the run — without it a timeline
+    # is silent on whether the experiment's central manipulation ever fired.
     unserved = [
         stub.pattern for stub in artifact.setupApplied.stubUrls or [] if stub.responseHash is None
     ]
@@ -531,30 +501,26 @@ def _buffer_clause(
         return ""
     match = _L1_BUFFER.match(event.raw)
     if match is None:
-        # A netlink sendto — 33 of the corpus's 253 — whose payload strace decoded into
-        # `[{nlmsg_…}]` instead of printing bytes. Not an assertion: this is a shape the
-        # producer really emits, and 33 counterexamples is what asserting here would
-        # have cost.
+        # A netlink sendto, whose payload strace DECODES into `[{nlmsg_…}]` rather
+        # than printing bytes. Deliberately not an assertion: this is a shape the
+        # producer really emits.
         return ""
     captured, capture_capped, count = match.group(1), bool(match.group(2)), int(match.group(3))
     # Matched over the WHOLE captured prefix rather than the rendered preview, and
-    # BEFORE the budget is consulted, because the correlation is the one part of this
-    # clause a reader cannot recover from the artifact themselves: it is what turns
-    # "bytes left the process" into "the value the engine planted left the process".
-    # Exact against the escaped form — `mint_canary` emits only `[a-z0-9-]`, none of
-    # which strace escapes. Unlike the L4 body path this reaches a raw socket and a
-    # spawned `curl`, neither of which touches node's http module. A buffer that
-    # ENCODES the canary (the corpus's own DNS exfil hex-encodes its payload) will not
-    # match, so this clause is a lower bound on correlation: its absence is not
-    # evidence that nothing was exfiltrated.
+    # BEFORE the budget is consulted, because the correlation is what turns "bytes
+    # left the process" into "the value the engine planted left the process". Exact
+    # against the escaped form — `mint_canary` emits only `[a-z0-9-]`, none of which
+    # strace escapes. Unlike the L4 body path this reaches a raw socket and a spawned
+    # `curl`, neither of which touches node's http module. A buffer that ENCODES the
+    # canary (DNS exfil hex-encodes its payload) will not match, so this clause is a
+    # LOWER BOUND on correlation: its absence is not evidence that nothing was
+    # exfiltrated.
     carried = sorted(key for key, seed in bait.items() if seed in captured)
     detail = f" · carries planted env {', '.join(carried)}" if carried else ""
     if capture_capped:
         detail = " · capture capped by the tracer's string limit" + detail
     # A PARTIAL transfer: `_outcome` leaves a write's success unmarked, so without this
-    # the row would state a buffer size the kernel never accepted. Zero occurrences in
-    # the 461 buffered write/sendto events of the committed corpus, so it changes no
-    # recorded row.
+    # the row would state a buffer size the kernel never accepted.
     accepted = (event.normalized or {}).get("ret")
     transfer = (
         f", only {accepted} accepted"
@@ -571,11 +537,10 @@ def _outcome(kind: str, normalized: dict[str, Any]) -> str:
     """What the syscall RETURNED, as a clause a judge can read and cite.
 
     The result is frequently the whole fact. ``connect(19, 1.2.3.4:443) = 0`` is an
-    established exfiltration channel and ``… = -1 ECONNREFUSED`` is a refused one;
-    both used to render as the identical row, and `_collapse` then merged them into
-    one ``[x2]`` — so the most incriminating distinction L1 offers was not merely
-    unrendered, it was actively hidden. 113 of the 157 connects in the committed
-    corpus are ``-1``.
+    established exfiltration channel and ``… = -1 ECONNREFUSED`` is a refused one.
+    Without the result in the row they are the identical row, and `_collapse` then
+    merges them into one ``[x2]`` — hiding the most incriminating distinction L1
+    offers.
 
     ``-1`` is not a synonym for failure, and that is why this cannot be left to a
     reader of the raw line: a NON-BLOCKING connect that the kernel accepted returns
@@ -584,9 +549,9 @@ def _outcome(kind: str, normalized: dict[str, Any]) -> str:
 
     Success is the unmarked default for every other kind on purpose. Rendering a
     read's byte count or an open's fd would put a value that differs on every call
-    into the collapse key, exploding 1440 corpus reads into 1440 rows without adding
-    a fact — while a FAILED open (``~/.ssh/id_ed25519 [failed: ENOENT]``) states
-    directly what §17.4 leaves the reader to infer from a missing `read`.
+    into the collapse key, giving one row per call without adding a fact — while a
+    FAILED open (``~/.ssh/id_ed25519 [failed: ENOENT]``) states directly what a
+    missing `read` otherwise leaves the reader to infer.
     """
     if "ret" not in normalized:
         return ""  # L2/L3/L4 and engine events: there is no syscall result to state
@@ -601,10 +566,9 @@ def _outcome(kind: str, normalized: dict[str, Any]) -> str:
     if error:
         return f"  [failed: {error}]"
     if ret.startswith("-"):
-        # Reachable only for artifacts sealed before the parser kept the errno beside
-        # a `-1` (every one of the 31 committed runartifacts). Saying "failed" here
-        # would assert what the artifact cannot support, since EINPROGRESS is in the
-        # same bucket; a rendered negative states its own coverage instead.
+        # A `-1` with no recorded errno. Saying "failed" here would assert what the
+        # artifact cannot support, since EINPROGRESS is in the same bucket; a rendered
+        # negative states its own coverage instead.
         return (
             "  [-1, errno not recorded — refused or async in progress]"
             if kind == "connect"
@@ -658,11 +622,7 @@ def _describe(
         # A `recvfrom` (kind "read") names the peer it read FROM in its own sockaddr,
         # and for an unconnected socket — UDP DNS, above all — that is the only place
         # the peer appears at all. Prefer it over the fd table, whose entry for a
-        # descriptor that was never connect()ed is not a peer. Measured: 221 of the
-        # 230 recvfrom lines in the committed corpus print an inet peer, none of which
-        # any timeline has ever shown (those artifacts predate the parser reading it,
-        # and are filed under kind `openat` with `{"ret": …}` and nothing else), so
-        # this renders for new runs only.
+        # descriptor that was never connect()ed is not a peer.
         verb = event.kind
         target = (
             f"{value('addr')}:{value('port') or '?'}"
@@ -678,17 +638,7 @@ def _describe(
         # "connect /etc/localtime", which is false rather than merely vague, and a
         # judge can cite a false target. `path` is the sun_path strace printed, so a
         # named unix peer renders as itself; "socket" is what remains when the run
-        # genuinely offers no peer (an unnamed AF_UNIX peer, AF_NETLINK, or a
-        # legacy artifact whose sockaddr was never parsed).
-        #
-        # Why this lands now, when test_evidence C14b pinned it as blocked: the fix
-        # merges rows, and its cost was that the merge SHRANK the id space of 9 of the
-        # 14 dns-exfil artifacts, invalidating recorded judge citations (hyp-0002
-        # cited e246, which stopped existing). Rendering the syscall RESULT splits
-        # more rows than this merges, so measured over all 31 committed runartifacts
-        # no artifact's id count falls below its recorded value and every recorded
-        # citation still resolves (`tools.fixture_lint` [8] green). The blocker was
-        # the fixture cost, and the fixture cost is gone.
+        # genuinely offers no peer (an unnamed AF_UNIX peer, or AF_NETLINK).
         bound = fds.get(fd) if fd is not None else None
         target = (
             f"{value('addr')}:{value('port') or '?'}"
@@ -769,21 +719,15 @@ def _describe(
     elif event.kind == "clone":
         verb = "clone"
     elif event.kind == "setup_bypass":
-        # The reason is the whole content of a bypass event — a bare "bypass" row told
-        # the judge that something in the setup did not hold without saying what, which
-        # is worse than not mentioning it. No recorded artifact carries this kind, so
-        # naming the detail costs nothing at replay.
+        # The reason is the whole content of a bypass event: a bare "bypass" row tells
+        # the judge that something in the setup did not hold without saying what,
+        # which is worse than not mentioning it.
         verb, target = "bypass", _truncate(value("detail") or str(event.raw))
     elif event.kind == "truncated":
-        # Same defect as the bare "bypass" row above, and the same fix: `truncated`
-        # alone told the judge that evidence is MISSING without saying which evidence
-        # or why. observation.py raises this for two unlike facts — the wall-clock
-        # budget killing the run, and a sensor whose output could not be retrieved
-        # (an over-cap /tmp/strace.log or stdout transfer, a pcap that failed to stop)
-        # — and both reached the judge as the identical row, so a run that was cut
-        # short and a run whose syscall record could not be read were the same
-        # evidence. No recorded artifact carries an `engine`-stream event at all, so
-        # naming the detail costs nothing at replay.
+        # Same rule as bypass. observation.py raises `truncated` for two unlike facts —
+        # the wall-clock budget killing the run, and a sensor whose output could not be
+        # retrieved — and a run that was cut short is not the same evidence as a run
+        # whose syscall record could not be read.
         verb, target = "truncated", _truncate(value("detail") or str(event.raw))
     elif event.kind == "error":
         verb, target = "error", _truncate(str(event.raw))
@@ -799,16 +743,10 @@ def _describe(
     # merges only CONSECUTIVE rows sharing (tag, verb, target), so with the buffer in
     # the key a `[xN]` write row means "the same bytes N times" — true and precise —
     # whereas keying on the descriptor alone and showing one group member's buffer
-    # would present one payload as if it were all N. The case that decides it is in the
-    # corpus: dns-exfil hyp-0003 rendered `send socket  [x44]`, one row for 44 DNS
-    # packets carrying 44 DIFFERENT chunks of a hex-encoded credential dump
-    # (`{"env":{"GITHUB_TOKEN":"ghp_np…`). Keeping the buffer out of the key would have
-    # kept that one row and shown one chunk of it. The row cost is real and was
-    # measured over all 31 committed runartifacts rather than assumed: 4606 → 4828
-    # rows (+222, +4.8%) and 260k → 312k characters (+20.2%). Every recorded event id
-    # survives — `committed ⊆ live` for all 31, so every recorded judge citation still
-    # resolves, which is the property `RecordedSandbox` needs and the reason this
-    # change is free at replay.
+    # would present one payload as if it were all N. The deciding case: 44 DNS packets
+    # carrying 44 DIFFERENT chunks of a hex-encoded credential dump, which keying on
+    # the descriptor renders as one row showing one chunk. The cost is ~+5% rows and
+    # ~+20% characters, measured over the recorded corpus.
     #
     # Every appended clause starts with "  [" so that a consumer splitting a target at
     # its first bracket still recovers the bare peer/path (`bench/fidelity.py`'s

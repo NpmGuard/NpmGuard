@@ -208,7 +208,7 @@ audit_sets = sa.Table(
     # purpose: the equivalent statement is FALSE for repo_scan, where two pushes
     # in quick succession legitimately open two overlapping sets, each with its
     # own check run. Keyed on the stable github_repo_id rather than a lowercased
-    # full name, so a rename can no longer smuggle in a second running audit.
+    # full name, so a rename cannot smuggle in a second running audit.
     #
     # The second column is `requested_by`, not `billed_to`: after D-1 a public
     # scan has no payer, and a partial-unique index whose key column is NULL for

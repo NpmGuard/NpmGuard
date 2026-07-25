@@ -2,24 +2,19 @@
  * scan's tone; action errors render inline and dismissible so a single failure
  * never poisons the whole dashboard.
  *
- * Both mutations are instantiated PER CARD, which is what deleted the store's
- * `repoActionErrors: Record<number, RepoActionError>`. That map existed only
- * because the actions lived in one global object and their failures therefore
- * needed a key to tell them apart; here the failing mutation and the row that
- * owns it are the same object, and `reset()` is the dismiss.
+ * Both mutations are instantiated PER CARD, so the failing mutation and the row
+ * that owns it are the same object and `reset()` is the dismiss. Actions living
+ * in one global object need a keyed `Record<repoId, error>` to tell their
+ * failures apart; this needs none.
  *
- * ── PRESENTATION: what the recomposition changed ────────────────────────────
+ * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
- * Nothing about what this card fetches or decides. Three things about what it
- * says, and two are honesty fixes:
- *
- * 1. **A refused mutation rendered `banner--danger` — RED.** §0 rule 3 reserves
+ * 1. **A refused mutation is the `error` slot, never RED.** §0 rule 3 reserves
  *    red for a claim NpmGuard is making about a package; "we could not start your
- *    audit" is our own plumbing failing. It is the `error` slot now, the same
- *    *we don't know* slot as audit ERROR and a failed fetch, and it carries no
- *    hatch — hatch means "no signal here", and a refusal is a signal.
- * 2. **The accent bar could be GREEN or BLUE.** `card--accent` took any tone from
- *    `toneAccent`, including `safe` and `running`. `Card severity` accepts
+ *    audit" is our own plumbing failing, so it takes the same *we don't know*
+ *    slot as audit ERROR and a failed fetch. It carries no hatch either — hatch
+ *    means "no signal here", and a refusal is a signal.
+ * 2. **The accent bar is never GREEN or BLUE.** `Card severity` accepts
  *    `danger | error` and nothing else on purpose (§0 rule 1: SAFE is the
  *    quietest state, and a green-ruled card is a small green banner), so
  *    `toneSeverity` is the chokepoint and the safe/running/unknown cards simply

@@ -104,9 +104,8 @@ class AuditService:
         # this assignment, so a concurrent submit of the SAME audit_id dedups here
         # — both the webhook-vs-stream race AND a double paid-replay of an errored
         # claim (two callers that both read status=='error') resolve to one owner.
-        # (The old order awaited reset_to_queued BEFORE registering, so two errored
-        # replays could both reach it and the loser's guarded reset asserted on a
-        # rowcount of 0 → a spurious 500 on a valid retry.)
+        # Registering AFTER reset_to_queued instead lets two errored replays both
+        # reach it, and the loser's guarded reset then asserts on a rowcount of 0.
         fut = loop.create_future()
         self._pending[aid] = fut
         if session.status == "error":
@@ -154,9 +153,8 @@ class AuditService:
 
     def _reenqueue(self, session: AuditSession) -> None:
         # Durable queued row recovered at startup: no HTTP caller survives a
-        # restart, so the future is detached (the client reconnects via SSE, and
-        # the follow flag now includes 'queued'). audit_enqueued was already
-        # emitted pre-restart — not re-emitted.
+        # restart, so the future is detached and the client reconnects via SSE.
+        # audit_enqueued was already emitted pre-restart — not re-emitted.
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[dict[str, Any]] = loop.create_future()
         fut.add_done_callback(
@@ -304,12 +302,11 @@ class AuditService:
                     # audit_sessions.report keyed by audit_id, which is what
                     # GET /audit/{id}/report and the terminal SSE frame serve, so
                     # the verdict still reaches every consumer of THIS audit.
-                    # Letting the refusal propagate (it used to escape as a bare
-                    # ValueError → NPMGUARD-9999, retryable=False, HTTP 500)
-                    # suppressed a finished — possibly DANGEROUS — verdict over a
-                    # filing key. The file is skipped, never faked: a latest.json
-                    # alias must not exist. Loud, because an unversioned package
-                    # silently missing from data/reports/ is its own gap.
+                    # Letting the refusal propagate would suppress a finished —
+                    # possibly DANGEROUS — verdict over a filing key. The file is
+                    # skipped, never faked: a latest.json alias must not exist. Loud,
+                    # because an unversioned package silently missing from
+                    # data/reports/ is its own gap.
                     log.error(
                         "report file skipped: no concrete version",
                         audit_id=session.audit_id,

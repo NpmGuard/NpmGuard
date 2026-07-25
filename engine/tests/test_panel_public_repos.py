@@ -33,7 +33,7 @@
 #   C14 concurrency is asserted before the set exists: a refusal leaves no snapshot
 # find_running_public_scan:
 #   C15 a live audit is found by (github_repo_id, REQUESTER) — NOT by a lowercased
-#       full name, so a RENAME can no longer smuggle in a second concurrent audit
+#       full name, so a RENAME cannot smuggle in a second concurrent audit
 #   C16 a finished audit is not "running"; another USER's is not visible
 #   C17 the durable partial-unique index refuses a second live audit of the same
 #       repo by the same user (the guard, not the pre-check, is what holds)
@@ -224,8 +224,8 @@ async def test_create_keys_the_snapshot_on_the_set(public_engine) -> None:
         audit_set["requested_by"],
         audit_set["billed_to"],
     ) == ("public_repo_scan", 999, 7, None)
-    # The commit sha is recorded, which together with the lockfile blob sha is what
-    # makes the snapshot reproducible; the old path hardcoded null here.
+    # The commit sha is recorded; together with the lockfile blob sha it is what
+    # makes the snapshot reproducible.
     assert audit_set["commit_sha"] == "cafe" * 10
     snapshot = await _row(factory, tables.public_repo_scans, set_id=set_id)
     assert snapshot["github_repo_id"] == 999

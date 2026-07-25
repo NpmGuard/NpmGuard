@@ -36,8 +36,8 @@
 #      read (killing the transfer does not stop the traced process, so the log is
 #      mid-write) while the capture still is
 #   C5 strace log past the cap: straceLogHash stays NULL with a located
-#      SensorError — the parser used to have to GUESS truncation from its last
-#      line being unparseable
+#      SensorError, rather than leaving the parser to GUESS truncation from an
+#      unparseable last line
 #   C6 an empty/unreadable strace log after a crash also becomes SensorError: one
 #      rule for every retrieval gap, not a special case for the new one
 #   C7 a gap is recorded as EVIDENCE loss and nothing else: the kind is one the

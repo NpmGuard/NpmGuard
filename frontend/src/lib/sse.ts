@@ -129,12 +129,12 @@ export function connectAuditStream(
           return; // malformed frame — skip, never throw into the stream
         }
         // A frame is a wire response like any other, so it is CHECKED, not cast.
-        // This used to be `JSON.parse(...) as AuditEvent`, the same defect the
-        // panel progress stream carried: a frame that had lost a field folded
-        // straight into cumulative state and nothing said so. Here it is worse
-        // than a stale row — the fold iterates and indexes these payloads
-        // (`file_list` walks `event.files`), so a dropped field is a TypeError
-        // thrown from inside an EventSource listener, on a frame nobody can see.
+        // `JSON.parse(...) as AuditEvent` folds a frame that has lost a field
+        // straight into cumulative state with nothing said — and here that is
+        // worse than a stale row, because the fold iterates and indexes these
+        // payloads (`file_list` walks `event.files`), so a dropped field is a
+        // TypeError thrown from inside an EventSource listener, on a frame
+        // nobody can see.
         //
         // Only the 17 SUBSCRIBED names reach this point, so failing strictly here
         // cannot break forward compatibility: an event type the engine adds has
@@ -205,9 +205,9 @@ export function connectScanStream(
       return; // malformed frame — skip, never throw into the stream
     }
     // A frame is a wire response like any other, so it is CHECKED, not cast.
-    // These frames drive the dependency table directly: a `dep` frame whose
-    // `item` has lost a field used to overwrite a good row with a half one, and
-    // the cast made that invisible. A frame that does not match the contract is
+    // These frames drive the dependency table directly, so a `dep` frame whose
+    // `item` has lost a field would overwrite a good row with a half one, and a
+    // cast makes that invisible. A frame that does not match the contract is
     // treated as a transport failure — closed, then `onError`, whose callers all
     // recover by refetching the authoritative response. Degrading to the source
     // of truth is the honest recovery; silently dropping the frame would leave

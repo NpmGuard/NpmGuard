@@ -9,26 +9,21 @@
  * decide whether its own optimistic write was safe). Now the query cache is the
  * single source of truth and the stream is one of its writers.
  *
- * ── PRESENTATION: what the recomposition onto the token layer changed ───────
+ * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
- * Nothing about what this page fetches or decides. Four things about what it
- * SAYS, and three of the four are honesty fixes rather than restyling:
- *
- * 1. The posture rail painted its PENDING segment blue (`rail__seg--running`).
+ * 1. The posture rail HATCHES its pending segment rather than painting it blue.
  *    §2.2 rule 2 makes the progress axis achromatic and confines accent to the
  *    moving part of a spinner, precisely so an in-flight scan cannot read as a
- *    verdict. `SeverityRibbon` hatches pending instead, which is the component's
- *    stated reason to exist.
- * 2. Severity reached a row as a coloured dot — colour only. §2.4 requires glyph
- *    + word + colour, in that order: "remove all colour from the UI and every
- *    state is still readable" is the test. The dots are gone; the row carries a
- *    stamp with a glyph, and severity arrives as the §2.8 3px left rule.
- * 3. A rejected mutation rendered `banner--danger` — RED, for a failure of our
- *    own plumbing. §0 rule 3 reserves red for claims about a package. It is now
- *    in the `error` slot, which is the same "we don't know" slot as audit ERROR.
- * 4. Two grey `.empty-state` boxes ("no baseline", "nothing matches this view")
- *    now go through the `DataRegion`/`EmptyState` chokepoint, so a read failure
- *    has no code path that lands on either.
+ *    verdict — which is `SeverityRibbon`'s stated reason to exist.
+ * 2. Severity reaches a row as a stamp with a glyph plus the §2.8 3px left rule,
+ *    never as a coloured dot. §2.4 requires glyph + word + colour, in that order:
+ *    "remove all colour from the UI and every state is still readable".
+ * 3. A rejected mutation lands in the `error` slot — the same "we don't know"
+ *    slot as audit ERROR — never RED. §0 rule 3 reserves red for claims about a
+ *    package, and this is a failure of our own plumbing.
+ * 4. "No baseline" and "nothing matches this view" go through the
+ *    `DataRegion`/`EmptyState` chokepoint, so a read failure has no code path
+ *    that lands on either.
  *
  * `RepoDetail.test.tsx` passes unmodified, which is the intended proof that the
  * page's decisions are untouched.
@@ -239,10 +234,10 @@ export function RepoDetail() {
     );
   }
 
-  // A repo we cannot read is a FAILED read, not an empty one — which is why this
-  // is a degraded surface and not the `empty-state` box it used to be. The
-  // distinction matters most in exactly this case: "no dependencies" and "we
-  // could not see this repository" look identical in a grey box.
+  // A repo we cannot read is a FAILED read, not an empty one — hence a degraded
+  // surface rather than an empty-state box. The distinction matters most in
+  // exactly this case: "no dependencies" and "we could not see this repository"
+  // look identical in a grey box.
   //
   // A 404 offers no retry (there is nothing to retry into) but does offer a way
   // out; anything else offers the retry the query itself provides. Both come from
@@ -258,8 +253,8 @@ export function RepoDetail() {
     );
   }
 
-  // The `ok` arm always carries data, so the old `|| detail === null` guard was
-  // unreachable. Reading `state.data` directly is what keeps `state.read` in
+  // The `ok` arm always carries data, so no `|| detail === null` guard is
+  // reachable here. Reading `state.data` directly is what keeps `state.read` in
   // scope — the token below is minted from this read and from nothing else.
   const detailOk = state.data;
   const repo = detailOk.repo;
@@ -274,9 +269,9 @@ export function RepoDetail() {
   const busy = triggerScan.isPending || setProtect.isPending || resync.isPending;
 
   // The ONE rollup, computed server-side over THIS SET's items — the same
-  // population `deps` carries, so summing deps reproduces it. The client used to
-  // recompute these counters from `deps` while the engine sent a rollup over the
-  // repo's dep INDEX: three implementations of one sum over two populations.
+  // population `deps` carries, so summing deps reproduces it. Recomputing the
+  // counters client-side from `deps` while the engine sends a rollup over the
+  // repo's dep INDEX is three implementations of one sum over two populations.
   const rollup = scan?.rollup ?? NO_SET_ROLLUP;
   const running = scan?.status === "running";
   const completed = rollup.total - rollup.pending;

@@ -55,14 +55,11 @@ from npmguard.observation import run_under_observation
 
 pytestmark = [pytest.mark.e2e, pytest.mark.docker]
 
-# ~2 MiB pushed over loopback in 64 KiB writes. The resulting capture is what S46
-# needs to be BIGGER than the cap it mocks; measured on this sandbox it is
-# 2,025,357 bytes (tcpdump wrote 80 of the 178 packets its filter saw), so the
-# claim this comment used to make — ">3 MiB" — was not true here, and S46's 2 MiB
-# cap only ever overflowed because `base64 -w0` inflated 1.93 MiB to 2.58 MiB. The
-# mocked cap is now well under the capture instead (see S46), which is what makes
-# the scenario about the CAP rather than about an encoding that no longer happens.
-# Loopback only, so the volume does not depend on any remote host.
+# ~2 MiB pushed over loopback in 64 KiB writes. Measured on this sandbox the
+# resulting capture is 2,025,357 bytes (tcpdump wrote 80 of the 178 packets its
+# filter saw). S46 mocks a cap well UNDER that, so the scenario is about the cap
+# itself rather than about an encoding hop's inflation. Loopback only, so the
+# volume does not depend on any remote host.
 TRAFFIC_JS = """
 const http = require('http');
 const CHUNK = Buffer.alloc(64 * 1024, 0x41);
@@ -150,12 +147,9 @@ async def test_capture_over_the_cap_defers_and_seals_no_hash(
     (routing to DEFERRED, so this run can never be SAFE), a `truncated` row is in
     the timeline, and the L4 network evidence captured before the gap is still
     there, which is what keeps a real exfiltration confirmable."""
-    # 512 KiB, comfortably under the ~2 MB this package's traffic captures. It was
-    # 2 MiB, which passed for the wrong reason: the capture measured 2,025,357 bytes,
-    # so the RAW transfer fitted and only base64's 4/3 inflation (2,700,476 bytes)
-    # passed the cap. sensors.stop_pcap no longer encodes, so at 2 MiB this run now
-    # transfers whole and seals a pcapHash — verified, which is how this line came to
-    # move. A cap below the capture makes the gap independent of the encoding.
+    # 512 KiB, comfortably under the ~2 MB this package's traffic captures. A cap
+    # BELOW the raw capture is what makes the gap independent of the encoding: at
+    # 2 MiB the raw transfer fits and the run seals a pcapHash instead.
     monkeypatch.setattr(docker_module, "MAX_EXEC_OUTPUT_BYTES", 512 * 1024)
     artifact = await run_under_observation(
         traffic_package, TRIGGER, Settings(_env_file=None), observe=OBSERVE, budget=BUDGET

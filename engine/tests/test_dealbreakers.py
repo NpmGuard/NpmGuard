@@ -19,7 +19,7 @@
 # therefore hand-authored adversary text — mitigated by pairing every one with a
 # near-miss (C5a) and with the real manifests, so a regex matching nothing, or
 # matching everything, fails this file. PUBLISHED_HOOKS holds install-script
-# values copied verbatim out of published manifests, each naming its package,
+# values copied verbatim out of published manifests, each naming its package —
 # every one a BENIGN shape a narrow recogniser calls DANGEROUS.
 #
 # THREE OUTCOMES, NOT TWO. An install hook whose target cannot be resolved is a
@@ -125,8 +125,8 @@ PIPED_SCRIPTS = {
 }
 # Install-hook commands copied VERBATIM out of published manifests, each with the
 # package it came from. These are not adversary text and not invented: every one is
-# a benign, widely-installed package, and every one is here because the recogniser
-# used to get it wrong (C20-C24). Provenance is the installed tree — the bytes npm
+# a benign, widely-installed package, and every one is a shape a narrow recogniser
+# gets wrong (C20-C24). Provenance is the installed tree — the bytes npm
 # actually ships — surveyed over 1334 unique (name, version) manifests, 227 of them
 # declaring a lifecycle hook. Committing those tarballs is out of proportion for a
 # one-line `scripts` value, so the package@version is named instead and the survey
@@ -134,7 +134,7 @@ PIPED_SCRIPTS = {
 PUBLISHED_HOOKS = {
     # protobufjs@7.5.4 / @8.0.0 — ships scripts/postinstall.js; node resolves it.
     "extensionless-node-target": "node scripts/postinstall",
-    # msw@2.15.0 — inline code, which the old extractor read as a FILENAME.
+    # msw@2.15.0 — inline code, readable as a FILENAME by a naive extractor.
     "inline-node-code": "node -e \"import('./config/scripts/postinstall.js').catch(() => void 0)\"",
     # node-pty@1.1.0 (the `||` branch of its install hook).
     "native-rebuild": "node-gyp rebuild",
@@ -142,7 +142,7 @@ PUBLISHED_HOOKS = {
     "prebuilt-binary": "prebuild-install || node-gyp rebuild",
     # tree-sitter-bash@0.25.1.
     "gyp-build": "node-gyp-build",
-    # @lezer/lr@1.4.9 — the old reference was the literal `build.js;`.
+    # @lezer/lr@1.4.9 — splitting without the `;` yields the literal `build.js;`.
     "compound-node-then-tsc": "node build.js; tsc src/constants.ts -d --outDir dist",
     # whatwg-url@14.2.0's `prepare`: runs a script its own `files` keeps out of the
     # tarball, which is legal because `prepare` never runs for a tarball dependency.

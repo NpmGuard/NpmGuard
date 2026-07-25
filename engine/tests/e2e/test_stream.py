@@ -3,7 +3,7 @@
 # Axes: connect time (cold / late / resume / post-finish) × client count ×
 #   DB engine (sqlite / postgres notifier) × event volume (batch boundary) ×
 #   server lifecycle (running / finished / SIGTERM)
-#   S11 cold connect      — legacy wire frames: id==seq, event==type, flat payload,
+#   S11 cold connect      — wire frames: id==seq, event==type, flat payload,
 #                           auditId/timestamp on every frame, contiguous ordering
 #   S12 late join         — mid-run connect gets full replay + live tail, identical
 #                           to a cold listener's sequence

@@ -11,11 +11,10 @@
  * Blackbox: quotaState is total over the bucket shape; the derived copy/label
  * helpers are asserted against each state.
  *
- * The `usageFraction` assertions moved with the helper's deletion — the bar's
- * magnitude is now derived inside `ui/meter`, so the property that a bucket never
- * reads as a full or empty bar it has not earned is pinned in
- * `components/AllowanceMeter.test.tsx` (M2/M3) against the rendered meter state
- * rather than against a number this module no longer produces.
+ * The bar's MAGNITUDE is not this module's: it is derived inside `ui/meter`, so
+ * the property that a bucket never reads as a full or empty bar it has not earned
+ * is pinned in `components/AllowanceMeter.test.tsx` (M2/M3) against the rendered
+ * meter state.
  */
 
 import { describe, expect, it } from "vitest";
