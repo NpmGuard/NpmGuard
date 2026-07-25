@@ -20,7 +20,7 @@
 #    hand-off carries the set's own rollup so one crashed audit among SAFE ones
 #    concludes ERROR rather than a silent pass.
 #  - An empty set is 'done', not 'running'. "Covered nothing" has to be expressible,
-#    or it is indistinguishable from "not concluded yet" — the empty push used to hang
+#    or it is indistinguishable from "not concluded yet", and an empty push hangs
 #    in_progress for ever.
 #  - pending is (live job AND live set), so a FINALIZED set never reports pending even
 #    when a later set enqueues a job for one of its pairs.

@@ -1,7 +1,7 @@
 # CLASS MAP — panel.github.content: the two places a wrong answer is SILENT.
 #
-# The URL builders and the OAuth token-expiry arithmetic that used to be here are
-# gone: the e2e tier drives login → authorize → callback through the real routes
+# The URL builders and the OAuth token-expiry arithmetic are deliberately NOT here:
+# the e2e tier drives login → authorize → callback through the real routes
 # against GitHubStub (tests/e2e/test_panel_auth.py S-panel-1), so a broken api
 # base, oauth host, redirect uri or authorize URL fails there — loudly, and on the
 # path a user actually takes. Restating them as string equality proved nothing the

@@ -4,9 +4,9 @@
  *
  * This is the funnel's front door, and the ONLY thing between a visitor and a
  * result is a GitHub sign-in (D-1 / F-F5): no App installation, no ownership of
- * the repo, no installation charged. Everything that used to sit here — an
- * allowance-account selector, a 402 paywall — is gone, because it gated the
- * surface against exactly the person it exists for.
+ * the repo, no installation charged. There is deliberately no allowance-account
+ * selector and no 402 paywall: either would gate the surface against exactly the
+ * person it exists for.
  *
  * ── What this page does NOT own ─────────────────────────────────────────────
  *

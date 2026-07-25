@@ -24,9 +24,9 @@
 #    combination (-y, -yy, -v, -e abbrev=none) emits a bare sin_addr="…" — -y/-yy
 #    annotate the file DESCRIPTOR and leave the sockaddr untouched.
 #  - Every packet the -Y filter admitted must yield an event. Six of thirteen real
-#    packets used to yield none, silently — indistinguishable from no traffic —
-#    because the fields were looked up under hardcoded layer names and mdns, llmnr
-#    and ssdp all carry them too. The filter and the extraction now share one list.
+#    packets yield none, silently and indistinguishably from no traffic, when the
+#    fields are looked up under hardcoded layer names — mdns, llmnr and ssdp all
+#    carry them too. The filter and the extraction share one list.
 #  - Unreadable tshark stdout RAISES, because tshark prints "[]" for zero packets: a
 #    capture we cannot parse is missing evidence, not absent traffic.
 #  - An over-cap transfer of a WHOLE capture is UNREPRESENTABLE, not merely loud.

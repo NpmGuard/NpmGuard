@@ -8,9 +8,9 @@
  *
  * ── WHY THIS RUNS AT CONFIG LOAD AND NOT IN `globalSetup` ───────────────────
  *
- * It used to be a `globalSetup`, and for the report/registry scenarios that was
- * fine: `/packages` and `/package/<name>` read the report files off disk on every
- * request, so seeding them after the engine booted was invisible.
+ * A `globalSetup` is fine for the report/registry scenarios: `/packages` and
+ * `/package/<name>` read the report files off disk on every request, so seeding
+ * them after the engine booted is invisible.
  *
  * The panel does not read disk. Its cache-first scan reads `package_verdicts`,
  * and that index is rebuilt from `data/reports/` ONCE, at engine boot

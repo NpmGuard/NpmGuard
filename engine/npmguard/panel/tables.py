@@ -185,7 +185,7 @@ audit_sets = sa.Table(
     # This is the identity a public scan is scoped by, in place of `billed_to`,
     # because D-1 gives a public scan a requester and no payer: no App
     # installation, no ownership, nothing charged. It lives HERE rather than on
-    # `public_repo_scans` (where it used to) because three things need it and
+    # `public_repo_scans` because three things need it and
     # only this table can serve them — the partial-unique index below, read
     # authorization on a set, and the per-user scan allowance. Storing it twice
     # would be two sources of truth for one fact.
@@ -382,7 +382,7 @@ alerts = sa.Table(
 # The SUBJECT of a `public_repo_scan` audit set: WHICH public repo was
 # snapshotted. Read-only; NOT joined to `repos`. Progress, counters, timing and
 # the rollup all live on the set — this table holds only what the set cannot, and
-# "who asked" is no longer part of that: it is `audit_sets.requested_by`, where
+# "who asked" is not part of that: it is `audit_sets.requested_by`, where
 # the liveness index and the read authorization can both reach it.
 #
 # INVARIANT: `set_id` is the primary key, so a snapshot and its set are 1:1 and

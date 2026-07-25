@@ -4,8 +4,8 @@
  * The allowance-account selector is GONE (D-1 / F-F5). A public scan requires a
  * GitHub sign-in and nothing more — no App installation, none charged — so there
  * was no account to choose, and asking for one made this form unreachable for
- * every signed-in visitor who had not installed the App. That deletion is why
- * this dialog no longer reads billing at all.
+ * every signed-in visitor who had not installed the App. So this dialog reads no
+ * billing at all.
  *
  * ── PRESENTATION: what the recomposition changed ────────────────────────────
  *

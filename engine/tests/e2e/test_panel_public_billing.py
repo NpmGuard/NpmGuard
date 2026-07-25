@@ -234,8 +234,8 @@ def test_s_pub_0_signed_in_visitor_with_no_installation_can_scan(
         scan_id = created.json()["scanId"]
 
         # Readable by its requester on the detail route AND present in their
-        # history — both authorizations used to run through `user_installations`,
-        # so both would 404 / come back empty for this user.
+        # history — routing either authorization through `user_installations`
+        # 404s the detail and empties the history for this user.
         detail = client.get(f"{base}/api/panel/public-repos/{scan_id}")
         assert detail.status_code == 200, detail.text
         assert detail.json()["scan"]["requestedBy"] == 42
