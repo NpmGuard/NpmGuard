@@ -7,6 +7,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    // composite: this package is a tsc PROJECT REFERENCE target. The frontend's
+    // `tsc -b` builds it on demand, so a shared/ edit can never be consumed as a
+    // stale dist/ — which is the whole point of N-12 (one contract, generated).
+    "composite": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
