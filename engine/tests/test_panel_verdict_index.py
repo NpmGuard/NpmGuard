@@ -22,12 +22,19 @@
 #   C15 a STORED verdict outside {SAFE, DANGEROUS} (a legacy 4-state row) -> raises
 # upsert / outcome_severity guards:
 #   C16 upsert refuses a non-landable verdict and writes no row
-#   C17 severity ranks DANGEROUS > ERROR > SAFE; a non-outcome raises
-# Adversarial pass: the 2-state guard (C10/C15/C16) is the load-bearing
+#   C17 severity ranks DANGEROUS > ERROR > SAFE; a non-outcome raises (KeyError from
+#       the total mapping — the dict lookup IS the check)
+#   C18 the DATABASE refuses an out-of-domain verdict on an insert that BYPASSES
+#       upsert (the 0007 CHECK), which is the only guard that also binds the
+#       cross-lineage producer at origin/main
+# Adversarial pass: the 2-state guard (C10/C15/C16/C18) is the load-bearing
 #   invariant — a SUSPECT/UNKNOWN verdict must never reach a dep row, and if one
-#   is already stored the read boundary must fail loud rather than render it.
+#   is already stored the read boundary must fail loud rather than render it. C15
+#   and C16 are `raise`, not `assert`, so `python -O` cannot strip them; C18 is the
+#   constraint that holds when no Python of ours runs at all.
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
@@ -198,19 +205,54 @@ async def test_upsert_rejects_non_landable_verdict(index_engine) -> None:
 
 
 def test_outcome_severity_order() -> None:
-    """C17: DANGEROUS > ERROR > SAFE, and a value outside the domain raises."""
+    """C17: DANGEROUS > ERROR > SAFE, and a value outside the domain raises.
+
+    The refusal is a ``KeyError`` from the total mapping rather than an assert: the
+    dict lookup IS the check and names the offending value, and the domain arrives
+    guaranteed from ``item_outcome`` upstream. Asserted as a KeyError on purpose —
+    the class is "a non-outcome cannot be ranked", not "an assert exists".
+    """
     assert (
         outcome_severity("DANGEROUS")
         > outcome_severity("ERROR")
         > outcome_severity("SAFE")
     )
-    with pytest.raises(AssertionError, match="not a panel outcome"):
+    with pytest.raises(KeyError, match="UNKNOWN"):
         outcome_severity("UNKNOWN")
 
 
-async def test_stored_verdict_domain_is_two_state(index_engine) -> None:
-    """C15/C16 (DB-level): after the only writer runs, the column holds nothing
-    but SAFE|DANGEROUS — asserted against the database, not the response."""
+async def test_stored_verdict_domain_is_enforced_by_the_database(index_engine) -> None:
+    """C18 (DB-level): the DATABASE refuses a verdict outside SAFE|DANGEROUS, on an
+    INSERT that bypasses ``upsert`` entirely.
+
+    This replaces a test that wrote SAFE and DANGEROUS through ``upsert`` and then
+    asserted the column held SAFE and DANGEROUS — true of any writer that stores
+    what it is given, and it passed with every one of the collapse's guards deleted.
+    Its docstring claimed the N-9 style ("against the database, not the response")
+    and that is the claim actually made here: the writer is stepped around, so what
+    is proven is the CHECK constraint (alembic 0007) and nothing about Python.
+
+    That distinction is the point of the constraint. The one producer this column
+    has outside this codebase — ``origin/main``'s ``upsertVerdict``, writing an
+    unfiltered 4-state classification into an identically-named table — never runs
+    ``upsert``, so a guard inside it could not have stopped this insert either.
+    """
+    async with index_engine._sessions() as session:  # noqa: SLF001 - N-9 style DB assert
+        with pytest.raises(IntegrityError, match="verdict_domain"):
+            async with session.begin():
+                await session.execute(
+                    tables.package_verdicts.insert().values(
+                        name="weird",
+                        version="1.0.0",
+                        verdict="SUSPECT",
+                        reason="",
+                        evidence_count=0,
+                        audited_at="2026-07-25T00:00:00.000Z",
+                    )
+                )
+
+    # Both in-domain values still insert, so the constraint is the domain and not a
+    # blanket refusal.
     await index_engine.upsert("a", "1.0.0", "SAFE")
     await index_engine.upsert("b", "1.0.0", "DANGEROUS")
     async with index_engine._sessions() as session:  # noqa: SLF001 - N-9 style DB assert

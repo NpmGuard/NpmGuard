@@ -2,11 +2,68 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
+
+import structlog
 
 from .config import REPO_ROOT
+from .contract import models as contract
 
 DATA_DIR = (Path(os.environ.get("NPMGUARD_DATA_DIR") or REPO_ROOT / "data") / "reports").resolve()
+
+log = structlog.get_logger("npmguard.report_store")
+
+# The verdict domain, DERIVED from the generated contract rather than restated, so
+# it cannot drift from `AuditReport.verdict` and widens automatically if the audit
+# core is ever given a fourth conclusion. Restating it as a literal here would be
+# the hand-mirrored second copy N-12 exists to abolish.
+REPORT_VERDICTS: frozenset[str] = frozenset(
+    get_args(contract.AuditReport.model_fields["verdict"].annotation)
+)
+if not REPORT_VERDICTS:
+    # A raise, at import: an empty domain would silently reject every report and
+    # turn this store into the fabricated empty list N-3 names as the canonical
+    # violation. `assert` would let `python -O` do exactly that.
+    raise AssertionError(
+        "AuditReport.verdict is not a Literal, so the verdict domain cannot be "
+        "derived from the generated contract"
+    )
+
+
+def _in_domain(report: Any, source: Path) -> bool:
+    """Whether ``report``'s verdict is one this store may hand out.
+
+    INVARIANT: no value outside ``REPORT_VERDICTS`` leaves this module — so no route
+    can put one on a wire, including routes that do not exist yet. This is the read
+    boundary rather than a per-route filter on purpose: `/packages` and
+    `/package/{name}/report` both read straight through here, and screening them one
+    at a time is how the next reader gets forgotten.
+
+    The threat is concrete, not hypothetical. `data/reports/` is shared BYTE FOR BYTE
+    with the TS lineage at `origin/main` (`report-store.ts` resolves the identical
+    path, and this checkout's own `event-stream/4.0.1.json` was written by it), and
+    that lineage's `saveReport` runs every report through `normalizeReportVerdict`,
+    which OVERWRITES the stored `verdict` with a 4-state
+    `assessAuditReport().classification` — so a report file carrying
+    `"verdict": "SUSPECT"` has a live writer, while the generated contract declares
+    `AuditReport.verdict: Literal['SAFE', 'DANGEROUS']`. A consumer parsing against
+    the generated model would fail on it, and a lenient one would render a value the
+    frontend has no branch for.
+
+    Treated as unreadable rather than fatal, matching how this module already treats
+    a corrupt file: one foreign report must not 500 the whole package list. Logged,
+    because N-3 forbids a silently fabricated absence.
+    """
+    verdict = report.get("verdict") if isinstance(report, dict) else None
+    if verdict in REPORT_VERDICTS:
+        return True
+    log.warning(
+        "ignoring report outside the verdict domain",
+        path=str(source),
+        verdict=verdict,
+        expected=sorted(REPORT_VERDICTS),
+    )
+    return False
 
 
 class UnversionedReportError(ValueError):
@@ -82,7 +139,9 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
     if version:
         exact = _report_path(package_name, version)
         try:
-            return json.loads(exact.read_text(encoding="utf-8")), version
+            report = json.loads(exact.read_text(encoding="utf-8"))
+            if _in_domain(report, exact):
+                return report, version
         except (OSError, json.JSONDecodeError):
             pass  # missing or corrupt: the exact hit is only a fast path — scan instead
         for file in directory.glob("*.json"):
@@ -90,7 +149,7 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
                 report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            if extract_report_version(report) == version:
+            if extract_report_version(report) == version and _in_domain(report, file):
                 return report, version
         return None
     files = sorted(directory.glob("*.json"), key=lambda file: file.stat().st_mtime, reverse=True)
@@ -98,6 +157,8 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
         try:
             report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            continue
+        if not _in_domain(report, file):
             continue
         return report, extract_report_version(report) or file.stem
     return None
@@ -123,7 +184,9 @@ def list_reports() -> list[dict[str, Any]]:
             report = json.loads(_under_data_dir(file).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if not report.get("verdict"):
+        # Subsumes the old `if not report.get("verdict")` skip: a falsy verdict is
+        # outside the domain too, and the wire field is non-nullable.
+        if not _in_domain(report, file):
             continue
         summaries.append(
             {

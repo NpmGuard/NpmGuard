@@ -60,7 +60,6 @@ from .lockfile import LockfileDep
 from .tables import audit_set_items, audit_sets, package_verdicts, panel_jobs
 from .verdict_index import (
     LANDABLE_VERDICTS,
-    OUTCOMES,
     VerdictIndex,
     item_outcome,
     outcome_severity,
@@ -167,24 +166,37 @@ def compute_rollup(items: Iterable[RollupItem]) -> Rollup:
     INVARIANT: ``safe + dangerous + error + pending == total`` — every item is in
     exactly one of those four states, which is what makes the old ``unknown``
     bucket (three facts under one name) unrepresentable. ``cached`` is orthogonal
-    (a subset of the concluded three) and excluded from the sum.
+    (a subset of the concluded two, ``SAFE``/``DANGEROUS``) and excluded from the
+    sum. Unasserted on purpose: the loop below does ``total += 1`` and then exactly
+    one of four increments unconditionally, so the partition cannot fail on any
+    input. An assert over it is a unit test spelled as an assert, and it is pinned
+    as one instead (tests/test_panel_audit_set.py).
 
     INVARIANT: ``outcome`` is the max severity (``DANGEROUS > ERROR > SAFE``)
     over CONCLUDED items only, and ``None`` when none has concluded. Pending
     never contributes — a half-finished set is "SAFE so far, N pending".
+
+    INVARIANT: an item's outcome is a panel outcome or ``None``, so the three-arm
+    classification below is exhaustive and ``outcome_severity`` is total. Also
+    unasserted, and this one is the substantive case: BOTH producers of
+    :class:`RollupItem` (``ItemState.as_rollup_item`` and ``set_rollups``) derive
+    ``outcome`` from ``verdict_index.item_outcome``, which raises on anything
+    outside ``LANDABLE_VERDICTS`` and returns only ``SAFE|DANGEROUS|ERROR|None``.
+    Re-checking it here is the re-establishment of an upstream guarantee that N-4
+    rule 5 forbids by name, and it misleads the next reader about where the real
+    boundary is — the boundary is ``item_outcome`` and the 0007 CHECK behind it.
     """
     rollup = Rollup()
     best: int | None = None
     for item in items:
         rollup.total += 1
-        # INVARIANT: an item's outcome is a panel outcome or None. A legacy
-        # SUSPECT/UNKNOWN reaching here is corruption upstream, not a bucket.
-        assert item.outcome is None or item.outcome in OUTCOMES, (
-            f"rollup item outcome {item.outcome!r} is outside {sorted(OUTCOMES)} + None"
-        )
-        # INVARIANT: cached ⇒ the item concluded on a LANDED verdict. Cached
-        # means "resolved from an existing report", so it can be neither pending
-        # nor ERROR.
+        # INVARIANT: cached ⇒ the item concluded on a LANDED verdict. Cached means
+        # "resolved from an existing report", so it can be neither pending nor
+        # ERROR. Load-bearing and kept: `cached` is a stored column
+        # (`audit_set_items.cached`) written at set creation from a verdict-index
+        # hit, while `outcome` is recomputed on every read — so the two are
+        # independent facts that CAN drift (a verdict row deleted under a live set),
+        # and no upstream step relates them.
         assert not item.cached or item.outcome in LANDABLE_VERDICTS, (
             f"a cached item cannot have outcome {item.outcome!r}; cached means "
             f"'resolved from an existing report', so it is one of "
@@ -199,15 +211,12 @@ def compute_rollup(items: Iterable[RollupItem]) -> Rollup:
             rollup.safe += 1
         elif item.outcome == "DANGEROUS":
             rollup.dangerous += 1
-        else:  # ERROR — exhaustive by the domain assert above
+        else:  # ERROR — exhaustive by item_outcome's domain, see the docstring
             rollup.error += 1
         severity = outcome_severity(item.outcome)
         if best is None or severity > best:
             best = severity
             rollup.outcome = item.outcome
-    assert rollup.safe + rollup.dangerous + rollup.error + rollup.pending == rollup.total, (
-        f"rollup counters do not partition the set: {rollup}"
-    )
     return rollup
 
 
@@ -615,11 +624,22 @@ class AuditSetStore:
     async def create(self, spec: AuditSetSpec) -> int:
         """Insert the set + its items, enqueue budget-checked cache misses, and
         publish the set's opening progress. Returns the set id."""
-        assert spec.origin in SET_ORIGINS, (
-            f"{spec.origin!r} is not an origin that owns a set; expected one of "
-            f"{sorted(SET_ORIGINS)}"
-        )
-        assert spec.trigger in TRIGGERS, f"{spec.trigger!r} is not an AuditSetTrigger"
+        # INVARIANT: every audit_sets row holds an origin that owns a set and a
+        # trigger in the contract's domain. `raise`, not `assert`: this guards a DB
+        # write of two enum columns that carry NO CHECK constraint, deliberately —
+        # `dep_tree` and `bench_run` are designed-for-not-built, so the whole point
+        # of R-1 is that a new origin costs one item-discovery function and no
+        # schema change (see 0007's docstring for the per-column reasoning). With no
+        # constraint behind them, an `assert` here would leave these columns
+        # unguarded under `python -O`, which is the one configuration where a bad
+        # row silently lands.
+        if spec.origin not in SET_ORIGINS:
+            raise AssertionError(
+                f"{spec.origin!r} is not an origin that owns a set; expected one of "
+                f"{sorted(SET_ORIGINS)}"
+            )
+        if spec.trigger not in TRIGGERS:
+            raise AssertionError(f"{spec.trigger!r} is not an AuditSetTrigger")
         items = dedupe(spec.items)
 
         verdicts = await self.verdicts.get_many([(d.name, d.version) for d in items])

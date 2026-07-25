@@ -1,4 +1,5 @@
-# CLASS MAP — alembic 0006: collapse scans + public_repo_scans into audit_sets
+# CLASS MAP — alembic 0006 (collapse scans + public_repo_scans into audit_sets) and
+# 0007 (constrain package_verdicts.verdict to SAFE|DANGEROUS)
 # (seam: the SHIPPED migration chain against a throwaway sqlite. The schema is
 #  built by `alembic upgrade npmguard_panel_0005`, real rows are seeded through
 #  raw SQL against THAT schema — never through today's table definitions, which no
@@ -33,6 +34,13 @@
 #   C11 the migrated schema is byte-equivalent to metadata.create_all (the kit
 #       substitution rule) — asserted here too, because a migration that carries
 #       data correctly into a slightly different schema is still broken
+# 0007 — the verdict domain becomes a DB constraint:
+#   C12 every in-domain package_verdicts row is present and column-for-column
+#       correct after 0007, which on sqlite recreates the table to add the CHECK
+#   C13 the out-of-domain rows (SUSPECT, UNKNOWN — representable because 0005
+#       created the column with no CHECK, and written today by the TS lineage's
+#       unfiltered upsertVerdict) are removed, and the constraint refuses their
+#       return, proven by attempting the insert
 import os
 import subprocess
 import sys
@@ -146,6 +154,30 @@ _SEED = [
                         message, seen, created_at)
     VALUES (2, 'acme', 1001, 'evil', '2.0.0', 'DANGEROUS', 'watch', 'would adopt',
             0, '2026-02-01T00:00:00Z')
+    """,
+    # package_verdicts as it exists BEFORE 0007 constrains it: two in-domain rows and
+    # two from the retired 4-state vocabulary. The foreign pair is what the TS
+    # lineage's unfiltered `upsertVerdict` writes into this same table, and 0005
+    # created the column with no CHECK — so these two rows are representable today.
+    """
+    INSERT INTO package_verdicts (name, version, verdict, reason, evidence_count,
+                                  audited_at)
+    VALUES ('lodash', '4.17.21', 'SAFE', 'no exploit', 0, '2026-01-05T00:00:00Z')
+    """,
+    """
+    INSERT INTO package_verdicts (name, version, verdict, reason, evidence_count,
+                                  audited_at)
+    VALUES ('evil', '1.2.3', 'DANGEROUS', 'exfil', 3, '2026-01-06T00:00:00Z')
+    """,
+    """
+    INSERT INTO package_verdicts (name, version, verdict, reason, evidence_count,
+                                  audited_at)
+    VALUES ('hazy', '9.9.9', 'SUSPECT', 'needs review', 1, '2026-01-07T00:00:00Z')
+    """,
+    """
+    INSERT INTO package_verdicts (name, version, verdict, reason, evidence_count,
+                                  audited_at)
+    VALUES ('stale', '0.0.1', 'UNKNOWN', 'never concluded', 0, '2026-01-08T00:00:00Z')
     """,
 ]
 
@@ -291,6 +323,62 @@ def test_nothing_is_dropped_and_the_old_tables_are_gone(migrated) -> None:
     }
     assert not names & {"scans", "scan_items", "public_repo_scan_items"}
     assert "public_repo_scans_stash" not in names
+
+
+def test_in_domain_verdict_rows_survive_0007(migrated) -> None:
+    """C12: every in-domain package_verdicts row is present AND correct after 0007.
+
+    The column-by-column assertion matters more here than in the collapse above,
+    because 0007 adds its CHECK on sqlite by RECREATING the table and copying every
+    row through it — a step that can silently lose a default, a type or a value. The
+    claim is the same one C1-C10 make for the collapsed tables: present before,
+    present and correct after.
+    """
+    rows = _rows(migrated, "SELECT * FROM package_verdicts ORDER BY name")
+    assert [dict(r) for r in rows] == [
+        {
+            "name": "evil",
+            "version": "1.2.3",
+            "verdict": "DANGEROUS",
+            "reason": "exfil",
+            "evidence_count": 3,
+            "audited_at": "2026-01-06T00:00:00Z",
+        },
+        {
+            "name": "lodash",
+            "version": "4.17.21",
+            "verdict": "SAFE",
+            "reason": "no exploit",
+            "evidence_count": 0,
+            "audited_at": "2026-01-05T00:00:00Z",
+        },
+    ]
+
+
+def test_out_of_domain_verdict_rows_are_removed_by_0007(migrated) -> None:
+    """C13: the SUSPECT and UNKNOWN rows are gone, and the CHECK stops them coming
+    back — asserted by attempting the insert the constraint exists to refuse.
+
+    Not silent data loss: `package_verdicts` is a DERIVED index whose authoritative
+    copy is `data/reports/`, `verdict_index.rebuild` repopulates it at every boot,
+    and 0007 logs the count it removed. It is also the only thing that ever removed
+    them — `rebuild` skips a foreign report with `continue` and never DELETEs, so
+    before this such a row survived every boot and raised on every dashboard read.
+    """
+    assert not [r for r in _rows(migrated, "SELECT verdict FROM package_verdicts")
+                if r["verdict"] not in ("SAFE", "DANGEROUS")]
+
+    with (
+        migrated.begin() as connection,
+        pytest.raises(sa.exc.IntegrityError, match="verdict_domain"),
+    ):
+        connection.execute(
+            sa.text(
+                "INSERT INTO package_verdicts (name, version, verdict, reason,"
+                " evidence_count, audited_at) VALUES ('back', '1.0.0',"
+                " 'SUSPECT', '', 0, '2026-07-25T00:00:00Z')"
+            )
+        )
 
 
 def test_migrated_schema_matches_create_all(migrated) -> None:

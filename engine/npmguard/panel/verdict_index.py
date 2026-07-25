@@ -31,14 +31,26 @@ from .tables import package_verdicts
 # Rollup severity over the panel outcome domain (design §4.4). A set's outcome
 # is the max over its CONCLUDED items; there is no rank for "not concluded"
 # because progress is the other axis and never competes with an outcome.
+#
+# This mapping is BOTH the ranks and the domain: its keys are the panel outcomes,
+# and `outcome_severity`'s lookup is the only domain check the rollup needs. The
+# separate `OUTCOMES = frozenset(OUTCOME_SEVERITY)` that used to sit here existed
+# solely to feed two asserts that re-checked what `item_outcome` already
+# guarantees; with those gone it had no reader anywhere, and a declared name
+# nothing reads is the cost N-4b names.
 OUTCOME_SEVERITY: dict[str, int] = {"SAFE": 0, "ERROR": 1, "DANGEROUS": 2}
-OUTCOMES = frozenset(OUTCOME_SEVERITY)
 
-# INVARIANT: package_verdicts.verdict is exactly SAFE or DANGEROUS. Every write
-# is gated on this set (``rebuild`` here, the worker in jobs.py) and ``upsert``
-# asserts it, so a stored SUSPECT/UNKNOWN is corruption rather than a state the
-# readers have to model. An audit that could not conclude lands NO row at all —
-# its outcome is derived from progress by ``item_outcome`` below.
+# INVARIANT: package_verdicts.verdict is exactly SAFE or DANGEROUS — enforced by a
+# DB ``CHECK`` (alembic 0007), not only by the writers. Every write is gated on this
+# set (``rebuild`` here, the worker in jobs.py) and ``upsert`` raises on it, so a
+# stored SUSPECT/UNKNOWN is corruption rather than a state the readers have to
+# model. An audit that could not conclude lands NO row at all — its outcome is
+# derived from progress by ``item_outcome`` below.
+#
+# The constraint is what makes that statement unconditional. The guards here are
+# `raise`, not `assert`, because both stand at a DB boundary and `python -O` strips
+# `assert`: under `-O` the old bare asserts vanished and the retired 4-state domain
+# flowed again, which is a license to delete that is conditionally compiled.
 LANDABLE_VERDICTS = frozenset({"SAFE", "DANGEROUS"})
 
 
@@ -62,17 +74,31 @@ def item_outcome(verdict: str | None, *, pending: bool) -> str | None:
         # INVARIANT (read side): only a landable verdict is stored. A legacy row
         # from the 4-state vocabulary fails HERE, loudly and located, instead of
         # silently rendering as a bucket nobody branches on.
-        assert verdict in LANDABLE_VERDICTS, (
-            f"package_verdicts holds {verdict!r}; the panel outcome domain is "
-            f"{sorted(LANDABLE_VERDICTS)} + ERROR derived from progress"
-        )
+        #
+        # `raise`, not `assert`: this is the DB -> panel-domain read boundary and it
+        # is the one guard the falsification pass proved CAN fire on real data (a
+        # row predating the 2-state collapse, or one written by the TS lineage's
+        # unfiltered `upsertVerdict`). The 0007 CHECK forbids such a row from
+        # existing in a MIGRATED database; this covers the database that has not
+        # been migrated yet, which is precisely the case a constraint cannot.
+        if verdict not in LANDABLE_VERDICTS:
+            raise AssertionError(
+                f"package_verdicts holds {verdict!r}; the panel outcome domain is "
+                f"{sorted(LANDABLE_VERDICTS)} + ERROR derived from progress"
+            )
         return verdict
     return None if pending else "ERROR"
 
 
 def outcome_severity(outcome: str) -> int:
-    """Rollup rank of a CONCLUDED outcome — ``DANGEROUS > ERROR > SAFE``."""
-    assert outcome in OUTCOME_SEVERITY, f"{outcome!r} is not a panel outcome"
+    """Rollup rank of a CONCLUDED outcome — ``DANGEROUS > ERROR > SAFE``.
+
+    No domain guard: ``OUTCOME_SEVERITY[outcome]`` IS the check, and it raises a
+    ``KeyError`` naming the offending value on the same input an assert would have
+    caught. An assert whose only contribution is a nicer message than the very next
+    line's exception is ceremony (N-4 rule 5), and the domain is already guaranteed
+    upstream — every production caller reaches here through ``item_outcome``.
+    """
     return OUTCOME_SEVERITY[outcome]
 
 
@@ -120,12 +146,19 @@ class VerdictIndex:
     ) -> None:
         """Insert or replace the verdict row for ``(name, version)``."""
         # INVARIANT (write side): the index is the 2-state audit verdict. Callers
-        # filter on LANDABLE_VERDICTS; this asserts it at the boundary that owns
-        # the column, so a new producer cannot reintroduce a 4-state vocabulary.
-        assert verdict in LANDABLE_VERDICTS, (
-            f"cannot index verdict {verdict!r} for {name}@{version}; "
-            f"expected one of {sorted(LANDABLE_VERDICTS)}"
-        )
+        # filter on LANDABLE_VERDICTS; this refuses it at the boundary that owns the
+        # column, so a new producer cannot reintroduce a 4-state vocabulary.
+        #
+        # `raise`, not `assert`, and it is NOT redundant with the 0007 CHECK: the
+        # constraint is the durable backstop for a producer that never runs this
+        # code (the TS lineage writes the same table directly), while this names the
+        # offending pair before the round-trip instead of surfacing as an
+        # `IntegrityError` from whichever engine is configured.
+        if verdict not in LANDABLE_VERDICTS:
+            raise AssertionError(
+                f"cannot index verdict {verdict!r} for {name}@{version}; "
+                f"expected one of {sorted(LANDABLE_VERDICTS)}"
+            )
         audited_at = audited_at or now_iso()
         values = {
             "verdict": verdict,
@@ -219,7 +252,15 @@ class VerdictIndex:
     async def rebuild(self, list_reports_fn: Callable[[], Iterable[SavedReport]]) -> int:
         """Full rebuild from disk — run at boot. Assesses each report and upserts
         the ones that carry a landable (``SAFE``/``DANGEROUS``) verdict; returns
-        how many rows were written."""
+        how many rows were written.
+
+        Skipping a foreign report is sufficient and no ``DELETE`` is owed: the 0007
+        CHECK means an out-of-domain row cannot be in the table for this to
+        reconcile, and 0007 itself removed the ones that predated it. Before the
+        constraint, such a row was neither removed nor overwritten by any boot (the
+        pair is skipped, so ``upsert`` never runs for it) and tripped the read guard
+        on every dashboard request forever.
+        """
         count = 0
         for record in list_reports_fn():
             verdict, reason, evidence = assess_report(record.report)
@@ -243,7 +284,6 @@ def _project(row: Mapping[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "LANDABLE_VERDICTS",
-    "OUTCOMES",
     "OUTCOME_SEVERITY",
     "SavedReport",
     "VerdictIndex",

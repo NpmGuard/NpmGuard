@@ -88,7 +88,15 @@ async def handle_dangerous_verdict(
     every exposed repo was already alerted for this pair). Email is sent per org
     only when ``settings`` is provided (the wire stage passes it).
     """
-    assert origin in ORIGINS, f"{origin!r} is not an AuditSetOrigin"
+    # INVARIANT: every alerts.origin row is an AuditSetOrigin. `raise`, not
+    # `assert`: this is a DB write of an enum column carrying no CHECK constraint
+    # (deliberately — `alerts` is notification HISTORY rather than a derived index,
+    # so a constraint failure there is not recoverable by a rebuild, and the origin
+    # domain is open by design; see alembic 0007's docstring). Its input is a
+    # `panel_jobs.origin` value READ BACK from the database, including rows 0006
+    # backfilled, so it is a genuine foreign-data boundary and not a re-check.
+    if origin not in ORIGINS:
+        raise AssertionError(f"{origin!r} is not an AuditSetOrigin")
     exposed = await _collect_exposure(sessions, package_name, version, verdict_reason)
     if not exposed:
         return 0
