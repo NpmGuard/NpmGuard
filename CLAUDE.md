@@ -5,6 +5,8 @@ Read `README.md` first. Scope changes to one subproject. Each has its own `CLAUD
 - [`cli/CLAUDE.md`](cli/CLAUDE.md) — package manager detection, ESM, WalletConnect flow, SSE streaming
 - [`engine/CLAUDE.md`](engine/CLAUDE.md) — payment verification, chain config, report-store versioning
 - [`contracts/README.md`](contracts/README.md) — Foundry setup, deploy + verify on Base Sepolia
+- [`frontend/CLAUDE.md`](frontend/CLAUDE.md) — empty vs degraded states, the token layer, contract parsing
+- [`bench/README.md`](bench/README.md) — pinned corpora, reproducibility identifiers, live-malware handling
 
 ## Start here to understand the system
 
