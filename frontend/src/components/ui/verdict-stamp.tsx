@@ -47,7 +47,7 @@ import {
   LoaderCircle,
   OctagonAlert,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "../../lib/cn.ts";
 
 /** Shared shell. `tabular-nums` because a stamp sometimes carries a count, and a
@@ -81,10 +81,21 @@ const OUTCOME_SKIN: Record<Outcome, string> = {
  * because a failed audit emits an `audit_error` event instead. A `VerdictEnum`
  * is therefore accepted here without a cast, and the two domains stay separate
  * in the contract where they belong. */
-export function VerdictStamp({ outcome, className }: { outcome: Outcome; className?: string }) {
+export function VerdictStamp({
+  outcome,
+  className,
+  ...props
+}: ComponentProps<"span"> & { outcome: Outcome }) {
   const Glyph = OUTCOME_GLYPH[outcome];
   return (
-    <span data-outcome={outcome} className={cn(STAMP, OUTCOME_SKIN[outcome], className)}>
+    <span
+      data-outcome={outcome}
+      className={cn(STAMP, OUTCOME_SKIN[outcome], className)}
+      // Spread so a call site can attach its own hooks — `/how-it-works` drives
+      // this element directly from GSAP via `data-stamp`, and a wrapper element
+      // would not do: the tween animates the stamp's own `border-width`.
+      {...props}
+    >
       <Glyph aria-hidden="true" strokeWidth={1.5} className="size-icon-sm shrink-0" />
       {outcome}
     </span>
