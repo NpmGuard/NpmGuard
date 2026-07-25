@@ -40,6 +40,10 @@
 #   C6  the domain is DERIVED from the generated contract, so it cannot drift from
 #       `AuditReport.verdict` and a legitimate widening needs no second edit here
 #       (a DRIFT GUARD, not a regression test — see its docstring)
+#   C7  the SHAPE half of the same leak: the foreign writer's other output is an
+#       unversioned body with an IN-DOMAIN verdict, which the verdict rule passes and
+#       the client then fails to parse. Screened at the same boundary, so the routes
+#       404 it rather than serving a page-bricking body
 #
 # N-7: C1-C5 were each checked against their reverted production hunk in an isolated
 # worktree and all five go red. C6 does not, by construction, and says so.
@@ -67,15 +71,16 @@ FOREIGN_VERDICT = "SUSPECT"
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _report(verdict: str) -> dict:
+def _report(verdict: str, *, legacy: bool = False) -> dict:
     """A minimal report body carrying `verdict`.
 
-    Deliberately shaped like the TS lineage's schemaVersion-1 output (no
-    `schemaVersion`, `capabilities`/`runtimeEvidence` present) because that is what
-    actually lands in the shared directory — this checkout's own
-    `data/reports/event-stream/4.0.1.json` has exactly these keys.
+    `legacy=True` is the TS lineage's actual schemaVersion-1 output (no
+    `schemaVersion`, `capabilities`/`runtimeEvidence` present) — this checkout's own
+    `data/reports/event-stream/4.0.1.json` has exactly these keys. It is a separate
+    axis from the verdict on purpose: the store screens BOTH, so a fixture that is
+    legacy AND foreign-verdict would pass C3-C5 without the verdict rule existing.
     """
-    return {
+    body = {
         "verdict": verdict,
         "findings": [],
         "proofs": [],
@@ -83,6 +88,7 @@ def _report(verdict: str) -> dict:
         "capabilities": [],
         "runtimeEvidence": None,
     }
+    return body if legacy else {"schemaVersion": 2, **body}
 
 
 @pytest.fixture
@@ -103,11 +109,11 @@ def reports_app(monkeypatch, tmp_path):
     monkeypatch.setattr(report_store, "DATA_DIR", reports)
     get_settings.cache_clear()
 
-    def write(package: str, version: str, verdict: str) -> None:
+    def write(package: str, version: str, verdict: str, *, legacy: bool = False) -> None:
         directory = reports / package
         directory.mkdir(parents=True, exist_ok=True)
         (directory / f"{version}.json").write_text(
-            json.dumps(_report(verdict)), encoding="utf-8"
+            json.dumps(_report(verdict, legacy=legacy)), encoding="utf-8"
         )
 
     yield create_app(), write
@@ -248,6 +254,26 @@ def test_the_store_screens_both_of_its_read_entry_points(reports_app) -> None:
     assert report_store.load_report("hazypkg") is None
     loaded = report_store.load_report("leftpad", "1.0.0")
     assert loaded is not None and loaded[0]["verdict"] == "SAFE"
+
+
+def test_a_legacy_shaped_report_is_refused_by_both_public_routes(reports_app) -> None:
+    """C7: an in-domain verdict on a schemaVersion-1 body is still not servable.
+
+    This is the half the verdict rule cannot catch, and the one that actually bit:
+    `event-stream/4.0.1.json` carries `"verdict": "SAFE"`, passes every verdict
+    check, and then dies in the client on `counts: Required` — permanently, because
+    the store re-serves the same file on every request. A 404 makes it a package
+    with no report instead of a package whose page cannot render.
+    """
+    app, write = reports_app
+    write("leftpad", "1.0.0", "SAFE")
+    write("event-stream", "4.0.1", "SAFE", legacy=True)
+
+    with TestClient(app) as client:
+        assert client.get("/package/event-stream/report", params={"version": "4.0.1"}).status_code == 404
+        packages = client.get("/packages").json()["packages"]
+
+    assert [p["packageName"] for p in packages] == ["leftpad"]
 
 
 def test_the_domain_is_derived_from_the_generated_contract() -> None:
