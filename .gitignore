@@ -52,3 +52,8 @@ sandbox/node_modules/
 test-results/
 playwright-report/
 blob-report/
+
+# A screenshot path built from an unset env var interpolates to the literal
+# "undefined", which no other rule here anticipates. Four PNGs reached a commit
+# that way; this is the cheap guard against the next four.
+undefined/
