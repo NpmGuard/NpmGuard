@@ -34,8 +34,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from kit_spine import now_iso
 from npmguard.resolve import NPM_REGISTRY
 
+from ..lanes import WATCH
+from ..persistence import EnqueueSpec, dedupe_key
+from ..service import AuditService
 from .audit_set import ORIGIN_WATCHLIST
-from .jobs import JobSpec, PanelJobQueue
 from .scan.repo_scan import LockfileNotFoundError, RepoScanEngine
 from .tables import repo_deps, repos, watched_packages
 from .verdict_index import VerdictIndex
@@ -94,7 +96,7 @@ class RegistryWatcher:
     """
 
     sessions: async_sessionmaker
-    queue: PanelJobQueue
+    audits: AuditService
     verdict_index: VerdictIndex
     registry_base: str = NPM_REGISTRY
     client_factory: Any = field(default=lambda: httpx.AsyncClient(timeout=30.0))
@@ -160,12 +162,19 @@ class RegistryWatcher:
         # watch audit from a public-repo one.
         cached = await self.verdict_index.get_many([(name, v) for v in fresh])
         specs = [
-            JobSpec(name, v, None, ORIGIN_WATCHLIST)
+            EnqueueSpec(
+                name,
+                v,
+                lane=WATCH,
+                org=None,
+                origin=ORIGIN_WATCHLIST,
+                dedupe_key=dedupe_key(name, v),
+            )
             for v in fresh
             if (name, v) not in cached
         ]
         if specs:
-            await self.queue.enqueue_many(specs)
+            await self.audits.enqueue_many(specs)
 
     async def _touch(self, name: str) -> None:
         async with self.sessions() as session, session.begin():

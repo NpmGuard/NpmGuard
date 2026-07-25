@@ -1,63 +1,40 @@
 /**
- * CLI / how-it-works page. Explains the verdict-gating install flow:
- * styled command cards with a copy affordance, a calm three-step gate
- * (lookup → verdict → act), the three verdict outcomes as tone pills, and the
- * two ways to pay for a fresh audit (Stripe card, WalletConnect on Base Sepolia).
+ * CLI / how-it-works page. Explains the verdict-gating install flow: command
+ * cards with a copy affordance, a calm three-step gate (lookup → verdict → act),
+ * the three install outcomes, and the two ways to pay for a fresh audit.
  *
- * Pure static content — no engine calls. Composes base.css primitives; owns
- * src/styles/cli.css (`.pg-cli-…`).
+ * Pure static content — no engine calls, so there is no read to be honest about
+ * and no `LoadState` here.
+ *
+ * ── PRESENTATION: what the recomposition onto the token layer changed ───────
+ *
+ * `styles/cli.css` is gone. One change is a correctness fix rather than a
+ * restyling, and it is the reason this page was worth touching early:
+ *
+ * The three outcomes rendered as `pill--safe` / `pill--danger` / `pill--unknown`
+ * — one visual axis, three peers. But "no audit on record yet" is not a third
+ * verdict, it is the PROGRESS axis, and putting it in the same shape as SAFE and
+ * DANGEROUS teaches the reader the exact model the product is trying to unteach
+ * (design-direction §0: outcome and progress are separate axes, and `UNKNOWN` is
+ * deleted as a visual state). It is now a `ProgressStamp state="unaudited"`,
+ * which is achromatic by construction, so the page renders the two-axis model
+ * instead of contradicting it — on the one surface whose whole job is explaining
+ * that model to a newcomer.
+ *
+ * The command cards drop their hand-rolled copy button for the shared
+ * `ui/command-line.tsx`. The local one swallowed a failed clipboard write
+ * (`?.` then a `.then` that never runs on an insecure origin), which leaves the
+ * user pasting stale content believing they copied.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { Check, Copy, CreditCard, Smartphone } from "lucide-react";
-
-/** A single shell command in a keyline card with a copy button. */
-function CommandCard({ command, note }: { command: string; note?: string }) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-
-  function onCopy() {
-    void navigator.clipboard?.writeText(command).then(() => {
-      setCopied(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1600);
-    });
-  }
-
-  return (
-    <div className="pg-cli-cmdgroup">
-      <div className="pg-cli-cmd">
-        <span className="pg-cli-cmd__prompt mono" aria-hidden="true">
-          $
-        </span>
-        <code className="pg-cli-cmd__text mono">{command}</code>
-        <button
-          type="button"
-          className="icon-btn pg-cli-cmd__copy"
-          onClick={onCopy}
-          aria-label={copied ? `copied command ${command}` : `copy command ${command}`}
-        >
-          {copied ? (
-            <Check size={14} strokeWidth={1.8} />
-          ) : (
-            <Copy size={14} strokeWidth={1.8} />
-          )}
-        </button>
-      </div>
-      {note ? <span className="microtext">{note}</span> : null}
-      <span className="sr-only" role="status" aria-live="polite">
-        {copied ? "Copied to clipboard" : ""}
-      </span>
-    </div>
-  );
-}
+import { CreditCard, Smartphone } from "lucide-react";
+import { PanelPage, SectionLabel } from "../components/panel/layout.tsx";
+import { Badge } from "../components/ui/badge.tsx";
+import { Card } from "../components/ui/card.tsx";
+import { CommandLine } from "../components/ui/command-line.tsx";
+import { Kbd } from "../components/ui/kbd.tsx";
+import { ProgressStamp, VerdictStamp } from "../components/ui/verdict-stamp.tsx";
+import type { Outcome } from "@npmguard/shared";
 
 const STEPS: { n: string; label: string; body: string }[] = [
   {
@@ -77,125 +54,150 @@ const STEPS: { n: string; label: string; body: string }[] = [
   },
 ];
 
-const OUTCOMES: { tone: string; label: string; body: string }[] = [
+/** The three things the CLI can do at an install, keyed by which AXIS the state
+ * lives on. `outcome` is a conclusion the engine reached; `unaudited` is the
+ * absence of one, and rendering it as a third verdict is the conflation §0
+ * exists to prevent. */
+const OUTCOMES: ({ label: string; body: string } & (
+  | { axis: "outcome"; outcome: Outcome }
+  | { axis: "progress" }
+))[] = [
   {
-    tone: "pill--safe",
+    axis: "outcome",
+    outcome: "SAFE",
     label: "Safe",
     body: "Installs immediately. No prompt, no interruption.",
   },
   {
-    tone: "pill--danger",
+    axis: "outcome",
+    outcome: "DANGEROUS",
     label: "Dangerous",
     body: "Prints the confirmed, cited evidence and asks before it continues.",
   },
   {
-    tone: "pill--unknown",
+    axis: "progress",
     label: "No audit yet",
     body: "Offers to run a fresh audit, then gates the install on that result.",
   },
 ];
 
+function Section({
+  id,
+  label,
+  children,
+}: {
+  id: string;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mt-8 grid gap-3" aria-labelledby={id}>
+      <h2 id={id}>
+        <SectionLabel>{label}</SectionLabel>
+      </h2>
+      {children}
+    </section>
+  );
+}
+
 export function CliInstall() {
   return (
-    <div className="page__inner pg-cli fade-up">
-      <div className="section-title">
-        <span className="eyebrow">Command line</span>
-      </div>
-      <h1 className="headline">Gate every install behind a verdict.</h1>
-      <p className="subtext pg-cli-lede">
-        <span className="mono">npmguard-cli</span> checks a package's audit before it
-        ever touches your machine. A SAFE package installs as normal; a DANGEROUS one
-        stops and shows you why; an un-audited one can be verified on the spot.
+    <PanelPage className="max-w-[760px]">
+      <SectionLabel>Command line</SectionLabel>
+      <h1 className="mt-1 text-3xl font-semibold text-text">
+        Gate every install behind a verdict.
+      </h1>
+      <p className="mt-3 max-w-[60ch] text-sm text-text-2">
+        <span className="font-mono">npmguard-cli</span> checks a package's audit before it ever
+        touches your machine. A SAFE package installs as normal; a DANGEROUS one stops and shows
+        you why; an un-audited one can be verified on the spot.
       </p>
 
-      {/* ---- Command cards ---- */}
-      <section className="pg-cli-section" aria-labelledby="pg-cli-run">
-        <span id="pg-cli-run" className="eyebrow eyebrow--faint">
-          Run
-        </span>
-        <div className="pg-cli-cmds">
-          <CommandCard
+      <Section id="pg-cli-run" label="Run">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <CommandLine
             command="npx npmguard-cli install express"
             note="Resolves, checks the verdict, then installs — or stops."
           />
-          <CommandCard
+          <CommandLine
             command="npx npmguard-cli check"
             note="Walks package.json and reports every dependency's status."
           />
         </div>
-      </section>
+      </Section>
 
-      {/* ---- The gate: three steps ---- */}
-      <section className="pg-cli-section" aria-labelledby="pg-cli-gate">
-        <span id="pg-cli-gate" className="eyebrow eyebrow--faint">
-          How the gate works
-        </span>
-        <div className="pg-cli-steps">
+      <Section id="pg-cli-gate" label="How the gate works">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {STEPS.map((step) => (
-            <div key={step.n} className="card pg-cli-step">
-              <div className="pg-cli-step__head">
-                <kbd>{step.n}</kbd>
-                <span className="eyebrow">{step.label}</span>
+            <Card key={step.n} className="grid content-start gap-2.5 p-4">
+              <div className="flex items-center gap-2">
+                <Kbd>{step.n}</Kbd>
+                <SectionLabel>{step.label}</SectionLabel>
               </div>
-              <p className="subtext">{step.body}</p>
-            </div>
+              <p className="text-sm text-text-2">{step.body}</p>
+            </Card>
           ))}
         </div>
-      </section>
+      </Section>
 
-      {/* ---- Outcomes ---- */}
-      <section className="pg-cli-section" aria-labelledby="pg-cli-verdicts">
-        <span id="pg-cli-verdicts" className="eyebrow eyebrow--faint">
-          What each verdict does
-        </span>
-        <div className="card pg-cli-outcomes">
+      <Section id="pg-cli-verdicts" label="What each verdict does">
+        <Card className="px-4">
           {OUTCOMES.map((o) => (
-            <div key={o.label} className="pg-cli-outcome">
-              <span className="pg-cli-outcome__label">
-                <span className={`pill ${o.tone}`}>{o.label}</span>
+            <div
+              key={o.label}
+              className="flex items-center gap-3.5 border-b border-border-faint py-3 last:border-b-0"
+            >
+              {/* Wide enough for the longest stamp ("NO AUDIT YET"), so the body
+                  column starts at the same x on all three rows. */}
+              <span className="w-[9.5rem] shrink-0">
+                {o.axis === "outcome" ? (
+                  <VerdictStamp outcome={o.outcome} />
+                ) : (
+                  <ProgressStamp state="unaudited">{o.label}</ProgressStamp>
+                )}
               </span>
-              <span className="subtext">{o.body}</span>
+              <span className="text-sm text-text-2">{o.body}</span>
             </div>
           ))}
-        </div>
-      </section>
+        </Card>
+      </Section>
 
-      {/* ---- Payment ---- */}
-      <section className="pg-cli-section" aria-labelledby="pg-cli-pay">
-        <span id="pg-cli-pay" className="eyebrow eyebrow--faint">
-          Paying for an audit
-        </span>
-        <p className="subtext pg-cli-pay-lede">
-          When a package has no verdict yet, npmguard offers to run one. Payment is
-          verified by the engine, never by the CLI — the wallet signs, npmguard only
-          observes the receipt.
+      <Section id="pg-cli-pay" label="Paying for an audit">
+        <p className="max-w-[60ch] text-sm text-text-2">
+          When a package has no verdict yet, npmguard offers to run one. Payment is verified by
+          the engine, never by the CLI — the wallet signs, npmguard only observes the receipt.
         </p>
-        <div className="pg-cli-pay">
-          <div className="card pg-cli-pay__card">
-            <div className="pg-cli-pay__head">
-              <CreditCard size={16} strokeWidth={1.8} className="pg-cli-pay__icon" />
-              <span className="headline headline--sm">Card</span>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Card className="grid content-start gap-2 p-4">
+            <div className="flex items-center gap-2">
+              <CreditCard aria-hidden="true" strokeWidth={1.8} className="size-icon text-accent" />
+              <span className="text-base font-semibold text-text">Card</span>
             </div>
-            <p className="subtext">
-              The CLI opens a Stripe checkout link in your browser. Pay, return, and the
-              audit starts.
+            <p className="text-sm text-text-2">
+              The CLI opens a Stripe checkout link in your browser. Pay, return, and the audit
+              starts.
             </p>
-            <span className="tag tag--violet">Stripe</span>
-          </div>
+            <span>
+              <Badge>Stripe</Badge>
+            </span>
+          </Card>
 
-          <div className="card pg-cli-pay__card">
-            <div className="pg-cli-pay__head">
-              <Smartphone size={16} strokeWidth={1.8} className="pg-cli-pay__icon" />
-              <span className="headline headline--sm">Mobile wallet</span>
+          <Card className="grid content-start gap-2 p-4">
+            <div className="flex items-center gap-2">
+              <Smartphone aria-hidden="true" strokeWidth={1.8} className="size-icon text-accent" />
+              <span className="text-base font-semibold text-text">Mobile wallet</span>
             </div>
-            <p className="subtext">
-              Scan a <span className="mono">WalletConnect</span> QR with a mobile wallet
-              and sign on Base Sepolia. The engine verifies the on-chain receipt.
+            <p className="text-sm text-text-2">
+              Scan a <span className="font-mono">WalletConnect</span> QR with a mobile wallet and
+              sign on Base Sepolia. The engine verifies the on-chain receipt.
             </p>
-            <span className="tag tag--blue">Base Sepolia · 84532</span>
-          </div>
+            <span>
+              {/* Mono: a chain id is a machine-authored fact (§2.7). */}
+              <Badge mono>Base Sepolia · 84532</Badge>
+            </span>
+          </Card>
         </div>
-      </section>
-    </div>
+      </Section>
+    </PanelPage>
   );
 }

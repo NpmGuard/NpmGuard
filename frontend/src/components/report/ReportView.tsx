@@ -5,6 +5,22 @@
  *   - a compact registry / landing embed.
  * Prop-driven and self-contained. Never fabricates counts — honest "—" / factual
  * words where a metric doesn't exist.
+ *
+ * ── IT NO LONGER RENDERS AN IDENTITY HEADER, OR A HEADLINE ─────────────────
+ *
+ * Both were duplicates once `VerdictHeadline` landed. Every call site already
+ * shows `package@version` in its own chrome — the report page's header, the
+ * audit view's identity bar — so this component was printing it a second time
+ * two lines below. And the one-line headline ("No known threats" / "N confirmed
+ * threats") is now said better, and MANDATORILY, by the verdict's own caveat and
+ * coverage line, which a page cannot forget to render. Two components saying the
+ * same thing is how they eventually say different things.
+ *
+ * `verdictHeadline()` went with it: this was its only caller, and a helper kept
+ * alive for nobody is the same dead weight as a dead branch. The `packageName`
+ * and `version` props went too — nothing here reads them any more, and a prop
+ * every call site dutifully threads to nowhere is a small lie about what this
+ * component needs.
  */
 
 import type { AuditReport } from "@npmguard/shared";
@@ -14,32 +30,25 @@ import {
   confirmedHypotheses,
   notableFiles,
   totalTraceMs,
-  verdictHeadline,
 } from "../../lib/report-helpers.ts";
 import { formatDuration } from "../../lib/format.ts";
+import { Badge } from "../ui/badge.tsx";
+import { Card } from "../ui/card.tsx";
+import { SectionLabel } from "../panel/layout.tsx";
 import { VerdictSummary } from "./VerdictSummary.tsx";
 import { HypothesisCard } from "./HypothesisCard.tsx";
 import { FileSummaryRow } from "./FileSummaryRow.tsx";
 
 export interface ReportViewProps {
   report: AuditReport;
-  packageName: string;
-  version: string;
   variant?: "full" | "compact";
   onOpenFile?: (path: string) => void;
 }
 
 const COMPACT_CONFIRMED_LIMIT = 3;
 
-export function ReportView({
-  report,
-  packageName,
-  version,
-  variant = "full",
-  onOpenFile,
-}: ReportViewProps) {
+export function ReportView({ report, variant = "full", onOpenFile }: ReportViewProps) {
   const compact = variant === "compact";
-  const headline = verdictHeadline(report);
   const confirmed = confirmedHypotheses(report);
   const capabilities = capabilitiesFromReport(report);
 
@@ -55,105 +64,116 @@ export function ReportView({
   const traceMs = totalTraceMs(report);
 
   return (
-    <section className={`report-view${compact ? " report-view--compact" : ""}`}>
-      <header className="report-view__head">
-        <span className="report-view__pkg mono">
-          {packageName}
-          {version ? <span className="report-view__ver">@{version}</span> : null}
-        </span>
-        <span className="report-view__headline">{headline}</span>
-      </header>
-
+    <section className="grid gap-4">
       <VerdictSummary verdict={report.verdict} rationale={report.rationale} counts={report.counts} />
 
       {report.dealbreaker ? (
-        <div className="banner banner--danger report-view__dealbreaker" role="alert">
-          <span className="eyebrow eyebrow--danger">{report.dealbreaker.check}</span>
-          <span>{report.dealbreaker.detail}</span>
-        </div>
+        // The one place on this surface that keeps full danger red, and it earns
+        // it: a dealbreaker IS a claim about the package, which is exactly what
+        // §0 rule 3 reserves red for.
+        <Card severity="danger" role="alert" className="grid gap-1 p-4">
+          <span className="font-mono text-2xs font-medium tracking-wide text-danger-text uppercase">
+            {report.dealbreaker.check}
+          </span>
+          <span className="text-sm text-text">{report.dealbreaker.detail}</span>
+        </Card>
       ) : null}
 
       {compact ? (
         confirmed.length > 0 ? (
-          <div className="report-section">
-            <div className="eyebrow eyebrow--faint">Confirmed</div>
-            <div className="report-section__cards">
+          <Section label="Confirmed">
+            <div className="grid gap-2">
               {confirmed.slice(0, COMPACT_CONFIRMED_LIMIT).map((h) => (
                 <HypothesisCard key={h.hypId} hyp={h} />
               ))}
             </div>
             {confirmed.length > COMPACT_CONFIRMED_LIMIT ? (
-              <p className="microtext report-section__more">
+              <p className="text-2xs text-text-3">
                 +{confirmed.length - COMPACT_CONFIRMED_LIMIT} more
               </p>
             ) : null}
-          </div>
+          </Section>
         ) : null
       ) : (
         <>
           {capabilities.length > 0 ? (
-            <div className="report-section">
-              <div className="eyebrow eyebrow--faint">Observed capabilities</div>
-              <div className="report-view__caps">
+            <Section label="Observed capabilities">
+              <div className="flex flex-wrap gap-1">
                 {capabilities.map((cap) => (
-                  <span key={cap} className="tag">
-                    {cap}
-                  </span>
+                  <Badge key={cap}>{cap}</Badge>
                 ))}
               </div>
-            </div>
+            </Section>
           ) : null}
 
-          <div className="report-section">
-            <div className="section-title">
-              <span className="eyebrow">Hypotheses</span>
-            </div>
+          <Section label="Hypotheses">
             {allHypotheses.length === 0 ? (
-              <p className="subtext report-empty-line">No hypotheses raised</p>
+              <p className="text-sm text-text-3">No hypotheses raised</p>
             ) : (
-              <div className="report-section__cards">
+              <div className="grid gap-2">
                 {allHypotheses.map((h) => (
                   <HypothesisCard key={h.hypId} hyp={h} />
                 ))}
               </div>
             )}
-          </div>
+          </Section>
 
-          <div className="report-section">
-            <div className="section-title">
-              <span className="eyebrow">Files analyzed</span>
-            </div>
+          <Section label="Files analyzed">
             {orderedFiles.length === 0 ? (
-              <p className="subtext report-empty-line">No files summarized</p>
+              <p className="text-sm text-text-3">No files summarized</p>
             ) : (
-              <div className="report-files">
+              <Card className="overflow-hidden">
                 {orderedFiles.map((summary) => (
                   <FileSummaryRow key={summary.file} summary={summary} onOpen={onOpenFile} />
                 ))}
-              </div>
+              </Card>
             )}
-          </div>
+          </Section>
 
           {report.trace.length > 0 ? (
-            <div className="report-section">
-              <div className="section-title">
-                <span className="eyebrow">Timing</span>
-                <span className="microtext">Completed in {formatDuration(traceMs)}</span>
-              </div>
-              <ul className="report-trace">
+            <Section label="Timing" meta={`Completed in ${formatDuration(traceMs)}`}>
+              <Card className="overflow-hidden">
                 {report.trace.map((phase) => (
-                  <li key={phase.phase} className="report-trace__row">
-                    <span className="report-trace__phase mono">{phase.phase}</span>
-                    <span className="report-trace__ms microtext">
+                  <div
+                    key={phase.phase}
+                    className="flex items-center justify-between gap-3 border-b border-border-faint px-3 py-1.5 last:border-b-0"
+                  >
+                    <span className="font-mono text-2xs text-text-2">{phase.phase}</span>
+                    <span className="font-mono text-2xs tabular-nums text-text-3">
                       {formatDuration(phase.durationMs)}
                     </span>
-                  </li>
+                  </div>
                 ))}
-              </ul>
-            </div>
+              </Card>
+            </Section>
           ) : null}
         </>
       )}
+    </section>
+  );
+}
+
+/** A titled report section. The label is a real `<h3>` — these were `<div>`s of
+ * styled spans, so a screen reader's heading list on the product's most
+ * information-dense page contained the package name and nothing else. */
+function Section({
+  label,
+  meta,
+  children,
+}: {
+  label: string;
+  meta?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="grid gap-2">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h3>
+          <SectionLabel>{label}</SectionLabel>
+        </h3>
+        {meta ? <span className="text-2xs text-text-3">{meta}</span> : null}
+      </div>
+      {children}
     </section>
   );
 }

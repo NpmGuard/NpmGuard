@@ -32,7 +32,7 @@ import { ArrowRight, ShieldCheck } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { PanelPage, SectionLabel } from "../components/panel/layout.tsx";
-import { OutcomePill, ProgressPill } from "../components/panel/tone.tsx";
+import { ProgressStamp, VerdictStamp } from "../components/ui/verdict-stamp.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardBody } from "../components/ui/card.tsx";
 import { FOCUS_RING } from "../components/ui/focus.ts";
@@ -81,9 +81,9 @@ function ScanSnapshot({ scanId }: { scanId: number }) {
         </div>
         {scan &&
           (running ? (
-            <ProgressPill state="running">Running</ProgressPill>
+            <ProgressStamp state="running">Running</ProgressStamp>
           ) : scan.set.rollup.outcome ? (
-            <OutcomePill outcome={scan.set.rollup.outcome} />
+            <VerdictStamp outcome={scan.set.rollup.outcome} />
           ) : null)}
       </header>
 

@@ -55,10 +55,12 @@ from kit_stream.service import READ_BATCH
 
 from ..contract import models as contract
 from ..contract.kinds import JobState, PackageOutcome, SetStatus
+from ..lanes import PANEL, PANEL_LANES, PUBLIC
+from ..persistence import EnqueueSpec, audit_sessions, dedupe_key
+from ..service import AuditService
 from .caps import CapsStore
-from .jobs import JobSpec, PanelJobQueue
 from .lockfile import LockfileDep
-from .tables import audit_set_items, audit_sets, package_verdicts, panel_jobs
+from .tables import audit_set_items, audit_sets, package_verdicts
 from .verdict_index import (
     LANDABLE_VERDICTS,
     VerdictIndex,
@@ -80,7 +82,7 @@ ORIGIN_WATCHLIST = "watchlist"
 
 # `dep_tree` and `bench_run` are designed-for, not built (R-7 / §4.3): listed so
 # adding either costs an item-discovery function and no schema or wire change.
-# `watchlist` has a producer TODAY — but only on `panel_jobs.origin` and
+# `watchlist` has a producer TODAY — but only on the audit row's `origin` and
 # `alerts.origin`, because a registry-watch audit fills the shared cache without
 # belonging to any set. It is the one origin that names work rather than a set.
 ORIGINS = frozenset(
@@ -111,6 +113,22 @@ _PUBLISH_RETRIES = 10
 _PUBLISH_RETRY_BASE_SECONDS = 0.002
 
 _ACTIVE_JOB_STATES = ("queued", "running")
+
+
+def _covering_audit() -> sa.ColumnElement[bool]:
+    """The audit rows that are THIS item's attempt.
+
+    An item's attempt is an `audit_sessions` row on a cache-filling lane for the
+    same `(name, version)`. Restricted to those lanes because a paid audit of the
+    same pair is a different caller's work on its own row: it neither shares the
+    set's dedupe key nor advances its bookkeeping, and counting it would report an
+    item as in-flight that no scan is driving.
+    """
+    return sa.and_(
+        audit_sessions.c.package_name == audit_set_items.c.name,
+        audit_sessions.c.requested_version == audit_set_items.c.version,
+        audit_sessions.c.lane.in_(tuple(PANEL_LANES)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -340,8 +358,8 @@ def _item_state_query(set_id: int, *, limit: int | None) -> sa.Select:
 
     Progress comes from the SET's items — never from ``repo_deps`` (a push can
     replace the index underneath a live set) and never from job ownership (jobs are
-    deduped across sets by ``ix_panel_jobs_active_pkg``, so a shared job belongs to
-    no single set).
+    deduped across sets by the queue's active-dedupe index, so a shared audit
+    belongs to no single set).
 
     ``limit`` is for the capped DETAIL projection only; a rollup always reads the
     whole set. The severity ordering is what makes the cut safe: the tail a
@@ -349,22 +367,16 @@ def _item_state_query(set_id: int, *, limit: int | None) -> sa.Select:
     """
     set_live = audit_sets.c.finished_at.is_(None)
     active_state = (
-        sa.select(panel_jobs.c.state)
-        .where(
-            panel_jobs.c.package_name == audit_set_items.c.name,
-            panel_jobs.c.version == audit_set_items.c.version,
-            panel_jobs.c.state.in_(_ACTIVE_JOB_STATES),
-        )
+        sa.select(audit_sessions.c.status)
+        .where(_covering_audit(), audit_sessions.c.status.in_(_ACTIVE_JOB_STATES))
         .limit(1)
         .scalar_subquery()
     )
+    # `error` IS exhaustion: a failure with attempts left goes back to `queued`
+    # instead of terminalizing, so a terminal error row is a job that gave up.
     has_failed = (
         sa.select(sa.literal(1))
-        .where(
-            panel_jobs.c.package_name == audit_set_items.c.name,
-            panel_jobs.c.version == audit_set_items.c.version,
-            panel_jobs.c.state == "failed",
-        )
+        .where(_covering_audit(), audit_sessions.c.status == "error")
         .limit(1)
         .scalar_subquery()
     )
@@ -439,12 +451,8 @@ async def set_rollups(session: Any, set_ids: Collection[int]) -> dict[int, Rollu
     set_live = audit_sets.c.finished_at.is_(None)
     active_exists = (
         sa.select(sa.literal(1))
-        .select_from(panel_jobs)
-        .where(
-            panel_jobs.c.package_name == audit_set_items.c.name,
-            panel_jobs.c.version == audit_set_items.c.version,
-            panel_jobs.c.state.in_(_ACTIVE_JOB_STATES),
-        )
+        .select_from(audit_sessions)
+        .where(_covering_audit(), audit_sessions.c.status.in_(_ACTIVE_JOB_STATES))
         .exists()
     )
     rows = (
@@ -585,7 +593,7 @@ class AuditSetSpec:
     # watch, bench). Required for `public_repo_scan`, which after D-1 has a
     # requester and no payer — see the invariant in `create`.
     requested_by: int | None = None
-    # The account login `panel_jobs.org` groups on for queue fairness. NOT a
+    # The account login the queue groups on for fairness. NOT a
     # billing field: money is metered by the budget hooks above.
     billed_org: str | None = None
     commit_sha: str | None = None
@@ -625,7 +633,7 @@ class AuditSetStore:
 
     sessions: async_sessionmaker
     verdicts: VerdictIndex
-    queue: PanelJobQueue
+    audits: AuditService
     stream: StreamService
     notifier: EventNotifier
     # Called ONCE, on the single running -> done transition of a set that carries a
@@ -716,20 +724,27 @@ class AuditSetStore:
                     )
                 )
 
-        # TODO(R-2): the `public` lane. A public scan's jobs go into the same
-        # queue as paid and panel work, which F-F6 says they must never starve.
-        # That lane belongs to the ONE durable queue R-2 builds (lanes
-        # paid|panel|watch|bench|public, with panel_jobs and the panel worker
-        # pool deleted) — building it here would make this the repo's THIRD queue
-        # implementation, the exact mistake R-1 was done to stop. `public` now has
-        # a live caller. Until then the bound is admission-side: the per-user
-        # budget in public_limits.py caps how much work one scan can enqueue.
-        inserted = await self.queue.enqueue_many(
-            [JobSpec(d.name, d.version, spec.billed_org, spec.origin) for d in misses]
+        # A public scan rides its OWN lane, ranked below paid work so it can never
+        # starve it — an anonymous-ish visitor's curiosity must not delay somebody
+        # who paid. The per-user budget in public_limits.py still caps how much one
+        # scan may enqueue; that is the cost ceiling, this is the ordering.
+        lane_name = PUBLIC if spec.origin == ORIGIN_PUBLIC_REPO_SCAN else PANEL
+        created = await self.audits.enqueue_many(
+            [
+                EnqueueSpec(
+                    d.name,
+                    d.version,
+                    lane=lane_name,
+                    org=spec.billed_org,
+                    origin=spec.origin,
+                    dedupe_key=dedupe_key(d.name, d.version),
+                )
+                for d in misses
+            ]
         )
         # Charge only jobs actually inserted — a pair already queued by another set
         # is shared, not re-bought.
-        await spec.consume_budget(inserted)
+        await spec.consume_budget(len(created))
 
         # Publish the opening progress frame — and deliberately NOT a dep frame per
         # item. The log carries TRANSITIONS; a client's initial per-item state comes
@@ -1041,7 +1056,7 @@ async def latest_set_rows(
 def build_store(
     sessions: async_sessionmaker,
     verdicts: VerdictIndex,
-    queue: PanelJobQueue,
+    audits: AuditService,
     stream: StreamService,
     notifier: EventNotifier,
     *,
@@ -1050,7 +1065,7 @@ def build_store(
     return AuditSetStore(
         sessions=sessions,
         verdicts=verdicts,
-        queue=queue,
+        audits=audits,
         stream=stream,
         notifier=notifier,
         finalize_check=finalize_check,

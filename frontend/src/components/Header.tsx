@@ -4,6 +4,10 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { githubLoginUrl } from "../features/session/api.ts";
 import { useLogout, useSession } from "../features/session/hooks.ts";
 import { useAuditStore } from "../stores/auditStore.ts";
+import { Button } from "./ui/button.tsx";
+import { FOCUS_RING } from "./ui/focus.ts";
+import { ProgressStamp, VerdictStamp } from "./ui/verdict-stamp.tsx";
+import { cn } from "../lib/cn.ts";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -34,14 +38,22 @@ function AuditStatusPill() {
 
   if (!running && !verdict) return null;
 
-  const tone = verdict === "SAFE" ? "safe" : verdict === "DANGEROUS" ? "danger" : "running";
-  const label = verdict ?? (phase ? phase.replace(/-/g, " ") : "starting");
+  const label = phase ? phase.replace(/-/g, " ") : "starting";
 
   return (
-    <div className="status-pill" role="status">
-      <span className={`dot dot--${tone}`} />
-      <strong className="mono">{packageName || "audit"}</strong>
-      <span>{label}</span>
+    // The header chip is the ONE place a verdict appears outside its own
+    // surface, so it uses the real stamp: glyph + word + colour (§2.4), and a
+    // running audit stays achromatic instead of wearing the old `dot--running`
+    // blue, which put a status colour on the progress axis.
+    <div className="flex items-center gap-2" role="status">
+      {verdict ? (
+        <VerdictStamp outcome={verdict} />
+      ) : (
+        <ProgressStamp state="running">{label}</ProgressStamp>
+      )}
+      <strong className="hidden font-mono text-2xs text-text-2 sm:inline">
+        {packageName || "audit"}
+      </strong>
     </div>
   );
 }
@@ -63,36 +75,39 @@ function AuthChip() {
 
   if (!user) {
     return (
-      <a className="btn btn--sm" href={githubLoginUrl()}>
-        Sign in
-      </a>
+      <Button asChild variant="outline" size="sm">
+        <a href={githubLoginUrl()}>Sign in</a>
+      </Button>
     );
   }
 
   return (
-    <div className="auth-chip">
+    <div className="flex items-center gap-2 rounded-full border border-border bg-sunken py-0.5 pr-1 pl-0.5">
       {user.avatarUrl ? (
         <img
-          className="auth-chip__avatar"
+          className="size-6 rounded-full"
           src={user.avatarUrl}
           alt=""
           referrerPolicy="no-referrer"
           onError={(event) => event.currentTarget.remove()}
         />
       ) : (
-        <span className="auth-chip__avatar auth-chip__avatar--letter">
+        // `rounded-full` is legal here: §2.8 reserves round shapes for avatars
+        // and count dots, and this is the first of those.
+        <span className="flex size-6 items-center justify-center rounded-full bg-accent-wash text-2xs font-medium text-accent-text">
           {user.login.charAt(0).toUpperCase()}
         </span>
       )}
-      <span className="auth-chip__login">{user.login}</span>
-      <button
-        type="button"
-        className="auth-chip__signout"
+      <span className="text-xs text-text-2">{user.login}</span>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-5 px-1.5 text-2xs"
         disabled={logout.isPending}
         onClick={() => logout.mutate()}
       >
         sign out
-      </button>
+      </Button>
     </div>
   );
 }
@@ -109,32 +124,59 @@ export function Header() {
   };
 
   return (
-    <header className="topbar">
-      <div className="topbar__left">
-        <a className="brand" href="/" onClick={goHome} aria-label="NpmGuard home">
-          <span className="brand__mark">
-            <ShieldCheck size={17} strokeWidth={1.8} />
+    // Sticky, and the ONE element that spans every surface — so it is also the
+    // one that made dark mode look half-finished while it was on the legacy
+    // sheet: a warm-paper bar above a dark page, on every route.
+    <header className="sticky top-0 z-30 border-b border-border bg-surface">
+      <div className="mx-auto flex h-14 w-full max-w-[1160px] items-center gap-4 px-4 md:px-6 lg:px-8">
+        <a
+          className={cn("flex shrink-0 items-center gap-2 rounded-sm", FOCUS_RING)}
+          href="/"
+          onClick={goHome}
+          aria-label="NpmGuard home"
+        >
+          <span className="flex size-7 items-center justify-center rounded-md bg-text text-canvas">
+            <ShieldCheck aria-hidden="true" size={17} strokeWidth={1.8} />
           </span>
-          <span className="brand__name">
-            npm<em>guard</em>
+          <span className="text-sm font-semibold tracking-tight text-text">
+            npm<em className="font-semibold text-accent-text not-italic">guard</em>
           </span>
         </a>
-      </div>
-      <nav className="topbar__center" aria-label="Primary">
-        {NAV.map((item) => (
-          <Link
-            key={item.to}
-            to={item.to}
-            className={`nav-item${isActive(location.pathname, item.to) ? " active" : ""}`}
-            onClick={item.to === "/" ? goHome : undefined}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
-      <div className="topbar__right">
-        <AuditStatusPill />
-        <AuthChip />
+
+        {/* Scrolls rather than wrapping below `sm`: a nav that reflows to two
+            rows changes the header's height, and the header is `sticky`, so
+            every page's scroll offset would shift with it. */}
+        <nav
+          aria-label="Primary"
+          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+        >
+          {NAV.map((item) => {
+            const active = isActive(location.pathname, item.to);
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "shrink-0 rounded-md px-2.5 py-1.5 text-xs whitespace-nowrap",
+                  "transition-colors duration-fast",
+                  active
+                    ? "bg-accent-wash text-accent-text"
+                    : "text-text-2 hover:bg-sunken hover:text-text",
+                  FOCUS_RING,
+                )}
+                onClick={item.to === "/" ? goHome : undefined}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <AuditStatusPill />
+          <AuthChip />
+        </div>
       </div>
     </header>
   );

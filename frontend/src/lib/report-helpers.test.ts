@@ -4,20 +4,24 @@
  * Input classes:
  *  C1  confirmedHypotheses  — the CONFIRMED set = (state===CONFIRMED) ∪ (id in
  *                             confirmedHypIds), each row once, severity-sorted desc.
- *  C2  verdictHeadline      — HONEST headline: dealbreaker wins; else "N confirmed
- *                             threat(s)"; DANGEROUS-with-no-count never fabricates 0;
- *                             SAFE → "No known threats".
+ *  C2  (retired) — `verdictHeadline` is deleted. The one-line summary of a verdict
+ *                             is now `ui/verdict-stamp.tsx::VerdictHeadline`'s caveat +
+ *                             coverage, which is MANDATORY (the counts prop is
+ *                             required), so the honesty it guarded is enforced by a
+ *                             component signature rather than by a helper a page had
+ *                             to remember to call.
  *  C3  capabilitiesFromReport — distinct, falsy-skipping union over fileSummaries.
  *  C4  claimLabel           — known ClaimKind → label; unknown string → itself.
  *  C5  verdictTone          — DANGEROUS→danger, SAFE→safe.
  *  C6  hypothesis colour     — STATE decides, severity only modulates. A CRITICAL
  *                             hypothesis that was REFUTED carries NO danger hue
  *                             anywhere (that was the bug: 13 refuted hypotheses
- *                             rendered as 13 red rows); DEFERRED is neutral, never
- *                             amber, because "could not decide" is no finding
- *                             rather than a weak one; only CONFIRMED lets severity
- *                             reach the row, and only the state pill is coloured
- *                             on a refuted one — green, because that IS what we
+ *                             rendered as 13 red rows); DEFERRED is a PROMINENT
+ *                             `error`-violet outcome (§3.3 / F-I5), sharing the "we
+ *                             don't know" slot with audit ERROR and UI degradation;
+ *                             only CONFIRMED lets severity reach the chip, and only
+ *                             the state stamp is coloured on a refuted row — green,
+ *                             because that IS what we
  *                             now know.
  *  C7  byImportanceDesc      — state first, severity within: CONFIRMED → DEFERRED
  *                             → IN_PROGRESS → OPEN → REFUTED. A refuted CRITICAL
@@ -34,10 +38,9 @@ import {
   capabilitiesFromReport,
   claimLabel,
   confirmedHypotheses,
-  hypothesisAccentVar,
-  hypothesisSeverityTagClass,
-  hypothesisStatePillClass,
-  verdictHeadline,
+  hypothesisRule,
+  hypothesisSeverityTone,
+  hypothesisTone,
   verdictTone,
 } from "./report-helpers.ts";
 import type { AuditReport, Hypothesis, HypothesisSeverity, HypothesisState } from "@npmguard/shared";
@@ -102,28 +105,6 @@ describe("report-helpers — C1 confirmedHypotheses", () => {
   });
 });
 
-describe("report-helpers — C2 verdictHeadline (honest)", () => {
-  it("C2: a dealbreaker wins the headline", () => {
-    const r = report({ verdict: "DANGEROUS", dealbreaker: { check: "postinstall exfil", detail: "…" }, confirmedHypIds: ["h1"] });
-    expect(verdictHeadline(r)).toBe("postinstall exfil");
-  });
-
-  it("C2: DANGEROUS with confirmed ids reports the count with correct pluralization", () => {
-    expect(verdictHeadline(report({ verdict: "DANGEROUS", confirmedHypIds: ["h1"] }))).toBe("1 confirmed threat");
-    expect(verdictHeadline(report({ verdict: "DANGEROUS", confirmedHypIds: ["h1", "h2", "h3"] }))).toBe("3 confirmed threats");
-  });
-
-  it("C2: DANGEROUS with no count never fabricates a 0 — falls back to a factual phrase", () => {
-    const r = report({ verdict: "DANGEROUS", confirmedHypIds: [], hypotheses: [] });
-    expect(verdictHeadline(r)).toBe("Confirmed malicious behavior");
-    expect(verdictHeadline(r)).not.toContain("0");
-  });
-
-  it("C2: SAFE reads 'No known threats' (never an empty green count)", () => {
-    expect(verdictHeadline(report({ verdict: "SAFE" }))).toBe("No known threats");
-  });
-});
-
 describe("report-helpers — C3 capabilitiesFromReport", () => {
   it("C3: dedupes capabilities across files and skips falsy entries", () => {
     const r = report({
@@ -161,32 +142,48 @@ describe("C6: hypothesis colour is decided by state, modulated by severity", () 
   const UNRESOLVED: HypothesisState[] = ["REFUTED", "DEFERRED", "OPEN", "IN_PROGRESS"];
   const SEVERITIES: HypothesisSeverity[] = ["critical", "high", "medium", "low"];
 
-  it("C6: only a CONFIRMED hypothesis lets severity reach the row", () => {
-    expect(hypothesisAccentVar("CONFIRMED", "critical")).toBe("var(--danger)");
-    expect(hypothesisAccentVar("CONFIRMED", "high")).toBe("var(--danger)");
-    expect(hypothesisAccentVar("CONFIRMED", "medium")).toBe("var(--suspect)");
-    expect(hypothesisSeverityTagClass("CONFIRMED", "critical")).toBe("tag tag--danger");
+  it("C6: only a CONFIRMED hypothesis lets severity reach the severity chip", () => {
+    expect(hypothesisSeverityTone("CONFIRMED", "critical")).toBe("danger");
+    expect(hypothesisSeverityTone("CONFIRMED", "high")).toBe("danger");
+    // Confirmed-but-lower still earns the danger ROW (it is a real finding);
+    // severity modulates the chip, which is the channel that ranks findings
+    // against each other rather than the one that raises the alarm.
+    expect(hypothesisSeverityTone("CONFIRMED", "medium")).toBe("neutral");
+    expect(hypothesisRule("CONFIRMED")).toBe("danger");
   });
 
-  it("C6: no unresolved state carries a hue, at ANY severity — the refuted-critical bug", () => {
+  it("C6: no unresolved state carries a severity hue, at ANY severity — the refuted-critical bug", () => {
     for (const state of UNRESOLVED) {
       for (const severity of SEVERITIES) {
-        expect(hypothesisAccentVar(state, severity), `${state}/${severity}`).toBe(
-          "var(--tone-paper-accent)",
-        );
-        expect(hypothesisSeverityTagClass(state, severity), `${state}/${severity}`).toBe("tag");
+        expect(hypothesisSeverityTone(state, severity), `${state}/${severity}`).toBe("neutral");
       }
     }
   });
 
-  it("C6: the state pill is the one element that may be coloured on a refuted row", () => {
-    expect(hypothesisStatePillClass("CONFIRMED")).toBe("pill pill--danger");
-    expect(hypothesisStatePillClass("REFUTED")).toBe("pill pill--safe");
-    // Ambiguous is grey. `pill--suspect` (amber) would claim a weak finding where
-    // the investigation reached none.
-    expect(hypothesisStatePillClass("DEFERRED")).toBe("pill");
-    expect(hypothesisStatePillClass("OPEN")).toBe("pill pill--running");
-    expect(hypothesisStatePillClass("IN_PROGRESS")).toBe("pill pill--running");
+  it("C6: REFUTED and the progress states earn no row rule — SAFE is the quietest state", () => {
+    // §0 rule 1. A green rule on every disproved worry is the refuted-critical
+    // bug moved into a different channel: thirteen marks around the one that
+    // matters.
+    expect(hypothesisRule("REFUTED")).toBeUndefined();
+    expect(hypothesisRule("OPEN")).toBeUndefined();
+    expect(hypothesisRule("IN_PROGRESS")).toBeUndefined();
+  });
+
+  it("C6: DEFERRED is a prominent `error` outcome, not a grey afterthought", () => {
+    // Brief §3.3 / F-I5: showing what the tool could NOT prove is as persuasive
+    // as a catch, so DEFERRED is styled as a real outcome. It shares the violet
+    // slot with audit ERROR and with UI degradation because all three mean the
+    // same thing — we don't know — and that is exactly one fact.
+    expect(hypothesisTone("DEFERRED")).toBe("error");
+    expect(hypothesisRule("DEFERRED")).toBe("error");
+  });
+
+  it("C6: the state stamp is the one element that may be coloured on a refuted row", () => {
+    expect(hypothesisTone("CONFIRMED")).toBe("danger");
+    expect(hypothesisTone("REFUTED")).toBe("safe");
+    // OPEN / IN_PROGRESS are the progress axis, which is never a verdict.
+    expect(hypothesisTone("OPEN")).toBe("progress");
+    expect(hypothesisTone("IN_PROGRESS")).toBe("progress");
   });
 });
 

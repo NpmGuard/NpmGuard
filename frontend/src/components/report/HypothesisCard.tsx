@@ -1,57 +1,68 @@
 /**
- * HypothesisCard — one hypothesis node, carrying its claim label, severity tag,
- * resolution state pill, description and focus files.
+ * HypothesisCard — one hypothesis node, carrying its claim label, severity chip,
+ * resolution state stamp, description and focus files.
  * Status lives on the datum (hyp.state / hyp.severity) — never in component state.
  *
  * The colour rule is NOT here: `report-helpers.ts` owns it, because the live
  * stream (`audit/HypothesisList`) renders the same node and the two must not
  * disagree about what red means. See the header there — severity is the severity
- * of a CLAIM, so it earns a hue only once the claim is CONFIRMED.
+ * of a CLAIM, so it earns a hue only once the claim is CONFIRMED, and DEFERRED
+ * is a prominent `error`-violet outcome rather than a greyed-out afterthought
+ * (§3.3 / F-I5: showing what the tool could NOT prove is as persuasive as a
+ * catch).
  */
 
-import type { CSSProperties } from "react";
 import type { Hypothesis } from "@npmguard/shared";
 import {
   claimLabel,
-  hypothesisAccentVar,
-  hypothesisSeverityTagClass,
-  hypothesisStatePillClass,
+  hypothesisRule,
+  hypothesisSeverityTone,
+  hypothesisTone,
   STATE_LABELS,
 } from "../../lib/report-helpers.ts";
+import { Badge } from "../ui/badge.tsx";
+import { Card } from "../ui/card.tsx";
+import { HypothesisStateStamp } from "../ui/verdict-stamp.tsx";
 
 export interface HypothesisCardProps {
   hyp: Hypothesis;
 }
 
 export function HypothesisCard({ hyp }: HypothesisCardProps) {
-  const accent = { "--accent": hypothesisAccentVar(hyp.state, hyp.severity) } as CSSProperties;
-
   return (
-    <article className="card card--accent report-hyp" style={accent}>
-      <header className="report-hyp__head">
-        <span className="report-hyp__claim">{claimLabel(hyp.claim.kind)}</span>
-        <span className={hypothesisSeverityTagClass(hyp.state, hyp.severity)}>{hyp.severity}</span>
-        <span className={hypothesisStatePillClass(hyp.state)}>{STATE_LABELS[hyp.state]}</span>
+    <Card severity={hypothesisRule(hyp.state)} className="grid gap-2.5 p-4">
+      <header className="flex flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1 text-sm font-medium text-text">
+          {claimLabel(hyp.claim.kind)}
+        </span>
+        <Badge tone={hypothesisSeverityTone(hyp.state, hyp.severity)}>{hyp.severity}</Badge>
+        <HypothesisStateStamp
+          state={hyp.state}
+          tone={hypothesisTone(hyp.state)}
+          label={STATE_LABELS[hyp.state]}
+        />
       </header>
 
-      {hyp.description ? <p className="report-hyp__desc subtext">{hyp.description}</p> : null}
+      {hyp.description ? <p className="text-sm text-text-2">{hyp.description}</p> : null}
 
       {hyp.resolution?.reason ? (
-        <p className="report-hyp__reason microtext">
-          <span className="report-hyp__reason-label mono">{hyp.resolution.by || "resolved"}</span>
+        <p className="text-2xs text-text-3">
+          {/* Who resolved it, in mono: the resolver is a machine-authored fact
+              (§2.7), and naming it is what makes the reason auditable. */}
+          <span className="mr-1.5 font-mono text-text-2">{hyp.resolution.by || "resolved"}</span>
           {hyp.resolution.reason}
         </p>
       ) : null}
 
       {hyp.focusFiles.length > 0 ? (
-        <div className="report-hyp__files">
+        <div className="flex flex-wrap gap-1">
           {hyp.focusFiles.map((file) => (
-            <span key={file} className="tag mono">
+            <Badge key={file} mono>
               {file}
-            </span>
+            </Badge>
           ))}
         </div>
       ) : null}
-    </article>
+    </Card>
   );
 }

@@ -155,13 +155,20 @@ def upgrade() -> None:
     )
     # direct / range recovered from the repo's CURRENT dep index where the pair is
     # still there; scan_items never carried either.
+    #
+    # FALSE, not 0, for the missing-pair default (N-11). `direct` is sa.Boolean, and
+    # postgres refuses `COALESCE(boolean, integer)` outright — "DatatypeMismatch:
+    # COALESCE types boolean and integer cannot be matched" — which aborted this
+    # migration and therefore the entire chain on postgres. sqlite's dynamic typing
+    # accepted the 0 silently, so the defect was invisible on the tier that runs by
+    # default.
     op.execute(
         sa.text(
             """
             INSERT INTO audit_set_items (set_id, name, version, direct, range, cached)
             SELECT
                 si.scan_id, si.name, si.version,
-                COALESCE(d.direct, 0), d.range, si.cached
+                COALESCE(d.direct, FALSE), d.range, si.cached
             FROM scan_items AS si
             JOIN audit_sets AS a ON a.id = si.scan_id AND a.origin = 'repo_scan'
             LEFT JOIN repo_deps AS d

