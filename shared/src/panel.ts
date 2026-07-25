@@ -9,7 +9,7 @@ import { z } from "zod";
  */
 
 // INVARIANT: a WIRE schema expresses nullability as .nullable(), never
-// .optional() — see the same invariant on FocusArea in models.ts. events.py
+// .optional() — see the same invariant above FileVerdict in models.ts. events.py
 // dumps with exclude_none=False, so every Optional engine field arrives as an
 // explicit `null`, and .optional() accepts `undefined` but not `null`.
 //
@@ -495,10 +495,52 @@ export type BillingInstallationRequest = z.infer<typeof BillingInstallationReque
 
 // The default non-2xx body (~20 sites, 9 statuses). Branch on the HTTP status,
 // never on the message text.
+//
+// There is deliberately NO `code` field here, and that is a decision rather than
+// an omission. `code` in this system means `NpmGuardError.code` — a value that is
+// stable forever, that clients branch on, and that `test_error_taxonomy.py`
+// mechanically requires to have a producer. Adding it to the default body would
+// put a field on ~20 sites across 9 statuses that could only ever be null at every
+// one of them, which is the "declared value with no producer" defect this contract
+// has just finished deleting elsewhere. Where a code IS the answer, the shape is a
+// NAMED error body (`ReauthRequired`, `CapExceeded`, `ScanInFlight`,
+// `ValidationFailed` below) — one type per distinguishable failure, discriminated
+// structurally, so an exhaustive client handler is checkable.
 export const ApiErrorSchema = z.object({
   error: z.string(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+// One thing wrong with a request body. NpmGuard's own vocabulary, deliberately NOT
+// Pydantic's `ErrorDetails`: engine-side these are mapped down from
+// `ValidationError.errors()`, dropping `type` and `input`. Freezing Pydantic's
+// internal error shape onto the wire would make a library upgrade a breaking
+// contract change, and `input` echoes submitted values back out of a route that
+// also accepts payment proofs.
+export const ValidationIssueSchema = z.object({
+  // Dotted path to the offending field, `""` for the body root.
+  field: z.string(),
+  message: z.string(),
+});
+export type ValidationIssue = z.infer<typeof ValidationIssueSchema>;
+
+// 400 from every route that parses a request body through `api.py::_body`.
+//
+// This DECLARES a key the wire was already carrying: `_body` emitted `details`
+// against an `ApiError` schema that does not mention it. Zod strips unknown keys,
+// so nothing broke — which is exactly the failure mode worth closing, because a
+// consumer generated from the contract could not see the field while a consumer
+// hand-reading JSON could come to depend on it.
+//
+// INVARIANT: `details` is empty ⟺ the body was not parseable JSON at all. Pydantic
+// never reports a validation failure with zero issues, so an empty list can only
+// mean the parse never got as far as the schema — and a client can tell "your JSON
+// is malformed" from "your fields are wrong" without reading `error`'s prose.
+export const ValidationFailedSchema = z.object({
+  error: z.string(),
+  details: z.array(ValidationIssueSchema),
+});
+export type ValidationFailed = z.infer<typeof ValidationFailedSchema>;
 
 // 401 when the stored GitHub token no longer works. Distinct from a plain 401
 // because the fix is "restart the OAuth flow", not "show an error".

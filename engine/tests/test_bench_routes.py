@@ -1,8 +1,9 @@
 # CLASS MAP — bench.routes: read-only surfaces over stored runs (§5.3, G23)
 # (seam: the router mounted on a bare FastAPI app with a stub runtime carrying the
-#  real sessionmaker + StreamService over a throwaway sqlite. Mounted here rather
-#  than reached through api.py because registering it there is a patch to a file
-#  this agent does not own — the two include lines are in the handoff.)
+#  real sessionmaker + StreamService over a throwaway sqlite. Mounted directly
+#  rather than through `create_app` so a bench payload assertion cannot fail for a
+#  reason that lives in the panel's lifespan; the real registration — on both ""
+#  and "/api" — landed in api.py and is covered by test_api.py.)
 #
 #   C1  GET /bench/corpora is the contract's BenchCorporaResponse over the
 #       committed manifests
@@ -23,6 +24,11 @@
 #       makes "a bench run cannot bypass the capacity owner" structural
 #   C11 the coverage counts are present and NULL (never 0) while the artifact tier
 #       is unreachable, with the predicate version named
+#   C12 /metrics is the contract's BenchRunMetrics — key-set EQUALITY both ways, and
+#       the three pooling identifiers (engineSha, datasetVersion, manifestSha) travel
+#       inside the payload because it is meant to be read alone
+#   C13 an ALL-VOID run: every denominator is 0, so not one rate carries a point —
+#       "no corpus", never "0%" (N-14) — and the run is not publishable
 
 import json
 from dataclasses import dataclass
@@ -173,9 +179,9 @@ def test_corpora_is_the_contract_shape(client) -> None:
 
 
 def test_runs_carries_descriptors_and_no_rates(client) -> None:
-    """C2: the authored contract deliberately omits every rate "because the scoring
-    rule itself is UNRESOLVED (O-2)". O-2 is answered now, so the rates exist — in
-    /metrics, until the contract gains a shape for them."""
+    """C2: a run summary is its descriptors plus its set rollup. The rates live in
+    /metrics and are NOT inlined here — a list route that carried them would publish
+    scores for runs the reader never opened, including unpublishable ones."""
     test_client, run_id, corpus = client
     payload = test_client.get("/bench/runs").json()
     parsed = contract.BenchRunsResponse.model_validate(payload)
@@ -191,9 +197,11 @@ def test_runs_carries_descriptors_and_no_rates(client) -> None:
     # No derived field leaked into the summary: the payload's keys are exactly the
     # contract's, so a reader cannot mistake a descriptor bundle for a scorecard.
     assert set(payload["runs"][0]) == set(contract.BenchRun.model_fields)
-    # No LLM attempt was recorded, so there is no OBSERVED model — an empty
-    # identifier, never a configured one filled in to look complete.
-    assert run.modelId == ""
+    # No LLM attempt was recorded, so there is no OBSERVED model. NULL, not "" and
+    # never a configured model filled in to look complete: an empty string is the
+    # same zero-value stand-in that tokenCostUsd refuses two lines up.
+    assert run.observedModels == []
+    assert run.modelId is None
 
 
 def test_run_detail_is_the_contract_shape(client) -> None:
@@ -321,3 +329,105 @@ def test_coverage_counts_are_null_and_named(client) -> None:
     metrics = test_client.get(f"/bench/runs/{run_id}/metrics").json()
     assert metrics["coverage"] is None
     assert metrics["coveragePredicate"] == "bench-fidelity-1"
+
+
+def test_metrics_is_the_contract_shape(client) -> None:
+    """C12: G23's payload is a DECLARED shape now, not a hand-shaped dict.
+
+    Asserted as key-set EQUALITY against the generated model in both directions: a
+    metrics payload with an extra key would be a wire field the contract cannot
+    describe (the `details` defect, in a new place), and a missing one would be a tile
+    the page cannot draw. The route builds `contract.BenchRunMetrics` itself, so the
+    rate invariant fires in the ENGINE — this asserts the wire agrees.
+    """
+    test_client, run_id, corpus = client
+    payload = test_client.get(f"/bench/runs/{run_id}/metrics").json()
+    assert set(payload) == set(contract.BenchRunMetrics.model_fields)
+    parsed = contract.BenchRunMetrics.model_validate(payload)
+    assert parsed.runId == run_id
+    # The pooling identifiers travel INSIDE the payload, because it is meant to be
+    # read alone: an engineSha this payload does not name is an engineSha a reader can
+    # average across (B-13), and the corpus pair is here for the same reason.
+    assert parsed.engineSha == "cafe1234"
+    assert (parsed.datasetVersion, parsed.manifestSha) == (
+        corpus.dataset_version,
+        corpus.manifest_sha,
+    )
+    # No LLM attempt was recorded: an EMPTY observed list, never the configured model
+    # filled in to look complete.
+    assert parsed.observedModels == []
+    assert set(payload["ledger"][0]) == set(contract.BenchLedgerRow.model_fields)
+
+
+@pytest.fixture
+async def all_void(client, tmp_path):
+    """A second run over a second corpus in which every observation VOIDed —
+    `NPMGUARD-0020`, sandbox infrastructure, which says nothing about the tool.
+
+    Every entry is therefore UNOBSERVED, so every denominator in the projection is 0.
+    This is the empty-corpus case reached through the REAL route rather than by
+    hand-building a payload."""
+    test_client, _, _ = client
+    manifest = {
+        **CORPUS,
+        "name": "all-void",
+        "version": "2.0",
+        "datasetVersion": "2.0-all-void",
+    }
+    path = tmp_path / "dataset" / "all-void-2.0.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    corpus = corpus_module.load_manifest(path)
+    runtime = test_client.app.state.runtime
+    store = BenchRunStore(sessions=runtime.sessionmaker, stream=runtime.stream)
+    run_id = await store.create(
+        RunDescriptor(corpus.dataset_version, corpus.manifest_sha, "cafe1234", "sha256:img", 1),
+        corpus.id,
+    )
+    for entry in corpus.entries:
+        await store.record(
+            run_id,
+            Attempt(entry.fixture_name, 0, None, "Docker daemon not reachable", "NPMGUARD-0020"),
+        )
+    await store.finish(run_id)
+    return test_client, run_id
+
+
+def test_an_empty_denominator_renders_no_corpus_and_never_zero(all_void) -> None:
+    """C13: N-14, end to end. Not one rate in this payload carries a point estimate,
+    because not one of them has a denominator — and `0%` would be a claim about
+    detection where the truth is "nothing was observed". The contract makes the wrong
+    version unrepresentable: `n == 0` admits only the all-null member of `BenchRate`,
+    so the engine could not emit a 0% here even if the projector regressed.
+
+    The run is also NOT publishable: §4.5's gate refuses a run whose VOID share
+    exceeds 5% of attempted observations, and this one is 100%. A page must render the
+    exclusions INSTEAD of the rates (§9 rule 5), which is only possible because the
+    payload carries the causes by their stable error code.
+    """
+    test_client, run_id = all_void
+    metrics = contract.BenchRunMetrics.model_validate(
+        test_client.get(f"/bench/runs/{run_id}/metrics").json()
+    )
+    rates = [
+        metrics.detection.reliable,
+        metrics.detection.optimistic,
+        metrics.missRate,
+        metrics.abstentionRate,
+        metrics.specificity,
+        metrics.falseAlarmRate,
+        metrics.proofShare,
+        metrics.dealbreakerShare,
+        metrics.unanimity,
+    ]
+    for rate in rates:
+        assert (rate.k, rate.n) == (0, 0)
+        assert rate.point is None and rate.lower is None and rate.upper is None
+    assert metrics.attempted == 3 and metrics.voidCount == 3
+    assert metrics.voidShare == 1.0 and metrics.publishable is False
+    assert metrics.voidCauses == {"NPMGUARD-0020": 3}
+    assert metrics.unobservedEntries == 3
+    # The ledger still names every entry: F-G3 does not stop applying because the run
+    # failed, and a reader has to be able to see WHICH entries went unobserved.
+    assert [row.bucket for row in metrics.ledger] == ["UNOBSERVED"] * 3
+    assert all(row.outcomes == ["VOID"] for row in metrics.ledger)
+    assert all(row.auditIds == [None] for row in metrics.ledger)

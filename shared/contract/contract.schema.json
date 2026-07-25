@@ -159,22 +159,6 @@
       ],
       "title": "AppNotConfigured"
     },
-    "AttackPathway": {
-      "type": "string",
-      "enum": [
-        "DEP_INJECT_ENCRYPTED",
-        "LIFECYCLE_BINARY_DROP",
-        "MAINTAINER_SABOTAGE",
-        "GEO_GATED_WIPER",
-        "WORM_PROPAGATION",
-        "ACCOUNT_TAKEOVER_CRYPTO",
-        "CDN_DOM_DRAINER",
-        "MULTI_STAGE_DNS",
-        "TELEMETRY_RAT",
-        "BUILD_PLUGIN_EXFIL"
-      ],
-      "title": "AttackPathway"
-    },
     "AuditEnqueuedEvent": {
       "type": "object",
       "properties": {
@@ -673,6 +657,110 @@
       ],
       "title": "BenchCorpusSource"
     },
+    "BenchCoverage": {
+      "type": "object",
+      "properties": {
+        "describedEvents": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "renderedRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "anonymousRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fidelityDefects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "falseTargetEvents": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "falseTargetRows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "predicateVersion": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "describedEvents",
+        "renderedRows",
+        "anonymousRows",
+        "fidelityDefects",
+        "falseTargetEvents",
+        "falseTargetRows",
+        "predicateVersion"
+      ],
+      "title": "BenchCoverage"
+    },
+    "BenchDetectionBand": {
+      "type": "object",
+      "properties": {
+        "reliable": {
+          "$ref": "#/$defs/BenchRate"
+        },
+        "optimistic": {
+          "$ref": "#/$defs/BenchRate"
+        }
+      },
+      "required": [
+        "reliable",
+        "optimistic"
+      ],
+      "title": "BenchDetectionBand"
+    },
+    "BenchEmptyRate": {
+      "type": "object",
+      "properties": {
+        "k": {
+          "type": "number",
+          "const": 0
+        },
+        "n": {
+          "type": "number",
+          "const": 0
+        },
+        "point": {
+          "type": "null"
+        },
+        "lower": {
+          "type": "null"
+        },
+        "upper": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "k",
+        "n",
+        "point",
+        "lower",
+        "upper"
+      ],
+      "title": "BenchEmptyRate"
+    },
+    "BenchEntryBucket": {
+      "type": "string",
+      "enum": [
+        "UNOBSERVED",
+        "CAUGHT_ALWAYS",
+        "CAUGHT_SOMETIMES",
+        "MISSED_ALWAYS",
+        "ABSTAINED_ALWAYS",
+        "NEVER_CAUGHT_MIXED",
+        "CLEARED_ALWAYS",
+        "CLEARED_SOMETIMES",
+        "FALSE_ALARM_ALWAYS",
+        "MIXED"
+      ],
+      "title": "BenchEntryBucket"
+    },
     "BenchEntry": {
       "type": "object",
       "properties": {
@@ -729,6 +817,181 @@
         "sourceId"
       ],
       "title": "BenchEntry"
+    },
+    "BenchLatency": {
+      "type": "object",
+      "properties": {
+        "p50": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "p95": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "p99": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "p50",
+        "p95",
+        "p99"
+      ],
+      "title": "BenchLatency"
+    },
+    "BenchLedgerRow": {
+      "type": "object",
+      "properties": {
+        "fixtureName": {
+          "type": "string"
+        },
+        "packageName": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "discoveryDate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expectedVerdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchOutcome"
+          }
+        },
+        "bucket": {
+          "$ref": "#/$defs/BenchEntryBucket"
+        },
+        "auditIds": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "required": [
+        "fixtureName",
+        "packageName",
+        "version",
+        "category",
+        "discoveryDate",
+        "expectedVerdict",
+        "outcomes",
+        "bucket",
+        "auditIds"
+      ],
+      "title": "BenchLedgerRow"
+    },
+    "BenchMeasuredRate": {
+      "type": "object",
+      "properties": {
+        "k": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "n": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
+        },
+        "point": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lower": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "upper": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "k",
+        "n",
+        "point",
+        "lower",
+        "upper"
+      ],
+      "title": "BenchMeasuredRate"
+    },
+    "BenchObservedModel": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "model"
+      ],
+      "title": "BenchObservedModel"
+    },
+    "BenchOutcome": {
+      "type": "string",
+      "enum": [
+        "CAUGHT_PROVED",
+        "CAUGHT_STRUCTURAL",
+        "MISSED",
+        "CLEARED",
+        "FALSE_ALARM_PROVED",
+        "FALSE_ALARM_STRUCTURAL",
+        "ABSTAINED",
+        "VOID"
+      ],
+      "title": "BenchOutcome"
+    },
+    "BenchRate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BenchMeasuredRate"
+        },
+        {
+          "$ref": "#/$defs/BenchEmptyRate"
+        }
+      ],
+      "title": "BenchRate"
     },
     "BenchRunDetailResponse": {
       "type": "object",
@@ -844,6 +1107,178 @@
       ],
       "title": "BenchRunItem"
     },
+    "BenchRunMetrics": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "integer"
+        },
+        "engineSha": {
+          "type": "string"
+        },
+        "datasetVersion": {
+          "type": "string"
+        },
+        "manifestSha": {
+          "type": "string"
+        },
+        "observedModels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchObservedModel"
+          }
+        },
+        "runsPerEntry": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stabilityMeasured": {
+          "type": "boolean"
+        },
+        "publishable": {
+          "type": "boolean"
+        },
+        "detection": {
+          "$ref": "#/$defs/BenchDetectionBand"
+        },
+        "missRate": {
+          "$ref": "#/$defs/BenchRate"
+        },
+        "abstentionRate": {
+          "$ref": "#/$defs/BenchRate"
+        },
+        "neverCaughtMixed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "specificity": {
+          "$ref": "#/$defs/BenchRate"
+        },
+        "falseAlarmRate": {
+          "$ref": "#/$defs/BenchRate"
+        },
+        "proofShare": {
+          "$ref": "#/$defs/BenchRate"
+        },
+        "dealbreakerShare": {
+          "$ref": "#/$defs/BenchRate"
+        },
+        "attempted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "voidCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "voidShare": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "voidCauses": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "unobservedEntries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unanimity": {
+          "$ref": "#/$defs/BenchRate"
+        },
+        "flips": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "latencyMs": {
+          "$ref": "#/$defs/BenchLatency"
+        },
+        "tokensPrompt": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tokensCompletion": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tokenCostUsd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "coverage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BenchCoverage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "coveragePredicate": {
+          "type": "string"
+        },
+        "ledger": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchLedgerRow"
+          }
+        }
+      },
+      "required": [
+        "runId",
+        "engineSha",
+        "datasetVersion",
+        "manifestSha",
+        "observedModels",
+        "runsPerEntry",
+        "stabilityMeasured",
+        "publishable",
+        "detection",
+        "missRate",
+        "abstentionRate",
+        "neverCaughtMixed",
+        "specificity",
+        "falseAlarmRate",
+        "proofShare",
+        "dealbreakerShare",
+        "attempted",
+        "voidCount",
+        "voidShare",
+        "voidCauses",
+        "unobservedEntries",
+        "unanimity",
+        "flips",
+        "latencyMs",
+        "tokensPrompt",
+        "tokensCompletion",
+        "tokenCostUsd",
+        "coverage",
+        "coveragePredicate",
+        "ledger"
+      ],
+      "title": "BenchRunMetrics"
+    },
     "BenchRunRow": {
       "type": "object",
       "properties": {
@@ -894,8 +1329,17 @@
         "engineSha": {
           "type": "string"
         },
+        "observedModels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BenchObservedModel"
+          }
+        },
         "modelId": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sandboxImageDigest": {
           "type": "string"
@@ -919,6 +1363,7 @@
         "id",
         "corpusId",
         "engineSha",
+        "observedModels",
         "modelId",
         "sandboxImageDigest",
         "runsPerEntry",
@@ -1096,33 +1541,6 @@
       ],
       "title": "CapResource"
     },
-    "Capability": {
-      "type": "string",
-      "enum": [
-        "NETWORK",
-        "DATA_EXFILTRATION",
-        "DNS_EXFIL",
-        "DOM_INJECT",
-        "FILESYSTEM",
-        "BINARY_DOWNLOAD",
-        "PROCESS_SPAWN",
-        "ENV_VARS",
-        "CREDENTIAL_THEFT",
-        "EVAL",
-        "OBFUSCATION",
-        "ENCRYPTED_PAYLOAD",
-        "DOS_LOOP",
-        "ANTI_AI_PROMPT",
-        "GEO_GATING",
-        "LIFECYCLE_HOOK",
-        "WORM_PROPAGATION",
-        "CLIPBOARD_HIJACK",
-        "TELEMETRY_RAT",
-        "BUILD_PLUGIN_EXFIL",
-        "NPM_TOKEN_ABUSE"
-      ],
-      "title": "Capability"
-    },
     "ClaimKind": {
       "type": "string",
       "enum": [
@@ -1164,15 +1582,6 @@
         "kind"
       ],
       "title": "Claim"
-    },
-    "Confidence": {
-      "type": "string",
-      "enum": [
-        "SUSPECTED",
-        "LIKELY",
-        "CONFIRMED"
-      ],
-      "title": "Confidence"
     },
     "CorrelationConfidence": {
       "type": "string",
@@ -1695,64 +2104,6 @@
         "riskContribution"
       ],
       "title": "FileVerdict"
-    },
-    "Finding": {
-      "type": "object",
-      "properties": {
-        "capability": {
-          "type": "string",
-          "default": "UNKNOWN",
-          "description": "CapabilityEnum value, e.g. 'NETWORK'"
-        },
-        "confidence": {
-          "$ref": "#/$defs/Confidence",
-          "default": "SUSPECTED"
-        },
-        "fileLine": {
-          "type": "string",
-          "default": "",
-          "description": "e.g. 'lib/index.js:42-67'"
-        },
-        "problem": {
-          "type": "string",
-          "default": "",
-          "description": "Human-readable description of the threat"
-        },
-        "evidence": {
-          "type": "string",
-          "default": "",
-          "description": "Concrete data or observation"
-        },
-        "reproductionStrategy": {
-          "type": "string",
-          "default": "",
-          "description": "How to prove this in a reproducible test"
-        }
-      },
-      "title": "Finding"
-    },
-    "FocusArea": {
-      "type": "object",
-      "properties": {
-        "file": {
-          "type": "string"
-        },
-        "lines": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "reason": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "file",
-        "reason"
-      ],
-      "title": "FocusArea"
     },
     "FocusRange": {
       "type": "object",
@@ -2798,120 +3149,6 @@
       ],
       "title": "ProcessSpawn"
     },
-    "ProofKind": {
-      "type": "string",
-      "enum": [
-        "STRUCTURAL",
-        "AI_STATIC",
-        "AI_DYNAMIC",
-        "TEST_CONFIRMED",
-        "TEST_UNCONFIRMED"
-      ],
-      "title": "ProofKind"
-    },
-    "Proof": {
-      "type": "object",
-      "properties": {
-        "capability": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Capability"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "attackPathway": {
-          "type": "string",
-          "default": ""
-        },
-        "confidence": {
-          "$ref": "#/$defs/Confidence",
-          "default": "SUSPECTED"
-        },
-        "fileLine": {
-          "type": "string"
-        },
-        "problem": {
-          "type": "string"
-        },
-        "evidence": {
-          "type": "string"
-        },
-        "kind": {
-          "$ref": "#/$defs/ProofKind",
-          "default": "STRUCTURAL"
-        },
-        "contentHash": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "reproducible": {
-          "type": "boolean",
-          "default": false
-        },
-        "reproductionCmd": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "testFile": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "testHash": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "testCode": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "verifyError": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "reasoningHash": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "teeAttestationId": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "fileLine",
-        "problem",
-        "evidence"
-      ],
-      "title": "Proof"
-    },
     "PublicRepoScanDetailResponse": {
       "type": "object",
       "properties": {
@@ -3792,31 +4029,6 @@
       ],
       "title": "TriageProgressEvent"
     },
-    "TriageResult": {
-      "type": "object",
-      "properties": {
-        "riskScore": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 10
-        },
-        "riskSummary": {
-          "type": "string"
-        },
-        "focusAreas": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/FocusArea"
-          },
-          "default": []
-        }
-      },
-      "required": [
-        "riskScore",
-        "riskSummary"
-      ],
-      "title": "TriageResult"
-    },
     "TriggerKind": {
       "type": "string",
       "enum": [
@@ -3885,6 +4097,41 @@
         "remaining"
       ],
       "title": "UsageBucket"
+    },
+    "ValidationFailed": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          }
+        }
+      },
+      "required": [
+        "error",
+        "details"
+      ],
+      "title": "ValidationFailed"
+    },
+    "ValidationIssue": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "message"
+      ],
+      "title": "ValidationIssue"
     },
     "VerdictReachedEvent": {
       "type": "object",

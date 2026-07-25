@@ -35,6 +35,7 @@ from kit_stream import StreamService
 
 from .bench.routes import router as bench_router
 from .config import REPO_ROOT, Settings, get_settings
+from .contract.models import ValidationFailed, ValidationIssue
 from .demo import DemoService
 from .errors import NpmGuardError, QueueFullError
 from .events import sse_events
@@ -172,22 +173,55 @@ def _make_fetch_repo_deps(gh_client: GitHubAppClient):
     return fetch_repo_deps
 
 
+def _validation_failed(message: str, issues: list[ValidationIssue]) -> JSONResponse:
+    """The contract's ``ValidationFailed`` body, dumped with ``exclude_none=False``
+    like every other wire payload."""
+    body = ValidationFailed(error=message, details=issues)
+    return JSONResponse(body.model_dump(mode="json", exclude_none=False), status_code=400)
+
+
 async def _body[T: BaseModel](
     request: Request, model: type[T]
 ) -> tuple[T | None, JSONResponse | None]:
+    """Parse a request body, or the contract's 400.
+
+    The failure body is ``ValidationFailed`` — a DECLARED shape. It used to be an
+    undeclared ``details`` key alongside ``ApiError``'s ``error``, carrying
+    ``PydanticValidationError.errors()`` verbatim: a shape no schema described, that
+    a generated consumer could not see, and that pinned a third-party library's
+    internal error format to NpmGuard's wire. What a caller needs from a 400 — the
+    rule that failed and where — is kept; ``type`` and ``input`` are dropped, the
+    latter because it echoes submitted values back out of routes that also accept
+    payment proofs.
+
+    ``field`` is ``""`` for a rule declared about the whole body, which today is most
+    of them: ``validation.py`` enforces the package-name and semver rules in a
+    ``model_validator(mode="after")``, and pydantic reports those with an empty
+    ``loc``. That is unchanged from the raw ``details`` this replaced — the
+    information was never there — and it is ``message`` that distinguishes the causes
+    until those two rules become ``field_validator``s.
+
+    INVARIANT: ``details == []`` ⟺ the body was not parseable JSON. Pydantic never
+    reports a validation failure with zero issues, so the empty list is reachable
+    only from the branch above the schema — which is what lets a client tell
+    "malformed JSON" from "wrong fields" without reading ``error``'s prose.
+    """
     try:
         payload = await request.json()
     except Exception:
-        return None, JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        return None, _validation_failed("Invalid JSON body", [])
     try:
         return model.model_validate(payload), None
     except PydanticValidationError as exc:
-        return None, JSONResponse(
-            {
-                "error": "Invalid request",
-                "details": exc.errors(include_url=False, include_context=False),
-            },
-            status_code=400,
+        return None, _validation_failed(
+            "Invalid request",
+            [
+                ValidationIssue(
+                    field=".".join(str(part) for part in error["loc"]),
+                    message=error["msg"],
+                )
+                for error in exc.errors(include_url=False, include_context=False)
+            ],
         )
 
 

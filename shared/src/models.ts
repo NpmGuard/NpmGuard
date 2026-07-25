@@ -13,69 +13,27 @@ export const VerdictEnum = z.enum(["SAFE", "DANGEROUS"]);
 export const VerdictSchema = VerdictEnum;
 export type VerdictEnum = z.infer<typeof VerdictEnum>;
 
-export const CapabilityEnum = z.enum([
-  // Network / exfiltration
-  "NETWORK",
-  "DATA_EXFILTRATION",
-  "DNS_EXFIL",
-  "DOM_INJECT",
-  // Filesystem / OS
-  "FILESYSTEM",
-  "BINARY_DOWNLOAD",
-  "PROCESS_SPAWN",
-  // Credential & environment theft
-  "ENV_VARS",
-  "CREDENTIAL_THEFT",
-  // Code execution tricks
-  "EVAL",
-  "OBFUSCATION",
-  "ENCRYPTED_PAYLOAD",
-  // Availability
-  "DOS_LOOP",
-  // Anti-analysis
-  "ANTI_AI_PROMPT",
-  "GEO_GATING",
-  // Lifecycle abuse
-  "LIFECYCLE_HOOK",
-  // Supply-chain propagation
-  "WORM_PROPAGATION",
-  "CLIPBOARD_HIJACK",
-  "TELEMETRY_RAT",
-  "BUILD_PLUGIN_EXFIL",
-  "NPM_TOKEN_ABUSE",
-]);
-export const CapabilitySchema = CapabilityEnum;
-export type CapabilityEnum = z.infer<typeof CapabilityEnum>;
-
-export const Confidence = z.enum(["SUSPECTED", "LIKELY", "CONFIRMED"]);
-export const ConfidenceSchema = Confidence;
-export type Confidence = z.infer<typeof Confidence>;
-
-export const ProofKind = z.enum([
-  "STRUCTURAL",
-  "AI_STATIC",
-  "AI_DYNAMIC",
-  "TEST_CONFIRMED",
-  "TEST_UNCONFIRMED",
-]);
-export const ProofKindSchema = ProofKind;
-export type ProofKind = z.infer<typeof ProofKind>;
-
-export const AttackPathway = z.enum([
-  "DEP_INJECT_ENCRYPTED",
-  "LIFECYCLE_BINARY_DROP",
-  "MAINTAINER_SABOTAGE",
-  "GEO_GATED_WIPER",
-  "WORM_PROPAGATION",
-  "ACCOUNT_TAKEOVER_CRYPTO",
-  "CDN_DOM_DRAINER",
-  "MULTI_STAGE_DNS",
-  "TELEMETRY_RAT",
-  "BUILD_PLUGIN_EXFIL",
-]);
-export const AttackPathwaySchema = AttackPathway;
-export type AttackPathway = z.infer<typeof AttackPathway>;
-
+// DELETED, and this is the whole list so the next reader does not have to
+// re-derive it: `Finding`, `Proof`, `TriageResult` (zero producers and zero
+// readers repo-wide), `Confidence`, `ProofKind`, `Capability`, `FocusArea`
+// (referenced ONLY from inside that island — verified on the contract's own
+// `$ref` graph, where the seven formed a connected component with no external
+// edge), and `AttackPathway` (referenced by nothing at all, before or after).
+//
+// Falsified by an execution probe, not by a grep: the generated Pydantic classes
+// were popped off `npmguard.contract.models` and replaced with a module
+// `__getattr__` that raises — which fires for `from ... import X` as well as
+// `models.X` — and the whole engine suite was run. Zero hits. `cli/` does not
+// depend on `@npmguard/shared` at all, and `frontend/` had already deleted its
+// own `Capability` copy for the same reason.
+//
+// `ProofKind` was the last route by which the retired `TEST_CONFIRMED` string
+// reached `contract/models.py`; it now appears nowhere executable in the repo.
+//
+// `Capability`'s live twin is `phases.py`'s own `Capability = Literal[...]`,
+// which has readers. One vocabulary declared twice with one copy dead is the
+// defect; the better end state is `phases.py` importing the contract's copy, and
+// that edit is not available from here.
 export const Severity = z.enum(["info", "warn", "critical"]);
 export const SeveritySchema = Severity;
 export type Severity = z.infer<typeof Severity>;
@@ -88,26 +46,14 @@ export type Severity = z.infer<typeof Severity>;
 // .optional(). events.ts dumps payloads with exclude_none=False, so every
 // Optional engine field reaches the wire as an explicit `null` — and
 // z.string().optional() accepts `undefined`, not `null`, so .optional() here
-// makes parse() throw on real traffic.
-export const FocusArea = z.object({
-  file: z.string(),
-  lines: z.string().nullable().default(null),
-  reason: z.string(),
-});
-export const FocusAreaSchema = FocusArea;
-export type FocusArea = z.infer<typeof FocusArea>;
-
-export const TriageResult = z.object({
-  riskScore: z.number().int().min(0).max(10),
-  riskSummary: z.string(),
-  focusAreas: z.array(FocusArea).default([]),
-});
-export const TriageResultSchema = TriageResult;
-export type TriageResult = z.infer<typeof TriageResult>;
+// makes parse() throw on real traffic. (This comment used to sit on `FocusArea`,
+// which was deleted with the `TriageResult` island; several files cite it by
+// name, so it now names `FileVerdict.suspiciousLines` instead — the same rule
+// with a field that still has a producer.)
 
 // Built by the engine (pipeline.py) for the file_verdict SSE frame — NOT an LLM
-// output schema. See the WIRE nullability invariant on FocusArea above:
-// suspiciousLines is `null` for every clean file, so .optional() would throw.
+// output schema. See the WIRE nullability invariant above: suspiciousLines is
+// `null` for every clean file, so .optional() would throw.
 export const FileVerdict = z.object({
   file: z.string(),
   capabilities: z.array(z.string()).default([]),
@@ -129,45 +75,13 @@ export const FileSummary = z.object({
 export const FileSummarySchema = FileSummary;
 export type FileSummary = z.infer<typeof FileSummary>;
 
-export const Finding = z.object({
-  // Defaults are friendly to non-deterministic LLM outputs (MiniMax sometimes
-  // omits a field). The triage/investigation outputs are still meaningful even
-  // when one descriptive field is empty — better than failing the whole audit.
-  capability: z.string().default("UNKNOWN").describe("CapabilityEnum value, e.g. 'NETWORK'"),
-  confidence: Confidence.default("SUSPECTED"),
-  fileLine: z.string().default("").describe("e.g. 'lib/index.js:42-67'"),
-  problem: z.string().default("").describe("Human-readable description of the threat"),
-  evidence: z.string().default("").describe("Concrete data or observation"),
-  reproductionStrategy: z.string().default("").describe("How to prove this in a reproducible test"),
-});
-export const FindingSchema = Finding;
-export type Finding = z.infer<typeof Finding>;
-
-export const Proof = z.object({
-  capability: CapabilityEnum.nullable().default(null),
-  attackPathway: z.string().default(""),
-  confidence: Confidence.default("SUSPECTED"),
-
-  fileLine: z.string(),
-  problem: z.string(),
-  evidence: z.string(),
-
-  kind: ProofKind.default("STRUCTURAL"),
-  contentHash: z.string().nullable().default(null),
-
-  reproducible: z.boolean().default(false),
-  reproductionCmd: z.string().nullable().default(null),
-
-  testFile: z.string().nullable().default(null),
-  testHash: z.string().nullable().default(null),
-  testCode: z.string().nullable().default(null),
-  verifyError: z.string().nullable().default(null),
-
-  reasoningHash: z.string().nullable().default(null),
-  teeAttestationId: z.string().nullable().default(null),
-});
-export const ProofSchema = Proof;
-export type Proof = z.infer<typeof Proof>;
+// DELETED: `Finding` and `Proof`. Residue of the v1 pipeline's `investigate` /
+// `test-gen` / `verify` phases, which no longer exist — the graph's `Hypothesis`
+// is the one type, and dynamic proof is a content-addressed `RunArtifact`
+// citation (`evidence.ts`), not a free-form `evidence` string with a self-reported
+// `confidence`. Deleted rather than kept "in case": a declared wire value with no
+// producer forces every exhaustive consumer table to carry an arm no engine can
+// ever fill, which is the same rule `errors.py` applies to error codes.
 
 export const FileRecord = z.object({
   path: z.string(),
