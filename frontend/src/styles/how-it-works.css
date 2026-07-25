@@ -1,10 +1,39 @@
 /* =============================================================================
    /how-it-works — the static explainer surface.
 
-   Owned by pages/HowItWorks.tsx. Every class is `hiw-`-prefixed: this sheet
-   loads alongside the unlayered legacy sheets, which already own generic names
-   (.card, .chip, .stamp, .term…), and a collision here would repaint pages this
-   file has never heard of.
+   ── WHY THIS SHEET SURVIVED WHEN THE OTHER SEVEN DID NOT ───────────────────
+
+   R-5b deleted every page sheet in `styles/`: audit, report, landing, registry,
+   pay, cli and base. This one is deliberately kept, and the distinction is not
+   "it was too big to do".
+
+   R-6's finding was that eight page sheets RE-DERIVING LAYOUT is the CSS
+   analogue of the god store — each one rebuilding the buttons, cards and pills
+   the design system already owns, so the cost of a new surface grew with the
+   surface count. This sheet does not do that. It is already authored entirely
+   on the `--ng-*` token layer (no raw hex, no local token block), and what it
+   describes is one narrative that exists exactly once: a hero exhibit, a heist
+   diagram, a wire, a shell, a scroll rail and its pod. Nothing else composes
+   any of it, and pushing it through `ui/` would mean inventing nine components
+   with one call site each — which is the abstraction the brief warns against
+   more than the repetition is.
+
+   What DID get deleted from here, in R-5b, is the part that was re-derivation:
+   `.hiw-btn`, `.hiw-stamp` and `.hiw-chip` rebuilt `Button`, `VerdictStamp` and
+   `Badge`. The stamp mattered most — it was a colour-and-word skin with no
+   glyph, on the one page whose job is teaching the verdict vocabulary, and it
+   duplicated the three semantic skins so they could drift from the product's.
+   The page now renders the REAL components, which is also better pedagogy: a
+   reader sees the exact artifact they will meet in the app, glyph and all.
+
+   So the rule this sheet is the exception to, stated precisely: a surface may
+   own a stylesheet for what is genuinely singular about it, and may never own
+   one for what the design system already provides.
+
+   Every class is `hiw-`-prefixed, which mattered while the legacy sheets owned
+   generic names (.card, .chip, .stamp, .term…). Those are gone; the prefix
+   stays because it is still the clearest signal that these rules belong to one
+   page and nothing may reach for them.
 
    Colour, spacing, radii, motion and type all come from the `--ng-*`
    primitives in tokens.css. There is no raw hex below and no local token block
@@ -109,124 +138,6 @@
 
 /* --- Buttons ------------------------------------------------------------- */
 
-.hiw-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  gap: var(--ng-space-2);
-  height: var(--ng-h-control-lg); padding-inline: var(--ng-space-6);
-  border-radius: var(--radius-md);
-  border: var(--ng-border-hairline) solid var(--ng-border-control);
-  background: var(--ng-surface); color: var(--ng-text);
-  font-size: var(--text-md); font-weight: 500; white-space: nowrap;
-  transition:
-    background var(--ng-dur-fast) var(--ng-ease-std),
-    border-color var(--ng-dur-fast) var(--ng-ease-std),
-    transform var(--ng-dur-press) var(--ng-ease-std);
-}
-.hiw-btn:hover { background: var(--ng-sunken); }
-.hiw-btn:active { transform: translateY(1px); }
-/* Focus comes from .ng-root — never restate the ring. */
-.hiw-btn--primary {
-  background: var(--ng-text); color: var(--ng-canvas); border-color: var(--ng-text);
-}
-.hiw-btn--primary:hover { background: var(--ng-text-2); border-color: var(--ng-text-2); }
-
-/* --- Hero ---------------------------------------------------------------- */
-
-.hiw-hero { padding-block: var(--ng-space-16) var(--ng-space-20); position: relative; }
-@media (min-width: 768px) { .hiw-hero { padding-block: var(--ng-space-20) var(--ng-space-24); } }
-.hiw-hero__grid { display: grid; gap: var(--ng-space-12); align-items: center; }
-@media (min-width: 1024px) {
-  .hiw-hero__grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
-    gap: var(--ng-space-16);
-  }
-}
-.hiw-hero__lead { margin-top: var(--ng-space-6); }
-.hiw-hero__cta { margin-top: var(--ng-space-8); display: flex; flex-wrap: wrap; gap: var(--ng-space-3); }
-
-.hiw-cue {
-  position: absolute; left: 50%; bottom: var(--ng-space-8);
-  width: 1px; height: 40px; background: var(--ng-border); overflow: hidden;
-}
-.hiw-cue span { display: block; width: 100%; height: 14px; background: var(--ng-text-3); }
-@media (max-width: 1023px) { .hiw-cue { display: none; } }
-
-/* --- The exhibit (one real audit, replayed) ------------------------------ */
-
-.hiw-exhibit {
-  border: var(--ng-border-hairline) solid var(--ng-border);
-  border-radius: var(--radius-lg);
-  background: var(--ng-surface);
-  box-shadow: var(--ng-shadow-pop);
-  overflow: hidden;
-}
-.hiw-exhibit__bar {
-  display: flex; align-items: center; gap: var(--ng-space-3);
-  padding: var(--ng-space-3) var(--ng-space-4);
-  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
-  background: var(--ng-sunken);
-  font-family: var(--ng-font-mono); font-size: var(--text-xs); color: var(--ng-text-3);
-}
-.hiw-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ng-border-strong); flex: none; }
-.hiw-exhibit__body { padding: var(--ng-space-4); }
-.hiw-replay {
-  margin-inline-start: auto;
-  color: var(--ng-text-3);
-  font-family: var(--ng-font-mono); font-size: var(--text-xs);
-  padding: var(--ng-space-1) var(--ng-space-2); border-radius: var(--radius-xs);
-}
-.hiw-replay:hover { color: var(--ng-text); background: var(--ng-border-faint); }
-
-.hiw-step {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--ng-space-3);
-  padding-block: var(--ng-space-3);
-  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
-}
-.hiw-step:last-child { border-bottom: 0; padding-bottom: 0; }
-.hiw-step__n {
-  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
-  color: var(--ng-text-3); padding-top: 3px;
-}
-.hiw-step__label {
-  font-size: var(--text-xs); color: var(--ng-text-3);
-  text-transform: uppercase; letter-spacing: 0.08em;
-}
-.hiw-step__val {
-  font-family: var(--ng-font-mono); font-size: var(--text-sm);
-  margin-top: 2px; word-break: break-word;
-}
-.hiw-step__val em { font-style: normal; color: var(--ng-danger-text); }
-.hiw-step__val--verdict {
-  display: flex; align-items: center; gap: var(--ng-space-3);
-  flex-wrap: wrap; margin-top: var(--ng-space-2);
-}
-.hiw-step__cited { color: var(--ng-text-3); font-size: var(--text-xs); }
-.hiw-cite { color: var(--ng-accent-text); }
-
-.hiw-evlist { display: grid; gap: 2px; margin-top: var(--ng-space-2); }
-.hiw-ev {
-  display: grid; grid-template-columns: 30px 42px minmax(0, 1fr); gap: var(--ng-space-2);
-  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
-  color: var(--ng-text-2);
-  padding: 2px var(--ng-space-2); border-radius: var(--radius-xs);
-}
-.hiw-ev__id, .hiw-ev__tag { color: var(--ng-text-3); }
-.hiw-ev.is-cited { background: var(--ng-accent-wash); color: var(--ng-accent-text); }
-.hiw-ev.is-cited .hiw-ev__id { color: var(--ng-accent-text); font-weight: 500; }
-
-/* --- Verdict stamps ------------------------------------------------------ */
-
-.hiw-stamp {
-  display: inline-flex; align-items: center;
-  border-radius: var(--radius-sm);          /* a stamp, not a pill (§2.8) */
-  border: var(--ng-border-hairline) solid;
-  padding: var(--ng-space-1) var(--ng-space-3);
-  font-family: var(--ng-font-mono); font-size: var(--text-xs);
-  letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500;
-}
-.hiw-stamp--danger { color: var(--ng-danger-text); border-color: var(--ng-danger-border); background: var(--ng-danger-wash); }
-.hiw-stamp--safe   { color: var(--ng-safe-text);   border-color: var(--ng-safe-border);   background: var(--ng-safe-wash); }
-.hiw-stamp--error  { color: var(--ng-error-text);  border-color: var(--ng-error-border);  background: var(--ng-error-wash); }
 
 /* --- Act 1: the theft ---------------------------------------------------- */
 
@@ -381,42 +292,6 @@
 }
 .hiw-filerow__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
-.hiw-chip {
-  display: inline-flex; align-items: center;
-  border: var(--ng-border-hairline) solid var(--ng-border);
-  background: var(--ng-surface);
-  border-radius: var(--radius-sm);
-  padding: var(--ng-space-1) var(--ng-space-2);
-  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
-  color: var(--ng-text-2); white-space: nowrap;
-}
-.hiw-chip--warn { border-color: var(--ng-danger-border); color: var(--ng-danger-text); background: var(--ng-danger-wash); }
-.hiw-chip--ok   { border-color: var(--ng-safe-border);   color: var(--ng-safe-text);   background: var(--ng-safe-wash); }
-.hiw-chip--info { border-color: var(--ng-accent-border); color: var(--ng-accent-text); background: var(--ng-accent-wash); }
-
-/* station 02 */
-.hiw-pbox {
-  border: var(--ng-border-hairline) solid var(--ng-border-faint);
-  border-radius: var(--radius-sm);
-  background: var(--ng-sunken);
-  padding: var(--ng-space-3);
-}
-.hiw-pbox--out { border-color: var(--ng-border-control); background: var(--ng-surface); }
-.hiw-pbox__k {
-  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
-  color: var(--ng-text-3); text-transform: uppercase; letter-spacing: 0.1em;
-  margin-bottom: var(--ng-space-2);
-}
-.hiw-pbox p {
-  font-family: var(--ng-font-mono); font-size: var(--text-xs);
-  line-height: 1.6; color: var(--ng-text-3);
-}
-.hiw-pbox--out p { color: var(--ng-text); }
-.hiw-typeline { min-height: 2.6em; }
-.hiw-caret {
-  display: inline-block; width: 7px; height: 1em;
-  background: var(--ng-accent); vertical-align: -0.16em; margin-left: 1px;
-}
 .hiw-chiprow { margin-top: var(--ng-space-3); }
 
 /* station 03 */

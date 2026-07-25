@@ -8,8 +8,21 @@
  * Route is `/package/*` (splat) so scoped names keep their slash: the package
  * name is parsed off location.pathname, the version off the ?version= query.
  *
- * Tri-state gate (patterns-synthesis §1.3 + §3):
- *   loading → .spinner   ·   404 → honest .empty-state   ·   error → .banner--danger
+ * ── PRESENTATION: what the recomposition onto the token layer changed ───────
+ *
+ * The four-state gate is now `LoadState` + the `ui/` primitives, and the two
+ * differences that matter are the ones the old shape could not express:
+ *
+ * 1. `missing` (404) and `error` (anything else) were both hand-built boxes and
+ *    only ONE of them is an emptiness. A package with no report is a successful
+ *    read that found nothing — `EmptyState`, achromatic, with the action that
+ *    fixes it. A failed read is `DegradedSurface`, violet and named. They now
+ *    look nothing like each other, which is the §3.4 requirement.
+ * 2. That failed read rendered `banner--danger` — red, for a report we could not
+ *    fetch. §0 rule 3 reserves red for claims about the package.
+ *
+ * The header keeps `package@version` and the verdict stamp; `ReportView` used to
+ * repeat both two lines below and no longer does.
  */
 
 import { useEffect, useState } from "react";
@@ -17,15 +30,28 @@ import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../lib/api-base.ts";
 import { fetchPackageReport } from "../lib/api.ts";
 import type { PackageReportResponse } from "@npmguard/shared";
-import { verdictTone } from "../lib/report-helpers.ts";
 import { useAuditStore } from "../stores/auditStore.ts";
 import { ReportView } from "../components/report/ReportView.tsx";
+import { PanelPage } from "../components/panel/layout.tsx";
+import { Button } from "../components/ui/button.tsx";
+import { DegradedSurface } from "../components/ui/degraded-state.tsx";
+import { EmptyState } from "../components/ui/empty-state.tsx";
+import { failed, loaded, type LoadState } from "../components/ui/load-state.ts";
+import { Skeleton } from "../components/ui/skeleton.tsx";
+import { VerdictStamp } from "../components/ui/verdict-stamp.tsx";
+import { PackageSearch } from "lucide-react";
 
-type State =
-  | { kind: "loading" }
-  | { kind: "missing" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; data: PackageReportResponse };
+/** A 404 is a SUCCESSFUL read whose answer is "there is no report" — an
+ * emptiness, not a failure — so it lives inside the `ok` arm as `null` rather
+ * than beside the union as a fourth kind.
+ *
+ * That is not a modelling nicety. `EmptyState` needs a `ReadSucceeded` token,
+ * and the only honest mint is `loaded(data)`. Modelling `missing` outside the
+ * union would have forced a hand-rolled token here — a forgeable one, which is
+ * precisely the weakening `load-state.ts` exists to make impossible. Putting the
+ * emptiness where it belongs means the token is the real one: we DID read the
+ * engine, and it said none. */
+type Report = PackageReportResponse | null;
 
 /** The route is `/package/*` (splat) so scoped names keep their slash. */
 function nameFromPath(pathname: string): string {
@@ -38,18 +64,32 @@ export function PackageLookup() {
   const startAudit = useAuditStore((s) => s.startAudit);
   const name = nameFromPath(location.pathname);
   const version = new URLSearchParams(location.search).get("version") ?? undefined;
-  const [state, setState] = useState<State>({ kind: "loading" });
+  const [state, setState] = useState<LoadState<Report>>({ status: "loading" });
 
   useEffect(() => {
     let live = true;
-    setState({ kind: "loading" });
-    void fetchPackageReport(name, version)
-      .then((data) => live && setState({ kind: "ready", data }))
-      .catch((err) => {
-        if (!live) return;
-        if (err instanceof ApiError && err.status === 404) setState({ kind: "missing" });
-        else setState({ kind: "error", message: err instanceof Error ? err.message : "Failed" });
-      });
+    const load = () => {
+      setState({ status: "loading" });
+      void fetchPackageReport(name, version)
+        .then((data) => live && setState(loaded<Report>(data)))
+        .catch((err) => {
+          if (!live) return;
+          // A 404 is an answer, not a failure: `loaded(null)`, so the empty
+          // state downstream carries a token we genuinely earned.
+          if (err instanceof ApiError && err.status === 404) {
+            setState(loaded<Report>(null));
+            return;
+          }
+          setState(
+            failed({
+              what: "Audit report",
+              detail: err instanceof Error ? err.message : undefined,
+              retry: load,
+            }),
+          );
+        });
+    };
+    load();
     return () => {
       live = false;
     };
@@ -76,73 +116,70 @@ export function PackageLookup() {
     }
   }
 
-  if (state.kind === "loading") {
+  if (state.status === "loading") {
     return (
-      <div className="page__inner">
-        <div className="empty-state" role="status">
-          <span className="spinner" aria-hidden="true" />
-          <p className="subtext">
-            Loading the report for <span className="mono">{name}</span>…
-          </p>
+      <PanelPage>
+        <div aria-busy="true" className="grid gap-3">
+          <span className="sr-only">Loading the report for {name}</span>
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-40 w-full rounded-lg" />
         </div>
-      </div>
+      </PanelPage>
     );
   }
 
-  if (state.kind === "missing") {
+  if (state.status === "failed") {
     return (
-      <div className="page__inner">
-        <div className="empty-state">
-          <p>
-            No audit report for <span className="mono">{name}</span> yet.
-          </p>
-          <button
-            type="button"
-            className="btn btn--dark"
-            aria-label={`audit ${name}`}
-            onClick={() => void reaudit()}
-          >
-            Audit this package
-          </button>
-        </div>
-      </div>
+      <PanelPage>
+        <DegradedSurface
+          failure={state.failure}
+          escape={{ label: "Browse audited packages", href: "/packages" }}
+        />
+      </PanelPage>
     );
   }
 
-  if (state.kind === "error") {
+  if (state.data === null) {
     return (
-      <div className="page__inner">
-        <div className="banner banner--danger" role="alert">
-          {state.message}
-        </div>
-      </div>
+      <PanelPage>
+        <EmptyState
+          read={state.read}
+          icon={PackageSearch}
+          message={`No audit report for ${name} yet.`}
+          hint="Nothing has been audited under this name and version. Running one takes a few minutes."
+          action={
+            <Button aria-label={`audit ${name}`} onClick={() => void reaudit()}>
+              Audit this package
+            </Button>
+          }
+        />
+      </PanelPage>
     );
   }
 
   const { report, packageName, version: reportVersion } = state.data;
-  const tone = verdictTone(report.verdict);
 
   return (
-    <div className="page__inner fade-up" style={{ display: "grid", gap: 20 }}>
-      <header
-        style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}
-      >
-        <span className="mono headline headline--sm" style={{ marginRight: "auto" }}>
+    <PanelPage>
+      <header className="flex flex-wrap items-center gap-3">
+        <span className="me-auto min-w-0 font-mono text-lg font-semibold break-all text-text">
           {packageName}
-          <span className="microtext"> @{reportVersion}</span>
+          <span className="text-text-3">@{reportVersion}</span>
         </span>
-        <span className={`pill pill--${tone}`}>{report.verdict}</span>
-        <button
-          type="button"
-          className="btn btn--sm"
+        <VerdictStamp outcome={report.verdict} />
+        <Button
+          variant="outline"
+          size="sm"
           aria-label={`re-audit ${packageName}`}
           onClick={() => void reaudit()}
         >
           Re-audit
-        </button>
+        </Button>
       </header>
 
-      <ReportView report={report} packageName={packageName} version={reportVersion} variant="full" />
-    </div>
+      <div className="mt-5">
+        <ReportView report={report} variant="full" />
+      </div>
+    </PanelPage>
   );
 }

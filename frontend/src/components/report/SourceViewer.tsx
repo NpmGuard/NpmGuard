@@ -80,22 +80,25 @@ export function SourceViewer({ code, filename, loading, highlightLines }: Source
   }, [highlightLines]);
 
   return (
-    <div className="report-source">
+    <div className="overflow-hidden rounded-md border border-border bg-sunken">
       {filename ? (
-        <div className="report-source__head">
-          <span className="eyebrow eyebrow--faint mono">{filename}</span>
+        <div className="border-b border-border-faint px-3 py-1.5">
+          <span className="font-mono text-2xs tracking-wide text-text-3">{filename}</span>
         </div>
       ) : null}
 
       {loading ? (
-        <div className="report-source__state" role="status">
-          <span className="spinner" aria-hidden="true" />
-          <span className="microtext">Loading source…</span>
+        <div aria-busy="true" role="status" className="px-3 py-6 text-center">
+          <span className="text-2xs text-text-3">Loading source…</span>
         </div>
       ) : code == null || code === "" ? (
-        <div className="report-source__state">
-          <span className="report-source__dash">—</span>
-          <span className="microtext">No source available</span>
+        <div className="flex items-center justify-center gap-2 px-3 py-6">
+          {/* An em-dash, never an empty box: "we have no source for this file"
+              is a fact, and a blank panel says nothing at all. */}
+          <span aria-hidden="true" className="font-mono text-text-3">
+            —
+          </span>
+          <span className="text-2xs text-text-3">No source available</span>
         </div>
       ) : (
         <CodeMirror

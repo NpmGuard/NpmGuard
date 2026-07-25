@@ -1,16 +1,30 @@
 /**
  * VerdictReveal — the terminal card. On verdict it renders the shared compact
  * ReportView from the hydrated schemaVersion-2 report; before that report lands
- * it falls back to a fold-derived summary (verdict pill + rationale + counts).
- * On audit_error it renders a danger banner (role="alert") with the code and a
- * retry button when the error is retryable. Audit failure is an ERROR — never a
- * SAFE verdict. Staged motion/react entrance, respecting prefers-reduced-motion.
+ * it falls back to a fold-derived summary. Staged motion entrance, respecting
+ * prefers-reduced-motion.
+ *
+ * ★ THE ERROR ARM WAS RED, AND THAT WAS THE WORST COLOUR BUG IN THE APP.
+ *
+ * An `audit_error` rendered `banner--danger` with a `btn--danger` retry: full
+ * alarm red, the same red a CONFIRMED malicious finding wears. The file's own
+ * docblock said "Audit failure is an ERROR — never a SAFE verdict", and it was
+ * right about the direction it checked and wrong about the other one. A user
+ * whose audit crashed saw the product's danger colour and reasonably concluded
+ * the PACKAGE was dangerous. That is a false positive manufactured by a
+ * stylesheet.
+ *
+ * ERROR is the `error` violet slot, shared with `DegradedState` and with a
+ * DEFERRED hypothesis, because all three mean the same thing: we don't know.
+ * §0 rule 3 reserves red for claims about a package, and "our sandbox would not
+ * start" is not one.
  */
 
 import { motion, useReducedMotion } from "motion/react";
 import { useAuditStore } from "../../stores/auditStore.ts";
 import { ReportView } from "../report/ReportView.tsx";
 import { VerdictSummary } from "../report/VerdictSummary.tsx";
+import { DegradedRegion } from "../ui/degraded-state.tsx";
 
 export function VerdictReveal() {
   const verdict = useAuditStore((s) => s.verdict);
@@ -38,32 +52,30 @@ export function VerdictReveal() {
 
   if (error) {
     return (
-      <motion.div className="audit-verdict" {...motionProps}>
-        <div className="banner banner--danger audit-verdict__error" role="alert">
-          <div className="audit-verdict__error-body">
-            <span className="eyebrow eyebrow--danger">Audit failed</span>
-            <span>{error}</span>
-            {errorCode ? <span className="mono microtext audit-verdict__code">{errorCode}</span> : null}
-          </div>
-          {errorRetryable ? (
-            <button
-              type="button"
-              className="btn btn--sm btn--danger audit-verdict__retry"
-              onClick={() => void startAudit(packageName, version || undefined)}
-              aria-label={`retry audit of ${packageName}`}
-            >
-              Retry
-            </button>
-          ) : null}
-        </div>
+      <motion.div className="mt-4" {...motionProps}>
+        {/* `DegradedRegion` rather than a hand-built banner: it is already the
+            component that names a failure, refuses to render without naming it,
+            wears the violet hatch, and carries retry only when retrying is
+            meaningful. A second implementation of that here would be a second
+            place for the red to come back. */}
+        <DegradedRegion
+          title="Audit"
+          failure={{
+            what: "This audit",
+            detail: [error, errorCode].filter(Boolean).join(" · ") || undefined,
+            retry: errorRetryable
+              ? () => void startAudit(packageName, version || undefined)
+              : undefined,
+          }}
+        />
       </motion.div>
     );
   }
 
   return (
-    <motion.div className="audit-verdict" {...motionProps}>
+    <motion.div className="mt-4" {...motionProps}>
       {report ? (
-        <ReportView report={report} packageName={packageName} version={version} variant="compact" />
+        <ReportView report={report} variant="compact" />
       ) : verdict ? (
         // Report not yet hydrated — an honest fold-derived summary. counts is
         // present with verdict_reached; guard defensively.
