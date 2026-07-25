@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,7 @@ from kit_stream import StreamService
 
 from .bench.routes import router as bench_router
 from .config import REPO_ROOT, Settings, get_settings
-from .contract.models import ValidationFailed, ValidationIssue
+from .contract.models import ReplayEntry, ReplayGalleryResponse, ValidationFailed, ValidationIssue
 from .demo import DemoService
 from .errors import NpmGuardError, QueueFullError
 from .events import sse_events
@@ -75,7 +76,13 @@ from .payments import (
 )
 from .persistence import AuditSession, AuditSessionStore
 from .pipeline import AuditPipeline
-from .report_store import list_reports, load_report
+from .report_store import (
+    REPORT_VERDICTS,
+    extract_report_version,
+    list_reports,
+    load_report,
+    public_package,
+)
 from .resolve import resolve_tarball_url
 from .service import AuditService
 from .validation import (
@@ -628,6 +635,53 @@ async def demo_start(request: Request) -> JSONResponse:
         return JSONResponse(await _runtime(request).demos.start(package_name))
     except KeyError as exc:
         return JSONResponse({"error": exc.args[0]}, status_code=404)
+
+
+def _replay_entry(session: AuditSession) -> ReplayEntry | None:
+    """One finished audit as a gallery card, or None if it does not belong on one.
+
+    Every value is read back off the row and its stored report. Nothing here is
+    authored, so the gallery cannot describe a run differently from how it went.
+
+    Two rejections, both silent because neither is a failure to report: a fixture
+    package name is not a product exhibit, and a verdict outside the contract's
+    domain is the same foreign report `report_store._in_domain` refuses to hand
+    out (`data/reports/` is shared byte-for-byte with a lineage that writes a
+    4-state classification into that field).
+    """
+    assert session.report is not None, f"replayable() yielded {session.audit_id} with no report"
+    if not public_package(session.package_name):
+        return None
+    verdict = session.report.get("verdict")
+    if verdict not in REPORT_VERDICTS:
+        log.warning(
+            "ignoring replay outside the verdict domain",
+            audit_id=session.audit_id,
+            verdict=verdict,
+        )
+        return None
+    started = datetime.fromisoformat(session.created_at)
+    finished = datetime.fromisoformat(session.updated_at)
+    return ReplayEntry(
+        auditId=session.audit_id,
+        packageName=session.package_name,
+        version=extract_report_version(session.report) or session.requested_version,
+        verdict=verdict,
+        durationMs=max(0, round((finished - started).total_seconds() * 1000)),
+        recordedAt=session.created_at,
+    )
+
+
+@router.get("/replays")
+async def replays(request: Request) -> JSONResponse:
+    """The replay gallery. Each row's `auditId` is its permalink: /audit/{id} rebuilds
+    the whole run from the durable event log, so there is nothing to record and no
+    second renderer."""
+    sessions = await _runtime(request).sessions.replayable()
+    entries = [entry for entry in map(_replay_entry, sessions) if entry is not None]
+    return JSONResponse(
+        ReplayGalleryResponse(replays=entries).model_dump(mode="json", exclude_none=False)
+    )
 
 
 @router.get("/packages")
