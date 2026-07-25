@@ -33,6 +33,7 @@ from kit_spine import (
 from kit_spine.db import metadata
 from kit_stream import StreamService
 
+from .bench.routes import router as bench_router
 from .config import REPO_ROOT, Settings, get_settings
 from .demo import DemoService
 from .errors import NpmGuardError, QueueFullError
@@ -893,6 +894,11 @@ def create_app() -> FastAPI:
     app.include_router(panel_public_repos_router, prefix="/api")
     app.include_router(panel_billing_router)
     app.include_router(panel_billing_router, prefix="/api")
+    # Bench read surfaces, unconditional and ungated: bench is not a panel
+    # feature, and runtime.sessionmaker is populated whether or not the GitHub
+    # App is on. Without this the routes exist and answer nothing.
+    app.include_router(bench_router)
+    app.include_router(bench_router, prefix="/api")
 
     frontend = REPO_ROOT / "frontend" / "dist"
     assets = frontend / "assets"
