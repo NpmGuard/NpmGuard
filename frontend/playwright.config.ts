@@ -118,6 +118,27 @@ export default defineConfig({
         // to: the APP, not the engine, so the browser ends up on /dashboard with
         // its session cookie on the origin it will make requests from.
         NPMGUARD_PANEL_BASE_URL: `http://localhost:${WEB_PORT}`,
+        // ── hermeticity: blank the knobs a developer's engine/.env may set ──
+        //
+        // `Settings` declares `env_file=(REPO_ROOT/.env, cwd/.env)` and this
+        // engine runs with cwd=engine/, so a developer's dotenv IS a config
+        // source for anything the block above leaves unset — real Stripe keys
+        // and a real chain would silently turn S6's "no payment method is
+        // configured" from a proven gate into an accident of whose machine ran
+        // it. Real env vars outrank the dotenv, and an empty string is a real
+        // env var, which is the same defence `EngineHarness.build_env` applies
+        // by stripping inherited NPMGUARD_*. Every panel + payment knob any spec
+        // reads is therefore pinned here, present or absent.
+        NPMGUARD_STRIPE_SECRET_KEY: "",
+        NPMGUARD_STRIPE_WEBHOOK_SECRET: "",
+        NPMGUARD_STRIPE_API_BASE: "",
+        NPMGUARD_CRE_API_KEY: "",
+        NPMGUARD_BASE_SEPOLIA_RPC_URL: "",
+        NPMGUARD_BASE_SEPOLIA_CONTRACT: "",
+        NPMGUARD_BASE_RPC_URL: "",
+        NPMGUARD_BASE_CONTRACT: "",
+        NPMGUARD_GITHUB_WEBHOOK_SECRET: "",
+        NPMGUARD_GITHUB_RAW_BASE: "",
       },
     },
     {
