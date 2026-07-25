@@ -10,6 +10,8 @@
 #   S-panel-2  no session → /me 401, /panel/orgs 401 "Not signed in" [C6]
 #   S-panel-3  App NOT configured (no NPMGUARD_GITHUB_* env): engine boots + /health ok,
 #              every panel route 503 {"error":"GitHub App is not configured on this server"} [C7]
+#
+# Blackbox: engine HTTP API (cookies, redirects, JSON) + the sqlite file on disk.
 
 from __future__ import annotations
 

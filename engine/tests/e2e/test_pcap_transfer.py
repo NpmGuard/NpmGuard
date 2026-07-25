@@ -8,7 +8,7 @@
 # container's /tmp — a tmpfs of docker.SANDBOX_TMP_MB — and the transfer cap is no
 # smaller, so the file cannot outgrow what one transfer carries. `base64 -w0`'s 4/3
 # inflation was the last thing that broke it: a 13,002,771-byte capture arrived as
-# a 7,864,320-byte prefix and was sealed as pcapHash with error=null (67f830f).
+# a 7,864,320-byte prefix and was sealed as pcapHash with error=null.
 #
 # Axes: transfer volume against the cap (at the boundary / a real capture) ×
 #       encoding (raw / base64) × what is compared (byte count, sha256, L2 events)

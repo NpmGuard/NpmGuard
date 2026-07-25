@@ -10,6 +10,7 @@ const AuditView = lazy(() =>
 );
 const Landing = lazy(() => import("./pages/Landing.tsx").then((m) => ({ default: m.Landing })));
 const Registry = lazy(() => import("./pages/Registry.tsx").then((m) => ({ default: m.Registry })));
+const Replays = lazy(() => import("./pages/Replays.tsx").then((m) => ({ default: m.Replays })));
 const PackageLookup = lazy(() =>
   import("./pages/PackageLookup.tsx").then((m) => ({ default: m.PackageLookup })),
 );
@@ -25,7 +26,7 @@ const RepoDetail = lazy(() =>
 );
 
 // Back/forward off these routes resets the audit store.
-const KEEP_STATE_RE = /^\/(audit|packages|package|cli|pay|dashboard|repo)(\/|$)/;
+const KEEP_STATE_RE = /^\/(audit|replays|packages|package|cli|pay|dashboard|repo)(\/|$)/;
 
 function HomeOrAudit() {
   const hasStarted = useAuditStore((s) => s.hasStarted);
@@ -88,8 +89,13 @@ export function App() {
 
   // On verdict, canonicalize to the durable report URL WITHOUT telling the
   // router — raw replaceState keeps the live AuditView mounted (no remount).
+  //
+  // Never for a replay. /audit/:id addresses ONE run; /package/:name resolves to
+  // whichever audit of that package was stored last, so rewriting a permalink
+  // here would silently repoint it the next time the package is audited — and
+  // the person who followed that link would have no way to tell.
   useEffect(() => {
-    if (!verdict || !packageName) return;
+    if (!verdict || !packageName || useAuditStore.getState().replaying) return;
     const path = window.location.pathname;
     if (path.startsWith("/audit") || path.startsWith("/pay")) {
       const version = useAuditStore.getState().inventoryMeta?.metadata.version;
@@ -122,6 +128,7 @@ export function App() {
           }
         >
           <Routes>
+            <Route path="/replays" element={<Replays />} />
             <Route path="/packages" element={<Registry />} />
             <Route path="/package/*" element={<PackageLookup />} />
             <Route path="/cli" element={<CliInstall />} />

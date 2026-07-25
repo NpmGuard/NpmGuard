@@ -21,6 +21,9 @@
 #      stays inside the configured root
 # UNENFORCED here: string-payload passthrough and write() ordering are exercised
 # implicitly by the orchestrator/pipeline suites, not pinned as classes.
+# C3 is the pairing that stops C2 being satisfied by a directory named <audit_id>
+# and nothing else: C1 alone passed with the audit_id absent from the artifact name,
+# so the joinability this layout exists for was pinned by nothing.
 import json
 
 from npmguard.audit_log import AuditLog

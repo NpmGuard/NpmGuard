@@ -35,6 +35,9 @@
 # N-7: C1-C5 were each checked against their reverted production hunk in an isolated
 # worktree and all five go red. C6 does not, by construction, and says so.
 #
+# C5 asserts the property of the STORE rather than of its two routes: a per-route
+# filter is what left `/package/{name}/report` leaking a whole out-of-domain report
+# body while `/packages` was filtered.
 import json
 import subprocess
 import sys

@@ -1,73 +1,35 @@
-# CLASS MAP — panel.audit_set: the ONE "set of (name, version) plus a rollup"
-# (seam A: compute_rollup + compute_progress are PURE — RollupItems in, counters
-#  out, no DB. They are the functions R-1 collapsed three copies into, so the
-#  matrix below is enumerated ONCE and then re-run per ORIGIN to prove the
-#  collapse is real rather than three code paths that happen to agree.
-#  seam B: AuditSetStore over a real throwaway sqlite — audit_sets,
-#  audit_set_items, package_verdicts and panel_jobs are the REAL tables and the
-#  REAL queue, so creation, cache-first enqueue, progress finalization, the
-#  durable stream and the check-run hand-off are observable without GitHub/docker.)
+# CLASS MAP — panel.audit_set: the ONE "set of (name, version) plus a rollup".
 #
-# compute_rollup — one class per input region over (outcome x cached), where
-# outcome in {SAFE, DANGEROUS, ERROR, None(pending)} and severity is
-# DANGEROUS > ERROR > SAFE (design §4.4, contract AuditSetRollup):
-#   C1  empty set -> outcome None, every counter 0
-#   C2  all SAFE -> SAFE
-#   C3  DANGEROUS beats SAFE
-#   C4  all pending -> outcome None (nothing concluded), pending == total
-#   C5  all ERROR -> ERROR
-#   C6  ERROR beats SAFE — a set whose audits crashed is NOT green
-#   C7  DANGEROUS beats ERROR (max severity over concluded)
-#   C8  pending NEVER contributes: SAFE + pending -> "SAFE so far, N pending"
-#   C9  mixed severity + pending: every counter exact, outcome DANGEROUS
-#   C10 cached is orthogonal — a subset of the concluded three, EXCLUDED from
-#       the sum, and it does not change the outcome
-#   C11 the wire shape is exactly the contract's AuditSetRollup
-#   C12 INVARIANT boundary: an item outside SAFE|DANGEROUS|ERROR|None raises
-#   C13 INVARIANT boundary: cached with no outcome, or cached+ERROR, raises
-# compute_progress — the ONE running/done decision, pure over the same list:
-#   C14 pending > 0 -> 'running'; pending == 0 -> 'done'; empty set -> 'done'
-#       (nothing to wait for is finished, which is what makes "covered nothing"
-#        expressible instead of indistinguishable from "not concluded yet")
-# PER-ORIGIN classes over the SAME shared functions (the R-1 claim):
-#   C15 repo_scan: a repo lockfile becomes a set whose rollup is the max severity
-#       over its own items, billed to the repo's installation's monthly budget
-#   C16 public_repo_scan: the identical item list through the identical functions
-#       yields the IDENTICAL rollup, and is NOT charged to the monthly budget
-#   C17 bench_run (designed-for, never built): an origin with no subject table and
-#       no billing still creates, rolls up and streams — the proof that adding an
-#       origin costs an item-discovery function and nothing else
-# AuditSetStore.create:
-#   C18 dedupe: duplicate (name,version) pairs collapse to one item + one job
-#   C19 cache-first: a pair with a landed verdict is `cached`, NOT enqueued;
-#       misses are enqueued carrying the set's origin and org
-#   C20 a refused budget creates NO set and NO items (assert-before-write)
-#   C21 only jobs actually INSERTED are charged (a pair another set already
-#       queued is shared, not re-bought)
-# AuditSetStore.refresh / finalization:
-#   C22 a set with an ACTIVE job stays live (finished_at NULL)
-#   C23 no active job left -> finalized: finished_at set, status 'done' on the wire
-#   C24 an item with no verdict and no live attempt is ERROR, not pending
-#   C25 refresh is a no-op on an already-finalized set (finalize fires once, so
-#       the check run is concluded exactly once)
-#   C26 a FINALIZED set never reports pending, even when a later set enqueues a
-#       job for one of its pairs — pending is (live job AND live set)
-#   C27 the check-run hand-off carries the ROLLUP of the set's own items: one
-#       crashed audit among SAFE ones concludes ERROR, not a silent green
-#   C28 a set that covered NOTHING finalizes immediately and hands over a
-#       total==0 rollup, rather than hanging in_progress forever
-#   C29 refresh_touching nudges every LIVE set covering the pair, across origins,
-#       and skips finalized ones
-#   C30 refresh_live finalizes a set orphaned by a crash (items, no jobs)
-# The stream (durable log + seq cursor, ONE transport for every origin):
-#   C31 a fresh reader replays the whole log from seq 0: a dep frame per item, a
-#       progress frame, then a terminal done — and the frames are the contract's
-#   C32 Last-Event-ID resume: reading after a cursor yields ONLY newer frames
-#   C33 a finalized set terminates the stream even with an EMPTY log (a set that
-#       predates the log, or whose last publish was contended out)
-#   C34 the frame carried on the wire has an `id:` line and NO `event:` line
-# truncated():
-#   C35 shown < total -> True, shown == total -> False; shown > total raises
+# Seam A: compute_rollup + compute_progress are PURE — RollupItems in, counters out,
+#   no DB. They are the functions R-1 collapsed three copies into, so the matrix is
+#   enumerated ONCE and then re-run per ORIGIN, which is what proves the collapse is
+#   real rather than three code paths that happen to agree today.
+# Seam B: AuditSetStore over a real throwaway sqlite — audit_sets, audit_set_items,
+#   package_verdicts and panel_jobs are the REAL tables and the REAL queue, so
+#   creation, cache-first enqueue, progress finalization, the durable stream and the
+#   check-run hand-off are all observable without GitHub or docker.
+#
+# Axes: (outcome x cached) over {SAFE, DANGEROUS, ERROR, None} with severity
+#       DANGEROUS > ERROR > SAFE × origin {repo_scan, public_repo_scan, bench_run} ×
+#       set lifecycle (live / finalized / orphaned) × stream cursor position
+#
+# The rules the matrix exists to hold, none of them derivable from one row:
+#  - pending NEVER contributes to the outcome, and `cached` is orthogonal: a subset of
+#    the concluded items, excluded from the sum, and unable to change the verdict.
+#  - ERROR beats SAFE. A set whose audits crashed is not green, and the check-run
+#    hand-off carries the set's own rollup so one crashed audit among SAFE ones
+#    concludes ERROR rather than a silent pass.
+#  - An empty set is 'done', not 'running'. "Covered nothing" has to be expressible,
+#    or it is indistinguishable from "not concluded yet", and an empty push hangs
+#    in_progress for ever.
+#  - pending is (live job AND live set), so a FINALIZED set never reports pending even
+#    when a later set enqueues a job for one of its pairs.
+#  - Only jobs actually INSERTED are charged: a pair another set already queued is
+#    shared, not re-bought. And a refused budget creates NO set and NO items, because
+#    the assert precedes the write.
+#  - bench_run is designed-for and never built: an origin with no subject table and no
+#    billing still creates, rolls up and streams. That is the proof adding an origin
+#    costs an item-discovery function and nothing else.
 import json
 
 import pytest

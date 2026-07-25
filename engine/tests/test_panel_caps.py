@@ -31,6 +31,9 @@
 # Error shape:
 #   C20 CapExceededError carries .cap True, .resource, .installation_id, .entitlements
 #   C21 unknown installation id -> LookupError (not a silent free plan)
+# C18 exercises the account_usage.month key directly rather than via wall-clock: two
+# month rows are seeded, read back through entitlements pinned to the CURRENT month,
+# with a direct-row assertion for the other.
 import pytest
 import sqlalchemy as sa
 

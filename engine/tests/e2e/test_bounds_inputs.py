@@ -27,6 +27,8 @@
 #       then time out with nothing delivered
 #   S36b (flip) the same package at a bound of exactly 3 completes SAFE — so S36 is the
 #       bound refusing, not the package being unauditable, and `>` is not `>=`
+#
+# Blackbox: engine HTTP + SSE + report files; bounds shrunk via public env knobs (K5).
 
 from __future__ import annotations
 

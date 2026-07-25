@@ -22,6 +22,9 @@
 #      overwrite the first while applied.stubUrls still listed both)
 #  C10 a stub pattern naming a HOST pins it in the container's /etc/hosts; an IP
 #      literal and a wildcard authority pin nothing
+# C7-C10 prove what the compiler decides before any container exists. The half that
+# needs a real sandbox — that the redirect actually intercepts, for every client —
+# is tests/e2e/test_stub_intercept.py.
 import json
 
 import pytest

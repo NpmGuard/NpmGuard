@@ -22,6 +22,10 @@
 #   C8 transaction() seam — a raise inside the block rolls back a joined
 #      finalize (row stays 'queued'); this is what makes the row transition and
 #      the terminal-event append atomic in AuditService._finish.
+# C1 is VACUOUS for the concurrency clause on its own — sqlite serializes writers,
+# so twelve simultaneous claims execute one at a time and the assertion would pass
+# against code with no atomicity at all. C2 is the postgres twin, where the race is
+# real; C3/C5 add the atomicity and restart axes.
 import asyncio
 import os
 
