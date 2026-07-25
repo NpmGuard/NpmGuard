@@ -11,16 +11,21 @@
  * copy it would then never display. The failed≠empty guarantee still holds
  * structurally — there is no `data` on the `failed` arm to render.
  *
+ * The two controls are composed from the entitlements projection rather than
+ * switched on a plan name (F-E5): one upgrade control per entry in
+ * `upgradeOffers`, and a manage control when a subscription is live. A third
+ * product is a third offer from the engine and renders here with no edit.
+ *
  * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
  * DECISION the brief left open — it specifies no treatment for a plan name.
- * `Badge`, and `accent` only for Pro; Free is neutral. §3.2's rule is that chips
- * are metadata and almost never coloured, and a plan is metadata about the
- * account, not an outcome about a package — so neither hue in the semantic set is
- * available to it. Accent for Pro is the system hue marking the one row that has
- * something the others do not; a green "pro" would spend the SAFE slot on a
- * subscription tier, which is the same leak the billing notice on the dashboard
- * was moved off green to avoid. */
+ * `Badge`, always `neutral`. §3.2's rule is that chips are metadata and almost
+ * never coloured, and a plan is metadata about the account, not an outcome about
+ * a package — so neither hue in the semantic set is available to it. The accent
+ * hue this chip used to carry was justified only by there being exactly two
+ * tiers, one of which was "the row with something the others do not"; with an
+ * open-ended catalog that reading is not available, and the label carries the
+ * fact on its own. */
 
 import type { BillingResponse } from "@npmguard/shared";
 import { CreditCard, Sparkles } from "lucide-react";
@@ -81,7 +86,7 @@ export function PlanLedger({ state }: { state: LoadState<BillingResponse> }) {
                   <span className="min-w-0 truncate font-mono text-sm font-medium text-text">
                     {account.accountLogin}
                   </span>
-                  <Badge tone={account.plan === "pro" ? "accent" : "neutral"}>{account.plan}</Badge>
+                  <Badge tone="neutral">{account.plan}</Badge>
                 </header>
                 <AllowanceMeter label="Protected repositories" bucket={account.protectedRepos} />
                 <AllowanceMeter label="Audits this month" bucket={account.monthlyAudits} />
@@ -89,16 +94,18 @@ export function PlanLedger({ state }: { state: LoadState<BillingResponse> }) {
                   Public repository scans are not billed to this account — they are free per
                   signed-in user and never consume an allowance here.
                 </p>
-                {account.plan === "free" ? (
+                {account.upgradeOffers.map((offer) => (
                   <Button
+                    key={offer.id}
                     size="sm"
                     disabled={busy || !billing.checkoutEnabled}
                     onClick={() => checkout.mutate(account.installationId)}
                   >
                     <Sparkles aria-hidden="true" className="size-icon-sm" />
-                    {busy ? "Redirecting…" : "Upgrade to Pro"}
+                    {busy ? "Redirecting…" : `Upgrade to ${offer.label}`}
                   </Button>
-                ) : (
+                ))}
+                {account.subscriptionActive && (
                   <Button
                     variant="outline"
                     size="sm"

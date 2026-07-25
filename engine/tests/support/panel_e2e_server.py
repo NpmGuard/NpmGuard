@@ -50,11 +50,9 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from kit_spine import make_engine, make_session_factory
-from npmguard.panel.alerts.notify import handle_dangerous_verdict
 from tests.support.stubs import GitHubStub
 
 DEFAULT_REGISTRY_DELAY_MS = 0
@@ -111,58 +109,18 @@ def apply_scenario(stub: GitHubStub, scenario: dict[str, Any]) -> None:
             )
 
 
-def build_app(scenario: dict[str, Any], database_url: str | None) -> FastAPI:
+def build_app(scenario: dict[str, Any]) -> FastAPI:
     stub = GitHubStub()
     apply_scenario(stub, scenario)
 
     registry_delay_seconds = (
         float(scenario.get("registryDelayMs", DEFAULT_REGISTRY_DELAY_MS)) / 1000.0
     )
-    sessions = make_session_factory(make_engine(database_url)) if database_url else None
     app = FastAPI()
 
     @app.get("/fixture/health")
     async def health() -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         return JSONResponse({"ok": True, "repos": len(scenario["repos"])})
-
-    @app.post("/fixture/dangerous-fanout")
-    async def dangerous_fanout(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
-        """Run the engine's OWN alert producer for one DANGEROUS pair.
-
-        ⚠ REVISIT IN PHASE 4. This endpoint is the only synthetic trigger in the
-        panel browser tier and it should not outlive the constraint that forced
-        it: once Phase 4 can run an audit that genuinely concludes DANGEROUS,
-        delete it and let a real scan raise the alert. Its presence means the
-        alert TRIGGER is unproven in the browser — only the feed downstream of it
-        is.
-
-        This is the one panel fact a browser harness cannot reach by driving the
-        product: alerts are raised by ``PanelScanWorker`` at the moment a real
-        audit lands a DANGEROUS verdict (jobs.py), and a real audit needs docker
-        plus a live LLM — both excluded from Phase 3 by design, and with
-        ``NPMGUARD_MOCK_LLM`` a concluding audit could only ever be SAFE. A dep
-        that is a *cache hit* never runs a job at all, so it never reaches the
-        hook either.
-
-        So the hook is called directly, with the same arguments the worker passes
-        and against the same database the engine is using. Everything downstream
-        of it is real: exposure is computed from the ``repo_deps`` index the
-        browser's own scan just wrote, and the rows are inserted by the engine's
-        writer. What is faked is strictly the trigger.
-        """
-        if sessions is None:
-            return JSONResponse(
-                {"error": "no NPMGUARD_DATABASE_URL — the fan-out needs the engine's DB"},
-                status_code=503,
-            )
-        body = await request.json()
-        inserted = await handle_dangerous_verdict(
-            sessions,
-            body["packageName"],
-            body["version"],
-            origin=body.get("origin", "repo_scan"),
-        )
-        return JSONResponse({"alerts": inserted})
 
     @app.api_route("/registry/{path:path}", methods=["GET", "HEAD"])
     async def registry(path: str) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
@@ -188,7 +146,7 @@ def main() -> None:
         raise SystemExit("NPMGUARD_E2E_SCENARIO must point at the scenario JSON")
     scenario = json.loads(Path(scenario_path).read_text(encoding="utf-8"))
 
-    app = build_app(scenario, os.environ.get("NPMGUARD_DATABASE_URL"))
+    app = build_app(scenario)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 

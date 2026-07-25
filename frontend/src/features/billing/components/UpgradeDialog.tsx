@@ -2,8 +2,13 @@
  *
  * The 402 cap body carries FRESH entitlements, so the exhausted meter renders
  * from the response that opened this dialog — no second request, no stale quota.
- * That is also why the dialog survives a failed billing read: its subject comes
- * from the 402, and only the Pro offer beside it needs the ledger.
+ * The offer beside it comes from the same body (`upgradeOffers`), so the whole
+ * dialog survives a failed billing read; what the ledger adds is price and
+ * whether checkout is configured, and each of those is guarded on its own.
+ *
+ * An account already holding the top offer has an empty `upgradeOffers`, and is
+ * shown its exhausted allowance with nothing to buy rather than a purchase it
+ * cannot make.
  *
  * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
@@ -51,7 +56,7 @@ const RESOURCE_META: Record<
     title: "Protection limit reached",
     meterLabel: "Protected repositories",
     copy: (limit) =>
-      `The Free plan protects up to ${limit} ${limit === 1 ? "repository" : "repositories"} with continuous monitoring. Unprotect one, or upgrade for more.`,
+      `Your plan protects up to ${limit} ${limit === 1 ? "repository" : "repositories"} with continuous monitoring. Unprotect one, or upgrade for more.`,
   },
   monthly_audits: {
     title: "Monthly audit budget reached",
@@ -78,17 +83,20 @@ export function UpgradeDialog() {
     paywall.resource === "protected_repos"
       ? entitlements.protectedRepos
       : entitlements.monthlyAudits;
-  // The dialog's OWN subject — the exhausted bucket — comes from the 402 body, so
-  // it renders in full even when the billing read failed. What the billing read
-  // adds is the Pro offer beside it, and each of those is guarded on its own.
+  // The dialog's OWN subject — the exhausted bucket and what can be bought to
+  // relieve it — comes from the 402 body, so it renders in full even when the
+  // billing read failed. What that read adds is price and checkout availability.
+  const offer = entitlements.upgradeOffers[0] ?? null;
   const catalog = billing.status === "ok" ? billing.data : null;
-  const pro = catalog?.plans.pro ?? null;
   const price = catalog?.price ?? null;
   const checkoutEnabled = catalog?.checkoutEnabled ?? false;
+  // Three separate reasons the button can be dead, kept apart because the copy
+  // below has to name the right one.
+  const canCheckout = checkoutEnabled && offer !== null;
   const busy = checkout.isPending && checkout.variables === paywall.installationId;
 
   return (
-    <PanelDialog ariaLabel="Upgrade to Pro" onClose={closePaywall}>
+    <PanelDialog ariaLabel={meta.title} onClose={closePaywall}>
       {/* `flex-row` over `DialogHeader`'s stacked default, because the close
           button is the header's second child rather than a caption. `pr-5`
           restores the symmetric padding `DialogHeader` reserves for the built-in
@@ -115,10 +123,13 @@ export function UpgradeDialog() {
           <span className="font-mono text-2xs text-text-3">{entitlements.accountLogin}</span>
           <AllowanceMeter label={meta.meterLabel} bucket={bucket} />
         </div>
+        {offer && (
         <Card>
           <CardBody className="flex flex-col gap-2.5">
             <div className="flex items-center justify-between gap-2.5">
-              <Badge tone="accent">Pro</Badge>
+              {/* `accent` names the one thing being sold, not a tier the account
+                  is or is not on — so it survives an open-ended catalog. */}
+              <Badge tone="accent">{offer.label}</Badge>
               {price?.amount != null && (
                 <span className="text-sm text-text-2">
                   {/* `currency` is nullable on the wire (the schema is right and the
@@ -131,37 +142,41 @@ export function UpgradeDialog() {
                 </span>
               )}
             </div>
-            {pro && (
-              <ul className="flex flex-col gap-1.5 text-xs text-text-2">
-                <li>
-                  <span className="font-mono tabular-nums text-text">
-                    {limitLabel(pro.protectedRepos)}
-                  </span>{" "}
-                  protected repositories
-                </li>
-                <li>
-                  <span className="font-mono tabular-nums text-text">
-                    {limitLabel(pro.monthlyAudits)}
-                  </span>{" "}
-                  package audits per month
-                </li>
-                {/* Public repository scans are deliberately NOT listed as a plan
-                    perk: they are free for any signed-in user and billed to
-                    nobody (D-1), so selling them here would be selling something
-                    the Free plan already has. */}
-              </ul>
-            )}
+            <ul className="flex flex-col gap-1.5 text-xs text-text-2">
+              <li>
+                <span className="font-mono tabular-nums text-text">
+                  {limitLabel(offer.limits.protectedRepos)}
+                </span>{" "}
+                protected repositories
+              </li>
+              <li>
+                <span className="font-mono tabular-nums text-text">
+                  {limitLabel(offer.limits.monthlyAudits)}
+                </span>{" "}
+                package audits per month
+              </li>
+              {/* Public repository scans are deliberately NOT listed as a plan
+                  perk: they are free for any signed-in user and billed to
+                  nobody (D-1), so selling them here would be selling something
+                  the baseline plan already has. */}
+            </ul>
             <p className="text-2xs text-text-3">
               Only DANGEROUS blocks an install; audits that could not conclude are reported,
               never hidden.
             </p>
           </CardBody>
         </Card>
-        {/* "Not configured" and "we could not find out" are different facts, and
-            the button is disabled either way — so saying the first when the second
-            is true would send the reader to the wrong place. */}
+        )}
+        {/* "Nothing to sell you", "not configured" and "we could not find out"
+            are three different facts, and the button is disabled for all three —
+            so naming the wrong one would send the reader somewhere useless. */}
         {billing.status === "failed" ? (
-          <DegradedRegion failure={billing.failure} title="Pro plan" />
+          <DegradedRegion failure={billing.failure} title="Plan" />
+        ) : offer === null ? (
+          <p className="text-2xs text-text-3">
+            {entitlements.accountLogin} is already on {entitlements.plan}, the highest plan
+            available.
+          </p>
         ) : !checkoutEnabled ? (
           <p className="text-2xs text-text-3">Checkout is not configured on this server.</p>
         ) : null}
@@ -172,7 +187,7 @@ export function UpgradeDialog() {
           Not now
         </Button>
         <Button
-          disabled={!checkoutEnabled || busy}
+          disabled={!canCheckout || busy}
           onClick={() => checkout.mutate(paywall.installationId)}
         >
           <Sparkles aria-hidden="true" className="size-icon-sm" />

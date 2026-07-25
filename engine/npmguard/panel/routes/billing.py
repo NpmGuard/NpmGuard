@@ -112,7 +112,7 @@ async def panel_billing(request: Request) -> Response:
     return JSONResponse(
         {
             "accounts": accounts,
-            "plans": runtime.panel_caps.plan_catalog(),
+            "offers": [offer.wire() for offer in runtime.panel_caps.offers()],
             "checkoutEnabled": checkout_enabled(settings),
             "price": price,
         }
@@ -142,9 +142,15 @@ async def panel_billing_checkout(request: Request) -> Response:
         return JSONResponse({"error": "GitHub account not found"}, status_code=404)
 
     entitlements = await runtime.panel_caps.entitlements(installation_id)
-    if entitlements["plan"] == "pro":
+    # "Nothing left to buy" is a question for the projection, not for a plan name:
+    # an account holding the top offer has an empty `upgradeOffers`.
+    if not entitlements["upgradeOffers"]:
         return JSONResponse(
-            {"error": f"{entitlements['accountLogin']} is already on Pro"}, status_code=409
+            {
+                "error": f"{entitlements['accountLogin']} is already on "
+                f"{entitlements['plan']}"
+            },
+            status_code=409,
         )
 
     try:

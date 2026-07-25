@@ -92,9 +92,6 @@ export default defineConfig({
       reuseExistingServer: false,
       env: {
         NPMGUARD_E2E_SCENARIO: SCENARIO_PATH,
-        // Same database the engine opens: the alert fan-out control endpoint
-        // calls the engine's own writer against it.
-        NPMGUARD_DATABASE_URL: DATABASE_URL,
       },
     },
     {
