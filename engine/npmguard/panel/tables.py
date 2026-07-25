@@ -222,7 +222,26 @@ audit_set_items = sa.Table(
     sa.Index("ix_audit_set_items_pkg", "name", "version"),
 )
 
-# Derived, rebuildable index of data/reports/. dev: 'SAFE'|'DANGEROUS' only.
+# Derived, rebuildable index of data/reports/.
+#
+# INVARIANT: `verdict` is exactly 'SAFE' or 'DANGEROUS', enforced by a DB CHECK
+# (alembic 0007) and not only by the writer's guard. This is the ONE column in the
+# schema that a producer outside this codebase can reach: the TS lineage at
+# origin/main declares `package_verdicts(name, version, verdict, ...)` with the
+# same name, columns and primary key, and its `upsertVerdict` writes an
+# unfiltered 4-state `assessAuditReport().classification` — so 'SUSPECT' has a
+# live writer there. The two lineages are separated only by the DB *filename*
+# (`data/npmguard.db` vs `data/npmguard.sqlite3`) while sharing `data/reports/`
+# byte-for-byte, which is a weaker guarantee than a constraint.
+#
+# A CHECK is the right tool HERE and nowhere else in this schema for two reasons
+# the other enum columns do not share: the domain is closed by design (§4.4 — the
+# audit core concludes SAFE or DANGEROUS, ERROR is derived from progress and is
+# never stored, and the generated contract declares
+# `AuditReport.verdict: Literal['SAFE','DANGEROUS']`), and the table is DERIVED,
+# so a constraint violation costs a DELETE + the boot `rebuild()` rather than
+# lost history. Widening it is a contract change, which is exactly the kind of
+# change that should have to write a migration.
 package_verdicts = sa.Table(
     "package_verdicts",
     metadata,
@@ -232,6 +251,11 @@ package_verdicts = sa.Table(
     sa.Column("reason", sa.Text, nullable=False, server_default=""),
     sa.Column("evidence_count", sa.Integer, nullable=False, server_default="0"),
     sa.Column("audited_at", sa.String(64), nullable=False),
+    # Spelled as a literal rather than interpolated from LANDABLE_VERDICTS: the
+    # DDL a migration emits is a frozen historical statement, and a constraint
+    # whose text changes when a Python constant is edited would silently diverge
+    # from what every already-migrated database actually holds.
+    sa.CheckConstraint("verdict IN ('SAFE', 'DANGEROUS')", name="verdict_domain"),
 )
 
 # Durable audit-job queue; cross-scan dedupe via the partial unique index.

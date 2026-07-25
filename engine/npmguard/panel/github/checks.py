@@ -22,8 +22,6 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from ..verdict_index import OUTCOMES
-
 if TYPE_CHECKING:  # pragma: no cover - import cycle: audit_set imports nothing here
     from ..audit_set import Rollup
 
@@ -64,6 +62,12 @@ def check_conclusion(rollup: Rollup) -> str:
     """
     # INVARIANT: only a finalized set is concluded, and a finalized set has no
     # pending items — so there is no non-terminal answer to give.
+    #
+    # Kept, where the domain check below was not, and the difference is what a
+    # violation looks like: with pending items, `total == 0` is still false and
+    # `outcome` is still a real outcome, so this function returns a WRONG TERMINAL
+    # conclusion on a customer's PR and raises nothing. An assert earns its keep
+    # exactly when its absence makes the wrong answer silent.
     assert rollup.pending == 0, (
         f"check_conclusion got a set with {rollup.pending} pending items; only a "
         "finalized set is concluded, and finalizing requires pending == 0"
@@ -71,11 +75,10 @@ def check_conclusion(rollup: Rollup) -> str:
     if rollup.total == 0:
         return _EMPTY_CONCLUSION
     # INVARIANT: total > 0 and pending == 0 ⇒ something concluded ⇒ outcome is a
-    # panel outcome, so the mapping is total.
-    assert rollup.outcome in OUTCOMES, (
-        f"a finalized set of {rollup.total} items has outcome {rollup.outcome!r}, "
-        f"which is outside {sorted(OUTCOMES)}"
-    )
+    # panel outcome, so the mapping is total. Unasserted: `_CONCLUSION[...]` below IS
+    # the enforcement and raises a KeyError naming the offending value on the same
+    # input, and the domain arrives guaranteed — `Rollup.outcome` is only ever set
+    # from `item_outcome`, one call chain up in `compute_rollup`.
     return _CONCLUSION[rollup.outcome]
 
 

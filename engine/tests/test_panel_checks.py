@@ -62,8 +62,14 @@ def test_check_conclusion_mapping(rollup, expected) -> None:
 @pytest.mark.parametrize("legacy", ["UNKNOWN", "SUSPECT"])
 def test_check_conclusion_rejects_legacy_verdict(legacy) -> None:
     """C5: the retired 4-state vocabulary fails loud here. Before, both mapped to
-    in_progress — so a check run was silently never concluded."""
-    with pytest.raises(AssertionError, match="outside"):
+    in_progress — so a check run was silently never concluded.
+
+    A ``KeyError`` from ``_CONCLUSION``, which is the mapping's own totality rather
+    than an assert in front of it. The assert that used to precede this lookup fired
+    on exactly the same inputs and only improved the message, and its input is
+    ``Rollup.outcome``, set one call chain up from ``item_outcome``.
+    """
+    with pytest.raises(KeyError, match=legacy):
         check_conclusion(Rollup(outcome=legacy, total=1, safe=1))
 
 

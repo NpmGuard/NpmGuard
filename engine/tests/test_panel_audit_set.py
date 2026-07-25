@@ -210,9 +210,18 @@ def test_rollup_wire_shape() -> None:
 
 def test_rollup_rejects_foreign_outcome() -> None:
     """C12: a value outside the 3-state domain (a legacy SUSPECT/UNKNOWN row
-    reaching the rollup) fails loud at the boundary that owns the counters."""
+    reaching the rollup) fails loud rather than being counted.
+
+    The enforcement is ``outcome_severity``'s total mapping, and the ``KeyError``
+    names the offending value. ``compute_rollup`` no longer re-checks the domain
+    itself: both producers of :class:`RollupItem` derive ``outcome`` from
+    ``item_outcome``, so a domain assert here re-established an upstream guarantee
+    from the same call chain (N-4 rule 5) — and it was also what made this test pass
+    for the wrong reason, since it matched on the word "outcome", which the
+    ``outcome_severity`` guard's message contained too.
+    """
     for foreign in ("SUSPECT", "UNKNOWN", "safe"):
-        with pytest.raises(AssertionError, match="outcome"):
+        with pytest.raises(KeyError, match=foreign):
             compute_rollup([RollupItem(outcome=foreign)])
 
 
