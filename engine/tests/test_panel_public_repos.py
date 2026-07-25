@@ -1,10 +1,16 @@
-# CLASS MAP — panel.scan.public_repo_scan (parse boundary + snapshot engine)
+# CLASS MAP — panel.scan.public_repo_scan (item discovery for one origin)
 # (seam A: parse_public_repo_reference is PURE — string in, PublicRepoReference
 #  out or InvalidPublicRepoReferenceError; it is the SSRF boundary, so its
 #  rejection classes are the security-relevant part.
-#  seam B: PublicRepoScanEngine over a real throwaway sqlite — caps/verdict/queue
-#  are the REAL stores so dedupe, cache-first enqueue, progress finalize, and
-#  rollup reuse are observable without GitHub/docker.)
+#  seam B: PublicRepoScanEngine over a real throwaway sqlite — the REAL caps store
+#  and the REAL shared AuditSetStore, so the snapshot row, the cap keyed on the
+#  stable repo id, and the live-audit lookup are observable without GitHub/docker.)
+#
+# After R-1 this module owns discovery + the cap + the snapshot row and NOTHING
+# else: dedupe, cache-first enqueue, progress, rollup, truncation and the stream
+# are the shared audit-set entity's and are enumerated ONCE in
+# tests/test_panel_audit_set.py — including a per-origin class that proves this
+# origin's rollup is byte-identical to repo_scan's over the same item list.
 #
 # parse_public_repo_reference — ACCEPT classes:
 #   C1  plain owner/repo
@@ -20,31 +26,34 @@
 #   C10 scp-style git@github.com:owner/repo (colon in a non-URL input)
 #   C11 an owner or repo failing the identity grammar (spaces, '..', '.')
 # PublicRepoScanEngine.create_public_repo_scan:
-#   C12 dedupe: duplicate (name,version) pairs collapse to one item + one job
-#   C13 cache-first: a pair with a landed verdict is cached, NOT enqueued
-#   C14 misses (no verdict) are enqueued as panel_jobs (scan_id NULL, org NULL)
-#   C15 find_running_public_scan matches case-insensitively while running
-# refresh_public_scan_progress + rollup reuse:
-#   C16 a scan with an ACTIVE job stays running; counters reflect items
-#   C17 no active job left -> finalized to done + finished_at set; failed counted
-#   C18 compute_public_scan_rollup reuses compute_rollup (max severity over
-#       concluded items; a null dep with a live job counts as PENDING, which never
-#       competes with the outcome)
+#   C12 the set is created with origin_ref = the STABLE github_repo_id, and the
+#       snapshot row is keyed by set_id — one id, so `scanId` means one thing
+#   C13 the returned id is the SET id (streamable on /panel/scan/{id}/events)
+#   C14 the cap is asserted before the set exists: a refusal leaves no snapshot
+# find_running_public_scan:
+#   C15 a live audit is found by (github_repo_id, payer) — NOT by a lowercased
+#       full name, so a RENAME can no longer smuggle in a second concurrent audit
+#   C16 a finished audit is not "running"; another installation's is not visible
+#   C17 the durable partial-unique index refuses a second live audit of the same
+#       repo by the same payer (the guard, not the pre-check, is what holds)
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from kit_spine import make_engine, make_session_factory, now_iso
 from kit_spine.db import metadata
+from kit_spine.notify_polling import PollingNotifier
+from kit_stream import StreamService
 from npmguard.config import Settings
 from npmguard.panel import tables
-from npmguard.panel.caps import CapsStore
+from npmguard.panel.audit_set import build_store
+from npmguard.panel.caps import CapExceededError, CapsStore
 from npmguard.panel.jobs import PanelJobQueue
 from npmguard.panel.lockfile import LockfileDep
 from npmguard.panel.scan.public_repo_scan import (
     CreatePublicRepoScanInput,
     InvalidPublicRepoReferenceError,
     PublicRepoScanEngine,
-    compute_public_scan_rollup,
     parse_public_repo_reference,
 )
 from npmguard.panel.verdict_index import VerdictIndex
@@ -107,8 +116,10 @@ def test_parse_reference_rejects(raw: str) -> None:
         parse_public_repo_reference(raw)
 
 
+
+
 # ---------------------------------------------------------------------------
-# PublicRepoScanEngine — DB-backed (real caps / verdict-index / queue)
+# PublicRepoScanEngine — discovery + cap + the snapshot subject row
 # ---------------------------------------------------------------------------
 
 
@@ -139,18 +150,30 @@ async def public_engine(tmp_path):
             )
         )
         await session.execute(
+            tables.installations.insert().values(
+                id=2, account_login="other", account_type="Organization",
+                created_at=now, updated_at=now,
+            )
+        )
+        await session.execute(
             tables.gh_users.insert().values(
                 id=7, login="dev", created_at=now, updated_at=now,
             )
         )
 
-    scan_engine = PublicRepoScanEngine(
-        sessions=factory,
-        caps=CapsStore(factory, _settings()),
-        verdict_index=VerdictIndex(factory),
-        queue=PanelJobQueue(factory),
+    notifier = PollingNotifier(poll_interval=0.01)
+    await notifier.start()
+    sets = build_store(
+        factory,
+        VerdictIndex(factory),
+        PanelJobQueue(factory),
+        StreamService(factory, notifier),
+        notifier,
     )
-    yield scan_engine, factory
+    yield PublicRepoScanEngine(
+        sessions=factory, caps=CapsStore(factory, _settings()), sets=sets
+    ), factory
+    await notifier.close()
     await engine.dispose()
 
 
@@ -164,7 +187,7 @@ def _input(deps: list[LockfileDep], **overrides) -> CreatePublicRepoScanInput:
         full_name="facebook/react",
         html_url="https://github.com/facebook/react",
         default_branch="main",
-        commit_sha=None,
+        commit_sha="cafe" * 10,
         lockfile_path="package-lock.json",
         lockfile_sha="sha-1",
         deps=deps,
@@ -173,155 +196,87 @@ def _input(deps: list[LockfileDep], **overrides) -> CreatePublicRepoScanInput:
     return CreatePublicRepoScanInput(**base)
 
 
-async def _rows(factory, table) -> list:
+async def _row(factory, table, **where) -> dict:
     async with factory() as session:
-        return (await session.execute(sa.select(table))).mappings().all()
+        query = sa.select(table)
+        for column, value in where.items():
+            query = query.where(table.c[column] == value)
+        return dict((await session.execute(query)).mappings().one())
 
 
-async def test_create_dedupes_duplicate_pairs(public_engine) -> None:
-    """C12: a lockfile carrying the same (name,version) twice yields ONE item and
-    ONE job — the item set and job queue are both keyed on the pair."""
+async def test_create_keys_the_snapshot_on_the_set(public_engine) -> None:
+    """C12/C13: the set carries the STABLE github_repo_id as origin_ref, and the
+    snapshot row is keyed by set_id — so `scan.id` and `scan.set.id` are the same
+    column and the returned id is what a caller streams."""
     engine, factory = public_engine
-    deps = [
-        LockfileDep("lodash", "4.17.21", True, "^4.17.21"),
-        LockfileDep("lodash", "4.17.21", False, None),  # duplicate pair
-        LockfileDep("react", "18.2.0", True, "^18.0.0"),
-    ]
-    scan_id = await engine.create_public_repo_scan(_input(deps))
+    set_id = await engine.create_public_repo_scan(
+        _input([LockfileDep("lodash", "4.17.21", True, "^4.17.21")])
+    )
+    audit_set = await _row(factory, tables.audit_sets, id=set_id)
+    assert (audit_set["origin"], audit_set["origin_ref"], audit_set["billed_to"]) == (
+        "public_repo_scan", 999, 1,
+    )
+    # The commit sha is recorded, which together with the lockfile blob sha is what
+    # makes the snapshot reproducible; the old path hardcoded null here.
+    assert audit_set["commit_sha"] == "cafe" * 10
+    snapshot = await _row(factory, tables.public_repo_scans, set_id=set_id)
+    assert snapshot["github_repo_id"] == 999
+    assert snapshot["full_name"] == "facebook/react"
 
-    items = [r for r in await _rows(factory, tables.public_repo_scan_items) if r["scan_id"] == scan_id]
-    assert {(i["name"], i["version"]) for i in items} == {
-        ("lodash", "4.17.21"),
-        ("react", "18.2.0"),
-    }
-    jobs = await _rows(factory, tables.panel_jobs)
-    assert len(jobs) == 2  # one job per unique pair, not per dep
 
-
-async def test_create_is_cache_first(public_engine) -> None:
-    """C13/C14: a pair with a landed verdict is marked cached and NOT enqueued;
-    only misses become jobs, with scan_id NULL and org NULL (public snapshots own
-    no scan and are not charged to the org budget)."""
+async def test_cap_refusal_leaves_no_snapshot(public_engine) -> None:
+    """C14: the cap is asserted before the set exists, so a refused audit leaves
+    neither a set nor a snapshot row to stream or count."""
     engine, factory = public_engine
-    await engine.verdict_index.upsert("cached-pkg", "1.0.0", "SAFE")
-    deps = [
-        LockfileDep("cached-pkg", "1.0.0", True, "^1.0.0"),
-        LockfileDep("fresh-pkg", "2.0.0", True, "^2.0.0"),
-    ]
-    scan_id = await engine.create_public_repo_scan(_input(deps))
-
+    # A limit of 0 means UNLIMITED (the wire's "no cap" signal), so the ceiling
+    # under test is 1 — consumed by the first audit below.
+    engine.caps = CapsStore(factory, Settings(free_max_public_repo_audits=1))
+    await engine.create_public_repo_scan(_input([LockfileDep("a", "1.0.0", True, None)]))
+    with pytest.raises(CapExceededError):
+        await engine.create_public_repo_scan(
+            _input([LockfileDep("b", "1.0.0", True, None)], github_repo_id=1000)
+        )
     async with factory() as session:
-        scan = (
-            await session.execute(
-                sa.select(tables.public_repo_scans).where(
-                    tables.public_repo_scans.c.id == scan_id
-                )
-            )
-        ).mappings().one()
-    assert scan["total"] == 2
-    assert scan["cached"] == 1
-
-    jobs = await _rows(factory, tables.panel_jobs)
-    assert len(jobs) == 1
-    assert jobs[0]["package_name"] == "fresh-pkg"
-    assert jobs[0]["scan_id"] is None
-    assert jobs[0]["org"] is None
+        snapshots = (
+            await session.execute(sa.select(tables.public_repo_scans))
+        ).mappings().all()
+    assert [s["github_repo_id"] for s in snapshots] == [999]
 
 
-async def test_find_running_public_scan_case_insensitive(public_engine) -> None:
-    """C15: an in-flight scan is discoverable case-insensitively (the store keeps
-    a full_name_lower mirror) — the route turns this into a 409+scanId success."""
+async def test_find_running_is_keyed_on_the_stable_repo_id(public_engine) -> None:
+    """C15/C16: a live audit is found by (github_repo_id, payer). Keying on the
+    stable id rather than a lowercased full name is what makes a RENAME unable to
+    open a second concurrent audit of the same repository."""
     engine, factory = public_engine
-    scan_id = await engine.create_public_repo_scan(
+    set_id = await engine.create_public_repo_scan(
         _input([LockfileDep("x", "1.0.0", True, None)])
     )
-    assert await engine.find_running_public_scan(1, "Facebook/React") == scan_id
-    # A different installation does not see it.
-    assert await engine.find_running_public_scan(2, "facebook/react") is None
+    assert await engine.find_running_public_scan(1, 999) == set_id
+    # A different payer does not see it, and neither does a different repo.
+    assert await engine.find_running_public_scan(2, 999) is None
+    assert await engine.find_running_public_scan(1, 1000) is None
 
-
-async def test_progress_stays_running_with_active_job(public_engine) -> None:
-    """C16: a miss enqueues a job, so a freshly-created scan (job still queued)
-    stays running with total reflecting the item set."""
-    engine, factory = public_engine
-    scan_id = await engine.create_public_repo_scan(
-        _input([LockfileDep("pending", "1.0.0", True, None)])
-    )
-    async with factory() as session:
-        scan = (
-            await session.execute(
-                sa.select(tables.public_repo_scans).where(
-                    tables.public_repo_scans.c.id == scan_id
-                )
-            )
-        ).mappings().one()
-    assert scan["status"] == "running"
-    assert scan["total"] == 1
-    assert scan["finished_at"] is None
-
-
-async def test_progress_finalizes_when_no_active_job(public_engine) -> None:
-    """C17: once the job settles (here: verdict landed + job completed), a refresh
-    finalizes the scan to done; an item that never resolved counts as failed."""
-    engine, factory = public_engine
-    scan_id = await engine.create_public_repo_scan(
-        _input(
-            [
-                LockfileDep("resolved", "1.0.0", True, None),
-                LockfileDep("lost", "2.0.0", False, None),
-            ]
-        )
-    )
-    # Simulate the worker: land a verdict for one pair, drain both jobs.
-    await engine.verdict_index.upsert("resolved", "1.0.0", "DANGEROUS")
+    # Once finished it is no longer running — even though the snapshot row remains.
     async with factory() as session, session.begin():
         await session.execute(
-            tables.panel_jobs.update().values(state="failed", finished_at=now_iso())
+            tables.audit_sets.update()
+            .where(tables.audit_sets.c.id == set_id)
+            .values(finished_at=now_iso())
         )
+    assert await engine.find_running_public_scan(1, 999) is None
 
-    await engine.refresh_public_scan_progress(scan_id)
 
-    async with factory() as session:
-        scan = (
+async def test_second_live_audit_is_refused_by_the_index(public_engine) -> None:
+    """C17: the durable partial-unique index — not the application pre-check — is
+    what guarantees at most one LIVE public audit per (repo, payer). The pre-check
+    loses a cross-process race; the index cannot."""
+    engine, factory = public_engine
+    await engine.create_public_repo_scan(_input([LockfileDep("x", "1.0.0", True, None)]))
+    with pytest.raises(IntegrityError):
+        async with factory() as session, session.begin():
             await session.execute(
-                sa.select(tables.public_repo_scans).where(
-                    tables.public_repo_scans.c.id == scan_id
+                tables.audit_sets.insert().values(
+                    origin="public_repo_scan", origin_ref=999, billed_to=1,
+                    trigger_kind="manual", started_at=now_iso(),
                 )
             )
-        ).mappings().one()
-    assert scan["status"] == "done"
-    assert scan["finished_at"] is not None
-    assert scan["audited"] == 1  # resolved
-    assert scan["failed"] == 1  # lost (no verdict, no active job)
-
-
-async def test_rollup_reuse_counts_pending_separately(public_engine) -> None:
-    """C18: compute_public_scan_rollup reuses the shared rollup — DANGEROUS wins
-    the outcome, and the still-null dep is counted as PENDING rather than folded
-    into a bucket that competes with the outcome."""
-    engine, factory = public_engine
-    scan_id = await engine.create_public_repo_scan(
-        _input(
-            [
-                LockfileDep("safe-pkg", "1.0.0", True, None),
-                LockfileDep("bad-pkg", "2.0.0", True, None),
-                LockfileDep("pending-pkg", "3.0.0", False, None),
-            ]
-        )
-    )
-    await engine.verdict_index.upsert("safe-pkg", "1.0.0", "SAFE")
-    await engine.verdict_index.upsert("bad-pkg", "2.0.0", "DANGEROUS")
-    # pending-pkg keeps a null verdict, and create_public_repo_scan enqueued a
-    # job for it — so it is pending, not errored.
-
-    async with factory() as session:
-        rollup = await compute_public_scan_rollup(session, scan_id)
-    assert rollup.as_wire() == {
-        "outcome": "DANGEROUS",
-        "total": 3,
-        "safe": 1,
-        "dangerous": 1,
-        "error": 0,
-        "pending": 1,
-        "cached": 0,
-    }

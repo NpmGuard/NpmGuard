@@ -1,57 +1,54 @@
-"""Public-repo audit engine (port of TS ``scan/public-repo-scan.ts``).
+"""Item discovery for the ``public_repo_scan`` origin: any public repo's lockfile.
 
-A public-repo audit is a **read-only snapshot**: a signed-in user points the
-panel at any public GitHub repository, and its root lockfile is audited against
-the shared verdict cache. Unlike a protected-repo scan there is no owning repo
-row, no check-run, and no webhook relationship — the snapshot lives entirely in
-``public_repo_scans`` / ``public_repo_scan_items``.
+A public-repo audit is a **read-only snapshot**: a signed-in user points the panel
+at any public GitHub repository, and its root lockfile is audited against the
+shared verdict cache. Unlike an owned-repo scan there is no repo row, no check run,
+and no webhook relationship.
 
-Two boundaries are load-bearing:
+After R-1 the only things this module owns are the SSRF boundary, the cap, and the
+snapshot subject row. Progress, the rollup, the item projection, truncation and the
+SSE stream are the shared audit-set entity's — the second progress refresher and
+the second rollup call site that used to live here are gone, and so is the
+client-side polling loop they fed, because a public set streams on exactly the same
+route as an owned-repo set.
+
+Two boundaries remain load-bearing:
 
 - :func:`parse_public_repo_reference` is the **SSRF boundary**. It accepts only a
   GitHub repository *identity* (``owner/repo`` or ``https://github.com/owner/repo``)
   — never an arbitrary fetch URL — and hands back a validated ``owner``/``repo``.
   The bytes are then pulled by the credential-free public octokit + the raw-host
   allow-list in ``github/content.py``; a private repo 404s by construction.
-- The cap is asserted by stable ``github_repo_id`` (:meth:`CapsStore.
-  assert_public_repo_audit_cap`), so **re-auditing the same repo is always
-  free** — a rename can't make a repo cost a second Free slot.
+- The cap is asserted by stable ``github_repo_id``, so **re-auditing the same repo
+  is always free** — a rename can't make a repo cost a second Free slot. That same
+  stable id is the set's ``origin_ref``, which is what replaced the stored
+  lowercased ``full_name`` mirror the active-scan uniqueness used to need.
 
-Progress + rollup mirror ``repo_scan``: counters come from ``public_repo_scan_items
-⋈ package_verdicts`` + active ``panel_jobs``, lifted through ``item_outcome`` and
-counted by :func:`compute_rollup` (both reused from ``repo_scan``), so a snapshot
-and a repo scan cannot classify the same item differently.
-
-Fan-out (the dev decision, differing from TS): public deps enqueue ``panel_jobs``
-with ``scan_id=None`` **and** ``org=None`` — a public snapshot owns no scan and
-its audits are not charged against the org's monthly budget (the public-audit
-cap is the only quota, counted by distinct ``github_repo_id``). Only pairs with
-no global verdict yet are enqueued.
+Billing (the one per-origin difference besides discovery): a public snapshot is
+NOT charged against the org's monthly audit budget — the public-audit cap, counted
+by distinct ``github_repo_id``, is the only quota. So it passes no budget hooks.
+Its jobs still carry the org as their fairness key, because starving other
+installations behind one account's public audits is a scheduling bug, not a
+billing decision, and conflating the two is why they were previously ``org=None``.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from kit_spine import now_iso
-
-from ..caps import CapsStore
-from ..jobs import JobSpec, PanelJobQueue
-from ..lockfile import LockfileDep
-from ..tables import (
-    package_verdicts,
-    panel_jobs,
-    public_repo_scan_items,
-    public_repo_scans,
+from ..audit_set import (
+    ORIGIN_PUBLIC_REPO_SCAN,
+    AuditSetSpec,
+    AuditSetStore,
 )
-from ..verdict_index import VerdictIndex
-from .repo_scan import Rollup, compute_rollup, rollup_items
+from ..caps import CapsStore
+from ..lockfile import LockfileDep
+from ..tables import audit_sets, installations, public_repo_scans
 
 # GitHub identity grammar (mirrors the TS OWNER_PATTERN / REPO_PATTERN).
 _OWNER_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -64,8 +61,7 @@ class InvalidPublicRepoReferenceError(Exception):
 
     def __init__(self) -> None:
         super().__init__(
-            "Enter a GitHub repository as owner/repo or "
-            "https://github.com/owner/repo"
+            "Enter a GitHub repository as owner/repo or https://github.com/owner/repo"
         )
 
 
@@ -129,8 +125,9 @@ class CreatePublicRepoScanInput:
     """Everything needed to persist one public-repo snapshot.
 
     ``deps`` is the parsed lockfile; ``github_repo_id`` is the stable id the cap
-    counts on (free re-audit); the ``owner``/``name``/``full_name`` are the
-    canonical values from the GitHub repo response, not the user's input.
+    counts on (free re-audit) and the set's ``origin_ref``; the
+    ``owner``/``name``/``full_name`` are the canonical values from the GitHub repo
+    response, not the user's input.
     """
 
     installation_id: int
@@ -147,240 +144,94 @@ class CreatePublicRepoScanInput:
     deps: list[LockfileDep]
 
 
-def _unique_deps(deps: Iterable[LockfileDep]) -> list[LockfileDep]:
-    """Collapse duplicate ``(name, version)`` pairs — the item set is keyed on
-    the pair, so a dup would collide on insert. First occurrence wins."""
-    seen: dict[tuple[str, str], LockfileDep] = {}
-    for dep in deps:
-        key = (dep.name, dep.version)
-        if key not in seen:
-            seen[key] = dep
-    return list(seen.values())
-
-
 @dataclass
 class PublicRepoScanEngine:
-    """Owns public-snapshot creation, progress finalization, and rollups.
-
-    Mirrors :class:`RepoScanEngine` but over the ``public_repo_scans`` tables.
-    Collaborators are injected so the DB logic is testable without GitHub.
-    """
+    """Discovers a public repo's items, opens the set, writes the snapshot row."""
 
     sessions: async_sessionmaker
     caps: CapsStore
-    verdict_index: VerdictIndex
-    queue: PanelJobQueue = field(default=None)  # type: ignore[assignment]
+    sets: AuditSetStore
 
     # -- lookups -----------------------------------------------------------
 
     async def find_running_public_scan(
-        self, installation_id: int, full_name: str
+        self, installation_id: int, github_repo_id: int
     ) -> int | None:
-        """The id of a still-running scan for this repo (case-insensitive), or
-        ``None``. The frontend treats a 409 carrying this id as a success."""
+        """The set id of a still-live audit of this repo for this payer, or ``None``.
+
+        Keyed on the stable ``github_repo_id``, so a rename cannot smuggle in a
+        second concurrent audit — the case-insensitive ``full_name`` mirror this
+        replaced could. The frontend treats a 409 carrying this id as a success:
+        the set is already live and streamable.
+        """
         async with self.sessions() as session:
             return (
                 await session.execute(
-                    sa.select(public_repo_scans.c.id)
+                    sa.select(audit_sets.c.id)
                     .where(
-                        public_repo_scans.c.installation_id == installation_id,
-                        public_repo_scans.c.full_name_lower == full_name.lower(),
-                        public_repo_scans.c.status == "running",
+                        audit_sets.c.origin == ORIGIN_PUBLIC_REPO_SCAN,
+                        audit_sets.c.origin_ref == github_repo_id,
+                        audit_sets.c.billed_to == installation_id,
+                        audit_sets.c.finished_at.is_(None),
                     )
                     .limit(1)
                 )
             ).scalar_one_or_none()
 
-    # -- scan creation -----------------------------------------------------
+    # -- set creation ------------------------------------------------------
 
     async def create_public_repo_scan(self, data: CreatePublicRepoScanInput) -> int:
-        """Persist a read-only snapshot and enqueue only globally-uncached work.
+        """Open a ``public_repo_scan`` set and persist its snapshot subject row.
 
         The cap is re-asserted here (a repo consumes one Free slot only once; the
-        stable ``github_repo_id`` survives renames) as the race guard. dev's
-        ``CapsStore`` manages its own session, so this is a pre-insert assertion
-        rather than a same-txn lock — the ``ix_public_repo_scans_active`` partial
-        unique index is the durable guard against two concurrent running scans.
-        """
-        deps = _unique_deps(data.deps)
-        verdicts = await self.verdict_index.get_many(
-            [(d.name, d.version) for d in deps]
-        )
-        cached_keys = {
-            (d.name, d.version) for d in deps if (d.name, d.version) in verdicts
-        }
-        misses = [d for d in deps if (d.name, d.version) not in cached_keys]
+        stable ``github_repo_id`` survives renames) as the race guard. The
+        ``ix_audit_sets_active_public`` partial unique index is the durable guard
+        against two concurrent live audits of one repo by one payer.
 
+        Returns the SET id — which is also the snapshot's id, because ``set_id`` is
+        the snapshot's primary key. One id, so ``scanId`` means the same thing on
+        every route.
+        """
         await self.caps.assert_public_repo_audit_cap(
             data.installation_id, data.github_repo_id
         )
-
-        now = now_iso()
+        set_id = await self.sets.create(
+            AuditSetSpec(
+                origin=ORIGIN_PUBLIC_REPO_SCAN,
+                origin_ref=data.github_repo_id,
+                trigger="manual",
+                items=data.deps,
+                billed_to=data.installation_id,
+                billed_org=await self._org_of(data.installation_id),
+                commit_sha=data.commit_sha,
+            )
+        )
         async with self.sessions() as session, session.begin():
-            result = await session.execute(
+            await session.execute(
                 public_repo_scans.insert().values(
-                    installation_id=data.installation_id,
+                    set_id=set_id,
                     requested_by=data.requested_by,
                     github_repo_id=data.github_repo_id,
                     owner=data.owner,
                     name=data.name,
                     full_name=data.full_name,
-                    full_name_lower=data.full_name.lower(),
                     html_url=data.html_url,
                     default_branch=data.default_branch,
-                    commit_sha=data.commit_sha,
                     lockfile_path=data.lockfile_path,
                     lockfile_sha=data.lockfile_sha,
-                    status="running",
-                    total=len(deps),
-                    cached=len(cached_keys),
-                    started_at=now,
                 )
             )
-            scan_id = int(result.inserted_primary_key[0])
-            for dep in deps:
-                await session.execute(
-                    public_repo_scan_items.insert().values(
-                        scan_id=scan_id,
-                        name=dep.name,
-                        version=dep.version,
-                        direct=dep.direct,
-                        range=dep.range,
-                        cached=(dep.name, dep.version) in cached_keys,
-                    )
-                )
+        return set_id
 
-        # Public snapshots own no jobs (scan_id=None) and are not charged to the
-        # org budget (org=None) — the public-audit cap is the only quota.
-        await self.queue.enqueue_many([JobSpec(d.name, d.version) for d in misses])
-        await self.refresh_public_scan_progress(scan_id)
-        return scan_id
-
-    # -- progress / rollup -------------------------------------------------
-
-    async def refresh_public_scan_progress(self, scan_id: int) -> None:
-        """Recompute a running snapshot's counters from ``public_repo_scan_items
-        ⋈ package_verdicts`` + active jobs; finalize (``status='done'``) once no
-        item has an active job left. A no-op on a scan that is not running.
-
-        The ``status='running'`` guard makes the finalize transition fire exactly
-        once (called on every worker settle via ``refresh_public_scans_touching``)."""
-        async with self.sessions() as session, session.begin():
-            row = (
-                (
-                    await session.execute(
-                        sa.select(public_repo_scans.c.status).where(
-                            public_repo_scans.c.id == scan_id
-                        )
-                    )
-                )
-                .mappings()
-                .first()
-            )
-            if row is None or row["status"] != "running":
-                return
-
-            # One rollup, same derivation as the repo path: the four persisted
-            # counters are projections of it, so they cannot disagree with the
-            # outcome the wire reports. `failed` IS the ERROR bucket.
-            rollup = await compute_public_scan_rollup(session, scan_id)
-            values: dict[str, object] = {
-                "total": rollup.total,
-                "cached": rollup.cached,
-                "audited": rollup.safe + rollup.dangerous - rollup.cached,
-                "failed": rollup.error,
-            }
-            # INVARIANT: pending == 0 ⟺ no item has a live attempt (the set is
-            # finished), the one progress counter.
-            if rollup.pending == 0:
-                values["status"] = "done"
-                values["finished_at"] = now_iso()
-            await session.execute(
-                public_repo_scans.update()
-                .where(public_repo_scans.c.id == scan_id)
-                .values(**values)
-            )
-
-    async def refresh_public_scans_touching(
-        self, package_name: str, version: str
-    ) -> None:
-        """Nudge every running public snapshot that covers ``(package_name,
-        version)`` — the panel worker's public-side ``on_scans_touched`` hook."""
+    async def _org_of(self, installation_id: int) -> str | None:
         async with self.sessions() as session:
-            scan_ids = (
+            return (
                 await session.execute(
-                    sa.select(public_repo_scans.c.id)
-                    .select_from(
-                        public_repo_scans.join(
-                            public_repo_scan_items,
-                            public_repo_scan_items.c.scan_id == public_repo_scans.c.id,
-                        )
-                    )
-                    .where(
-                        public_repo_scans.c.status == "running",
-                        public_repo_scan_items.c.name == package_name,
-                        public_repo_scan_items.c.version == version,
-                    )
-                    .distinct()
-                )
-            ).scalars().all()
-        for scan_id in scan_ids:
-            await self.refresh_public_scan_progress(scan_id)
-
-
-async def public_item_states(session: object, scan_id: int) -> list[dict[str, object]]:
-    """``public_repo_scan_items ⋈ package_verdicts`` + "has a live job", for one
-    snapshot — the rows :func:`rollup_items` lifts into outcomes. Module-level so
-    the progress projection and the route's serializer read the SAME rows: two
-    queries over one item set is how a scan came to have two different answers
-    for what it concluded."""
-    active_exists = (
-        sa.select(sa.literal(1))
-        .select_from(panel_jobs)
-        .where(
-            panel_jobs.c.package_name == public_repo_scan_items.c.name,
-            panel_jobs.c.version == public_repo_scan_items.c.version,
-            panel_jobs.c.state.in_(("queued", "running")),
-        )
-        .exists()
-    )
-    rows = (
-        (
-            await session.execute(  # type: ignore[attr-defined]
-                sa.select(
-                    public_repo_scan_items.c.cached,
-                    package_verdicts.c.verdict,
-                    active_exists.label("active"),
-                )
-                .select_from(
-                    public_repo_scan_items.outerjoin(
-                        package_verdicts,
-                        sa.and_(
-                            package_verdicts.c.name == public_repo_scan_items.c.name,
-                            package_verdicts.c.version
-                            == public_repo_scan_items.c.version,
-                        ),
+                    sa.select(installations.c.account_login).where(
+                        installations.c.id == installation_id
                     )
                 )
-                .where(public_repo_scan_items.c.scan_id == scan_id)
-            )
-        )
-        .mappings()
-        .all()
-    )
-    return [
-        {
-            "cached": bool(row["cached"]),
-            "verdict": row["verdict"],
-            "active": bool(row["active"]),
-        }
-        for row in rows
-    ]
-
-
-async def compute_public_scan_rollup(session: object, scan_id: int) -> Rollup:
-    """The snapshot's rollup over its own items (design §4.4 counters)."""
-    return compute_rollup(rollup_items(await public_item_states(session, scan_id)))
+            ).scalar_one_or_none()
 
 
 __all__ = [
@@ -388,7 +239,5 @@ __all__ = [
     "InvalidPublicRepoReferenceError",
     "PublicRepoReference",
     "PublicRepoScanEngine",
-    "compute_public_scan_rollup",
     "parse_public_repo_reference",
-    "public_item_states",
 ]

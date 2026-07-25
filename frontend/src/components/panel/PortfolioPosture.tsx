@@ -20,16 +20,15 @@ export function PortfolioPosture({ repos }: { repos: PanelRepo[] }) {
   let safe = 0;
   let unknown = 0;
   for (const repo of repos) {
-    const scan = repo.lastScan;
-    if (scan?.status === "running") running += 1;
+    const set = repo.lastScan;
+    const outcome = set?.rollup.outcome ?? null;
+    if (set?.status === "running") running += 1;
     // ERROR counts as attention: a repo whose audits crashed is not a green
-    // repo, and folding it in with "never scanned" is what hid that.
-    else if (
-      scan &&
-      (scan.status === "failed" || scan.outcome === "DANGEROUS" || scan.outcome === "ERROR")
-    )
-      attention += 1;
-    else if (scan?.outcome === "SAFE") safe += 1;
+    // repo, and folding it in with "never scanned" is what hid that. There is no
+    // failed-SET arm any more — the status domain is `running | done`, and every
+    // way a set can go wrong lands in its rollup as ERROR.
+    else if (outcome === "DANGEROUS" || outcome === "ERROR") attention += 1;
+    else if (outcome === "SAFE") safe += 1;
     else unknown += 1;
   }
 

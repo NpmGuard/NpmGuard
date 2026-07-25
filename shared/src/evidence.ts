@@ -123,9 +123,17 @@ export const PlantedFileRef = z.object({
 export const PlantedFileRefSchema = PlantedFileRef;
 export type PlantedFileRef = z.infer<typeof PlantedFileRef>;
 
+// A stub ref is a claim about the RUN, not about the plan. `responseHash` is the
+// hash of the response the stub proxy actually WROTE — read back from the proxy's
+// own served ledger after the run — and is `null` exactly when the stub served
+// nothing. So `responseHash !== null` *is* the statement "this canned response was
+// served", and an artifact has no way to make that statement falsely.
+// Nullable-and-nothing-more is deliberate: any ADDED field would change the
+// canonical form of every sealed artifact ever recorded, hence its contentHash, and
+// a served-request count is not needed to state the fact that matters.
 export const StubUrlRef = z.object({
   pattern: z.string(),
-  responseHash: z.string(),
+  responseHash: z.string().nullable(),
 });
 export const StubUrlRefSchema = StubUrlRef;
 export type StubUrlRef = z.infer<typeof StubUrlRef>;

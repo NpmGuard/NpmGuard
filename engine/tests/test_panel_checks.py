@@ -1,18 +1,26 @@
 # CLASS MAP — panel.github.checks (port of TS github/checks.ts)
-# (seam: check_conclusion is PURE — outcome in, check state out, no IO. The
-#  create/conclude API calls run against a FAKE githubkit octo that records
-#  calls or raises — no network, no GitHub App, no real check runs.)
-# check_conclusion — total over the outcome domain (§4.4) x progress:
+# (seam: check_conclusion is PURE — a FINALIZED set's rollup in, a TERMINAL check
+#  state out, no IO. It takes the rollup rather than the outcome because
+#  "the set covered nothing" and "nothing concluded yet" are the same OUTCOME
+#  (None) and different ROLLUPS (total 0 vs pending > 0) — and only a rollup can
+#  tell them apart. The create/conclude API calls run against a FAKE githubkit
+#  octo that records calls or raises — no network, no GitHub App, no real runs.)
+# check_conclusion — total over the outcome domain (§4.4) x coverage:
 #   C1  DANGEROUS -> 'failure' (the only blocking outcome, trust contract §5.10)
 #   C2  SAFE -> 'success'
 #   C3  ERROR -> 'neutral': visible, non-blocking, and NOT a success — an audit
 #       that could not conclude must never read as a clean bill of health
-#   C4  None (nothing concluded yet) -> 'in_progress'; the only non-terminal
-#       state, and it is progress rather than an outcome
+#   C4  total == 0 -> 'neutral': nothing to audit is a TERMINAL fact. Before R-1
+#       this set's outcome was None, the mapper answered 'in_progress', and an
+#       empty push left its check run spinning forever
 #   C5  a value outside the domain (a legacy UNKNOWN/SUSPECT) raises, instead of
 #       silently parking the check in_progress forever
+#   C5b a set with PENDING items raises: only a finalized set is concluded, so
+#       there is no non-terminal answer for this function to give
 # check_summary:
 #   C10 the ERROR summary names the failed count and refuses to claim safety
+#   C11 the empty-set summary says there was nothing to audit, not "no dangerous
+#       dependencies" — the SAFE copy over zero packages is a false clean bill
 # create_check_run:
 #   C6  success -> returns the new check-run id, POSTs status='in_progress'
 #   C7  a GitHub failure is swallowed -> returns None (never fatal)
@@ -21,6 +29,7 @@
 #   C9  a GitHub failure is swallowed (logged, never raised)
 import pytest
 
+from npmguard.panel.audit_set import Rollup
 from npmguard.panel.github.checks import (
     CHECK_NAME,
     check_conclusion,
@@ -35,36 +44,51 @@ from npmguard.panel.github.checks import (
 
 
 @pytest.mark.parametrize(
-    ("outcome", "expected"),
+    ("rollup", "expected"),
     [
-        ("DANGEROUS", "failure"),  # C1
-        ("SAFE", "success"),  # C2
-        ("ERROR", "neutral"),  # C3
-        (None, "in_progress"),  # C4
+        (Rollup(outcome="DANGEROUS", total=1, dangerous=1), "failure"),  # C1
+        (Rollup(outcome="SAFE", total=1, safe=1), "success"),  # C2
+        (Rollup(outcome="ERROR", total=1, error=1), "neutral"),  # C3
+        (Rollup(), "neutral"),  # C4 — covered nothing
     ],
 )
-def test_check_conclusion_mapping(outcome, expected) -> None:
+def test_check_conclusion_mapping(rollup, expected) -> None:
     """C1-C4: only DANGEROUS blocks; SAFE passes; ERROR concludes as neutral so a
-    failed audit is neither hidden nor reported green; nothing-concluded-yet is
-    the one state left in_progress."""
-    assert check_conclusion(outcome) == expected
+    failed audit is neither hidden nor reported green; and a set that covered
+    NOTHING concludes too, rather than leaving the run open forever."""
+    assert check_conclusion(rollup) == expected
 
 
 @pytest.mark.parametrize("legacy", ["UNKNOWN", "SUSPECT"])
 def test_check_conclusion_rejects_legacy_verdict(legacy) -> None:
     """C5: the retired 4-state vocabulary fails loud here. Before, both mapped to
     in_progress — so a check run was silently never concluded."""
-    with pytest.raises(AssertionError, match="not a panel outcome"):
-        check_conclusion(legacy)
+    with pytest.raises(AssertionError, match="outside"):
+        check_conclusion(Rollup(outcome=legacy, total=1, safe=1))
+
+
+def test_check_conclusion_refuses_an_unfinished_set() -> None:
+    """C5b: concluding is terminal, and a set with pending items has not finished.
+    Asked to answer anyway, this raises rather than inventing a non-terminal
+    check state — the branch that used to exist for exactly that case."""
+    with pytest.raises(AssertionError, match="pending"):
+        check_conclusion(Rollup(outcome="SAFE", total=2, safe=1, pending=1))
 
 
 def test_check_summary_error_never_claims_safe() -> None:
     """C10: the ERROR summary reports the count and says no clean bill of
     health — the SAFE copy ("no dangerous dependencies") would be a lie."""
-    summary = check_summary("ERROR", {"error": 12, "dangerous": 0})
+    summary = check_summary(Rollup(outcome="ERROR", total=12, error=12))
     assert "12" in summary
     assert "could not complete" in summary
     assert "no dangerous dependencies" not in summary
+
+
+def test_check_summary_empty_set_says_nothing_to_audit() -> None:
+    """C11: zero packages is not "no dangerous dependencies found" — that phrasing
+    over an empty set is a clean bill of health nobody earned."""
+    summary = check_summary(Rollup())
+    assert "no dependencies to audit" in summary
 
 
 # --------------------------------------------------------------------------

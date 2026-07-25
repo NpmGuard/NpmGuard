@@ -26,15 +26,16 @@ const FILTERS: { key: RepoFilter; label: string }[] = [
   { key: "attention", label: "Attention" },
 ];
 
-/** Attention = a human has to do something: the scan itself failed, a dep is
- * DANGEROUS, or audits could not conclude (ERROR). A scan still running, or one
- * with pending deps, is NOT attention — it resolves itself. */
+/** Attention = a human has to do something: a dep is DANGEROUS, or audits could
+ * not conclude (ERROR). A set still running, or one with pending deps, is NOT
+ * attention — it resolves itself.
+ *
+ * The set's own rollup is the authority. There is no failed-SET arm: R-1's
+ * falsification pass found zero producers for one, and every way a set can go
+ * wrong now lands in the rollup as ERROR, which this already reads. */
 function needsAttention(repo: PanelRepo): boolean {
-  const scan = repo.lastScan;
-  return (
-    scan !== null &&
-    (scan.status === "failed" || scan.outcome === "DANGEROUS" || scan.outcome === "ERROR")
-  );
+  const outcome = repo.lastScan?.rollup.outcome ?? null;
+  return outcome === "DANGEROUS" || outcome === "ERROR";
 }
 
 export function Dashboard() {
@@ -95,8 +96,10 @@ export function Dashboard() {
     return () => clearInterval(timer);
   }, [billingNotice, refreshBilling]);
 
-  // Public snapshots have no SSE — poll while any scan is running.
-  const anyPublicScanRunning = publicScans.some((scan) => scan.status === "running");
+  // The HISTORY LIST still refreshes on a timer while any snapshot is live: the
+  // per-set stream (which the report dialog follows) advances one set, and this
+  // view is a list of many. The dialog's own 2.5s detail poll is gone.
+  const anyPublicScanRunning = publicScans.some((scan) => scan.set.status === "running");
   useEffect(() => {
     if (!anyPublicScanRunning) return;
     const timer = setInterval(() => void refreshPublicScans(), 2500);

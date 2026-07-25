@@ -144,7 +144,7 @@ def _seed(db_path, alerts: list[dict], *, join_user_to=(MINE,)) -> None:
         for alert in alerts:
             db.execute(
                 "INSERT INTO alerts"
-                " (id, org, repo_id, package_name, version, verdict, kind, message, seen,"
+                " (id, org, repo_id, package_name, version, outcome, origin, message, seen,"
                 "  created_at)"
                 " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -153,9 +153,9 @@ def _seed(db_path, alerts: list[dict], *, join_user_to=(MINE,)) -> None:
                     alert.get("repo_id"),
                     alert.get("package_name", "left-pad"),
                     alert.get("version", "1.0.0"),
-                    alert.get("verdict", "DANGEROUS"),
-                    alert.get("kind", "scan"),
-                    alert.get("message"),
+                    alert.get("outcome", "DANGEROUS"),
+                    alert.get("origin", "repo_scan"),
+                    alert.get("message", ""),
                     1 if alert.get("seen") else 0,
                     alert["created_at"],
                 ),
@@ -258,8 +258,8 @@ def test_feed_wire_shape(panel_app) -> None:
                     "repo_id": None,  # registry-watch alert: no owning repo
                     "package_name": "chalk",
                     "version": "5.3.1",
-                    "verdict": "DANGEROUS",
-                    "kind": "watch",
+                    "outcome": "DANGEROUS",
+                    "origin": "watchlist",
                     "message": "newly published 5.3.1 is DANGEROUS",
                     "seen": False,
                     "created_at": "2026-07-04T00:00:00.000Z",
@@ -275,8 +275,8 @@ def test_feed_wire_shape(panel_app) -> None:
             "repoId": None,
             "packageName": "chalk",
             "version": "5.3.1",
-            "verdict": "DANGEROUS",
-            "kind": "watch",
+            "outcome": "DANGEROUS",
+            "origin": "watchlist",
             "message": "newly published 5.3.1 is DANGEROUS",
             "seen": False,
             "createdAt": "2026-07-04T00:00:00.000Z",

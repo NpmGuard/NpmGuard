@@ -128,24 +128,33 @@ async def _add_user(sessions, user_id: int = 1) -> None:
 async def _add_public_scan(
     sessions, scan_id: int, installation_id: int, github_repo_id: int, requested_by: int = 1
 ) -> None:
+    """One completed public-repo audit: an audit_set (origin_ref = the stable
+    github_repo_id the cap counts, billed_to = the payer) plus its snapshot row."""
     now = now_iso()
     async with sessions() as s, s.begin():
         await s.execute(
-            tables.public_repo_scans.insert().values(
+            tables.audit_sets.insert().values(
                 id=scan_id,
-                installation_id=installation_id,
+                origin="public_repo_scan",
+                origin_ref=github_repo_id,
+                billed_to=installation_id,
+                trigger_kind="manual",
+                started_at=now,
+                finished_at=now,
+            )
+        )
+        await s.execute(
+            tables.public_repo_scans.insert().values(
+                set_id=scan_id,
                 requested_by=requested_by,
                 github_repo_id=github_repo_id,
                 owner="acme",
                 name=f"pub{github_repo_id}",
                 full_name=f"acme/pub{github_repo_id}",
-                full_name_lower=f"acme/pub{github_repo_id}",
                 html_url="https://github.com/acme/pub",
                 default_branch="main",
                 lockfile_path="package-lock.json",
                 lockfile_sha="deadbeef",
-                status="done",
-                started_at=now,
             )
         )
 

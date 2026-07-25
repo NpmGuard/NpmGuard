@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from kit_spine import now_iso
 from npmguard.resolve import NPM_REGISTRY
 
+from .audit_set import ORIGIN_WATCHLIST
 from .jobs import JobSpec, PanelJobQueue
 from .scan.repo_scan import LockfileNotFoundError, RepoScanEngine
 from .tables import repo_deps, repos, watched_packages
@@ -151,10 +152,18 @@ class RegistryWatcher:
             return
         log.info("watch new versions", package=name, versions=fresh)
 
-        # Proactive, shared-cache audits: org=None (not charged), scan_id=None.
+        # Proactive, shared-cache audits. `origin='watchlist'` is the one origin
+        # that names WORK rather than a set: a watch audit fills the shared verdict
+        # cache without belonging to any collection, so there is nothing whose
+        # progress it advances. It carries the origin anyway, because an alert
+        # raised on its verdict has to say where the verdict came from — and the
+        # old "watch iff the job owns no scan" derivation could not distinguish a
+        # watch audit from a public-repo one.
         cached = await self.verdict_index.get_many([(name, v) for v in fresh])
         specs = [
-            JobSpec(name, v, None, None) for v in fresh if (name, v) not in cached
+            JobSpec(name, v, None, ORIGIN_WATCHLIST)
+            for v in fresh
+            if (name, v) not in cached
         ]
         if specs:
             await self.queue.enqueue_many(specs)

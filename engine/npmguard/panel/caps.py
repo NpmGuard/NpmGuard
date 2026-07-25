@@ -25,7 +25,17 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from ..config import Settings
-from .tables import account_usage, billing_accounts, installations, public_repo_scans, repos
+from .tables import (
+    account_usage,
+    audit_sets,
+    billing_accounts,
+    installations,
+    repos,
+)
+
+# The origin whose sets the public-repo-audit cap counts. Spelled here rather than
+# imported from `audit_set` to keep the import edge one-way (audit_set uses caps).
+_PUBLIC_REPO_SCAN = "public_repo_scan"
 
 AccountPlan = Literal["free", "pro"]
 CapResource = Literal["protected_repos", "public_repo_audits", "monthly_audits"]
@@ -154,14 +164,17 @@ class CapsStore:
     ) -> None:
         # Re-auditing a repo already scanned by this installation is always free —
         # the cap counts DISTINCT github_repo_id, so a repeat never consumes a slot.
+        # The id lives on the SET as `origin_ref`, which is what makes this a
+        # question about audit sets rather than about a snapshot table.
         async with self._sessions() as session:
             already = (
                 await session.execute(
                     sa.select(sa.literal(1))
-                    .select_from(public_repo_scans)
+                    .select_from(audit_sets)
                     .where(
-                        public_repo_scans.c.installation_id == installation_id,
-                        public_repo_scans.c.github_repo_id == github_repo_id,
+                        audit_sets.c.origin == _PUBLIC_REPO_SCAN,
+                        audit_sets.c.billed_to == installation_id,
+                        audit_sets.c.origin_ref == github_repo_id,
                     )
                     .limit(1)
                 )
@@ -264,9 +277,12 @@ class CapsStore:
     async def _public_repo_audit_count(self, session, installation_id: int) -> int:
         return (
             await session.execute(
-                sa.select(sa.func.count(sa.distinct(public_repo_scans.c.github_repo_id)))
-                .select_from(public_repo_scans)
-                .where(public_repo_scans.c.installation_id == installation_id)
+                sa.select(sa.func.count(sa.distinct(audit_sets.c.origin_ref)))
+                .select_from(audit_sets)
+                .where(
+                    audit_sets.c.origin == _PUBLIC_REPO_SCAN,
+                    audit_sets.c.billed_to == installation_id,
+                )
             )
         ).scalar_one()
 

@@ -93,8 +93,8 @@ class SavedReport:
     """One report record for a rebuild: identity + the raw report + its time.
 
     ``report`` is the full AuditReport dict (as persisted on disk); ``rebuild``
-    assesses it. Keyed by the *requested* (lockfile) version so scan_items joins
-    line up even when the tarball's real version differs.
+    assesses it. Keyed by the *requested* (lockfile) version so audit_set_items
+    joins line up even when the tarball's real version differs.
     """
 
     name: str

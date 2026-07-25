@@ -17,7 +17,6 @@ the message):
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,6 +26,19 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from kit_spine import now_iso
+from npmguard.contract import models as contract
+from npmguard.panel.audit_set import (
+    MAX_DETAIL_ITEMS,
+    ORIGIN_PUBLIC_REPO_SCAN,
+    ORIGIN_REPO_SCAN,
+    latest_set_row,
+    latest_set_rows,
+    set_item_states,
+    set_rollup,
+    set_rollups,
+    set_wire,
+    truncated,
+)
 from npmguard.panel.caps import CapExceededError
 from npmguard.panel.github.content import find_root_lockfile
 from npmguard.panel.lockfile import UnsupportedLockfileError
@@ -35,24 +47,15 @@ from npmguard.panel.routes._common import (
     require_enabled,
     runtime_of,
 )
-from npmguard.panel.scan.repo_scan import (
-    LockfileNotFoundError,
-    RollupItem,
-    compute_rollup,
-    scan_rollup,
-)
+from npmguard.panel.scan.repo_scan import LockfileNotFoundError
 from npmguard.panel.tables import (
     alerts,
+    audit_sets,
     installations,
-    package_verdicts,
-    panel_jobs,
     repo_deps,
     repos,
-    scan_items,
-    scans,
     user_installations,
 )
-from npmguard.panel.verdict_index import LANDABLE_VERDICTS, item_outcome
 from npmguard.panel.watch import sync_watched_packages
 
 log = structlog.get_logger("npmguard.panel.core")
@@ -71,9 +74,6 @@ def _spawn(coro: Any) -> None:
 
 # The auditability probe is cached for a day; a stale/missing marker re-probes.
 AUDITABILITY_CACHE_SECONDS = 24 * 60 * 60
-
-# The scan-progress SSE polls the DB on this cadence and emits a snapshot.
-SSE_TICK_SECONDS = 1.5
 
 
 def _not_signed_in() -> JSONResponse:
@@ -247,11 +247,28 @@ async def panel_repos(request: Request) -> Response:
         states = await runtime.panel_repos.states_for_installation(installation_id)
         await _refresh_auditability(runtime, octo, summaries, states, now)
 
-        for summary in summaries:
-            state = states.get(summary["id"], {})
+        shown = [
+            summary
+            for summary in summaries
             # Confirmed non-auditable (probed, no root lockfile) → filtered out.
-            if state.get("auditability_checked_at") and not state.get("lockfile_path"):
-                continue
+            if not (
+                states.get(summary["id"], {}).get("auditability_checked_at")
+                and not states.get(summary["id"], {}).get("lockfile_path")
+            )
+        ]
+        # `lastScan` is the repo's posture: the dashboard's attention filter, its
+        # "not audited" state, its posture rail and its audited counter all read
+        # it, and the engine hardcoding null left four surfaces inert. Batched —
+        # two queries for the whole list, not two per repo.
+        async with runtime.sessionmaker() as session:
+            last_sets = await latest_set_rows(
+                session, ORIGIN_REPO_SCAN, [s["id"] for s in shown]
+            )
+            rollups = await set_rollups(session, [row["id"] for row in last_sets.values()])
+
+        for summary in shown:
+            state = states.get(summary["id"], {})
+            last_set = last_sets.get(summary["id"])
             repos.append(
                 {
                     "id": summary["id"],
@@ -262,7 +279,13 @@ async def panel_repos(request: Request) -> Response:
                     "private": summary["private"],
                     "defaultBranch": summary["default_branch"],
                     "protected": bool(state.get("protected_at")),
-                    "lastScan": None,
+                    "lastScan": (
+                        set_wire(last_set, rollups[last_set["id"]]).model_dump(
+                            mode="json", exclude_none=False
+                        )
+                        if last_set is not None
+                        else None
+                    ),
                 }
             )
 
@@ -349,20 +372,22 @@ def _alert_wire(row: Any) -> dict[str, Any]:
     """The one wire projection for an alert row.
 
     Both the dashboard feed and the repo-detail payload render through this, so
-    the two views cannot drift into different shapes for the same record.
+    the two views cannot drift into different shapes for the same record. Built
+    through the generated contract model, so a shape that does not validate cannot
+    reach the wire at all.
     """
-    return {
-        "id": row["id"],
-        "org": row["org"],
-        "repoId": row["repo_id"],
-        "packageName": row["package_name"],
-        "version": row["version"],
-        "verdict": row["verdict"],
-        "kind": row["kind"],
-        "message": row["message"],
-        "seen": bool(row["seen"]),
-        "createdAt": row["created_at"],
-    }
+    return contract.Alert(
+        id=row["id"],
+        org=row["org"],
+        repoId=row["repo_id"],
+        packageName=row["package_name"],
+        version=row["version"],
+        outcome=row["outcome"],
+        origin=row["origin"],
+        message=row["message"],
+        seen=bool(row["seen"]),
+        createdAt=row["created_at"],
+    ).model_dump(mode="json", exclude_none=False)
 
 
 async def _user_has_installation(session: Any, user_id: int, installation_id: int) -> bool:
@@ -380,99 +405,8 @@ async def _user_has_installation(session: Any, user_id: int, installation_id: in
     return row is not None
 
 
-async def _running_scan_id(runtime: Any, repo_id: int) -> int | None:
-    async with runtime.sessionmaker() as session:
-        return (
-            await session.execute(
-                sa.select(scans.c.id)
-                .where(scans.c.repo_id == repo_id, scans.c.status == "running")
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-
-
-def _job_state_subqueries(name_col: Any, version_col: Any) -> tuple[Any, Any]:
-    """Correlated subqueries for a dep's live job state.
-
-    ``active_state`` is the ``queued``/``running`` job state (if any);
-    ``has_failed`` flags a terminal ``failed`` job. The wire ``jobState`` is
-    ``active_state`` first, else ``failed`` when a failed job exists and the dep
-    has no verdict (a null verdict + failed job = the audit gave up).
-    """
-    active_state = (
-        sa.select(panel_jobs.c.state)
-        .where(
-            panel_jobs.c.package_name == name_col,
-            panel_jobs.c.version == version_col,
-            panel_jobs.c.state.in_(("queued", "running")),
-        )
-        .limit(1)
-        .scalar_subquery()
-    )
-    has_failed = (
-        sa.select(sa.literal(1))
-        .where(
-            panel_jobs.c.package_name == name_col,
-            panel_jobs.c.version == version_col,
-            panel_jobs.c.state == "failed",
-        )
-        .limit(1)
-        .scalar_subquery()
-    )
-    return active_state, has_failed
-
-
-def _job_state(active_state: str | None, has_failed: Any, verdict: str | None) -> str | None:
-    """The wire ``jobState`` — a fact about the ATTEMPT, never an outcome.
-
-    ``failed`` here means "a terminal failed job exists for this pair"; the
-    OUTCOME of an unconcluded item is ERROR and comes from ``item_outcome``. The
-    two are not interchangeable: an item can be ERROR with ``jobState: null``
-    (its job row was never written — a lost enqueue batch), and it can carry a
-    stale ``failed`` job alongside a landed verdict from a later attempt.
-    """
-    return active_state or ("failed" if has_failed and not verdict else None)
-
-
-def _scan_summary(row: Any, outcome: str | None) -> dict[str, Any]:
-    return {
-        "id": row["id"],
-        "status": row["status"],
-        "trigger": row["trigger_kind"],
-        "total": row["total"],
-        "cached": row["cached"],
-        "audited": row["audited"],
-        "failed": row["failed"],
-        "startedAt": row["started_at"],
-        "finishedAt": row["finished_at"],
-        # The rollup only becomes the scan's outcome once the scan is done.
-        "outcome": outcome if row["status"] == "done" else None,
-    }
-
-
-async def _last_scan_row(session: Any, repo_id: int) -> Any:
-    return (
-        (
-            await session.execute(
-                sa.select(
-                    scans.c.id,
-                    scans.c.status,
-                    scans.c.trigger_kind,
-                    scans.c.total,
-                    scans.c.cached,
-                    scans.c.audited,
-                    scans.c.failed,
-                    scans.c.started_at,
-                    scans.c.finished_at,
-                )
-                .where(scans.c.repo_id == repo_id)
-                .order_by(scans.c.started_at.desc())
-                .limit(1)
-            )
-        )
-        .mappings()
-        .first()
-    )
+async def _live_set_id(runtime: Any, repo_id: int) -> int | None:
+    return await runtime.panel_sets.live_set_id(ORIGIN_REPO_SCAN, repo_id)
 
 
 @router.post("/panel/repo/{repo_id}/scan")
@@ -487,7 +421,7 @@ async def panel_repo_scan(repo_id: int, request: Request) -> Response:
     if repo is None:
         return JSONResponse({"error": "Repo not found"}, status_code=404)
 
-    running = await _running_scan_id(runtime, repo_id)
+    running = await _live_set_id(runtime, repo_id)
     if running is not None:
         return JSONResponse(
             {"error": "A scan is already running", "scanId": running}, status_code=409
@@ -623,50 +557,19 @@ async def panel_repo_detail(owner: str, name: str, request: Request) -> Response
     if repo is None:
         return JSONResponse({"error": "Repo not found"}, status_code=404)
 
-    active_state, has_failed = _job_state_subqueries(repo_deps.c.name, repo_deps.c.version)
     async with runtime.sessionmaker() as session:
-        dep_rows = (
-            (
-                await session.execute(
-                    sa.select(
-                        repo_deps.c.name,
-                        repo_deps.c.version,
-                        repo_deps.c.direct,
-                        repo_deps.c.range,
-                        package_verdicts.c.verdict,
-                        package_verdicts.c.reason,
-                        package_verdicts.c.evidence_count,
-                        package_verdicts.c.audited_at,
-                        active_state.label("active_state"),
-                        has_failed.label("has_failed"),
-                    )
-                    .select_from(
-                        repo_deps.outerjoin(
-                            package_verdicts,
-                            sa.and_(
-                                package_verdicts.c.name == repo_deps.c.name,
-                                package_verdicts.c.version == repo_deps.c.version,
-                            ),
-                        )
-                    )
-                    .where(repo_deps.c.repo_id == repo["id"])
-                    .order_by(
-                        repo_deps.c.direct.desc(), repo_deps.c.name, repo_deps.c.version
-                    )
-                )
-            )
-            .mappings()
-            .all()
+        # The scan being shown: the live one if any, else the most recent.
+        shown = await latest_set_row(session, ORIGIN_REPO_SCAN, repo["id"])
+        # `deps` is THIS SET's items and `set.rollup` is the rollup over the same
+        # population, so summing deps reproduces the rollup (modulo truncation).
+        # Two populations under one response is how a scan whose only DANGEROUS
+        # item lay outside the repo's current dep index came to read as SAFE.
+        states = (
+            await set_item_states(session, shown["id"], limit=MAX_DETAIL_ITEMS)
+            if shown is not None
+            else []
         )
-        last_scan = await _last_scan_row(session, repo["id"])
-        # A scan's outcome is the rollup over its OWN items, not over the repo's
-        # current dep index: a delta scan covers only the changed pairs and a
-        # push can replace the index underneath it, so the index answers a
-        # different question. Reporting the index rollup here made a scan whose
-        # single DANGEROUS/ERROR item was outside the index read as SAFE.
-        last_scan_outcome = (
-            (await scan_rollup(session, last_scan["id"])).outcome if last_scan else None
-        )
+        rollup = await set_rollup(session, shown["id"]) if shown is not None else None
         alert_rows = (
             (
                 await session.execute(
@@ -680,38 +583,11 @@ async def panel_repo_detail(owner: str, name: str, request: Request) -> Response
             .all()
         )
 
-    # One outcome per dep, derived once: a landed verdict, else ERROR when no
-    # attempt is live (nothing is coming), else null (still pending).
-    outcomes = [
-        item_outcome(row["verdict"], pending=row["active_state"] is not None)
-        for row in dep_rows
-    ]
-    deps = [
-        {
-            "name": row["name"],
-            "version": row["version"],
-            "direct": bool(row["direct"]),
-            "range": row["range"],
-            "outcome": outcome,
-            "verdictReason": row["reason"],
-            "evidenceCount": row["evidence_count"] or 0,
-            "auditedAt": row["audited_at"],
-            "jobState": _job_state(row["active_state"], row["has_failed"], row["verdict"]),
-        }
-        for row, outcome in zip(dep_rows, outcomes, strict=True)
-    ]
-    # The repo's POSTURE over its current dep index (not a scan's coverage — see
-    # `last_scan_outcome` above). `cached` is every dep concluded from a stored
-    # verdict, which here is all of them: the index IS the report projection, so
-    # a fresh-vs-reused split is a property of a SCAN (`scan.cached`), not of the
-    # index. R-1 replaces this sibling field with a set-scoped rollup.
-    rollup = compute_rollup(
-        [
-            RollupItem(outcome=outcome, cached=outcome in LANDABLE_VERDICTS)
-            for outcome in outcomes
-        ]
-    ).as_wire()
-
+    set_body = (
+        set_wire(shown, rollup).model_dump(mode="json", exclude_none=False)
+        if shown is not None and rollup is not None
+        else None
+    )
     return JSONResponse(
         {
             "repo": {
@@ -723,138 +599,92 @@ async def panel_repo_detail(owner: str, name: str, request: Request) -> Response
                 "private": bool(repo["private"]),
                 "defaultBranch": repo["default_branch"],
                 "protected": bool(repo["protected_at"]),
-                "lastScan": None,
+                # The repo detail already carries the shown set; `lastScan` exists
+                # for the LIST view, where there is nothing else to carry it.
+                "lastScan": set_body,
             },
-            "deps": deps,
-            "rollup": rollup,
-            "scan": _scan_summary(last_scan, last_scan_outcome) if last_scan else None,
+            "set": set_body,
+            "depsTruncated": truncated(rollup, len(states)) if rollup is not None else False,
+            "deps": [
+                state.as_wire().model_dump(mode="json", exclude_none=False)
+                for state in states
+            ],
             "alerts": [_alert_wire(a) for a in alert_rows],
         }
     )
 
 
-def _sse_data(payload: dict[str, Any]) -> str:
-    """One UNNAMED SSE frame (data-only; NO ``event:`` line — the panel scan
-    stream is consumed via ``EventSource.onmessage``, distinct from the named
-    audit stream in ``events.py``)."""
-    return f"data: {json.dumps(payload)}\n\n"
+async def _may_read_set(runtime: Any, user_id: int, set_id: int) -> bool:
+    """Authorize a set for reading, by ORIGIN.
 
-
-async def _scan_stream(runtime: Any, scan_id: int) -> Any:
-    """Poll the DB every ~1.5s, emitting dep diffs + a progress snapshot each
-    tick, then a terminal ``{type:'done'}`` once the scan leaves ``running``."""
-    sent: dict[str, str] = {}
-    active_state, has_failed = _job_state_subqueries(scan_items.c.name, scan_items.c.version)
-    while True:
-        async with runtime.sessionmaker() as session:
-            scan = (
-                (
-                    await session.execute(
-                        sa.select(
-                            scans.c.status,
-                            scans.c.total,
-                            scans.c.cached,
-                            scans.c.audited,
-                            scans.c.failed,
-                        ).where(scans.c.id == scan_id)
-                    )
+    One stream serves every origin, so the authorization has to be per-origin here
+    rather than per-route. A ``repo_scan`` set is readable by anyone who can access
+    its repo's installation; a ``public_repo_scan`` set by anyone who can access
+    the installation that paid for it. Every other origin is unreadable until it
+    has an access story of its own — an origin nobody can read is a 404, never an
+    open default.
+    """
+    async with runtime.sessionmaker() as session:
+        row = (
+            (
+                await session.execute(
+                    sa.select(
+                        audit_sets.c.origin, audit_sets.c.origin_ref, audit_sets.c.billed_to
+                    ).where(audit_sets.c.id == set_id)
                 )
-                .mappings()
-                .first()
             )
-            if scan is None:
-                break
-            items = (
-                (
-                    await session.execute(
-                        sa.select(
-                            scan_items.c.name,
-                            scan_items.c.version,
-                            package_verdicts.c.verdict,
-                            package_verdicts.c.reason,
-                            package_verdicts.c.evidence_count,
-                            active_state.label("active_state"),
-                            has_failed.label("has_failed"),
-                        )
-                        .select_from(
-                            scan_items.outerjoin(
-                                package_verdicts,
-                                sa.and_(
-                                    package_verdicts.c.name == scan_items.c.name,
-                                    package_verdicts.c.version == scan_items.c.version,
-                                ),
-                            )
-                        )
-                        .where(scan_items.c.scan_id == scan_id)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-
-        for item in items:
-            verdict = item["verdict"]
-            job_state = _job_state(item["active_state"], item["has_failed"], verdict)
-            # Same derivation as the detail route — the stream is a projection of
-            # the same items, so it must not classify them differently.
-            outcome = item_outcome(verdict, pending=item["active_state"] is not None)
-            signature = f"{outcome or ''}|{job_state or ''}"
-            key = f"{item['name']}@{item['version']}"
-            if sent.get(key) == signature:
-                continue  # diff-only: skip a dep whose state didn't change
-            sent[key] = signature
-            yield _sse_data(
-                {
-                    "type": "dep",
-                    "name": item["name"],
-                    "version": item["version"],
-                    "outcome": outcome,
-                    "verdictReason": item["reason"],
-                    "evidenceCount": item["evidence_count"] or 0,
-                    "jobState": job_state,
-                }
-            )
-
-        yield _sse_data(
-            {
-                "type": "progress",
-                "status": scan["status"],
-                "total": scan["total"],
-                "cached": scan["cached"],
-                "audited": scan["audited"],
-                "failed": scan["failed"],
-            }
+            .mappings()
+            .first()
         )
-        if scan["status"] != "running":
-            yield _sse_data({"type": "done"})
-            break
-        await asyncio.sleep(SSE_TICK_SECONDS)
+    if row is None:
+        return False
+    if row["origin"] == ORIGIN_REPO_SCAN:
+        return await _authorized_repo(runtime, user_id, row["origin_ref"]) is not None
+    if row["origin"] == ORIGIN_PUBLIC_REPO_SCAN and row["billed_to"] is not None:
+        async with runtime.sessionmaker() as session:
+            return await _user_has_installation(session, user_id, row["billed_to"])
+    return False
 
 
 @router.get("/panel/scan/{scan_id}/events")
 async def panel_scan_events(scan_id: int, request: Request) -> Response:
+    """Progress SSE for ONE audit set, whatever its origin.
+
+    ``Last-Event-ID`` (or ``?since=``) resumes from the durable log's ``seq``
+    cursor, exactly as the audit stream does — the panel's own 1.5s DB poll with a
+    per-connection "what did I already send" dict is gone, and so is the public
+    scan's client-side polling loop, because a public set streams here too.
+    """
     runtime = runtime_of(request)
     if (disabled := require_enabled(runtime)) is not None:
         return disabled
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
-
-    async with runtime.sessionmaker() as session:
-        repo_id = (
-            await session.execute(
-                sa.select(scans.c.repo_id).where(scans.c.id == scan_id)
-            )
-        ).scalar_one_or_none()
-    if repo_id is None or await _authorized_repo(runtime, user["id"], repo_id) is None:
+    if not await _may_read_set(runtime, user["id"], scan_id):
         return JSONResponse({"error": "Scan not found"}, status_code=404)
 
+    after = _resume_cursor(request)
     response = StreamingResponse(
-        _scan_stream(runtime, scan_id), media_type="text/event-stream"
+        runtime.panel_sets.events(scan_id, after=after), media_type="text/event-stream"
     )
     response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Accel-Buffering"] = "no"
     return response
+
+
+def _resume_cursor(request: Request) -> int:
+    """The replay cursor: ``Last-Event-ID`` (sent by native EventSource on
+    reconnect) else ``?since=``, else ``-1`` for "from the beginning". A
+    non-integer value is treated as absent rather than as an error — a garbled
+    cursor must degrade to a full replay, never to a 400 on a reconnect."""
+    for raw in (request.headers.get("last-event-id"), request.query_params.get("since")):
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                continue
+    return -1
 
 
 # ---------------------------------------------------------------------------

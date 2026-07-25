@@ -21,8 +21,11 @@
 #   C9 the audit future raising -> job goes back to 'queued' (retry), verdict
 #      stays absent, scans-refresh still fired (a failure can complete a scan)
 #   C10 on_dangerous seam: a landed DANGEROUS verdict fires the injected alert
-#       hook with (pkg, version, source); a SAFE verdict does NOT
-#   C11 source is derived from the job: scan_id set -> 'scan', None -> 'watch'
+#       hook with (pkg, version, origin); a SAFE verdict does NOT
+#   C11 origin is READ from the job row, not derived from what the job points at:
+#       a public_repo_scan job reports 'public_repo_scan' and a watch job reports
+#       'watchlist'. The retired derivation ("watch iff scan_id is None") could
+#       not tell those two apart, so every public-repo finding was filed as watch
 # PanelWorkerPool shutdown:
 #   C12 close() stops idle workers gracefully — the loops exit BETWEEN jobs, so
 #       no worker is killed while holding a checked-out DB session (that leaked
@@ -211,7 +214,7 @@ def _worker(queue, audits, index, *, report=None, touched=None, on_dangerous=Non
         audits,
         index,
         load_report=_load_report,
-        on_scans_touched=touched,
+        on_sets_touched=touched,
         on_dangerous=on_dangerous,
         queue_full_backoff=0.0,
     )
@@ -291,52 +294,24 @@ async def test_worker_audit_failure_retries_and_notifies(db) -> None:
     assert touched == [("crash-pkg", "2.0.0")]
 
 
-async def _seed_scan(factory) -> int:
-    """A minimal installation -> repo -> scan chain so a job's scan_id FK holds."""
-    from kit_spine import now_iso
-
-    now = now_iso()
-    async with factory() as session, session.begin():
-        await session.execute(
-            tables.installations.insert().values(
-                id=1, account_login="acme", account_type="Organization",
-                created_at=now, updated_at=now,
-            )
-        )
-        await session.execute(
-            tables.repos.insert().values(
-                id=10, installation_id=1, owner="acme", name="app",
-                full_name="acme/app", created_at=now, updated_at=now,
-            )
-        )
-        result = await session.execute(
-            tables.scans.insert().values(
-                repo_id=10, trigger_kind="manual", status="running", started_at=now
-            )
-        )
-        return int(result.inserted_primary_key[0])
-
-
 async def test_worker_fires_on_dangerous_seam(db) -> None:
-    """C10/C11: a landed DANGEROUS verdict fires the alert hook with the source
-    derived from the job (scan_id set -> 'scan'); a SAFE verdict does not."""
+    """C10: a landed DANGEROUS verdict fires the alert hook with the job's own
+    recorded origin; a SAFE verdict does not."""
     queue = PanelJobQueue(db)
     index = VerdictIndex(db)
     fired: list[tuple[str, str, str]] = []
 
-    async def _on_dangerous(name, version, source):
-        fired.append((name, version, source))
+    async def _on_dangerous(name, version, origin):
+        fired.append((name, version, origin))
 
-    # A scan-owned DANGEROUS job -> source 'scan'.
-    scan_id = await _seed_scan(db)
     report = {"verdict": "DANGEROUS", "rationale": "exfil", "confirmedHypIds": ["h1"]}
     worker = _worker(
         queue, _FakeAudits(report=report), index, report=report, on_dangerous=_on_dangerous
     )
-    await queue.enqueue("evil", "1.0.0", scan_id=scan_id, org="acme")
+    await queue.enqueue("evil", "1.0.0", origin="repo_scan", org="acme")
     job = await queue.claim_next()
     await worker.process(job)
-    assert fired == [("evil", "1.0.0", "scan")]
+    assert fired == [("evil", "1.0.0", "repo_scan")]
 
     # A SAFE verdict must NOT fire the hook.
     fired.clear()
@@ -350,23 +325,30 @@ async def test_worker_fires_on_dangerous_seam(db) -> None:
     assert fired == []
 
 
-async def test_worker_watch_job_source_is_watch(db) -> None:
-    """C11: a job with no owning scan (registry-watch) fires source 'watch'."""
+@pytest.mark.parametrize(
+    ("origin", "org"),
+    [("public_repo_scan", "acme"), ("watchlist", None)],
+)
+async def test_worker_reports_the_jobs_recorded_origin(db, origin, org) -> None:
+    """C11: the origin is a column, not a derivation. A public-repo audit and a
+    registry-watch audit both carry org/scan shapes the old
+    ``"watch" if scan_id is None`` rule read identically, so it filed every public
+    finding as a watch alert; reading the recorded origin cannot."""
     queue = PanelJobQueue(db)
     index = VerdictIndex(db)
     fired: list[tuple[str, str, str]] = []
 
-    async def _on_dangerous(name, version, source):
-        fired.append((name, version, source))
+    async def _on_dangerous(name, version, seen):
+        fired.append((name, version, seen))
 
     report = {"verdict": "DANGEROUS", "rationale": "malware", "confirmedHypIds": ["h1"]}
     worker = _worker(
         queue, _FakeAudits(report=report), index, report=report, on_dangerous=_on_dangerous
     )
-    await queue.enqueue("watched", "3.0.0", scan_id=None, org=None)
+    await queue.enqueue("watched", "3.0.0", origin=origin, org=org)
     job = await queue.claim_next()
     await worker.process(job)
-    assert fired == [("watched", "3.0.0", "watch")]
+    assert fired == [("watched", "3.0.0", origin)]
 
 
 # --------------------------------------------------------------------------

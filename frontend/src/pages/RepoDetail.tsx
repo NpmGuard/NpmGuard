@@ -24,7 +24,7 @@ import {
   type Tone,
 } from "../components/panel/tone.tsx";
 import { ApiError } from "../lib/api-base.ts";
-import type { DepDetail, RepoDetailResponse } from "../lib/engine-types.ts";
+import type { AuditSetItem, RepoDetailResponse } from "../lib/engine-types.ts";
 import { formatDate } from "../lib/format.ts";
 import { scanEventsUrl } from "../lib/panel-api.ts";
 import { connectScanStream } from "../lib/sse.ts";
@@ -33,6 +33,21 @@ import { usePanelStore } from "../stores/panelStore.ts";
 type DepFilter = "all" | "flagged" | "direct" | "pending";
 const PAGE = 100;
 
+/** The rollup of a repo that has never been scanned: a set of nothing. Zeroes
+ * rather than null, so the rail, the tiles and the counters read one shape and no
+ * consumer branches on "is there a set" to answer "how many are dangerous". The
+ * "never scanned" vs "nothing to audit" distinction is made ONCE, from `set`
+ * itself, where it actually lives. */
+const NO_SET_ROLLUP = {
+  outcome: null,
+  total: 0,
+  safe: 0,
+  dangerous: 0,
+  error: 0,
+  pending: 0,
+  cached: 0,
+} as const;
+
 const DEP_FILTERS: { key: DepFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "flagged", label: "Flagged" },
@@ -40,7 +55,7 @@ const DEP_FILTERS: { key: DepFilter; label: string }[] = [
   { key: "pending", label: "Pending" },
 ];
 
-function DepStatusPill({ dep }: { dep: DepDetail }) {
+function DepStatusPill({ dep }: { dep: AuditSetItem }) {
   // Outcome first, progress only for the not-concluded case: a null outcome
   // ALWAYS resolves itself (a job is live), so it gets a spinner and never the
   // "Audit failed" copy — that belongs to ERROR, which needs a retry.
@@ -107,43 +122,33 @@ export function RepoDetail() {
     setVisibleCount(PAGE);
   }, [query, filter]);
 
-  // ONE scan stream per running scan id: dep messages patch the matching
-  // dep in place, progress patches counters, done triggers a full reload.
-  const runningScanId = detail?.scan?.status === "running" ? detail.scan.id : null;
+  // ONE stream per live set: a dep frame REPLACES the matching item (the frame
+  // carries the whole contract item, not a lossier subset), a progress frame
+  // replaces the set's status + rollup, done triggers a full reload. Every frame
+  // is a snapshot, so a Last-Event-ID replay is idempotent without a seq guard.
+  const runningScanId = detail?.set?.status === "running" ? detail.set.id : null;
   useEffect(() => {
     if (runningScanId === null) return;
     const handle = connectScanStream(scanEventsUrl(runningScanId), {
-      onMessage(message) {
-        if (message.type === "dep") {
+      onMessage(frame) {
+        if (frame.type === "dep") {
           setDetail(
             (current) =>
               current && {
                 ...current,
                 deps: current.deps.map((dep) =>
-                  dep.name === message.name && dep.version === message.version
-                    ? {
-                        ...dep,
-                        outcome: message.outcome,
-                        verdictReason: message.verdictReason,
-                        evidenceCount: message.evidenceCount,
-                        jobState: message.jobState,
-                      }
+                  dep.name === frame.item.name && dep.version === frame.item.version
+                    ? frame.item
                     : dep,
                 ),
               },
           );
-        } else if (message.type === "progress") {
+        } else if (frame.type === "progress") {
           setDetail((current) =>
-            current && current.scan
+            current && current.set
               ? {
                   ...current,
-                  scan: {
-                    ...current.scan,
-                    total: message.total,
-                    cached: message.cached,
-                    audited: message.audited,
-                    failed: message.failed,
-                  },
+                  set: { ...current.set, status: frame.status, rollup: frame.rollup },
                 }
               : current,
           );
@@ -229,42 +234,40 @@ export function RepoDetail() {
   }
 
   const repo = detail.repo;
-  const scan = detail.scan;
+  const scan = detail.set;
   const alerts = detail.alerts;
   const actionError = repoActionErrors[repo.id];
 
+  // The ONE rollup, computed server-side over THIS SET's items — the same
+  // population `deps` carries, so summing deps reproduces it. The client used to
+  // recompute these counters from `deps` while the engine sent a rollup over the
+  // repo's dep INDEX: three implementations of one sum over two populations.
+  const rollup = scan?.rollup ?? NO_SET_ROLLUP;
   const running = scan?.status === "running";
-  const completed = scan ? scan.cached + scan.audited + scan.failed : 0;
-  const pct = scan && scan.total > 0 ? Math.round((completed / scan.total) * 100) : 0;
-  // The ONE rollup, computed server-side over the repo's dep index. The client
-  // used to recompute these counters from `deps` and never read this field —
-  // a third implementation of the same sum, free to disagree with the other two.
-  const rollup = detail.rollup;
+  const completed = rollup.total - rollup.pending;
+  const pct = rollup.total > 0 ? Math.round((completed / rollup.total) * 100) : 0;
   const flagged = rollup.dangerous + rollup.error;
-  const checked = rollup.total - rollup.pending;
+  const checked = completed;
 
   const lastScanCopy = scan
     ? `Last ${scan.trigger} scan started ${formatDate(scan.startedAt)}`
     : "Run the first audit to establish a dependency baseline.";
 
   let overview: { label: string; tone: Tone; copy: string };
-  if (running && scan) {
+  if (running) {
     overview = {
       label: `Scan in progress · ${pct}%`,
       tone: "running",
-      copy: `${pct}% complete · ${scan.cached} results reused from cache`,
+      copy: `${pct}% complete · ${rollup.cached} results reused from cache`,
     };
-  } else if (scan?.status === "failed") {
+  } else if (scan === null || rollup.total === 0) {
     overview = {
-      label: "Scan interrupted",
-      tone: "danger",
-      copy: "Re-sync the lockfile, then run the audit again.",
-    };
-  } else if (!scan && deps.length === 0) {
-    overview = {
-      label: "Not audited",
+      label: scan === null ? "Not audited" : "Nothing to audit",
       tone: "unknown",
-      copy: "Run the first audit to establish a dependency baseline.",
+      copy:
+        scan === null
+          ? "Run the first audit to establish a dependency baseline."
+          : "This commit's lockfile declares no npm dependencies.",
     };
   } else if (rollup.dangerous > 0) {
     overview = { label: "Action required", tone: "danger", copy: lastScanCopy };
@@ -476,13 +479,13 @@ export function RepoDetail() {
                     className="panel-queue__row"
                     onClick={() => navigate(`/package/${alert.packageName}`)}
                   >
-                    <span className={toneDotClass(outcomeTone(alert.verdict))} />
+                    <span className={toneDotClass(outcomeTone(alert.outcome))} />
                     <span className="mono">
                       {alert.packageName}@{alert.version}
                     </span>
-                    <OutcomePill outcome={alert.verdict} />
+                    <OutcomePill outcome={alert.outcome} />
                     <span className="microtext panel-queue__meta">
-                      {alert.kind} · {formatDate(alert.createdAt)}
+                      {alert.origin} · {formatDate(alert.createdAt)}
                     </span>
                   </button>
                 ))

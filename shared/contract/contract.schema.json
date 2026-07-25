@@ -519,12 +519,6 @@
             "null"
           ]
         },
-        "error": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "startedAt": {
           "type": "string"
         },
@@ -542,7 +536,6 @@
         "status",
         "rollup",
         "commitSha",
-        "error",
         "startedAt",
         "finishedAt"
       ],
@@ -552,8 +545,7 @@
       "type": "string",
       "enum": [
         "running",
-        "done",
-        "failed"
+        "done"
       ],
       "title": "AuditSetStatus"
     },
@@ -3177,6 +3169,9 @@
             }
           ]
         },
+        "depsTruncated": {
+          "type": "boolean"
+        },
         "deps": {
           "type": "array",
           "items": {
@@ -3193,6 +3188,7 @@
       "required": [
         "repo",
         "set",
+        "depsTruncated",
         "deps",
         "alerts"
       ],
@@ -3614,7 +3610,10 @@
           "type": "string"
         },
         "responseHash": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

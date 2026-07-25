@@ -1,15 +1,20 @@
 """Public-repo audit routes (port of TS ``routes/public-repos.ts``).
 
 A signed-in user can audit any *public* GitHub repository against the shared
-verdict cache. Progress is observed by **polling** — there is deliberately no
-SSE here (contrast the protected-repo scan stream in ``routes/panel.py``).
+verdict cache.
 
-Endpoints (§1c of the port plan):
+Endpoints:
 
 - ``POST /panel/public-repos/scan`` — resolve the reference (SSRF-guarded),
   confirm the repo is public, dedupe + audit its root lockfile.
 - ``GET  /panel/public-repos``      — the user's last 20 snapshots.
 - ``GET  /panel/public-repos/:id``  — one snapshot + its dependencies.
+
+Progress is observed on ``GET /panel/scan/{id}/events`` — the SAME stream an
+owned-repo scan uses, because after R-1 both are audit sets and ``scanId`` is a set
+id. There is deliberately no public-scan-specific progress transport any more; the
+client-side polling loop that stood in for one was the second progress
+implementation this rework exists to delete.
 
 Every route is App-gated (503 when the App is not configured) and session-gated
 (401 when not signed in). The 402 cap body ``{error, cap, resource,
@@ -26,6 +31,15 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 from githubkit.exception import RequestFailed
 
+from npmguard.contract import models as contract
+from npmguard.panel.audit_set import (
+    MAX_DETAIL_ITEMS,
+    set_item_states,
+    set_rollup,
+    set_rollups,
+    set_wire,
+    truncated,
+)
 from npmguard.panel.caps import CapExceededError
 from npmguard.panel.github.content import (
     PublicRepoFileTooLargeError,
@@ -40,36 +54,18 @@ from npmguard.panel.routes._common import current_user, require_enabled, runtime
 from npmguard.panel.scan.public_repo_scan import (
     CreatePublicRepoScanInput,
     InvalidPublicRepoReferenceError,
-    PublicRepoScanEngine,
-    compute_public_scan_rollup,
     parse_public_repo_reference,
 )
 from npmguard.panel.tables import (
+    audit_sets,
     installations,
-    package_verdicts,
-    panel_jobs,
-    public_repo_scan_items,
     public_repo_scans,
     user_installations,
 )
-from npmguard.panel.verdict_index import item_outcome
 
 log = structlog.get_logger("npmguard.panel.public_repos")
 
 router = APIRouter()
-
-# Cap the detail payload; large monorepos can carry thousands of transitive deps.
-MAX_DETAIL_DEPS = 500
-
-
-def _public_engine(runtime: Any) -> PublicRepoScanEngine:
-    """Build the public-scan engine from the runtime's panel collaborators."""
-    return PublicRepoScanEngine(
-        sessions=runtime.sessionmaker,
-        caps=runtime.panel_caps,
-        verdict_index=runtime.panel_verdicts,
-        queue=runtime.panel_queue,
-    )
 
 
 def _not_signed_in() -> JSONResponse:
@@ -122,44 +118,46 @@ async def _user_has_installation(
     return row is not None
 
 
-async def _serialize_scan(session: Any, row: Any) -> dict[str, Any]:
-    """The ``PublicScan`` wire shape (§1c), including the computed rollup."""
-    rollup = await compute_public_scan_rollup(session, row["id"])
-    return {
-        "id": row["id"],
-        "installationId": row["installation_id"],
-        "accountLogin": row["account_login"],
-        "requestedBy": row["requested_by"],
-        "githubRepoId": row["github_repo_id"],
-        "owner": row["owner"],
-        "name": row["name"],
-        "fullName": row["full_name"],
-        "htmlUrl": row["html_url"],
-        "defaultBranch": row["default_branch"],
-        "commitSha": row["commit_sha"],
-        "lockfilePath": row["lockfile_path"],
-        "lockfileSha": row["lockfile_sha"],
-        "status": row["status"],
-        "total": row["total"],
-        "cached": row["cached"],
-        "audited": row["audited"],
-        "failed": row["failed"],
-        "error": row["error"],
-        "startedAt": row["started_at"],
-        "finishedAt": row["finished_at"],
-        "rollup": rollup.as_wire(),
-    }
-
-
 def _scan_select() -> Any:
-    """``public_repo_scans`` joined to ``installations`` for ``account_login``."""
+    """The snapshot subject joined to its SET and the payer's account login.
+
+    One id: `public_repo_scans.set_id` IS the snapshot's primary key, so the wire's
+    `scan.id` and `scan.set.id` are the same column and cannot disagree.
+    """
     return sa.select(
         public_repo_scans,
+        audit_sets.c.origin,
+        audit_sets.c.trigger_kind,
+        audit_sets.c.billed_to,
+        audit_sets.c.commit_sha,
+        audit_sets.c.started_at,
+        audit_sets.c.finished_at,
         installations.c.account_login.label("account_login"),
     ).select_from(
         public_repo_scans.join(
-            installations, installations.c.id == public_repo_scans.c.installation_id
-        )
+            audit_sets, audit_sets.c.id == public_repo_scans.c.set_id
+        ).outerjoin(installations, installations.c.id == audit_sets.c.billed_to)
+    )
+
+
+def _scan_wire(row: Any, rollup: Any) -> contract.PublicRepoScan:
+    """The ONE ``PublicRepoScan`` projection: subject + set, nothing duplicated."""
+    return contract.PublicRepoScan(
+        id=row["set_id"],
+        repo=contract.PublicRepo(
+            githubRepoId=row["github_repo_id"],
+            owner=row["owner"],
+            name=row["name"],
+            fullName=row["full_name"],
+            htmlUrl=row["html_url"],
+            defaultBranch=row["default_branch"],
+            lockfilePath=row["lockfile_path"],
+            lockfileSha=row["lockfile_sha"],
+        ),
+        set=set_wire({**row, "id": row["set_id"]}, rollup),
+        requestedBy=row["requested_by"],
+        installationId=row["billed_to"],
+        accountLogin=row["account_login"],
     )
 
 
@@ -179,19 +177,28 @@ async def list_public_repos(request: Request) -> Response:
                     _scan_select()
                     .join(
                         user_installations,
-                        user_installations.c.installation_id
-                        == public_repo_scans.c.installation_id,
+                        user_installations.c.installation_id == audit_sets.c.billed_to,
                     )
                     .where(user_installations.c.user_id == user["id"])
-                    .order_by(public_repo_scans.c.started_at.desc())
+                    .order_by(audit_sets.c.started_at.desc())
                     .limit(20)
                 )
             )
             .mappings()
             .all()
         )
-        scans = [await _serialize_scan(session, row) for row in rows]
-    return JSONResponse({"scans": scans})
+        # One rollup query for the whole list — not one per row.
+        rollups = await set_rollups(session, [row["set_id"] for row in rows])
+    return JSONResponse(
+        {
+            "scans": [
+                _scan_wire(row, rollups[row["set_id"]]).model_dump(
+                    mode="json", exclude_none=False
+                )
+                for row in rows
+            ]
+        }
+    )
 
 
 @router.get("/panel/public-repos/{scan_id}")
@@ -207,100 +214,32 @@ async def get_public_repo(scan_id: int, request: Request) -> Response:
         row = (
             (
                 await session.execute(
-                    _scan_select().where(public_repo_scans.c.id == scan_id)
+                    _scan_select().where(public_repo_scans.c.set_id == scan_id)
                 )
             )
             .mappings()
             .first()
         )
-        if row is None or not await _user_has_installation(
-            session, user["id"], row["installation_id"]
+        if (
+            row is None
+            or row["billed_to"] is None
+            or not await _user_has_installation(session, user["id"], row["billed_to"])
         ):
             return JSONResponse({"error": "Public audit not found"}, status_code=404)
 
-        active_exists = (
-            sa.select(sa.literal(1))
-            .select_from(panel_jobs)
-            .where(
-                panel_jobs.c.package_name == public_repo_scan_items.c.name,
-                panel_jobs.c.version == public_repo_scan_items.c.version,
-                panel_jobs.c.state.in_(("queued", "running")),
-            )
-            .exists()
-        )
-        # Sort order = the outcome domain, DESC. INVARIANT: the stored verdict is
-        # SAFE or DANGEROUS (verdict_index), so the arms are exhaustive — the two
-        # extra arms this CASE used to carry (SUSPECT, UNKNOWN) could not match
-        # any row. A dep with no verdict ranks by whether an attempt is still
-        # live: ERROR outranks pending, which matters because this list is capped
-        # at MAX_DETAIL_DEPS and the truncated tail must be the least urgent.
-        severity = sa.case(
-            (package_verdicts.c.verdict == "DANGEROUS", 3),
-            (package_verdicts.c.verdict == "SAFE", 0),
-            (active_exists, 1),
-            else_=2,
-        )
-        dep_rows = (
-            (
-                await session.execute(
-                    sa.select(
-                        public_repo_scan_items.c.name,
-                        public_repo_scan_items.c.version,
-                        public_repo_scan_items.c.direct,
-                        public_repo_scan_items.c.range,
-                        public_repo_scan_items.c.cached,
-                        package_verdicts.c.verdict,
-                        package_verdicts.c.reason,
-                        package_verdicts.c.evidence_count,
-                        package_verdicts.c.audited_at,
-                        active_exists.label("active"),
-                    )
-                    .select_from(
-                        public_repo_scan_items.outerjoin(
-                            package_verdicts,
-                            sa.and_(
-                                package_verdicts.c.name
-                                == public_repo_scan_items.c.name,
-                                package_verdicts.c.version
-                                == public_repo_scan_items.c.version,
-                            ),
-                        )
-                    )
-                    .where(public_repo_scan_items.c.scan_id == scan_id)
-                    .order_by(
-                        severity.desc(),
-                        public_repo_scan_items.c.direct.desc(),
-                        public_repo_scan_items.c.name,
-                    )
-                    .limit(MAX_DETAIL_DEPS)
-                )
-            )
-            .mappings()
-            .all()
-        )
-        scan = await _serialize_scan(session, row)
+        # Same cap, same severity-first ordering, same server-computed flag as the
+        # repo detail route — the truncation story is the set's, not the origin's.
+        states = await set_item_states(session, scan_id, limit=MAX_DETAIL_ITEMS)
+        rollup = await set_rollup(session, scan_id)
 
-    dependencies = [
-        {
-            "name": dep["name"],
-            "version": dep["version"],
-            "direct": bool(dep["direct"]),
-            "range": dep["range"],
-            "cached": bool(dep["cached"]),
-            "outcome": item_outcome(dep["verdict"], pending=bool(dep["active"])),
-            "reason": dep["reason"],
-            "evidenceCount": dep["evidence_count"] or 0,
-            "auditedAt": dep["audited_at"],
-            "active": bool(dep["active"]),
-        }
-        for dep in dep_rows
-    ]
     return JSONResponse(
         {
-            "scan": scan,
-            # total is the full item count; a truncated LIMIT means more exist.
-            "dependenciesTruncated": row["total"] > len(dependencies),
-            "dependencies": dependencies,
+            "scan": _scan_wire(row, rollup).model_dump(mode="json", exclude_none=False),
+            "depsTruncated": truncated(rollup, len(states)),
+            "deps": [
+                state.as_wire().model_dump(mode="json", exclude_none=False)
+                for state in states
+            ],
         }
     )
 
@@ -325,7 +264,11 @@ async def scan_public_repo(request: Request) -> Response:
     if not isinstance(repository, str):
         return JSONResponse({"error": "Repository is required"}, status_code=400)
     installation_id = body.get("installationId")
-    if not isinstance(installation_id, int) or isinstance(installation_id, bool) or installation_id <= 0:
+    if (
+        not isinstance(installation_id, int)
+        or isinstance(installation_id, bool)
+        or installation_id <= 0
+    ):
         return JSONResponse(
             {"error": "Choose the account whose audit allowance should be used"},
             status_code=400,
@@ -342,7 +285,7 @@ async def scan_public_repo(request: Request) -> Response:
     except InvalidPublicRepoReferenceError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
-    engine = _public_engine(runtime)
+    engine = runtime.panel_public_scan
     octo = runtime.gh_client.public_octokit()
 
     # No auth is attached to this client: a private repo 404s regardless of the
@@ -354,9 +297,7 @@ async def scan_public_repo(request: Request) -> Response:
     except RequestFailed as err:
         return _github_error(err)
     if not isinstance(repo, dict):
-        return JSONResponse(
-            {"error": "Public repository not found"}, status_code=404
-        )
+        return JSONResponse({"error": "Public repository not found"}, status_code=404)
     if repo.get("private"):
         return JSONResponse(
             {"error": "Only public repositories can be audited here"}, status_code=403
@@ -367,9 +308,9 @@ async def scan_public_repo(request: Request) -> Response:
     canonical_full_name = repo.get("full_name") or f"{canonical_owner}/{canonical_name}"
     github_repo_id = repo["id"]
 
-    running = await engine.find_running_public_scan(
-        installation_id, canonical_full_name
-    )
+    # Keyed on the stable github_repo_id, so a rename cannot produce a second
+    # concurrent audit of the same repo.
+    running = await engine.find_running_public_scan(installation_id, github_repo_id)
     if running is not None:
         return JSONResponse(
             {
@@ -426,7 +367,10 @@ async def scan_public_repo(request: Request) -> Response:
                 full_name=canonical_full_name,
                 html_url=repo.get("html_url") or "",
                 default_branch=repo.get("default_branch") or "main",
-                commit_sha=None,
+                # The lockfile is read at the default branch's tip; recording that
+                # sha is what makes the snapshot reproducible together with the
+                # lockfile blob sha. Hardcoding null here was a real bug.
+                commit_sha=inputs.commit_sha,
                 lockfile_path=inputs.lockfile.path,
                 lockfile_sha=inputs.lockfile.sha,
                 deps=deps,
@@ -435,3 +379,6 @@ async def scan_public_repo(request: Request) -> Response:
     except CapExceededError as exc:
         return _cap_response(exc)
     return JSONResponse({"scanId": scan_id}, status_code=201)
+
+
+__all__ = ["router"]

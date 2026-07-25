@@ -11,8 +11,8 @@
 #   C5  a non-semver range (workspace:/git:/file:) is NOT adoptable -> False
 #   C6  a missing range or unparseable version -> False (never raises)
 # handle_dangerous_verdict exposure:
-#   C7  EXACT: a repo whose repo_deps has (name, version) -> alert kind='scan',
-#       message "installed at <version>"
+#   C7  EXACT: a repo whose repo_deps has (name, version) -> alert
+#       origin='repo_scan', outcome='DANGEROUS', message "installed at <version>"
 #   C8  RANGE: a PROTECTED repo whose direct-dep range would adopt version ->
 #       alert, message "range ... would adopt"
 #   C9  range exposure is PROTECTED-only: an unprotected repo with the same
@@ -20,8 +20,10 @@
 #   C10 a non-semver direct range on a protected repo is skipped (no alert)
 #   C11 exact beats range: a repo exposed exactly is not double-counted
 #   C12 DEDUP by (repo_id, name, version): a second call inserts 0 new alerts
-#   C13 one email per affected org, addressed to that org's users with emails;
-#       kind reflects the source ('watch')
+#   C13 one email per affected org, addressed to that org's users with emails
+#   C14 the origin is written through verbatim — including 'public_repo_scan',
+#       which the retired 'scan'|'watch' pair could not express at all
+#   C15 an origin outside the AuditSetOrigin domain raises at the boundary
 import pytest
 import sqlalchemy as sa
 
@@ -151,21 +153,21 @@ async def _alerts(factory) -> list[dict]:
 
 async def test_exact_exposure_inserts_alert(db) -> None:
     """C7: a repo with the exact (name, version) installed gets an alert whose
-    message says 'installed at', kind = the source."""
+    message says 'installed at', and the alert carries the work's origin."""
     await _installation(db, 1, "acme")
     await _repo(db, 10, 1, "acme/app")
     await _dep(db, 10, "evil", "1.2.3", direct=True, rng="^1.0.0")
 
     inserted = await handle_dangerous_verdict(
-        db, "evil", "1.2.3", source="scan", verdict_reason="exfil"
+        db, "evil", "1.2.3", origin="repo_scan", verdict_reason="exfil"
     )
 
     assert inserted == 1
     rows = await _alerts(db)
     assert len(rows) == 1
     assert rows[0]["repo_id"] == 10
-    assert rows[0]["kind"] == "scan"
-    assert rows[0]["verdict"] == "DANGEROUS"
+    assert rows[0]["origin"] == "repo_scan"
+    assert rows[0]["outcome"] == "DANGEROUS"
     assert "installed at 1.2.3" in rows[0]["message"]
     assert "exfil" in rows[0]["message"]
 
@@ -179,7 +181,7 @@ async def test_range_exposure_protected_only(db) -> None:
     await _repo(db, 11, 1, "acme/unprotected", protected=False)
     await _dep(db, 11, "evil", "1.0.0", direct=True, rng="^1.0.0")
 
-    inserted = await handle_dangerous_verdict(db, "evil", "1.5.0", source="watch")
+    inserted = await handle_dangerous_verdict(db, "evil", "1.5.0", origin="watchlist")
 
     assert inserted == 1
     rows = await _alerts(db)
@@ -194,7 +196,7 @@ async def test_nonsemver_range_skipped(db) -> None:
     await _repo(db, 10, 1, "acme/mono", protected=True)
     await _dep(db, 10, "evil", "0.0.0", direct=True, rng="workspace:*")
 
-    inserted = await handle_dangerous_verdict(db, "evil", "9.9.9", source="watch")
+    inserted = await handle_dangerous_verdict(db, "evil", "9.9.9", origin="watchlist")
 
     assert inserted == 0
     assert await _alerts(db) == []
@@ -207,7 +209,7 @@ async def test_exact_beats_range_no_double_count(db) -> None:
     await _repo(db, 10, 1, "acme/app", protected=True)
     await _dep(db, 10, "evil", "1.5.0", direct=True, rng="^1.0.0")  # exact match
 
-    inserted = await handle_dangerous_verdict(db, "evil", "1.5.0", source="scan")
+    inserted = await handle_dangerous_verdict(db, "evil", "1.5.0", origin="repo_scan")
 
     assert inserted == 1
     rows = await _alerts(db)
@@ -221,8 +223,8 @@ async def test_dedup_by_repo_pkg_version(db) -> None:
     await _repo(db, 10, 1, "acme/app")
     await _dep(db, 10, "evil", "1.2.3", direct=True, rng="^1.0.0")
 
-    first = await handle_dangerous_verdict(db, "evil", "1.2.3", source="scan")
-    second = await handle_dangerous_verdict(db, "evil", "1.2.3", source="watch")
+    first = await handle_dangerous_verdict(db, "evil", "1.2.3", origin="repo_scan")
+    second = await handle_dangerous_verdict(db, "evil", "1.2.3", origin="watchlist")
 
     assert (first, second) == (1, 0)
     assert len(await _alerts(db)) == 1
@@ -239,7 +241,7 @@ async def test_email_one_per_org_to_known_recipients(db) -> None:
 
     collector = _EmailCollector()
     inserted = await handle_dangerous_verdict(
-        db, "evil", "1.2.3", source="scan", settings=object(), send_email=collector
+        db, "evil", "1.2.3", origin="repo_scan", settings=object(), send_email=collector
     )
 
     assert inserted == 1
@@ -264,3 +266,27 @@ async def test_no_exposure_no_alert_no_email(db) -> None:
 
     assert inserted == 0
     assert collector.sent == []
+
+
+async def test_public_repo_origin_is_recorded(db) -> None:
+    """C14: a finding discovered by a PUBLIC-repo audit is filed as
+    `public_repo_scan`. The retired `kind` was derived as "watch iff the job owns
+    no scan", and a public-repo job owns no scan — so every public finding was
+    mislabelled a registry-watch alert, and the label was the only record of where
+    a verdict came from."""
+    await _installation(db, 1, "acme")
+    await _repo(db, 10, 1, "acme/app")
+    await _dep(db, 10, "evil", "1.2.3", direct=True, rng="^1.0.0")
+
+    assert await handle_dangerous_verdict(
+        db, "evil", "1.2.3", origin="public_repo_scan"
+    ) == 1
+    assert (await _alerts(db))[0]["origin"] == "public_repo_scan"
+
+
+async def test_foreign_origin_raises(db) -> None:
+    """C15: an origin outside the contract's AuditSetOrigin domain fails at the
+    boundary that owns the column, rather than landing a value no tone map or
+    filter can branch on."""
+    with pytest.raises(AssertionError, match="AuditSetOrigin"):
+        await handle_dangerous_verdict(db, "evil", "1.2.3", origin="scan")

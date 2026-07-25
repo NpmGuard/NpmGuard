@@ -168,10 +168,10 @@ Grouped by surface. **F-x** ids are referenced by the phase plan in §7.
 - **F-C1** On demand (`POST /panel/repo/{id}/scan`), resolve the repo's root
   lockfile (npm / pnpm / yarn), parse it to a deduped `(name, version)` set,
   persist it as the repo's dependency index.
-- **F-C2** Create a `Scan` whose `scan_items` are the exact set covered;
-  progress is computed **from those rows**, never from a counter.
+- **F-C2** Create an `AuditSet` whose `audit_set_items` are the exact set
+  covered; progress is computed **from those rows**, never from a counter.
 - **F-C3** Every uncached `(name, version)` becomes a `PanelJob`; jobs dedupe
-  cross-scan via a partial-unique index on `(package_name, version)` while
+  cross-SET via a partial-unique index on `(package_name, version)` while
   active. Cached ones resolve instantly from `package_verdicts`.
 - **F-C4** Workers drain jobs into `AuditService.admit` — the single docker-cap
   owner. The panel never opens a second capacity budget.
@@ -529,16 +529,34 @@ erDiagram
 ### 4.2 Panel domain — **built** (`panel/tables.py`)
 
 `gh_users`, `gh_sessions`, `installations`, `user_installations`, `repos`,
-`repo_deps`, `scans`, `scan_items`, `package_verdicts`, `panel_jobs`,
+`repo_deps`, `audit_sets`, `audit_set_items`, `package_verdicts`, `panel_jobs`,
 `watched_packages`, `billing_accounts`, `account_usage`, `alerts`,
-`public_repo_scans`, `public_repo_scan_items`.
+`public_repo_scans`.
 
-Two load-bearing invariants already encoded in the schema, worth naming because
-the design depends on them:
+`audit_sets` / `audit_set_items` are R-1, landed: they replaced
+`scans`/`scan_items` and the progress half of
+`public_repo_scans`/`public_repo_scan_items`, and `public_repo_scans` is now a
+pure *subject* row (which public repo, who asked) keyed by `set_id`.
+
+Load-bearing invariants encoded in the schema, worth naming because the design
+depends on them:
 
 - **`ix_panel_jobs_active_pkg`** — partial-unique on `(package_name, version)`
   while `state IN ('queued','running')`. This is *what makes fan-out safe*: two
-  repos depending on `lodash@4.17.21` produce one audit, not two.
+  repos depending on `lodash@4.17.21` produce one audit, not two. Its corollary
+  is that a shared job belongs to no single set, which is why a settle notifies
+  every set covering the pair rather than "its own".
+- **`ix_audit_sets_active_public`** — partial-unique on
+  `(origin_ref, billed_to)` while `finished_at IS NULL AND origin =
+  'public_repo_scan'`. Origin-scoped on purpose: the same statement is **false**
+  for `repo_scan`, where two pushes in quick succession legitimately open two
+  overlapping sets, each with its own check run.
+- **No stored `status` and no stored counter on a set.** `finished_at` is the
+  single liveness fact and every counter is recomputed from
+  `audit_set_items ⋈ package_verdicts` on read. `status='failed'` and a set-level
+  `error` text column were both removed: the falsification pass found zero
+  producers for either, and every way a set can go wrong resolves into its rollup
+  as `ERROR`.
 - **`package_verdicts`** is a **derived, rebuildable** index of
   `data/reports/`. It is a cache, never a second source of truth. Anything that
   disagrees with the report on disk is a bug in the projector.
@@ -677,7 +695,7 @@ generated-contract edit rather than a hand-mirrored one.
 | GET | `/panel/alerts` · POST `/panel/alerts/seen` | org-scoped feed + ack |
 | GET | `/panel/public-repos` · `/{id}` · POST `/panel/public-repos/scan` | read-only public audits |
 | GET | `/panel/billing` · POST `/billing/checkout` · `/billing/portal` | plan + Stripe |
-| POST | `/webhooks/github` | push → delta scan → check-run |
+| POST | `/webhooks/github` | push → audit set over the pushed lockfile → check-run |
 
 ### 5.3 New — replay, public scan, bench
 
@@ -831,26 +849,31 @@ sequenceDiagram
     P->>P: caps.assert(monthly_audits)
     P->>GH: find root lockfile + contents
     P->>P: parse (npm|pnpm|yarn) → deduped deps
-    P->>P: create scan + scan_items (the exact covered set)
+    P->>P: create audit_set + audit_set_items (the exact covered set)
     P->>Q: enqueue_many(uncached only)
-    P-->>FE: 202 {scanId}
-    FE->>P: GET /panel/scan/{id}/events (SSE)
+    P-->>FE: 202 {scanId}  %% scanId IS a set id, for every origin
+    FE->>P: GET /panel/scan/{id}/events (SSE, resumable)
     loop until drained
-        W->>Q: claim_next()  %% partial-unique index dedupes across scans
+        W->>Q: claim_next()  %% partial-unique index dedupes across sets
         W->>A: admit(pkg, version)
         A->>R: report written
-        W->>P: refresh_scan_progress (recomputed from scan_items)
-        P-->>FE: progress frame
+        W->>P: refresh_touching (every live set covering the pair)
+        P-->>FE: dep + progress frames (durable log, `seq` cursor)
     end
-    P->>P: rollup → scan.status, alerts on DANGEROUS
+    P->>P: rollup → finished_at, check run, alerts on DANGEROUS
     P-->>FE: terminal frame + rollup
 ```
 
 Two things this diagram is asserting on purpose:
 
-- Progress is **recomputed from `scan_items` ⋈ `package_verdicts`** on every
+- Progress is **recomputed from `audit_set_items` ⋈ `package_verdicts`** on every
   refresh, not incremented. A worker crash cannot desynchronize the counter
   from reality — there is no counter.
+- A `repo_scan` set covers the **whole parsed lockfile**, including on a push.
+  "Audit only what changed" is the cache-first enqueue, not the item list: a
+  narrower item list made `repo.lastScan` — the posture the dashboard reads — a
+  rollup over three items out of four hundred, and made an empty push produce a
+  set with no items whose check run never concluded.
 - The worker calls `admit`, so a 200-dep monorepo scan and a paid one-off audit
   compete for the *same* docker budget, with the panel's cap acting only as a
   *billing* gate, not a capacity gate.
@@ -1002,7 +1025,7 @@ Covers F-B*, F-C*, F-D1, F-E3, N-6, N-7, N-9.
 ### Phase 4 — Turn the panel on for real
 **Goal: it works against actual GitHub, not a stub.**
 Register the OAuth callback; tunnel webhook delivery and prove a real `push`
-produces a delta scan + check-run; configure billing so the upgrade path stops
+produces a push scan + check-run; configure billing so the upgrade path stops
 being an honest 501. Covers F-B1, F-D2, F-E4, N-14. **SMTP stays out (F-D5).**
 _Note:_ do **not** harden the plan model here (F-E). Get *a* payment path
 working behind the F-E1 seam and leave the shape changeable.
@@ -1087,7 +1110,7 @@ Each is binary and observable — no "improve", no "polish".
 | G10 | 5 dashboard e2e specs green against a real engine | 3 | `npx playwright test` |
 | G11 | Panel classification logic is class-mapped and unit-tested | 3 | `needsAttention`, `depPriority`/`depTone`, counters |
 | G12 | Real GitHub OAuth round-trip completes | 4 | manual, once |
-| G13 | A real `push` to a real protected repo produces a delta scan + check-run | 4 | check-run visible on the commit |
+| G13 | A real `push` to a real protected repo produces a push scan + check-run | 4 | check-run visible on the commit |
 | G14 | *A* payment path closes end to end, behind the F-E1 seam | 4 | entitlements change after purchase |
 | G15 | No table/wire/component encodes plan as a two-valued fact | 4 | grep: no `plan === "pro"` branching on behaviour |
 | G16 | ≥3 curated replays, browsable, permalinked, contract-pinned | 5 | `/replays` + a schema-bump test that fails loud |

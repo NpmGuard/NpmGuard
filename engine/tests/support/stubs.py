@@ -464,6 +464,11 @@ _GH_FAR_FUTURE = "2099-01-01T00:00:00Z"
 _RAW_REF = "HEAD"
 
 
+def _stub_commit_sha(owner: str, repo: str) -> str:
+    """The stub's stable head sha for a repo — 40 hex chars, like GitHub's."""
+    return hashlib.sha1(f"{owner}/{repo}".encode()).hexdigest()
+
+
 def _bearer_token(request: Request) -> str | None:
     """Extract the trailing token from a ``token <t>`` / ``Bearer <t>`` header."""
     header = request.headers.get("authorization")
@@ -548,6 +553,7 @@ class GitHubStub(_SelfServing):
             self._update_check_run
         )
         self.app.get("/repos/{owner}/{repo}/contents/{path:path}")(self._get_contents)
+        self.app.get("/repos/{owner}/{repo}/commits/{ref:path}")(self._get_commit)
         self.app.get("/repos/{owner}/{repo}")(self._get_repo)
         self.app.get("/raw/{owner}/{repo}/{ref}/{path:path}")(self._get_raw)
 
@@ -856,6 +862,15 @@ class GitHubStub(_SelfServing):
         if found is None:
             return JSONResponse({"message": "Not Found"}, status_code=404)
         return JSONResponse(found)
+
+    async def _get_commit(
+        self, owner: str, repo: str, ref: str, request: Request
+    ) -> JSONResponse:
+        """A deterministic head sha per repo — what pins a public snapshot to a
+        commit. Derived from the identity so a test can assert on it."""
+        if (owner, repo) not in self.repos:
+            return JSONResponse({"message": "Not Found"}, status_code=404)
+        return JSONResponse({"sha": _stub_commit_sha(owner, repo)})
 
     def _content_entry(
         self, owner: str, repo: str, rec: dict[str, Any], request: Request, *, listing: bool

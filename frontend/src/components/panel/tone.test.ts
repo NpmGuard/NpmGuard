@@ -8,8 +8,10 @@
  *  T1  outcomeTone — one class per outcome + null. ERROR gets its OWN tone: not
  *      `danger` (it does not block) and not `unknown` (it IS information).
  *  T2  toneAccent — every Tone resolves to a CSS var, unknown to the paper var.
- *  T3  scanTone — set progress outranks outcome: running / failed-to-finish are
- *      read before the rollup, and a null scan is unknown.
+ *  T3  scanTone — set progress outranks outcome: a running set is read before its
+ *      rollup, and a null set is unknown. There is no failed-SET arm: the status
+ *      domain is `running | done`, because R-1's falsification pass found zero
+ *      producers for a failed set and a branch for an unreachable state is cost.
  *  T4  depPriority — the sort order: DANGEROUS > ERROR > running > queued > SAFE.
  *      ERROR above a live attempt is the load-bearing one — an errored dep needs
  *      a human, a running one resolves itself.
@@ -25,7 +27,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { DepDetail } from "../../lib/engine-types.ts";
+import type { AuditSet, AuditSetItem, Outcome } from "../../lib/engine-types.ts";
 import {
   depPriority,
   depTone,
@@ -36,7 +38,7 @@ import {
   type Tone,
 } from "./tone.tsx";
 
-const dep = (over: Partial<DepDetail> = {}): DepDetail => ({
+const dep = (over: Partial<AuditSetItem> = {}): AuditSetItem => ({
   name: "left-pad",
   version: "1.3.0",
   direct: true,
@@ -46,21 +48,31 @@ const dep = (over: Partial<DepDetail> = {}): DepDetail => ({
   evidenceCount: 0,
   auditedAt: null,
   jobState: null,
+  cached: false,
   ...over,
 });
 
-const scan = (over: Partial<Parameters<typeof scanTone>[0] & object> = {}) => ({
+/** An audit set with the outcome its rollup carries — the rollup IS the set's
+ * verdict now, so a test cannot set one without the counters that justify it. */
+const scan = (
+  over: { status?: AuditSet["status"]; outcome?: Outcome | null } = {},
+): AuditSet => ({
   id: 1,
-  status: "done" as const,
-  trigger: "manual" as const,
-  total: 3,
-  cached: 1,
-  audited: 2,
-  failed: 0,
+  origin: "repo_scan",
+  trigger: "manual",
+  status: over.status ?? "done",
+  rollup: {
+    outcome: over.outcome ?? null,
+    total: 3,
+    safe: 1,
+    dangerous: 0,
+    error: 0,
+    pending: over.status === "running" ? 2 : 0,
+    cached: 1,
+  },
+  commitSha: null,
   startedAt: "2026-07-25T00:00:00.000Z",
-  finishedAt: "2026-07-25T00:01:00.000Z",
-  outcome: null,
-  ...over,
+  finishedAt: over.status === "running" ? null : "2026-07-25T00:01:00.000Z",
 });
 
 describe("outcomeTone", () => {
@@ -97,8 +109,11 @@ describe("scanTone", () => {
   });
 
   it("T3: set progress is read before the outcome", () => {
+    // A live set is `running` whatever its rollup says so far — progress and
+    // outcome are the two §4.4 axes at set level, and the UI shows progress while
+    // there is still progress to show.
     expect(scanTone(scan({ status: "running", outcome: null }))).toBe("running");
-    expect(scanTone(scan({ status: "failed", outcome: "SAFE" }))).toBe("danger");
+    expect(scanTone(scan({ status: "running", outcome: "SAFE" }))).toBe("running");
   });
 
   it("T3: a finished scan takes the tone of its outcome", () => {

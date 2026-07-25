@@ -3,8 +3,10 @@
 The ``panel_jobs`` table is the panel's **outer, durable, unbounded** audit
 queue. A partial-unique index (``ix_panel_jobs_active_pkg``) guarantees at most
 one *active* (``queued``/``running``) job per ``(package, version)`` — concurrent
-scans needing the same package share the one job, and scan progress is computed
-from ``scan_items ⋈ package_verdicts``, never from job ownership.
+audit sets needing the same package share the one job, and set progress is
+computed from ``audit_set_items ⋈ package_verdicts``, never from job ownership.
+A shared job therefore belongs to no single set, which is why a settle notifies
+every set covering the pair rather than "its own".
 
 Fan-out topology (the load-bearing decision): the worker pool does **not** run a
 second executor. Each cache-miss is funnelled into ``AuditService.admit`` — the
@@ -42,14 +44,20 @@ _ACTIVE_STATES = ("queued", "running")
 
 @dataclass(frozen=True)
 class JobSpec:
-    """One enqueue request. ``org`` is the billing account (``None`` = a
-    registry-watch audit, which is not charged); ``scan_id`` ties the job to a
-    scan (``None`` for public/watch)."""
+    """One enqueue request.
+
+    ``org`` is the queue-fairness key (``None`` = a registry-watch audit, which
+    belongs to no org) — NOT a billing field; money is metered in ``account_usage``.
+    ``origin`` is the AuditSetOrigin this work came from, carried so an alert raised
+    on the verdict knows where it came from. It replaces a ``scan_id`` FK whose only
+    reader derived ``"watch" if scan_id is None`` and therefore filed every
+    public-repo audit's finding as a registry-watch alert.
+    """
 
     package_name: str
     version: str
     org: str | None = None
-    scan_id: int | None = None
+    origin: str = "watchlist"
 
 
 @dataclass(frozen=True)
@@ -58,7 +66,7 @@ class PanelJob:
 
     id: int
     org: str | None
-    scan_id: int | None
+    origin: str
     package_name: str
     version: str
     state: str
@@ -82,14 +90,12 @@ class PanelJobQueue:
         package_name: str,
         version: str,
         *,
-        scan_id: int | None = None,
+        origin: str = "watchlist",
         org: str | None = None,
     ) -> bool:
         """Enqueue one pair; ``True`` iff a new job row was inserted (deduped
         against any active job for the same pair)."""
-        return (
-            await self.enqueue_many([JobSpec(package_name, version, org, scan_id)]) == 1
-        )
+        return await self.enqueue_many([JobSpec(package_name, version, org, origin)]) == 1
 
     async def enqueue_many(self, specs: Iterable[JobSpec]) -> int:
         """Insert jobs, skipping any pair that already has an active job. Returns
@@ -124,7 +130,7 @@ class PanelJobQueue:
                         kind="audit_package",
                         lane="cheap",
                         org=spec.org,
-                        scan_id=spec.scan_id,
+                        origin=spec.origin,
                         package_name=spec.package_name,
                         version=spec.version,
                         state="queued",
@@ -175,7 +181,7 @@ class PanelJobQueue:
         return PanelJob(
             id=row["id"],
             org=row["org"],
-            scan_id=row["scan_id"],
+            origin=row["origin"],
             package_name=row["package_name"],
             version=row["version"],
             state="running",
@@ -251,11 +257,12 @@ class _Admitting:
 
 
 LoadReport = Callable[[str, str], tuple[dict, str] | None]
-ScansTouched = Callable[[str, str], Awaitable[None]]
+SetsTouched = Callable[[str, str], Awaitable[None]]
 # Fired when a completed audit lands a DANGEROUS verdict: (package, version,
-# source). ``source`` is 'watch' for a registry-watch job (no owning scan) else
-# 'scan'. Injected so jobs.py stays testable without the alerts subsystem — the
-# wire stage binds it to alerts.notify.handle_dangerous_verdict.
+# origin). ``origin`` is the job's own AuditSetOrigin — a DB fact set at enqueue
+# time, not re-derived from what the job does or does not point at. Injected so
+# jobs.py stays testable without the alerts subsystem; the wire stage binds it to
+# alerts.notify.handle_dangerous_verdict.
 OnDangerous = Callable[[str, str, str], Awaitable[None]]
 
 
@@ -275,7 +282,7 @@ class PanelScanWorker:
         verdict_index: VerdictIndex,
         *,
         load_report: LoadReport = default_load_report,
-        on_scans_touched: ScansTouched | None = None,
+        on_sets_touched: SetsTouched | None = None,
         on_dangerous: OnDangerous | None = None,
         queue_full_backoff: float = 1.0,
         idle_poll: float = 1.0,
@@ -284,7 +291,7 @@ class PanelScanWorker:
         self._audits = audits
         self._verdict_index = verdict_index
         self._load_report = load_report
-        self._on_scans_touched = on_scans_touched
+        self._on_sets_touched = on_sets_touched
         self._on_dangerous = on_dangerous
         self._queue_full_backoff = queue_full_backoff
         self._idle_poll = idle_poll
@@ -350,8 +357,7 @@ class PanelScanWorker:
             # Alert hook: only when WE landed the verdict (the cross-scan short-
             # circuit above leaves alerting to the job that produced it).
             if verdict == "DANGEROUS" and self._on_dangerous is not None:
-                source = "watch" if job.scan_id is None else "scan"
-                await self._on_dangerous(job.package_name, job.version, source)
+                await self._on_dangerous(job.package_name, job.version, job.origin)
         else:
             # The audit settled without a landable verdict, so NO verdict row is
             # written and the job still completes. That leaves the pair with no
@@ -385,8 +391,8 @@ class PanelScanWorker:
                 log.exception("panel worker crashed on job", job_id=job.id)
 
     async def _notify(self, job: PanelJob) -> None:
-        if self._on_scans_touched is not None:
-            await self._on_scans_touched(job.package_name, job.version)
+        if self._on_sets_touched is not None:
+            await self._on_sets_touched(job.package_name, job.version)
 
 
 class PanelWorkerPool:
@@ -400,7 +406,7 @@ class PanelWorkerPool:
         *,
         count: int,
         load_report: LoadReport = default_load_report,
-        on_scans_touched: ScansTouched | None = None,
+        on_sets_touched: SetsTouched | None = None,
         on_dangerous: OnDangerous | None = None,
         idle_poll: float = 1.0,
     ) -> None:
@@ -410,7 +416,7 @@ class PanelWorkerPool:
                 audits,
                 verdict_index,
                 load_report=load_report,
-                on_scans_touched=on_scans_touched,
+                on_sets_touched=on_sets_touched,
                 on_dangerous=on_dangerous,
                 idle_poll=idle_poll,
             )

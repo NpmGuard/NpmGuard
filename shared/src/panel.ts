@@ -109,10 +109,20 @@ export type AuditSetOrigin = z.infer<typeof AuditSetOriginSchema>;
 export const AuditSetTriggerSchema = z.enum(["manual", "push", "reconcile", "publish"]);
 export type AuditSetTrigger = z.infer<typeof AuditSetTriggerSchema>;
 
-// Progress of the SET (not of any audit). `failed` gains a producer in Phase 1 —
-// today no writer sets it, so a scan whose engine died stays `running` forever
-// and every UI branch for the failed state is dead.
-export const AuditSetStatusSchema = z.enum(["running", "done", "failed"]);
+// Progress of the SET (not of any audit), and DERIVED on the wire rather than
+// stored: the engine keeps only `finishedAt`, and `status` is "done" iff it is
+// set. That is what makes the invariant below unrepresentable-if-violated
+// instead of merely asserted.
+//
+// `failed` was removed in R-1 after the falsification pass found zero producers:
+// every way a set can go wrong already resolves into its rollup. A refused
+// budget or a missing lockfile raises BEFORE any row exists (no set at all); a
+// lost enqueue batch leaves items with no verdict and no live job, which is
+// outcome ERROR per §4.4; a crashed engine leaves the set `running` until the
+// boot sweep finalizes it, again as ERROR. A reserved-but-unproduced status is
+// the exact class this contract deletes — and with it went `AuditSet.error`,
+// whose only stated meaning was "non-null when status === failed".
+export const AuditSetStatusSchema = z.enum(["running", "done"]);
 export type AuditSetStatus = z.infer<typeof AuditSetStatusSchema>;
 
 // The single counters object over a set's items — it replaces today's
@@ -153,11 +163,15 @@ export type AuditSetRollup = z.infer<typeof AuditSetRollupSchema>;
 // consumer of a counter to destructure a subject it does not care about, and
 // adding `dep_tree` would then cost wire complexity. This costs none.
 //
-// INVARIANT: `finishedAt` is non-null iff `status !== "running"`.
-// INVARIANT: `error` is non-null only when `status === "failed"`.
-// `status` (did the SET finish) and `rollup.outcome` (the verdict over its
-// items) are the §4.4 axes at set level: a `done` set can hold a DANGEROUS
-// rollup, and a `failed` set can hold a SAFE one.
+// INVARIANT: `finishedAt` is non-null iff `status === "done"` — one stored fact
+// (`finished_at`) projected twice, so the pair cannot disagree.
+// INVARIANT: `status === "done"` iff `rollup.pending === 0`. An item counts as
+// pending only while it has a live job AND the set is live, so a finished set can
+// never report work still outstanding — a job another set enqueues later cannot
+// retroactively un-finish this one.
+// `status` (did the SET finish) and `rollup.outcome` (the verdict over its items)
+// are the §4.4 axes at set level: a `done` set can hold any outcome, including
+// null when it covered nothing.
 export const AuditSetSchema = z.object({
   id: z.number().int(),
   origin: AuditSetOriginSchema,
@@ -167,7 +181,6 @@ export const AuditSetSchema = z.object({
   // Populated for repo origins. A snapshot without a commit sha is not
   // reproducible, which is why the public-scan path hardcoding null was a bug.
   commitSha: z.string().nullable(),
-  error: z.string().nullable(),
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
 });
@@ -259,14 +272,25 @@ export type AlertsResponse = z.infer<typeof AlertsResponseSchema>;
 
 // GET /panel/repo/{owner}/{name}. `rollup` is NOT a sibling here — it lives on
 // `set`, computed once server-side over the set's OWN items and consumed by the
-// client, instead of a second (divergent) client-side recompute. A delta scan
-// covers only changed pairs, so a rollup over the repo's CURRENT dep index is a
-// different question from this set's outcome.
+// client, instead of a second (divergent) client-side recompute.
+//
+// `deps` is the SET's item list, never the repo's current dep index: summing
+// `deps` must reproduce `set.rollup` (modulo truncation), and that is only true
+// when the two describe one population. R-1 therefore made every `repo_scan` set
+// cover the whole parsed lockfile — the push path's "audit only what changed" is
+// an ENQUEUE optimization that the cache-first check already performs, so a
+// narrower item set bought nothing and made `lastScan` a posture it could not
+// honestly claim.
 export const RepoDetailResponseSchema = z.object({
   repo: PanelRepoSchema,
   // The scan being shown: the live one if any, else the most recent. Null iff
   // the repo has never been scanned.
   set: AuditSetSchema.nullable(),
+  // True when the set covers more pairs than `deps` carries — same cap, same
+  // ordering, same flag as the public-scan detail below. One truncation story:
+  // both routes cap for wire size, and NEITHER leaves a consumer to infer it by
+  // comparing lengths.
+  depsTruncated: z.boolean(),
   deps: z.array(AuditSetItemSchema),
   // Most recent alerts for this repo, newest first.
   alerts: z.array(AlertSchema),
@@ -274,14 +298,21 @@ export const RepoDetailResponseSchema = z.object({
 export type RepoDetailResponse = z.infer<typeof RepoDetailResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Scan progress stream — GET /panel/scan/{id}/events
+// Audit-set progress stream — GET /panel/scan/{id}/events
 // ---------------------------------------------------------------------------
+// ONE stream for every origin (R-1): the route is keyed by SET id, so a public
+// repo audit and an owned-repo scan are followed by the same client code. The
+// public-scan polling loop it replaces was the second progress implementation.
 
-// UNNAMED, data-only SSE frames: no `event:` line and no seq id, so a consumer
-// reads them with `onmessage` and discriminates on the payload's `type`. This is
-// the opposite convention from the audit stream (events.ts), which is one NAMED
-// event per type with a replay cursor — a consumer that registers per-name
-// listeners here receives nothing at all.
+// UNNAMED SSE frames: no `event:` line, so a consumer reads them with
+// `onmessage` and discriminates on the payload's `type`. Per-name listeners
+// receive nothing at all — the opposite convention from the audit stream
+// (events.ts), which is one NAMED event per type.
+//
+// Frames DO carry an `id:` line (the durable log's `seq`), which is what makes
+// `Last-Event-ID` resume work: an unnamed event with an id still fires
+// `onmessage`, and EventSource replays the cursor on reconnect. Every frame is a
+// SNAPSHOT of its subject, so replaying one is idempotent.
 export const ScanDepFrameSchema = z.object({
   type: z.literal("dep"),
   // The whole item, not a flattened subset. The old frame dropped direct /
@@ -359,7 +390,9 @@ export const PublicRepoScanDetailResponseSchema = z.object({
   scan: PublicRepoScanSchema,
   // True when the set covers more pairs than `deps` carries — the detail
   // projection is capped for wire size. The true count is `set.rollup.total`,
-  // so a truncated view must never be summed for a posture.
+  // so a truncated view must never be summed for a posture. Same cap and same
+  // severity-first ordering as the repo detail above, so the tail that gets cut
+  // is the least urgent on both routes.
   depsTruncated: z.boolean(),
   deps: z.array(AuditSetItemSchema),
 });

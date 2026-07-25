@@ -16,8 +16,9 @@ Events handled:
 - ``installation_repositories`` — ``added`` upserts, ``removed`` deletes + re-
   syncs the watch list.
 - ``push`` — a root lockfile / ``package.json`` change invalidates the cached
-  auditability marker; if the repo is protected, opens a GitHub check and runs a
-  delta scan.
+  auditability marker; if the repo is protected, opens a GitHub check and an audit
+  set over the pushed commit's whole lockfile (see ``scan/repo_scan.py`` for why
+  full coverage rather than a delta).
 
 The push handler is what keeps ``repo_deps`` fresh — the substrate registry-watch
 alerts from.
@@ -148,7 +149,8 @@ async def _handle_installation(runtime: Any, payload: dict[str, Any]) -> None:
 
     if action == "deleted":
         async with runtime.sessionmaker() as session, session.begin():
-            # Cascades to repos -> repo_deps / scans via the FK.
+            # Cascades to repos -> repo_deps via the repo FK, and to the
+            # installation's audit_sets via audit_sets.billed_to.
             await session.execute(
                 installations.delete().where(installations.c.id == installation_id)
             )
@@ -285,7 +287,7 @@ async def _handle_push(runtime: Any, payload: dict[str, Any]) -> None:
     if not repo.get("protected_at") or not touched:
         return  # Protect off, or nothing dependency-relevant changed
 
-    log.info("push delta scan", repo=repo["full_name"], branch=branch)
+    log.info("push scan", repo=repo["full_name"], branch=branch)
     check_run_id = None
     if runtime.gh_client is not None:
         octo = runtime.gh_client.installation_octokit(repo["installation_id"])
@@ -293,7 +295,7 @@ async def _handle_push(runtime: Any, payload: dict[str, Any]) -> None:
             octo, repo["owner"], repo["name"], head_sha
         )
     try:
-        await runtime.panel_scan.delta_repo_scan(repo, branch, head_sha, check_run_id)
+        await runtime.panel_scan.push_repo_scan(repo, branch, head_sha, check_run_id)
     except LockfileNotFoundError:
         log.warning(
             "push lockfile gone — skipping",

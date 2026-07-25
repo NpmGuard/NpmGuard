@@ -12,7 +12,7 @@
  * silently accepted values the map had no arm for. */
 
 import type { Outcome } from "@npmguard/shared";
-import type { DepDetail, ScanSummary } from "../../lib/engine-types.ts";
+import type { AuditSet, AuditSetItem } from "../../lib/engine-types.ts";
 
 export type Tone = "safe" | "danger" | "error" | "running" | "unknown";
 
@@ -47,13 +47,17 @@ export function toneAccent(tone: Tone): string {
   }
 }
 
-/** Card accent for a repo's last scan: set progress first (running / failed to
- * finish), then the outcome over its items. */
-export function scanTone(scan: ScanSummary | null): Tone {
-  if (!scan) return "unknown";
-  if (scan.status === "running") return "running";
-  if (scan.status === "failed") return "danger";
-  return outcomeTone(scan.outcome);
+/** Card accent for a repo's last audit set: set progress first (still running),
+ * then the outcome over its own items.
+ *
+ * There is no `failed` arm any more — R-1's falsification pass found zero
+ * producers for a failed SET, so the status domain is `running | done` and the
+ * branch that handled it was dead. Every way a set can go wrong now resolves into
+ * its rollup, where ERROR is a real, countable outcome. */
+export function scanTone(set: AuditSet | null): Tone {
+  if (!set) return "unknown";
+  if (set.status === "running") return "running";
+  return outcomeTone(set.rollup.outcome);
 }
 
 /** Status-dot class for a tone; plain paper dot for unknown/pending. */
@@ -65,7 +69,7 @@ export function toneDotClass(tone: Tone): string {
  * (DANGEROUS > ERROR), then live progress (running before queued), then SAFE.
  * ERROR outranks a running audit because it needs a human; a running one
  * resolves itself. */
-export function depPriority(dep: DepDetail): number {
+export function depPriority(dep: AuditSetItem): number {
   if (dep.outcome === "DANGEROUS") return 0;
   if (dep.outcome === "ERROR") return 1;
   if (dep.outcome === null) return dep.jobState === "running" ? 2 : 3;
@@ -74,7 +78,7 @@ export function depPriority(dep: DepDetail): number {
 
 /** Tone for one dep: its outcome, except that a still-running attempt shows as
  * running rather than as absent information. */
-export function depTone(dep: DepDetail): Tone {
+export function depTone(dep: AuditSetItem): Tone {
   if (dep.outcome === null && dep.jobState === "running") return "running";
   return outcomeTone(dep.outcome);
 }
