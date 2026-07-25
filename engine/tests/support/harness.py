@@ -262,6 +262,11 @@ class EngineHarness:
         self.data_dir = self.workdir / "data"
         self.audit_log_dir = self.workdir / "audit-logs"
         self.db_url = db_url or sqlite_url(self.workdir / "db.sqlite3")
+        # This deployment's own app origin. Explicit rather than left to the
+        # Settings default, because it is what the engine builds outbound
+        # redirects from (Stripe success/cancel, the OAuth callback) and those
+        # must never be derivable from a request header.
+        self.panel_base_url = f"http://127.0.0.1:{self.port}"
         self.llm_url = llm_url
         self.registry_url = registry_url
         self.stripe_api_base = stripe_api_base
@@ -294,6 +299,7 @@ class EngineHarness:
                 "NPMGUARD_DATA_DIR": str(self.data_dir),
                 "NPMGUARD_AUDIT_LOG_DIR": str(self.audit_log_dir),
                 "NPMGUARD_NPM_REGISTRY": self.registry_url or DEAD_URL,
+                "NPMGUARD_PANEL_BASE_URL": self.panel_base_url,
                 "NPMGUARD_LLM_BACKEND": "openai_compatible",
                 "NPMGUARD_LLM_BASE_URL": self.llm_url or f"{DEAD_URL}/v1",
                 "NPMGUARD_LLM_API_KEY": "test",

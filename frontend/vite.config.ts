@@ -4,11 +4,13 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
-// The dev server proxies /api/* to the Python engine (uvicorn :8000). The
-// rewrite strips the /api prefix; the engine ALSO mirrors /api/* itself, so
-// this is belt-and-braces — both shapes reach the same routes. The same built
-// bundle runs behind this proxy, the engine's static server, and the e2e
-// harness, so app code reads the base via lib/config.ts, never import.meta.env.
+// The dev server proxies /api/* to the Python engine (uvicorn :8000), prefix
+// intact. It must NOT be rewritten away: /api is the surface with one route per
+// path, while the root additionally hosts the SPA's own pages, so a rewrite
+// turns an unambiguous request into an ambiguous one and dev stops agreeing with
+// production about where /packages and /replays live. The same built bundle runs
+// behind this proxy, the engine's static server, and the e2e harness, so app
+// code reads the base via lib/config.ts, never import.meta.env.
 export default defineConfig({
   // Tailwind v4 has no config file and no PostCSS step: the theme lives in
   // src/styles/tokens.css and this plugin is the whole build integration. It
@@ -37,7 +39,6 @@ export default defineConfig({
       "/api": {
         target: process.env.VITE_API_TARGET || "http://localhost:8000",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
   },

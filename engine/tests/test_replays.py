@@ -5,7 +5,7 @@
 #   pinned to tmp_path as in test_api.py.
 # Axes: row lifecycle (done / error / still-running) × row origin (registry /
 #       demo / staged-from-a-local-path) × report content (verdict domain,
-#       resolvable version) × base url ("" vs the /api mirror)
+#       resolvable version)
 #
 # What the exclusions are protecting, since no one test says it: a listed row is a
 # LINK to /audit/{id}/report, which serves the stored report RAW. So this endpoint
@@ -29,7 +29,9 @@ from npmguard.api import create_app
 from npmguard.config import REPO_ROOT, get_settings
 from npmguard.contract import models as contract
 
-BASES = ["", "/api"]
+# /api-only: the root /replays path is the gallery PAGE, so the JSON lives on the
+# mirror. api.py::client_owned_router is where that is decided.
+API = "/api"
 REPORT_DEADLINE_SECONDS = 30.0
 
 def _report(
@@ -97,8 +99,8 @@ def _insert(
         connection.commit()
 
 
-def _replays(client: TestClient, base: str = "") -> list[dict]:
-    response = client.get(f"{base}/replays")
+def _replays(client: TestClient) -> list[dict]:
+    response = client.get(f"{API}/replays")
     assert response.status_code == 200
     return response.json()["replays"]
 
@@ -261,13 +263,11 @@ def test_version_falls_back_then_goes_null(make_app, tmp_path) -> None:
         ]
 
 
-@pytest.mark.parametrize("base", BASES)
-def test_body_matches_the_contract(make_app, tmp_path, base) -> None:
-    """C9: validated against the generated model rather than hand-checked keys, and
-    reachable identically under the /api mirror."""
+def test_body_matches_the_contract(make_app, tmp_path) -> None:
+    """C9: validated against the generated model rather than hand-checked keys."""
     with TestClient(make_app()) as client:
         _insert(tmp_path, "aud-1", "chalk", report=_report())
-        response = client.get(f"{base}/replays")
+        response = client.get(f"{API}/replays")
         assert response.status_code == 200
         gallery = contract.ReplayGalleryResponse.model_validate(response.json())
         assert [entry.auditId for entry in gallery.replays] == ["aud-1"]

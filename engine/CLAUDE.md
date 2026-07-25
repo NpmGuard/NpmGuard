@@ -85,7 +85,11 @@ of every local-fixture audit). Only the DB is complete.
 
 ## Route ownership
 
-- `api.py`: FastAPI routes, lifespan, `/api` mirror, static frontend
+- `api.py`: FastAPI routes, lifespan, `/api` mirror, static frontend. The engine
+  serves `frontend/dist` in production, so a root route named like a client page
+  shadows it and a browser gets JSON — such routes go on `client_owned_router`,
+  which is mounted under `/api` only. `tests/test_static_routes.py` reads the
+  client's route table and fails when a new root route lands on a page's path.
 - `service.py`: queue, background execution, restart recovery
 - `pipeline.py`: resolve → inventory → intent → flag → hypothesize → graph
 - `orchestrator.py`: full-oracle experiment loop and evidence-bound judgment

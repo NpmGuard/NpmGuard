@@ -330,6 +330,15 @@ async def _claim_stripe(runtime: Runtime, session_id: str) -> tuple[AuditSession
 
 router = APIRouter()
 
+# Routes whose path is ALSO a client route in the SPA's router. The engine serves
+# frontend/dist itself in production (nginx proxies everything to it), so a route
+# mounted at the root shadows the page of the same name: a hard navigation, a
+# refresh or a pasted link returns JSON to a browser. These are therefore mounted
+# under /api ONLY — the mirror every client already talks to — and the root path
+# is left to the SPA. Adding a page whose path collides with a root route means
+# moving that route here, not teaching it to sniff `Accept`.
+client_owned_router = APIRouter()
+
 
 @router.get("/health")
 async def health() -> dict[str, str]:
@@ -566,16 +575,20 @@ async def checkout(request: Request) -> JSONResponse:
             {"error": f"Package {parsed.packageName}@{version} not found on npm"},
             status_code=404,
         )
-    origin = request.headers.get("origin") or (
-        request.headers.get("referer") or "https://npmguard.com"
-    ).rstrip("/")
     try:
         url, session_id = await create_checkout_session(
             runtime.settings,
             package_name=parsed.packageName,
             version=version,
             email=str(parsed.email) if parsed.email else None,
-            origin=origin,
+            # Configuration, never the request. `success_url` carries
+            # `{CHECKOUT_SESSION_ID}`, and that id is the bearer proof
+            # `POST /audit/stream` accepts — so an origin read from the caller's
+            # `Origin`/`Referer` header lets anyone mint a real Stripe page that
+            # delivers the payer, and their session id, to a site of their
+            # choosing. `panel_base_url` is this deployment's own app origin; the
+            # subscription checkout in panel/routes/billing.py already uses it.
+            origin=runtime.settings.panel_base_url.rstrip("/"),
         )
         return _wire(CheckoutResponse(url=url, sessionId=session_id))
     except Exception:
@@ -774,7 +787,7 @@ def _replay_entry(session: AuditSession) -> ReplayEntry | None:
     )
 
 
-@router.get("/replays")
+@client_owned_router.get("/replays")
 async def replays(request: Request) -> JSONResponse:
     """The replay gallery. Each row's `auditId` is its permalink: /audit/{id} rebuilds
     the whole run from the durable event log, so there is nothing to record and no
@@ -786,11 +799,8 @@ async def replays(request: Request) -> JSONResponse:
     )
 
 
-@router.get("/packages")
-async def packages(request: Request) -> Response:
-    index = REPO_ROOT / "frontend" / "dist" / "index.html"
-    if "text/html" in request.headers.get("accept", "") and index.exists():
-        return FileResponse(index)
+@client_owned_router.get("/packages")
+async def packages() -> JSONResponse:
     return _wire(PackageIndexResponse(packages=list_reports()))
 
 
@@ -1069,6 +1079,21 @@ async def lifespan(app: FastAPI):
         await engine.dispose()
 
 
+# Namespaces the API owns, so a request that matched no route there answers a
+# JSON 404 rather than 200 HTML that the caller then fails to parse. Everything
+# else falls through to the SPA, which renders its own not-found.
+_API_NAMESPACES = ("api/", "checkout/", "webhooks/", "auth/", "panel/", "bench/")
+
+
+def _is_api_path(path: str) -> bool:
+    if path == "me" or path.startswith(_API_NAMESPACES):
+        return True
+    # /audit/{id} is the audit permalink — a CLIENT route, and the most-shared
+    # link the product emits. Everything BELOW it (events, file, report) is API.
+    # A prefix test on "audit/" cannot tell those apart, and 404s the permalink.
+    return path.startswith("audit/") and path.count("/") > 1
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="NpmGuard Engine", lifespan=lifespan)
     settings = get_settings()
@@ -1083,6 +1108,7 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(router)
     app.include_router(router, prefix="/api")
+    app.include_router(client_owned_router, prefix="/api")
     # Panel routers, mirrored under /api like the existing router. Included
     # unconditionally — each handler 503s when settings.github_app_enabled is
     # False, so an unconfigured engine is unaffected (the paths just 503).
@@ -1115,9 +1141,7 @@ def create_app() -> FastAPI:
         if candidate.is_relative_to(frontend.resolve()) and candidate.is_file():
             return FileResponse(candidate)
         index = frontend / "index.html"
-        if index.exists() and not path.startswith(
-            ("api/", "audit/", "checkout/", "webhooks/", "auth/", "me", "panel/")
-        ):
+        if index.exists() and not _is_api_path(path):
             return FileResponse(index)
         return JSONResponse({"error": "Not found"}, status_code=404)
 

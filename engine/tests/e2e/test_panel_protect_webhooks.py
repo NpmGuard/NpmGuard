@@ -50,7 +50,7 @@ import sqlalchemy as sa
 from kit_spine import make_engine, make_session_factory
 from npmguard.panel.alerts.notify import handle_dangerous_verdict
 from npmguard.panel.tables import watched_packages
-from tests.support.panel import github_env
+from tests.support.panel import github_env, seed_report
 
 pytestmark = pytest.mark.e2e
 
@@ -97,20 +97,14 @@ WEB_LOCKFILE_PLUS_NEW = json.dumps(
 )
 
 
-def _seed_report(reports_dir: Path, name: str, version: str, report: dict) -> None:
-    directory = reports_dir / name
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{version}.json").write_text(
-        json.dumps(report) + "\n", encoding="utf-8"
+def _seed_safe(reports_dir: Path, name: str, version: str) -> None:
+    seed_report(reports_dir, name, version, verdict="SAFE", rationale="clean")
+
+
+def _seed_dangerous(reports_dir: Path, name: str, version: str) -> None:
+    seed_report(
+        reports_dir, name, version, verdict="DANGEROUS", rationale="exfiltrates env", confirmed=["h1"]
     )
-
-
-def _safe(name: str) -> dict:
-    return {"verdict": "SAFE", "rationale": "clean", "confirmedHypIds": []}
-
-
-def _dangerous() -> dict:
-    return {"verdict": "DANGEROUS", "rationale": "exfiltrates env", "confirmedHypIds": ["h1"]}
 
 
 def _sign_in(client: httpx.Client, base: str) -> None:
@@ -160,8 +154,8 @@ def test_s_pw_1_protect_syncs_watch_cap_and_alert(
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-a", "1.0.0", _safe("safe-a"))
-    _seed_report(reports, "danger-dep", "2.0.0", _dangerous())
+    _seed_safe(reports, "safe-a", "1.0.0")
+    _seed_dangerous(reports, "danger-dep", "2.0.0")
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
@@ -260,8 +254,8 @@ def test_s_pw_2_push_webhook_check_and_forged_signature(
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-a", "1.0.0", _safe("safe-a"))
-    _seed_report(reports, "new-dep", "1.0.0", _safe("new-dep"))
+    _seed_safe(reports, "safe-a", "1.0.0")
+    _seed_safe(reports, "new-dep", "1.0.0")
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
