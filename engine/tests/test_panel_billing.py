@@ -30,8 +30,8 @@
 #   C14 get_billing_account: linked -> dict ; never-linked -> None
 #
 # Entitlements plan resolution (caps reads billing_accounts.subscription_status):
-#   C15 status active/trialing (written via BillingStore) -> plan 'pro'
-#   C16 status inactive/past_due/canceled                 -> plan 'free'
+#   C15 status active/trialing (written via BillingStore) -> top offer granted
+#   C16 status inactive/past_due/canceled                 -> baseline, 'pro' on offer
 #   C17 UsageBucket remaining is None for a 0 (UNLIMITED) limit; a positive limit
 #       reports max(0, limit-used)
 #
@@ -220,16 +220,16 @@ async def test_installation_exists_and_get_account(db):
 
 
 @pytest.mark.parametrize(
-    "status, expected_plan",
+    "status, paid",
     [
-        ("active", "pro"),  # C15
-        ("trialing", "pro"),  # C15
-        ("inactive", "free"),  # C16
-        ("past_due", "free"),  # C16
-        ("canceled", "free"),  # C16
+        ("active", True),  # C15
+        ("trialing", True),  # C15
+        ("inactive", False),  # C16
+        ("past_due", False),  # C16
+        ("canceled", False),  # C16
     ],
 )
-async def test_entitlements_plan_from_subscription_status(db, status, expected_plan):
+async def test_entitlements_plan_from_subscription_status(db, status, paid):
     await _add_installation(db, 20)
     store = BillingStore(db)
     await store.upsert_subscription(
@@ -237,8 +237,10 @@ async def test_entitlements_plan_from_subscription_status(db, status, expected_p
     )
     caps = CapsStore(db, _settings())
     entitlements = await caps.entitlements(20)
-    assert entitlements["plan"] == expected_plan
     assert entitlements["subscriptionStatus"] == status
+    assert entitlements["subscriptionActive"] is paid
+    assert entitlements["plan"] == ("Pro" if paid else "Free")
+    assert [o["id"] for o in entitlements["upgradeOffers"]] == ([] if paid else ["pro"])
 
 
 async def test_unlimited_bucket_remaining_is_none(db):
@@ -251,7 +253,7 @@ async def test_unlimited_bucket_remaining_is_none(db):
     )
     caps = CapsStore(db, _settings())
     entitlements = await caps.entitlements(21)
-    assert entitlements["plan"] == "pro"
+    assert entitlements["subscriptionActive"] is True
     assert entitlements["monthlyAudits"]["limit"] == 0
     assert entitlements["monthlyAudits"]["remaining"] is None
     # protected_repos has a positive pro limit (25), nothing used yet.

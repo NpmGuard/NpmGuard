@@ -12,16 +12,25 @@
           "type": "string"
         },
         "plan": {
-          "$ref": "#/$defs/AccountPlan"
+          "type": "string"
         },
         "subscriptionStatus": {
           "type": "string"
+        },
+        "subscriptionActive": {
+          "type": "boolean"
         },
         "protectedRepos": {
           "$ref": "#/$defs/UsageBucket"
         },
         "monthlyAudits": {
           "$ref": "#/$defs/UsageBucket"
+        },
+        "upgradeOffers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlanOffer"
+          }
         }
       },
       "required": [
@@ -29,18 +38,12 @@
         "accountLogin",
         "plan",
         "subscriptionStatus",
+        "subscriptionActive",
         "protectedRepos",
-        "monthlyAudits"
+        "monthlyAudits",
+        "upgradeOffers"
       ],
       "title": "AccountEntitlements"
-    },
-    "AccountPlan": {
-      "type": "string",
-      "enum": [
-        "free",
-        "pro"
-      ],
-      "title": "AccountPlan"
     },
     "Alert": {
       "type": "object",
@@ -1467,8 +1470,11 @@
             "$ref": "#/$defs/AccountEntitlements"
           }
         },
-        "plans": {
-          "$ref": "#/$defs/PlanCatalog"
+        "offers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlanOffer"
+          }
         },
         "checkoutEnabled": {
           "type": "boolean"
@@ -1486,7 +1492,7 @@
       },
       "required": [
         "accounts",
-        "plans",
+        "offers",
         "checkoutEnabled",
         "price"
       ],
@@ -3246,22 +3252,6 @@
       ],
       "title": "PhaseStartedEvent"
     },
-    "PlanCatalog": {
-      "type": "object",
-      "properties": {
-        "free": {
-          "$ref": "#/$defs/PlanLimits"
-        },
-        "pro": {
-          "$ref": "#/$defs/PlanLimits"
-        }
-      },
-      "required": [
-        "free",
-        "pro"
-      ],
-      "title": "PlanCatalog"
-    },
     "PlanLimits": {
       "type": "object",
       "properties": {
@@ -3279,6 +3269,26 @@
         "monthlyAudits"
       ],
       "title": "PlanLimits"
+    },
+    "PlanOffer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/PlanLimits"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "limits"
+      ],
+      "title": "PlanOffer"
     },
     "PlantedFileRef": {
       "type": "object",

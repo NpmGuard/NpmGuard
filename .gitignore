@@ -57,3 +57,10 @@ blob-report/
 # "undefined", which no other rule here anticipates. Four PNGs reached a commit
 # that way; this is the cheap guard against the next four.
 undefined/
+
+# The home for the facts the repo rule keeps OUT of the repo — what is running
+# on this machine, what this checkout's `.env` holds, which throwaway cloud
+# objects and dirty test-repo state a session left behind. Ignored rather than
+# absent: the note has to sit next to the code to get read, and it must never be
+# committed, because every line of it is false on somebody else's machine.
+LOCAL-STATE.md

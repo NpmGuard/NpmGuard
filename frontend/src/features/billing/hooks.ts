@@ -10,10 +10,12 @@ import { billingKeys } from "./keys.ts";
 
 /**
  * @param awaitingWebhook after a successful Stripe checkout the redirect races
- *   the `customer.subscription.*` webhook, so the plan may still read `free` for
- *   a second or two. Polling stops the moment any account reports `pro` — which
- *   is a stop condition on the FACT we are waiting for, rather than the old
- *   "poll six times and hope" counter.
+ *   the `customer.subscription.*` webhook, so the entitlements may still read as
+ *   unpaid for a second or two. Polling stops the moment any account reports a
+ *   live subscription — a stop condition on the FACT we are waiting for, rather
+ *   than the old "poll six times and hope" counter. `subscriptionActive` is the
+ *   engine's own derivation, so this never re-decides which of Stripe's statuses
+ *   count as paid.
  */
 export function useBilling(options?: { awaitingWebhook?: boolean }): LoadState<BillingResponse> {
   const signedIn = useSignedIn();
@@ -22,7 +24,7 @@ export function useBilling(options?: { awaitingWebhook?: boolean }): LoadState<B
     queryFn: fetchBilling,
     enabled: signedIn,
     refetchInterval: options?.awaitingWebhook
-      ? (q) => (q.state.data?.accounts.some((a) => a.plan === "pro") ? false : 1800)
+      ? (q) => (q.state.data?.accounts.some((a) => a.subscriptionActive) ? false : 1800)
       : false,
   });
   return toLoadState(query, "Plan & usage");
