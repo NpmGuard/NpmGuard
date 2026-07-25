@@ -1,8 +1,8 @@
 /** Usage-bucket meter: mono `used / limit` label (∞ when unlimited) over a
  * base.css meter. Exhausted buckets fill in the danger tone. */
 
-import type { UsageBucket } from "../../lib/engine-types.ts";
-import { quotaState, usageFraction, usageLabel } from "../../lib/quota.ts";
+import type { UsageBucket } from "@npmguard/shared";
+import { quotaState, usageFraction, usageLabel } from "../quota.ts";
 
 interface AllowanceMeterProps {
   label: string;

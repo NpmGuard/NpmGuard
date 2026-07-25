@@ -1,39 +1,42 @@
 /** Repository card for the dashboard grid. Accent bar follows the last
- * scan's tone; per-repo action errors render inline and dismissible so a
- * single failure never poisons the whole dashboard. */
+ * scan's tone; action errors render inline and dismissible so a single failure
+ * never poisons the whole dashboard.
+ *
+ * Both mutations are instantiated PER CARD, which is what deleted the store's
+ * `repoActionErrors: Record<number, RepoActionError>`. That map existed only
+ * because the actions lived in one global object and their failures therefore
+ * needed a key to tell them apart; here the failing mutation and the row that
+ * owns it are the same object, and `reset()` is the dismiss. */
 
+import type { PanelRepo } from "@npmguard/shared";
 import { ArrowRight, Shield, ShieldCheck, X } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { type CSSProperties } from "react";
 import { useNavigate } from "react-router";
-import type { PanelRepo } from "../../lib/engine-types.ts";
-import { usePanelStore } from "../../stores/panelStore.ts";
+import { scanTone, toneAccent } from "../../../components/panel/tone.tsx";
+import { actionFailure } from "../../../lib/query-state.ts";
+import { useSetProtect, useTriggerScan } from "../hooks.ts";
 import { ScanStatus } from "./ScanStatus.tsx";
-import { scanTone, toneAccent } from "./tone.tsx";
 
 export function RepoCard({ repo }: { repo: PanelRepo }) {
   const navigate = useNavigate();
-  const triggerScan = usePanelStore((s) => s.triggerScan);
-  const setProtect = usePanelStore((s) => s.setProtect);
-  const clearRepoActionError = usePanelStore((s) => s.clearRepoActionError);
-  const actionError = usePanelStore((s) => s.repoActionErrors[repo.id]);
-
-  const [auditBusy, setAuditBusy] = useState(false);
-  const [protectBusy, setProtectBusy] = useState(false);
+  const triggerScan = useTriggerScan();
+  const setProtect = useSetProtect();
 
   const running = repo.lastScan?.status === "running";
   const detailPath = `/repo/${repo.owner}/${repo.name}`;
 
-  const runAudit = async () => {
-    setAuditBusy(true);
-    const scanId = await triggerScan(repo.id);
-    setAuditBusy(false);
-    if (scanId !== null) navigate(detailPath);
+  // A cap is not shown here — the paywall dialog owns it, and rendering both
+  // would read as two separate problems.
+  const failure =
+    actionFailure(triggerScan.error, "Starting the audit") ??
+    actionFailure(setProtect.error, "Changing protection");
+  const dismiss = () => {
+    triggerScan.reset();
+    setProtect.reset();
   };
 
-  const toggleProtect = async () => {
-    setProtectBusy(true);
-    await setProtect(repo.id, !repo.protected);
-    setProtectBusy(false);
+  const runAudit = () => {
+    triggerScan.mutate(repo.id, { onSuccess: () => navigate(detailPath) });
   };
 
   return (
@@ -59,14 +62,14 @@ export function RepoCard({ repo }: { repo: PanelRepo }) {
 
       <ScanStatus scan={repo.lastScan} />
 
-      {actionError && (
+      {failure && (
         <div className="banner banner--danger panel-repo__error" role="alert">
-          <span>{actionError.message}</span>
+          <span>{`${failure.what} failed — ${failure.detail ?? "no detail"}`}</span>
           <button
             type="button"
             className="icon-btn panel-repo__dismiss"
             aria-label="Dismiss error"
-            onClick={() => clearRepoActionError(repo.id)}
+            onClick={dismiss}
           >
             <X size={13} />
           </button>
@@ -88,16 +91,16 @@ export function RepoCard({ repo }: { repo: PanelRepo }) {
         <button
           type="button"
           className="btn btn--sm btn--dark"
-          disabled={running || auditBusy}
-          onClick={() => void runAudit()}
+          disabled={running || triggerScan.isPending}
+          onClick={runAudit}
         >
-          {auditBusy ? "Starting…" : running ? "Scanning…" : "Run audit"}
+          {triggerScan.isPending ? "Starting…" : running ? "Scanning…" : "Run audit"}
         </button>
         <button
           type="button"
           className="btn btn--sm"
-          disabled={protectBusy}
-          onClick={() => void toggleProtect()}
+          disabled={setProtect.isPending}
+          onClick={() => setProtect.mutate({ repoId: repo.id, on: !repo.protected })}
         >
           {repo.protected ? <ShieldCheck size={13} /> : <Shield size={13} />}
           {repo.protected ? "Protected" : "Protect"}

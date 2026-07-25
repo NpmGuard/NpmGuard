@@ -5,18 +5,13 @@
  * after R-1 a public audit is the same entity and its id IS a set id. The 2.5s
  * self-poll this replaced was the second progress implementation. */
 
+import type { AuditSetItem } from "@npmguard/shared";
 import { ExternalLink, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import type {
-  AuditSetItem,
-  PublicRepoScanDetailResponse,
-} from "../../lib/engine-types.ts";
-import { connectScanStream } from "../../lib/sse.ts";
-import { scanEventsUrl } from "../../lib/panel-api.ts";
-import { formatDate } from "../../lib/format.ts";
-import { usePanelStore } from "../../stores/panelStore.ts";
-import { PanelDialog } from "./PanelDialog.tsx";
-import { OutcomePill } from "./tone.tsx";
+import { PanelDialog } from "../../../components/panel/PanelDialog.tsx";
+import { OutcomePill } from "../../../components/panel/tone.tsx";
+import { DegradedRegion } from "../../../components/ui/degraded-state.tsx";
+import { formatDate } from "../../../lib/format.ts";
+import { usePublicScanDetail, usePublicScanStream } from "../hooks.ts";
 
 function depReason(dep: AuditSetItem): string {
   if (dep.verdictReason) return dep.verdictReason;
@@ -33,74 +28,16 @@ interface PublicAuditReportDialogProps {
 }
 
 export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDialogProps) {
-  const fetchPublicScanDetail = usePanelStore((s) => s.fetchPublicScanDetail);
-  const [data, setData] = useState<PublicRepoScanDetailResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const state = usePublicScanDetail(scanId);
+  const data = state.status === "ok" ? state.data : null;
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const detail = await fetchPublicScanDetail(scanId);
-        if (!cancelled) {
-          setData(detail);
-          setLoadError(null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : "Could not load the snapshot");
-        }
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [scanId, fetchPublicScanDetail]);
-
-  // Follow the set's progress stream. Every frame is a SNAPSHOT of its subject, so
-  // applying one is idempotent and a reconnect replay needs no dedupe.
-  const running = data?.scan.set.status === "running";
-  useEffect(() => {
-    if (!running) return;
-    const stream = connectScanStream(scanEventsUrl(scanId), {
-      onMessage(frame) {
-        if (frame.type === "dep") {
-          setData((current) =>
-            current === null
-              ? current
-              : {
-                  ...current,
-                  deps: current.deps.map((dep) =>
-                    dep.name === frame.item.name && dep.version === frame.item.version
-                      ? frame.item
-                      : dep,
-                  ),
-                },
-          );
-        } else if (frame.type === "progress") {
-          setData((current) =>
-            current === null
-              ? current
-              : {
-                  ...current,
-                  scan: {
-                    ...current.scan,
-                    set: { ...current.scan.set, status: frame.status, rollup: frame.rollup },
-                  },
-                },
-          );
-        }
-      },
-      // A dropped stream (or the terminal frame) falls back to one authoritative
-      // refetch, which is also what picks up items the capped detail projection
-      // did not carry.
-      onError: () => void fetchPublicScanDetail(scanId).then(setData).catch(() => undefined),
-    });
-    return () => stream.close();
-  }, [running, scanId, fetchPublicScanDetail]);
+  // Follow the set's progress stream while it is live. The stream writes into the
+  // query cache, so there is no second copy of `deps` to keep in step — and the
+  // 2.5s self-poll this replaced was the second progress implementation.
+  usePublicScanStream(scanId, data?.scan.set.status === "running");
 
   const scan = data?.scan ?? null;
+  const running = scan?.set.status === "running";
   const rollup = scan?.set.rollup ?? null;
   const completed = rollup ? rollup.total - rollup.pending : 0;
 
@@ -109,7 +46,15 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
       <div className="dialog__header">
         <div className="panel-report__head">
           <span className="eyebrow">Snapshot #{scanId}</span>
-          <h2 className="headline">{scan ? scan.repo.fullName : "Loading snapshot"}</h2>
+          {/* Never "Loading snapshot" over a failed read — the body already says
+              what broke, and a title that claims progress contradicts it. */}
+          <h2 className="headline">
+            {scan
+              ? scan.repo.fullName
+              : state.status === "failed"
+                ? "Snapshot unavailable"
+                : "Loading snapshot"}
+          </h2>
           {scan && (
             <p className="microtext mono">
               {scan.repo.lockfilePath} · {scan.repo.defaultBranch} ·{" "}
@@ -137,16 +82,12 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
         </div>
       </div>
       <div className="dialog__body">
-        {!data && !loadError && (
+        {state.status === "loading" && (
           <div className="panel-loading" role="status">
             <span className="spinner" /> Loading snapshot…
           </div>
         )}
-        {loadError && (
-          <p className="banner banner--danger" role="alert">
-            {loadError}
-          </p>
-        )}
+        {state.status === "failed" && <DegradedRegion failure={state.failure} title="Snapshot" />}
         {data && scan && rollup && (
           <>
             <div className="panel-report__tags">

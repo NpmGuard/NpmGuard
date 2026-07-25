@@ -19,7 +19,7 @@ import {
   usageFraction,
   usageLabel,
 } from "./quota.ts";
-import type { UsageBucket } from "./engine-types.ts";
+import type { UsageBucket } from "@npmguard/shared";
 
 const bucket = (used: number, limit: number, remaining: number | null): UsageBucket => ({
   used,

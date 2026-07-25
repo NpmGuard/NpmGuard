@@ -2,8 +2,8 @@
  * (attention / scanning / safe / unknown) with a legend. One repo lands in
  * exactly one segment, so the rail is a true proportion. */
 
-import type { PanelRepo } from "../../lib/engine-types.ts";
-import { toneDotClass, type Tone } from "./tone.tsx";
+import type { PanelRepo } from "@npmguard/shared";
+import { toneDotClass, type Tone } from "../../../components/panel/tone.tsx";
 
 interface Segment {
   key: string;

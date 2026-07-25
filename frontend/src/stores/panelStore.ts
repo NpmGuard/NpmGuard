@@ -1,359 +1,50 @@
 /**
- * GitHub panel domain store. Session is an HttpOnly same-origin cookie —
- * plain fetch carries it. Cap-shaped failures (402 {cap:true,...}) open the
- * paywall AND patch the matching billing account with fresh entitlements.
+ * Panel UI state — and NOTHING that came from the server.
  *
- * Kept SEPARATE from auditStore — the panel is its own surface with its own
- * lifecycle. The verdict domain here is the panel `Outcome`
- * (SAFE | ERROR | DANGEROUS, null until concluded), NOT the audit-core Verdict
- * (SAFE | DANGEROUS) — see the note on the two domains in engine-types.ts.
+ * This store used to own server fetching, response caching, staleness and
+ * polling, error policy, optimistic updates *and* UI state, which is why
+ * `refresh()` grew a five-way `Promise.allSettled` with hand-written per-branch
+ * fallbacks: it was hand-rolling a cache layer (design R-5). All of that now
+ * lives in `@tanstack/react-query` — see each feature's `hooks.ts`. **Server state
+ * is not application state.**
+ *
+ * What is left is the one UI fact that genuinely outlives a single component
+ * tree: an open paywall. It is opened by a mutation that 402'd (globally, in
+ * `lib/query-client.ts`) and consumed by a dialog rendered from two different
+ * pages, so neither end owns it.
+ *
+ * The bar for adding a field here: it must be UI state (not a server read), and
+ * it must be needed by two components that are not each other's ancestor.
+ * Things that did NOT clear that bar and must not come back:
+ *
+ *  - `repos` / `alerts` / `billing` / `publicScans` / `user` / `installations`
+ *    — server reads. The query cache owns them, and its per-query status is the
+ *    whole point: a partial fetch can no longer render as a confident view.
+ *  - `loading` / `error` / `billingError` — one hand-maintained status field per
+ *    resource. `useQuery` has one per query, for free, and they cannot drift.
+ *  - `repoActionErrors: Record<number, …>` — a map keyed by repo id existed only
+ *    because the store was global. The error belongs to the mutation that
+ *    failed, and `useMutation` is instantiated per row, so the row already has
+ *    its own error and its own `reset()`.
+ *  - `billingBusyInstallationId` — "which row is busy" IS legitimate UI state,
+ *    but react-query already answers it per row with
+ *    `isPending && variables === installationId`. A store field would be a
+ *    second copy of a fact the mutation already holds.
  */
 
+import type { CapExceeded } from "@npmguard/shared";
 import { create } from "zustand";
-import { capBody, isReauth } from "../lib/api-base.ts";
-import type {
-  Alert,
-  AccountEntitlements,
-  BillingResponse,
-  CapExceededBody,
-  Installation,
-  PanelRepo,
-  PublicRepoScan,
-  PublicRepoScanDetailResponse,
-  RepoDetailResponse,
-  SessionUser,
-} from "../lib/engine-types.ts";
-import * as panelApi from "../lib/panel-api.ts";
 
-export interface RepoActionError {
-  action: "audit" | "protect" | "resync";
-  message: string;
-}
-
-interface PanelStoreState {
-  user: SessionUser | null;
-  userLoaded: boolean;
-
-  installations: Installation[];
-  installUrl: string | null;
-  repos: PanelRepo[];
-  alerts: Alert[];
-  billing: BillingResponse | null;
-  billingError: string | null;
-  billingBusyInstallationId: number | null;
-  publicScans: PublicRepoScan[];
-  publicScanBusy: boolean;
-  publicScanError: string | null;
-
-  loading: boolean;
-  error: string | null;
-  repoActionErrors: Record<number, RepoActionError>;
-  paywall: CapExceededBody | null;
-
-  fetchMe: () => Promise<void>;
-  logout: () => Promise<void>;
-  refresh: () => Promise<void>;
-  refreshBilling: () => Promise<void>;
-  refreshPublicScans: () => Promise<void>;
-  startPublicRepoScan: (repository: string, installationId: number) => Promise<number | null>;
-  fetchPublicScanDetail: (scanId: number) => Promise<PublicRepoScanDetailResponse>;
-  startProCheckout: (installationId: number) => Promise<void>;
-  openBillingPortal: (installationId: number) => Promise<void>;
-  triggerScan: (repoId: number) => Promise<number | null>;
-  /** resolves true on success — callers needn't diff error snapshots */
-  setProtect: (repoId: number, on: boolean) => Promise<boolean>;
-  resync: (repoId: number) => Promise<number | null>;
-  fetchRepoDetail: (owner: string, name: string) => Promise<RepoDetailResponse>;
-  markAlertsSeen: () => Promise<void>;
-  clearRepoActionError: (repoId: number) => void;
+interface PanelUiState {
+  /** The 402 body, which carries FRESH entitlements — so the exhausted meter
+   * renders from the very response that opened the dialog, with no refetch. */
+  paywall: CapExceeded | null;
+  openPaywall: (cap: CapExceeded) => void;
   closePaywall: () => void;
-  clearPublicScanError: () => void;
 }
 
-function patchEntitlements(
-  billing: BillingResponse | null,
-  entitlements: AccountEntitlements,
-): BillingResponse | null {
-  if (!billing) return billing;
-  return {
-    ...billing,
-    accounts: billing.accounts.map((account) =>
-      account.installationId === entitlements.installationId ? entitlements : account,
-    ),
-  };
-}
-
-export const usePanelStore = create<PanelStoreState>((set, get) => {
-  function handleCap(err: unknown): CapExceededBody | null {
-    const cap = capBody(err);
-    if (cap) {
-      set({ paywall: cap, billing: patchEntitlements(get().billing, cap.entitlements) });
-    }
-    return cap;
-  }
-
-  function redirectToLogin() {
-    window.location.href = panelApi.githubLoginUrl();
-  }
-
-  return {
-    user: null,
-    userLoaded: false,
-    installations: [],
-    installUrl: null,
-    repos: [],
-    alerts: [],
-    billing: null,
-    billingError: null,
-    billingBusyInstallationId: null,
-    publicScans: [],
-    publicScanBusy: false,
-    publicScanError: null,
-    loading: false,
-    error: null,
-    repoActionErrors: {},
-    paywall: null,
-
-    async fetchMe() {
-      try {
-        const { user } = await panelApi.fetchMe();
-        set({ user, userLoaded: true });
-      } catch {
-        set({ user: null, userLoaded: true });
-      }
-    },
-
-    async logout() {
-      try {
-        await panelApi.logout();
-      } finally {
-        set({
-          user: null,
-          installations: [],
-          installUrl: null,
-          repos: [],
-          alerts: [],
-          billing: null,
-          publicScans: [],
-          error: null,
-          repoActionErrors: {},
-          paywall: null,
-        });
-      }
-    },
-
-    async refresh() {
-      set({ loading: true, error: null });
-      try {
-        const orgs = await panelApi.fetchOrgs();
-        set({ installations: orgs.installations, installUrl: orgs.installUrl });
-      } catch (err) {
-        if (isReauth(err)) {
-          redirectToLogin();
-          return;
-        }
-        set({
-          loading: false,
-          error: err instanceof Error ? err.message : "Could not load your GitHub workspace",
-        });
-        return;
-      }
-
-      // Repos failure is fatal to the dashboard; billing/alerts/public scans
-      // degrade gracefully.
-      const [repos, alerts, billing, publicScans] = await Promise.allSettled([
-        panelApi.fetchRepos(),
-        panelApi.fetchAlerts(),
-        panelApi.fetchBilling(),
-        panelApi.fetchPublicScans(),
-      ]);
-
-      if (repos.status === "fulfilled") {
-        set({ repos: repos.value.repos });
-      } else if (isReauth(repos.reason)) {
-        redirectToLogin();
-        return;
-      } else {
-        set({
-          loading: false,
-          error:
-            repos.reason instanceof Error ? repos.reason.message : "Could not load repositories",
-        });
-        return;
-      }
-
-      set({
-        alerts: alerts.status === "fulfilled" ? alerts.value.alerts : get().alerts,
-        billing: billing.status === "fulfilled" ? billing.value : get().billing,
-        billingError:
-          billing.status === "rejected"
-            ? billing.reason instanceof Error
-              ? billing.reason.message
-              : "Could not load billing"
-            : null,
-        publicScans: publicScans.status === "fulfilled" ? publicScans.value.scans : get().publicScans,
-        loading: false,
-      });
-    },
-
-    async refreshBilling() {
-      try {
-        set({ billing: await panelApi.fetchBilling(), billingError: null });
-      } catch (err) {
-        set({ billingError: err instanceof Error ? err.message : "Could not load billing" });
-      }
-    },
-
-    async refreshPublicScans() {
-      try {
-        const { scans } = await panelApi.fetchPublicScans();
-        set({ publicScans: scans });
-      } catch {
-        // polling refresh — keep the last snapshot
-      }
-    },
-
-    async startPublicRepoScan(repository, installationId) {
-      set({ publicScanBusy: true, publicScanError: null });
-      try {
-        const { scanId } = await panelApi.startPublicRepoScan(repository, installationId);
-        set({ publicScanBusy: false });
-        void get().refreshPublicScans();
-        void get().refreshBilling();
-        return scanId;
-      } catch (err) {
-        set({ publicScanBusy: false });
-        if (handleCap(err)) return null;
-        // 409 with a scanId means "already running" — that is a success path.
-        const body =
-          err && typeof err === "object" && "body" in err
-            ? ((err as { body?: unknown }).body as Record<string, unknown> | null)
-            : null;
-        if (body && typeof body["scanId"] === "number") {
-          set({ publicScanBusy: false });
-          void get().refreshPublicScans();
-          return body["scanId"];
-        }
-        set({
-          publicScanError:
-            err instanceof Error ? err.message : "Could not start the repository audit",
-        });
-        return null;
-      }
-    },
-
-    fetchPublicScanDetail(scanId) {
-      return panelApi.fetchPublicScanDetail(scanId);
-    },
-
-    async startProCheckout(installationId) {
-      set({ billingBusyInstallationId: installationId });
-      try {
-        const { url } = await panelApi.startProCheckout(installationId);
-        window.location.assign(url);
-      } catch (err) {
-        set({
-          billingBusyInstallationId: null,
-          billingError: err instanceof Error ? err.message : "Could not start checkout",
-        });
-      }
-    },
-
-    async openBillingPortal(installationId) {
-      set({ billingBusyInstallationId: installationId });
-      try {
-        const { url } = await panelApi.openBillingPortal(installationId);
-        window.location.assign(url);
-      } catch (err) {
-        set({
-          billingBusyInstallationId: null,
-          billingError: err instanceof Error ? err.message : "Could not open the billing portal",
-        });
-      }
-    },
-
-    async triggerScan(repoId) {
-      try {
-        const { scanId } = await panelApi.triggerRepoScan(repoId);
-        return scanId;
-      } catch (err) {
-        if (handleCap(err)) return null;
-        set({
-          repoActionErrors: {
-            ...get().repoActionErrors,
-            [repoId]: {
-              action: "audit",
-              message: err instanceof Error ? err.message : "Could not start the audit",
-            },
-          },
-        });
-        return null;
-      }
-    },
-
-    async setProtect(repoId, on) {
-      try {
-        if (on) await panelApi.enableProtect(repoId);
-        else await panelApi.disableProtect(repoId);
-        set({
-          repos: get().repos.map((repo) => (repo.id === repoId ? { ...repo, protected: on } : repo)),
-        });
-        return true;
-      } catch (err) {
-        if (!handleCap(err)) {
-          set({
-            repoActionErrors: {
-              ...get().repoActionErrors,
-              [repoId]: {
-                action: "protect",
-                message: err instanceof Error ? err.message : "Could not change protection",
-              },
-            },
-          });
-        }
-        return false;
-      }
-    },
-
-    async resync(repoId) {
-      try {
-        const { scanId } = await panelApi.resyncRepo(repoId);
-        return scanId;
-      } catch (err) {
-        if (handleCap(err)) return null;
-        set({
-          repoActionErrors: {
-            ...get().repoActionErrors,
-            [repoId]: {
-              action: "resync",
-              message: err instanceof Error ? err.message : "Could not re-sync",
-            },
-          },
-        });
-        return null;
-      }
-    },
-
-    fetchRepoDetail(owner, name) {
-      return panelApi.fetchRepoDetail(owner, name);
-    },
-
-    async markAlertsSeen() {
-      await panelApi.markAlertsSeen();
-      set({ alerts: get().alerts.map((alert) => ({ ...alert, seen: true })) });
-    },
-
-    clearRepoActionError(repoId) {
-      const { [repoId]: _removed, ...rest } = get().repoActionErrors;
-      set({ repoActionErrors: rest });
-    },
-
-    closePaywall() {
-      set({ paywall: null });
-    },
-
-    clearPublicScanError() {
-      set({ publicScanError: null });
-    },
-  };
-});
+export const usePanelUi = create<PanelUiState>((set) => ({
+  paywall: null,
+  openPaywall: (cap) => set({ paywall: cap }),
+  closePaywall: () => set({ paywall: null }),
+}));

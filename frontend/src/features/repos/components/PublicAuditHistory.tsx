@@ -5,16 +5,31 @@
  * `scan.set` for progress and `scan.repo` for identity, and its id IS the set id
  * the progress stream is keyed on. */
 
-import type { PublicRepoScan } from "../../lib/engine-types.ts";
-import { formatDate } from "../../lib/format.ts";
-import { OutcomePill } from "./tone.tsx";
+import type { PublicRepoScan } from "@npmguard/shared";
+import { OutcomePill } from "../../../components/panel/tone.tsx";
+import { DegradedRegion } from "../../../components/ui/degraded-state.tsx";
+import type { LoadState } from "../../../components/ui/load-state.ts";
+import { formatDate } from "../../../lib/format.ts";
 
 interface PublicAuditHistoryProps {
-  scans: PublicRepoScan[];
+  state: LoadState<PublicRepoScan[]>;
   onOpen: (scanId: number) => void;
 }
 
-export function PublicAuditHistory({ scans, onOpen }: PublicAuditHistoryProps) {
+export function PublicAuditHistory({ state, onOpen }: PublicAuditHistoryProps) {
+  if (state.status === "loading") return null;
+  if (state.status === "failed") {
+    return (
+      <section className="panel-section">
+        <DegradedRegion failure={state.failure} title="Public repository audits" />
+      </section>
+    );
+  }
+
+  // Empty renders nothing, and only from here — the arm that HELD the data. A
+  // history section that has never had a row is not worth a box; a history
+  // section we could not read is, and that is the arm above.
+  const scans = state.data;
   if (scans.length === 0) return null;
 
   return (

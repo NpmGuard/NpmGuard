@@ -11,8 +11,7 @@
  * and a bare-`string` Alert.verdict were what forced that, and a widened param
  * silently accepted values the map had no arm for. */
 
-import type { Outcome } from "@npmguard/shared";
-import type { AuditSet, AuditSetItem } from "../../lib/engine-types.ts";
+import type { AuditSet, AuditSetItem, Outcome } from "@npmguard/shared";
 
 export type Tone = "safe" | "danger" | "error" | "running" | "unknown";
 
