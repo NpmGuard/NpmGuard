@@ -56,6 +56,11 @@
   --danger-border: var(--tone-red-border); --danger-ink: var(--tone-red-ink);
   --suspect: var(--tone-amber-accent);     --suspect-bg: var(--tone-amber-bg);
   --suspect-border: var(--tone-amber-border); --suspect-ink: var(--tone-amber-ink);
+  /* the panel's ERROR outcome ("we tried and failed"): the amber tone, under its
+     own name because it is a different domain from the audit cluster's
+     `suspect` (a DEFERRED hypothesis) and the two must be renameable apart */
+  --error: var(--tone-amber-accent);       --error-bg: var(--tone-amber-bg);
+  --error-border: var(--tone-amber-border); --error-ink: var(--tone-amber-ink);
   --unknown: var(--ink-faint);             --unknown-bg: var(--tone-paper-bg);
   --unknown-border: var(--tone-paper-border); --unknown-ink: var(--tone-paper-ink);
   --running: var(--tone-blue-accent);      --running-bg: var(--tone-blue-bg);
@@ -314,6 +319,7 @@ kbd {
 .pill--safe    { border-color: var(--safe-border);    background: var(--safe-bg);    color: var(--safe-ink); }
 .pill--danger  { border-color: var(--danger-border);  background: var(--danger-bg);  color: var(--danger-ink); }
 .pill--suspect { border-color: var(--suspect-border); background: var(--suspect-bg); color: var(--suspect-ink); }
+.pill--error   { border-color: var(--error-border);   background: var(--error-bg);   color: var(--error-ink); }
 .pill--unknown { border-color: var(--unknown-border); background: var(--unknown-bg); color: var(--ink-soft); }
 .pill--running { border-color: var(--running-border); background: var(--running-bg); color: var(--running-ink); }
 .pill--violet  { border-color: var(--tone-violet-border); background: var(--tone-violet-bg); color: var(--tone-violet-ink); }
@@ -347,6 +353,7 @@ kbd {
 .dot--safe    { background: var(--safe);    box-shadow: 0 0 0 3px rgba(66, 132, 104, 0.14); }
 .dot--danger  { background: var(--danger);  box-shadow: 0 0 0 3px rgba(194, 69, 45, 0.14); }
 .dot--suspect { background: var(--suspect); box-shadow: 0 0 0 3px rgba(213, 148, 44, 0.14); }
+.dot--error   { background: var(--error);   box-shadow: 0 0 0 3px rgba(213, 148, 44, 0.14); }
 .dot--running { background: var(--running); box-shadow: 0 0 0 3px rgba(78, 155, 208, 0.14); animation: dot-pulse 1.6s var(--ease) infinite; }
 .dot--violet  { background: var(--violet);  box-shadow: 0 0 0 3px rgba(112, 88, 217, 0.14); }
 
@@ -482,6 +489,7 @@ kbd {
 .rail__seg--safe { background: var(--safe); }
 .rail__seg--danger { background: var(--danger); }
 .rail__seg--suspect { background: var(--suspect); }
+.rail__seg--error { background: var(--error); }
 .rail__seg--unknown { background: var(--line-strong); }
 .rail__seg--running { background: var(--running); }
 

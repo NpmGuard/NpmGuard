@@ -7,13 +7,16 @@ import type { PublicScanDep, PublicScanDetailResponse } from "../../lib/engine-t
 import { formatDate } from "../../lib/format.ts";
 import { usePanelStore } from "../../stores/panelStore.ts";
 import { PanelDialog } from "./PanelDialog.tsx";
-import { VerdictPill } from "./tone.tsx";
+import { OutcomePill } from "./tone.tsx";
 
 const POLL_MS = 2500;
 
 function depReason(dep: PublicScanDep): string {
   if (dep.reason) return dep.reason;
-  if (dep.verdict === null) return dep.active ? "Audit in progress" : "No reproducible verdict";
+  // ERROR carries no reason of its own: the audit never produced one. A null
+  // outcome always has a live attempt behind it.
+  if (dep.outcome === "ERROR") return "Audit could not be completed";
+  if (dep.outcome === null) return "Audit in progress";
   return "—";
 }
 
@@ -69,8 +72,8 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
           {scan &&
             (running ? (
               <span className="pill pill--running">Running</span>
-            ) : scan.rollup.verdict ? (
-              <VerdictPill verdict={scan.rollup.verdict} />
+            ) : scan.rollup.outcome ? (
+              <OutcomePill outcome={scan.rollup.outcome} />
             ) : (
               <span className="pill">Done</span>
             ))}
@@ -142,18 +145,18 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
                 </dd>
               </div>
               <div>
-                <dt className="eyebrow eyebrow--faint">Suspect</dt>
-                <dd className={scan.rollup.suspect > 0 ? "is-suspect" : undefined}>
-                  {scan.rollup.suspect}
+                <dt className="eyebrow eyebrow--faint">Audit failed</dt>
+                <dd className={scan.rollup.error > 0 ? "is-error" : undefined}>
+                  {scan.rollup.error}
                 </dd>
-              </div>
-              <div>
-                <dt className="eyebrow eyebrow--faint">Unknown</dt>
-                <dd>{scan.rollup.unknown}</dd>
               </div>
               <div>
                 <dt className="eyebrow eyebrow--faint">Safe</dt>
                 <dd className={scan.rollup.safe > 0 ? "is-safe" : undefined}>{scan.rollup.safe}</dd>
+              </div>
+              <div>
+                <dt className="eyebrow eyebrow--faint">Pending</dt>
+                <dd>{scan.rollup.pending}</dd>
               </div>
               <div>
                 <dt className="eyebrow eyebrow--faint">Cached</dt>
@@ -175,7 +178,7 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
                     <tr>
                       <th>Dependency</th>
                       <th>Source</th>
-                      <th>Verdict</th>
+                      <th>Outcome</th>
                       <th>Reason</th>
                     </tr>
                   </thead>
@@ -192,12 +195,10 @@ export function PublicAuditReportDialog({ scanId, onClose }: PublicAuditReportDi
                           )}
                         </td>
                         <td>
-                          {dep.verdict ? (
-                            <VerdictPill verdict={dep.verdict} />
-                          ) : dep.active ? (
-                            <span className="pill pill--running">Queued</span>
+                          {dep.outcome ? (
+                            <OutcomePill outcome={dep.outcome} />
                           ) : (
-                            <span className="pill pill--unknown">Unresolved</span>
+                            <span className="pill pill--running">Queued</span>
                           )}
                         </td>
                         <td className="panel-reason">{depReason(dep)}</td>

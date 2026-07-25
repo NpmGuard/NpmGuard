@@ -14,10 +14,12 @@ not touch the index, and a push can move ``repo_deps`` under a live scan) and
 never from job ownership (jobs are deduped across scans by the partial-unique
 index).
 
-The 4->2-state reconciliation (spec §5): a dep's verdict is ``SAFE``,
-``DANGEROUS``, or ``None`` (pending/failed). ``compute_rollup`` keeps the 4-key
-wire shape, but ``suspect`` is always 0 and ``unknown`` counts the null/unaudited
-deps — a repo is never SAFE while any dep is pending.
+The verdict model is two axes (design §4.4): each item carries an OUTCOME
+(``SAFE | ERROR | DANGEROUS``, null until concluded — see
+:func:`~npmguard.panel.verdict_index.item_outcome`) and, separately, PROGRESS.
+:func:`compute_rollup` is the one place a set's counters are computed, and its
+counters partition the items so that a half-finished set reads "SAFE so far, N
+pending" instead of "unknown".
 """
 
 from __future__ import annotations
@@ -43,7 +45,13 @@ from ..tables import (
     scan_items,
     scans,
 )
-from ..verdict_index import VerdictIndex
+from ..verdict_index import (
+    LANDABLE_VERDICTS,
+    OUTCOMES,
+    VerdictIndex,
+    item_outcome,
+    outcome_severity,
+)
 
 
 class LockfileNotFoundError(Exception):
@@ -71,71 +79,183 @@ class ParsedRepoDeps:
 FetchRepoDeps = Callable[[Mapping[str, Any], str | None], Awaitable[ParsedRepoDeps]]
 WatchSync = Callable[[], Awaitable[None]]
 # Called ONCE when a scan carrying a GitHub check run finalizes: (repo, check_run_id,
-# rollup_verdict). Injected so the DB engine stays GitHub-free; the wire stage binds
-# it to conclude_check_run over the installation octokit. The fail-only-on-DANGEROUS
-# mapping (check_conclusion) lives on the wire side — a still-unresolved rollup leaves
-# the check open.
+# rollup_outcome). Injected so the DB engine stays GitHub-free; the wire stage binds
+# it to conclude_check_run over the installation octokit. The outcome -> check-state
+# mapping (check_conclusion) lives on the wire side — only a set with nothing
+# concluded (outcome None) leaves the check open.
 FinalizeCheck = Callable[[Mapping[str, Any], int, str | None], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class RollupItem:
+    """One item as the rollup sees it: its outcome, and whether it was cached.
+
+    Deliberately not "a dep row" — the rollup counts sets of audited pairs
+    (repo dep index, scan items, public snapshot items), and each caller lifts
+    its own row shape through :func:`item_outcome` before counting. That keeps
+    the rollup pure and stops it from guessing which key holds the verdict.
+    """
+
+    outcome: str | None
+    cached: bool = False
 
 
 @dataclass
 class Rollup:
-    """Worst-dep-wins rollup over a repo's deps (spec §5, 4-key wire shape)."""
+    """The one counters object over an audit set's items (contract
+    ``AuditSetRollup``). Replaces today's ``{total, cached, audited, failed}``
+    plus a separate ``{verdict, dangerous, suspect, unknown, safe}``."""
 
-    verdict: str | None = None
-    dangerous: int = 0
-    suspect: int = 0
-    unknown: int = 0
+    outcome: str | None = None
+    total: int = 0
     safe: int = 0
+    dangerous: int = 0
+    error: int = 0
+    pending: int = 0
+    cached: int = 0
 
     def as_wire(self) -> dict[str, Any]:
         return {
-            "verdict": self.verdict,
-            "dangerous": self.dangerous,
-            "suspect": self.suspect,
-            "unknown": self.unknown,
+            "outcome": self.outcome,
+            "total": self.total,
             "safe": self.safe,
+            "dangerous": self.dangerous,
+            "error": self.error,
+            "pending": self.pending,
+            "cached": self.cached,
         }
 
 
-def _verdict_of(dep: Any) -> str | None:
-    if isinstance(dep, Mapping):
-        return dep.get("verdict")
-    return dep
+def compute_rollup(items: Iterable[RollupItem]) -> Rollup:
+    """Roll a set of :class:`RollupItem` up into its counters + outcome.
 
+    INVARIANT: ``safe + dangerous + error + pending == total`` — every item is in
+    exactly one of those four states, which is what makes the old ``unknown``
+    bucket (three facts under one name) unrepresentable. ``cached`` is orthogonal
+    (a subset of the concluded three) and excluded from the sum.
 
-def compute_rollup(deps: Iterable[Any]) -> Rollup:
-    """Worst-dep-wins rollup. Accepts an iterable of verdicts (``str``/``None``)
-    or dep mappings carrying a ``verdict`` key.
-
-    Ordering ``DANGEROUS > SUSPECT(=0) > UNKNOWN > SAFE``; a null/unaudited dep
-    lands in ``unknown`` so the repo is never SAFE while any dep is pending. An
-    empty dep set yields ``verdict=None`` (nothing to roll up).
+    INVARIANT: ``outcome`` is the max severity (``DANGEROUS > ERROR > SAFE``)
+    over CONCLUDED items only, and ``None`` when none has concluded. Pending
+    never contributes — a half-finished set is "SAFE so far, N pending".
     """
     rollup = Rollup()
-    total = 0
-    for dep in deps:
-        total += 1
-        verdict = _verdict_of(dep)
-        if verdict == "DANGEROUS":
-            rollup.dangerous += 1
-        elif verdict == "SUSPECT":  # never produced by dev; kept for wire shape
-            rollup.suspect += 1
-        elif verdict == "SAFE":
+    best: int | None = None
+    for item in items:
+        rollup.total += 1
+        # INVARIANT: an item's outcome is a panel outcome or None. A legacy
+        # SUSPECT/UNKNOWN reaching here is corruption upstream, not a bucket.
+        assert item.outcome is None or item.outcome in OUTCOMES, (
+            f"rollup item outcome {item.outcome!r} is outside "
+            f"{sorted(OUTCOMES)} + None"
+        )
+        # INVARIANT: cached ⇒ the item concluded on a LANDED verdict. Cached
+        # means "resolved from an existing report", so it can be neither pending
+        # nor ERROR, and `audited = safe + dangerous - cached` (the scans-row
+        # projection) is only valid under that — asserted here rather than
+        # trusted there.
+        assert not item.cached or item.outcome in LANDABLE_VERDICTS, (
+            f"a cached item cannot have outcome {item.outcome!r}; cached means "
+            f"'resolved from an existing report', so it is one of "
+            f"{sorted(LANDABLE_VERDICTS)}"
+        )
+        if item.cached:
+            rollup.cached += 1
+        if item.outcome is None:
+            rollup.pending += 1
+            continue
+        if item.outcome == "SAFE":
             rollup.safe += 1
-        else:  # None (pending/failed), UNKNOWN, or any unexpected string
-            rollup.unknown += 1
-    if total == 0:
-        return rollup
-    if rollup.dangerous > 0:
-        rollup.verdict = "DANGEROUS"
-    elif rollup.suspect > 0:
-        rollup.verdict = "SUSPECT"
-    elif rollup.unknown > 0:
-        rollup.verdict = "UNKNOWN"
-    else:
-        rollup.verdict = "SAFE"
+        elif item.outcome == "DANGEROUS":
+            rollup.dangerous += 1
+        else:  # ERROR — exhaustive by the domain assert above
+            rollup.error += 1
+        severity = outcome_severity(item.outcome)
+        if best is None or severity > best:
+            best = severity
+            rollup.outcome = item.outcome
+    assert rollup.safe + rollup.dangerous + rollup.error + rollup.pending == rollup.total, (
+        f"rollup counters do not partition the set: {rollup.as_wire()}"
+    )
     return rollup
+
+
+def rollup_items(rows: Iterable[Mapping[str, Any]]) -> list[RollupItem]:
+    """Lift raw item rows (``verdict`` + ``active`` + optional ``cached``) into
+    :class:`RollupItem`. The ONE place raw progress becomes an outcome, so the
+    scan counters, the wire projection and the check-run cannot classify the same
+    row differently — which is exactly what they used to do (``refresh_scan_
+    progress`` called a jobless item "failed" while the wire called it null)."""
+    return [
+        RollupItem(
+            outcome=item_outcome(row["verdict"], pending=bool(row["active"])),
+            cached=bool(row.get("cached", False)),
+        )
+        for row in rows
+    ]
+
+
+async def scan_item_states(session: Any, scan_id: int) -> list[dict[str, Any]]:
+    """``scan_items ⋈ package_verdicts`` + "has a live job", for one scan.
+
+    Progress comes from ``scan_items`` (never ``repo_deps``: a delta scan does
+    not touch the index, and a push can move ``repo_deps`` under a live scan) and
+    never from job ownership — jobs are deduped across scans by the
+    partial-unique index, so a shared job belongs to no single scan.
+    """
+    active_exists = (
+        sa.select(sa.literal(1))
+        .select_from(panel_jobs)
+        .where(
+            panel_jobs.c.package_name == scan_items.c.name,
+            panel_jobs.c.version == scan_items.c.version,
+            panel_jobs.c.state.in_(("queued", "running")),
+        )
+        .exists()
+    )
+    rows = (
+        (
+            await session.execute(
+                sa.select(
+                    scan_items.c.name,
+                    scan_items.c.version,
+                    scan_items.c.cached,
+                    package_verdicts.c.verdict,
+                    active_exists.label("active"),
+                )
+                .select_from(
+                    scan_items.outerjoin(
+                        package_verdicts,
+                        sa.and_(
+                            package_verdicts.c.name == scan_items.c.name,
+                            package_verdicts.c.version == scan_items.c.version,
+                        ),
+                    )
+                )
+                .where(scan_items.c.scan_id == scan_id)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        {
+            "name": row["name"],
+            "version": row["version"],
+            "cached": bool(row["cached"]),
+            "verdict": row["verdict"],
+            "active": bool(row["active"]),
+        }
+        for row in rows
+    ]
+
+
+async def scan_rollup(session: Any, scan_id: int) -> Rollup:
+    """A scan's rollup over its OWN items — the single answer to "what did this
+    scan conclude", shared by the progress projection, the GitHub check-run and
+    the wire. A delta scan covers only the changed pairs, so a rollup over the
+    repo's current dep index answers a different question and must not be
+    reported as this scan's outcome."""
+    return compute_rollup(rollup_items(await scan_item_states(session, scan_id)))
 
 
 def _dedupe(deps: Iterable[LockfileDep]) -> list[LockfileDep]:
@@ -290,7 +410,7 @@ class RepoScanEngine:
         The ``status='running'`` guard makes the finalize transition fire
         exactly once, so the GitHub check-run conclusion (below) is emitted a
         single time even though this is called on every worker settle."""
-        # (repo_id, check_run_id, rollup_verdict) to conclude AFTER the txn.
+        # (repo_id, check_run_id, rollup_outcome) to conclude AFTER the txn.
         to_conclude: tuple[int, int, str | None] | None = None
         async with self.sessions() as session, session.begin():
             row = (
@@ -307,27 +427,27 @@ class RepoScanEngine:
             if row is None or row["status"] != "running":
                 return
 
-            items = await self._scan_item_states(session, scan_id)
-            total = len(items)
-            cached = sum(1 for i in items if i["cached"])
-            # audited = resolved during this scan (no verdict at creation).
-            audited = sum(1 for i in items if i["verdict"] is not None and not i["cached"])
-            active = sum(1 for i in items if i["active"])
-            # unresolved with no active job = failed (audit gave up after retries).
-            failed = sum(1 for i in items if i["verdict"] is None and not i["active"])
-
+            rollup = await scan_rollup(session, scan_id)
+            # The scans row still persists the older four-counter projection; it
+            # is DERIVED from the rollup so the two cannot disagree. `audited` =
+            # freshly concluded WITH a verdict, i.e. safe+dangerous minus the
+            # ones that came from cache (valid because cached ⊆ {safe,dangerous},
+            # asserted in compute_rollup); `failed` IS the ERROR bucket — no
+            # result and no attempt left. total == cached+audited+failed+pending.
             values: dict[str, Any] = {
-                "total": total,
-                "cached": cached,
-                "audited": audited,
-                "failed": failed,
+                "total": rollup.total,
+                "cached": rollup.cached,
+                "audited": rollup.safe + rollup.dangerous - rollup.cached,
+                "failed": rollup.error,
             }
-            if active == 0:
+            # INVARIANT: pending == 0 ⟺ no item has a live attempt, so the set is
+            # finished. `pending` is the one progress counter, replacing a second
+            # `active` scan of the same items.
+            if rollup.pending == 0:
                 values["status"] = "done"
                 values["finished_at"] = now_iso()
                 if row["check_run_id"] is not None and self.finalize_check is not None:
-                    verdict = compute_rollup([i["verdict"] for i in items]).verdict
-                    to_conclude = (row["repo_id"], row["check_run_id"], verdict)
+                    to_conclude = (row["repo_id"], row["check_run_id"], rollup.outcome)
             await session.execute(
                 scans.update().where(scans.c.id == scan_id).values(**values)
             )
@@ -368,53 +488,6 @@ class RepoScanEngine:
             ).scalars().all()
         for scan_id in scan_ids:
             await self.refresh_scan_progress(scan_id)
-
-    async def _scan_item_states(self, session: Any, scan_id: int) -> list[dict[str, Any]]:
-        active_exists = (
-            sa.select(sa.literal(1))
-            .select_from(panel_jobs)
-            .where(
-                panel_jobs.c.package_name == scan_items.c.name,
-                panel_jobs.c.version == scan_items.c.version,
-                panel_jobs.c.state.in_(("queued", "running")),
-            )
-            .exists()
-        )
-        rows = (
-            (
-                await session.execute(
-                    sa.select(
-                        scan_items.c.name,
-                        scan_items.c.version,
-                        scan_items.c.cached,
-                        package_verdicts.c.verdict,
-                        active_exists.label("active"),
-                    )
-                    .select_from(
-                        scan_items.outerjoin(
-                            package_verdicts,
-                            sa.and_(
-                                package_verdicts.c.name == scan_items.c.name,
-                                package_verdicts.c.version == scan_items.c.version,
-                            ),
-                        )
-                    )
-                    .where(scan_items.c.scan_id == scan_id)
-                )
-            )
-            .mappings()
-            .all()
-        )
-        return [
-            {
-                "name": row["name"],
-                "version": row["version"],
-                "cached": bool(row["cached"]),
-                "verdict": row["verdict"],
-                "active": bool(row["active"]),
-            }
-            for row in rows
-        ]
 
     # -- index maintenance -------------------------------------------------
 
@@ -487,5 +560,9 @@ __all__ = [
     "ParsedRepoDeps",
     "RepoScanEngine",
     "Rollup",
+    "RollupItem",
     "compute_rollup",
+    "rollup_items",
+    "scan_item_states",
+    "scan_rollup",
 ]

@@ -1,9 +1,9 @@
 /** Compact last-scan status: not-audited / running progress meter
- * (completed = cached + audited + failed) / failed / verdict + date. */
+ * (completed = cached + audited + failed) / failed / outcome + date. */
 
 import type { ScanSummary } from "../../lib/engine-types.ts";
 import { formatDate } from "../../lib/format.ts";
-import { VerdictPill } from "./tone.tsx";
+import { OutcomePill } from "./tone.tsx";
 
 export function ScanStatus({ scan }: { scan: ScanSummary | null }) {
   if (!scan) {
@@ -52,7 +52,11 @@ export function ScanStatus({ scan }: { scan: ScanSummary | null }) {
 
   return (
     <div className="panel-scanstatus">
-      {scan.verdict ? <VerdictPill verdict={scan.verdict} /> : <span className="pill">Done</span>}
+      {scan.outcome ? (
+        <OutcomePill outcome={scan.outcome} />
+      ) : (
+        <span className="pill">Done</span>
+      )}
       <span className="microtext">
         {scan.total} {scan.total === 1 ? "dependency" : "dependencies"} ·{" "}
         {formatDate(scan.finishedAt)}

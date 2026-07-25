@@ -101,7 +101,10 @@ export function UpgradeDialog() {
               </li>
             </ul>
           )}
-          <p className="microtext">SUSPECT and UNKNOWN findings remain non-blocking.</p>
+          <p className="microtext">
+            Only DANGEROUS blocks an install; audits that could not conclude are
+            reported, never hidden.
+          </p>
         </div>
         {!checkoutEnabled && (
           <p className="microtext">Checkout is not configured on this server.</p>

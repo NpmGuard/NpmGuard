@@ -14,15 +14,31 @@
 #   C8 assess_report pulls verdict, reason=rationale, evidenceCount=len(confirmedHypIds)
 #   C9 rebuild upserts every landable report; returns the count written
 #   C10 rebuild lands SAFE|DANGEROUS ONLY — a report with any other verdict is skipped
-# Adversarial pass: the 2-state guard (C10) is the load-bearing invariant — a
-#   SUSPECT/UNKNOWN report must never reach a dep row; the fake lister mixes a
-#   SUSPECT report in to prove it is dropped, not stored.
+# item_outcome — the panel outcome domain (§4.4), PURE (verdict + progress in):
+#   C11 a landed SAFE verdict IS the outcome, whatever progress says
+#   C12 a landed DANGEROUS verdict IS the outcome
+#   C13 nothing landed + an attempt still live -> None (not concluded; NOT unknown)
+#   C14 nothing landed + nothing running -> ERROR ("we tried and failed")
+#   C15 a STORED verdict outside {SAFE, DANGEROUS} (a legacy 4-state row) -> raises
+# upsert / outcome_severity guards:
+#   C16 upsert refuses a non-landable verdict and writes no row
+#   C17 severity ranks DANGEROUS > ERROR > SAFE; a non-outcome raises
+# Adversarial pass: the 2-state guard (C10/C15/C16) is the load-bearing
+#   invariant — a SUSPECT/UNKNOWN verdict must never reach a dep row, and if one
+#   is already stored the read boundary must fail loud rather than render it.
 import pytest
+import sqlalchemy as sa
 
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard.panel import tables
-from npmguard.panel.verdict_index import SavedReport, VerdictIndex, assess_report
+from npmguard.panel.verdict_index import (
+    SavedReport,
+    VerdictIndex,
+    assess_report,
+    item_outcome,
+    outcome_severity,
+)
 
 _ = tables  # ensure metadata.create_all sees the panel tables
 
@@ -137,3 +153,70 @@ async def test_rebuild_from_fake_lister(index_engine) -> None:
     assert (await index.get("safe-pkg", "1.0.0"))["verdict"] == "SAFE"
     assert (await index.get("bad-pkg", "3.1.4"))["evidenceCount"] == 1
     assert await index.get("weird-pkg", "0.0.1") is None
+
+
+# --------------------------------------------------------------------------
+# item_outcome / severity — the panel outcome domain (§4.4), pure
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pending", [True, False])
+def test_item_outcome_landed_verdict_wins(pending) -> None:
+    """C11/C12: a landed verdict IS the outcome; progress cannot override it (a
+    stale queued job alongside a stored verdict must not read as pending)."""
+    assert item_outcome("SAFE", pending=pending) == "SAFE"
+    assert item_outcome("DANGEROUS", pending=pending) == "DANGEROUS"
+
+
+def test_item_outcome_pending_is_not_an_outcome() -> None:
+    """C13: nothing landed while an attempt is live -> None. Not concluded is a
+    progress fact, never a verdict bucket."""
+    assert item_outcome(None, pending=True) is None
+
+
+def test_item_outcome_no_result_no_attempt_is_error() -> None:
+    """C14: nothing landed and nothing running -> ERROR. The job failed, or it
+    completed on a report with no landable verdict — either way no result is
+    coming, and that is not SAFE and not 'not checked yet'."""
+    assert item_outcome(None, pending=False) == "ERROR"
+
+
+def test_item_outcome_rejects_legacy_stored_verdict() -> None:
+    """C15: a row from the old 4-state vocabulary fails loud at the read
+    boundary instead of being silently rendered."""
+    for legacy in ("SUSPECT", "UNKNOWN"):
+        with pytest.raises(AssertionError, match="panel outcome domain"):
+            item_outcome(legacy, pending=False)
+
+
+async def test_upsert_rejects_non_landable_verdict(index_engine) -> None:
+    """C16: the write boundary refuses anything but SAFE|DANGEROUS, and the
+    refusal leaves no row behind."""
+    with pytest.raises(AssertionError, match="cannot index verdict"):
+        await index_engine.upsert("weird", "1.0.0", "SUSPECT")
+    assert await index_engine.get("weird", "1.0.0") is None
+
+
+def test_outcome_severity_order() -> None:
+    """C17: DANGEROUS > ERROR > SAFE, and a value outside the domain raises."""
+    assert (
+        outcome_severity("DANGEROUS")
+        > outcome_severity("ERROR")
+        > outcome_severity("SAFE")
+    )
+    with pytest.raises(AssertionError, match="not a panel outcome"):
+        outcome_severity("UNKNOWN")
+
+
+async def test_stored_verdict_domain_is_two_state(index_engine) -> None:
+    """C15/C16 (DB-level): after the only writer runs, the column holds nothing
+    but SAFE|DANGEROUS — asserted against the database, not the response."""
+    await index_engine.upsert("a", "1.0.0", "SAFE")
+    await index_engine.upsert("b", "1.0.0", "DANGEROUS")
+    async with index_engine._sessions() as session:  # noqa: SLF001 - N-9 style DB assert
+        stored = set(
+            (await session.execute(sa.select(tables.package_verdicts.c.verdict)))
+            .scalars()
+            .all()
+        )
+    assert stored == {"SAFE", "DANGEROUS"}

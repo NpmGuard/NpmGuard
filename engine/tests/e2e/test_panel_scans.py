@@ -1,17 +1,17 @@
 # CLASS MAP — panel repo scan + detail + scan-progress SSE (e2e: real engine,
 # real GitHub stub behind HTTP, deterministic via cache hits).
-# Axes: dep verdict class (SAFE / DANGEROUS / uncached-miss) × scan lifecycle ×
-#       the 4->2-state rollup × the UNNAMED scan SSE.
+# Axes: dep outcome class (SAFE / DANGEROUS / uncached-miss) × scan lifecycle ×
+#       the 3-state rollup × the UNNAMED scan SSE.
 #   S-scan-1  full sign-in → orgs/repos mirror → POST /panel/repo/:id/scan:
 #             - deps pre-seeded as CACHE HITS via data/reports (one DANGEROUS,
 #               one SAFE) land verdicts with no real audit/docker [C1]
 #             - one uncached dep is a real cache-MISS: it fans a panel job into
 #               AuditService, whose audit deterministically FAILS against the
-#               hermetic-dead registry, so the dep settles verdict=null +
-#               jobState='failed' (the 4->2 rule: a failed audit is NEVER SAFE
-#               and NEVER a non-null UNKNOWN verdict) [C2]
-#             - GET /panel/repo/:owner/:name rollup is worst-dep-wins DANGEROUS,
-#               unknown counts the pending/failed dep, suspect always 0 [C3]
+#               hermetic-dead registry, so the dep settles outcome='ERROR' +
+#               jobState='failed' — never SAFE, and never a pending spinner that
+#               resolves itself (§4.4: "we tried and failed" is a fact) [C2]
+#             - GET /panel/repo/:owner/:name rollup is max-severity DANGEROUS and
+#               the failed audit is counted in `error`, not hidden [C3]
 #             - GET /panel/scan/:id/events streams UNNAMED (data-only) frames:
 #               a {type:'progress'} snapshot + a terminal {type:'done'} [C4]
 # (The 409-already-running, 402-cap, and 422-no-lockfile branches are covered by
@@ -126,8 +126,8 @@ def _read_sse_frames(client: httpx.Client, base: str, scan_id: int) -> list[dict
 
 def test_s_scan_1_cache_hit_scan_rollup_and_sse(engine_factory, github_stub, app_private_key):
     """S-scan-1 [C1-C4]: pre-seeded cache-hit deps + one failing miss → scan
-    reaches done, rollup is worst-dep-wins DANGEROUS, the pending dep is
-    verdict=null+jobState, and the UNNAMED SSE emits progress + done."""
+    reaches done, rollup is max-severity DANGEROUS with the failed audit counted
+    in `error`, and the UNNAMED SSE emits progress + done."""
     github_stub.set_oauth_code(OAUTH_CODE, USER_TOKEN)
     github_stub.set_user(USER_TOKEN, id=42, login="octocat", email="mona@example.com")
     github_stub.add_installation(500, account_login="acme", account_type="Organization")
@@ -165,32 +165,38 @@ def test_s_scan_1_cache_hit_scan_rollup_and_sse(engine_factory, github_stub, app
 
         detail = _poll_scan_done(client, base)
 
-        # C3: rollup is worst-dep-wins DANGEROUS; unknown counts the failed/pending
-        # dep; suspect is always 0 (never produced by the dev 2-state engine).
+        # C3: max-severity rollup, and the failed audit lands in `error` — the
+        # counters partition the set (safe+dangerous+error+pending == total).
         rollup = detail["rollup"]
-        assert rollup["verdict"] == "DANGEROUS", rollup
+        assert rollup["outcome"] == "DANGEROUS", rollup
         assert rollup["dangerous"] == 1
         assert rollup["safe"] == 1
-        assert rollup["unknown"] == 1
-        assert rollup["suspect"] == 0
+        assert rollup["error"] == 1, rollup
+        assert rollup["pending"] == 0, rollup
+        assert rollup["total"] == 3
+        assert (
+            rollup["safe"] + rollup["dangerous"] + rollup["error"] + rollup["pending"]
+            == rollup["total"]
+        )
 
         deps = {d["name"]: d for d in detail["deps"]}
         # C1: cache-hit verdicts.
-        assert deps["danger-dep"]["verdict"] == "DANGEROUS"
+        assert deps["danger-dep"]["outcome"] == "DANGEROUS"
         assert deps["danger-dep"]["evidenceCount"] == 2
         assert deps["danger-dep"]["direct"] is True
-        assert deps["safe-dep"]["verdict"] == "SAFE"
+        assert deps["safe-dep"]["outcome"] == "SAFE"
         assert deps["safe-dep"]["direct"] is True
-        # C2: the uncached dep is verdict=null with a jobState — NEVER SAFE and
-        # never a non-null verdict. A failed audit resolves jobState to 'failed'.
-        pending = deps["pending-dep"]
-        assert pending["verdict"] is None, pending
-        assert pending["jobState"] == "failed", pending
-        assert pending["direct"] is False
+        # C2: the audit that could not conclude is ERROR — never SAFE, and never
+        # a null that renders as a spinner waiting for a result nothing will
+        # produce. jobState says the ATTEMPT failed; outcome says what we know.
+        failed_dep = deps["pending-dep"]
+        assert failed_dep["outcome"] == "ERROR", failed_dep
+        assert failed_dep["jobState"] == "failed", failed_dep
+        assert failed_dep["direct"] is False
 
-        # The finished scan carries the rollup verdict.
+        # The finished scan carries the outcome of ITS OWN items.
         assert detail["scan"]["status"] == "done"
-        assert detail["scan"]["verdict"] == "DANGEROUS"
+        assert detail["scan"]["outcome"] == "DANGEROUS"
 
         # C4: the UNNAMED SSE emits a progress snapshot + a terminal done frame.
         frames = _read_sse_frames(client, base, scan_id)
@@ -200,7 +206,8 @@ def test_s_scan_1_cache_hit_scan_rollup_and_sse(engine_factory, github_stub, app
         progress = next(f for f in frames if f["type"] == "progress")
         assert progress["status"] == "done"
         assert progress["total"] == 3
-        # dep frames carry the verdict + jobState the detail view shows.
+        # dep frames carry the same outcome + jobState the detail view shows —
+        # one derivation, so the stream and the route cannot disagree.
         dep_frames = {f["name"]: f for f in frames if f["type"] == "dep"}
-        assert dep_frames["danger-dep"]["verdict"] == "DANGEROUS"
-        assert dep_frames["pending-dep"]["verdict"] is None
+        assert dep_frames["danger-dep"]["outcome"] == "DANGEROUS"
+        assert dep_frames["pending-dep"]["outcome"] == "ERROR"

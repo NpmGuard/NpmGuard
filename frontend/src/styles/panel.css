@@ -190,7 +190,7 @@
 .panel-summary > div { display: grid; gap: 3px; padding: 10px 12px; background: var(--surface-strong); }
 .panel-summary dd { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--ink); }
 .panel-summary dd.is-danger { color: var(--danger); }
-.panel-summary dd.is-suspect { color: var(--suspect); }
+.panel-summary dd.is-error { color: var(--error); }
 .panel-summary dd.is-safe { color: var(--safe); }
 
 .panel-reason { max-width: 320px; }

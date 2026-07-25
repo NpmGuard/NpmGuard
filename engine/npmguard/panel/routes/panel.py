@@ -35,7 +35,12 @@ from npmguard.panel.routes._common import (
     require_enabled,
     runtime_of,
 )
-from npmguard.panel.scan.repo_scan import LockfileNotFoundError, compute_rollup
+from npmguard.panel.scan.repo_scan import (
+    LockfileNotFoundError,
+    RollupItem,
+    compute_rollup,
+    scan_rollup,
+)
 from npmguard.panel.tables import (
     alerts,
     installations,
@@ -47,6 +52,7 @@ from npmguard.panel.tables import (
     scans,
     user_installations,
 )
+from npmguard.panel.verdict_index import LANDABLE_VERDICTS, item_outcome
 from npmguard.panel.watch import sync_watched_packages
 
 log = structlog.get_logger("npmguard.panel.core")
@@ -417,10 +423,18 @@ def _job_state_subqueries(name_col: Any, version_col: Any) -> tuple[Any, Any]:
 
 
 def _job_state(active_state: str | None, has_failed: Any, verdict: str | None) -> str | None:
+    """The wire ``jobState`` — a fact about the ATTEMPT, never an outcome.
+
+    ``failed`` here means "a terminal failed job exists for this pair"; the
+    OUTCOME of an unconcluded item is ERROR and comes from ``item_outcome``. The
+    two are not interchangeable: an item can be ERROR with ``jobState: null``
+    (its job row was never written — a lost enqueue batch), and it can carry a
+    stale ``failed`` job alongside a landed verdict from a later attempt.
+    """
     return active_state or ("failed" if has_failed and not verdict else None)
 
 
-def _scan_summary(row: Any, verdict: str | None) -> dict[str, Any]:
+def _scan_summary(row: Any, outcome: str | None) -> dict[str, Any]:
     return {
         "id": row["id"],
         "status": row["status"],
@@ -431,8 +445,8 @@ def _scan_summary(row: Any, verdict: str | None) -> dict[str, Any]:
         "failed": row["failed"],
         "startedAt": row["started_at"],
         "finishedAt": row["finished_at"],
-        # The rollup only becomes the scan's verdict once the scan is done.
-        "verdict": verdict if row["status"] == "done" else None,
+        # The rollup only becomes the scan's outcome once the scan is done.
+        "outcome": outcome if row["status"] == "done" else None,
     }
 
 
@@ -645,6 +659,14 @@ async def panel_repo_detail(owner: str, name: str, request: Request) -> Response
             .all()
         )
         last_scan = await _last_scan_row(session, repo["id"])
+        # A scan's outcome is the rollup over its OWN items, not over the repo's
+        # current dep index: a delta scan covers only the changed pairs and a
+        # push can replace the index underneath it, so the index answers a
+        # different question. Reporting the index rollup here made a scan whose
+        # single DANGEROUS/ERROR item was outside the index read as SAFE.
+        last_scan_outcome = (
+            (await scan_rollup(session, last_scan["id"])).outcome if last_scan else None
+        )
         alert_rows = (
             (
                 await session.execute(
@@ -658,21 +680,37 @@ async def panel_repo_detail(owner: str, name: str, request: Request) -> Response
             .all()
         )
 
+    # One outcome per dep, derived once: a landed verdict, else ERROR when no
+    # attempt is live (nothing is coming), else null (still pending).
+    outcomes = [
+        item_outcome(row["verdict"], pending=row["active_state"] is not None)
+        for row in dep_rows
+    ]
     deps = [
         {
             "name": row["name"],
             "version": row["version"],
             "direct": bool(row["direct"]),
             "range": row["range"],
-            "verdict": row["verdict"],
+            "outcome": outcome,
             "verdictReason": row["reason"],
             "evidenceCount": row["evidence_count"] or 0,
             "auditedAt": row["audited_at"],
             "jobState": _job_state(row["active_state"], row["has_failed"], row["verdict"]),
         }
-        for row in dep_rows
+        for row, outcome in zip(dep_rows, outcomes, strict=True)
     ]
-    rollup = compute_rollup([row["verdict"] for row in dep_rows]).as_wire()
+    # The repo's POSTURE over its current dep index (not a scan's coverage — see
+    # `last_scan_outcome` above). `cached` is every dep concluded from a stored
+    # verdict, which here is all of them: the index IS the report projection, so
+    # a fresh-vs-reused split is a property of a SCAN (`scan.cached`), not of the
+    # index. R-1 replaces this sibling field with a set-scoped rollup.
+    rollup = compute_rollup(
+        [
+            RollupItem(outcome=outcome, cached=outcome in LANDABLE_VERDICTS)
+            for outcome in outcomes
+        ]
+    ).as_wire()
 
     return JSONResponse(
         {
@@ -689,7 +727,7 @@ async def panel_repo_detail(owner: str, name: str, request: Request) -> Response
             },
             "deps": deps,
             "rollup": rollup,
-            "scan": _scan_summary(last_scan, rollup["verdict"]) if last_scan else None,
+            "scan": _scan_summary(last_scan, last_scan_outcome) if last_scan else None,
             "alerts": [_alert_wire(a) for a in alert_rows],
         }
     )
@@ -757,7 +795,10 @@ async def _scan_stream(runtime: Any, scan_id: int) -> Any:
         for item in items:
             verdict = item["verdict"]
             job_state = _job_state(item["active_state"], item["has_failed"], verdict)
-            signature = f"{verdict or ''}|{job_state or ''}"
+            # Same derivation as the detail route — the stream is a projection of
+            # the same items, so it must not classify them differently.
+            outcome = item_outcome(verdict, pending=item["active_state"] is not None)
+            signature = f"{outcome or ''}|{job_state or ''}"
             key = f"{item['name']}@{item['version']}"
             if sent.get(key) == signature:
                 continue  # diff-only: skip a dep whose state didn't change
@@ -767,7 +808,7 @@ async def _scan_stream(runtime: Any, scan_id: int) -> Any:
                     "type": "dep",
                     "name": item["name"],
                     "version": item["version"],
-                    "verdict": verdict,
+                    "outcome": outcome,
                     "verdictReason": item["reason"],
                     "evidenceCount": item["evidence_count"] or 0,
                     "jobState": job_state,

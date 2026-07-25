@@ -24,9 +24,16 @@ npm run gate       # typecheck && test && test:e2e
 
 ## Architecture (the spine — do not re-derive stream state in components)
 
-- `src/lib/engine-types.ts` — the wire contract, hand-written **from evidence**
-  (the engine's route/emit code + `shared/contract/contract.schema.json`), NOT
-  imported from `@npmguard/shared`. Engine contract change ⇒ this file changes.
+- `src/lib/engine-types.ts` — the wire contract, **mid-migration to
+  `@npmguard/shared`** (N-12: one contract, generated, never hand-mirrored).
+  The panel domain already imports `Outcome`, `AuditSetRollup` and `JobState`
+  from the package; the shapes still declared locally here are scheduled for
+  deletion in R-5a. Do not add a new hand-written wire shape — author it in
+  `shared/src/*.ts` and run `scripts/gen-contract.sh`, which also regenerates the
+  engine's `contract/models.py` from the same source.
+  Runtime resolves the package from `shared/src` via a vite alias, while
+  typecheck goes through a tsconfig project reference; neither path can serve a
+  stale `dist`. See `docs/specs/2026-07-24-platform-v3-system-design.md` §5.4.
 - `src/lib/audit-fold.ts` — the **pure** SSE reducer `foldAuditEvent`. All
   audit-stream state transitions live here (one `switch(event.type)`) — never in
   components, never inline in the store. Idempotent under cursor replay (dedup by

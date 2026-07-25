@@ -27,8 +27,9 @@
 # refresh_public_scan_progress + rollup reuse:
 #   C16 a scan with an ACTIVE job stays running; counters reflect items
 #   C17 no active job left -> finalized to done + finished_at set; failed counted
-#   C18 compute_public_scan_rollup reuses compute_rollup (worst-dep-wins; a null
-#       dep -> unknown so a snapshot is never SAFE while a dep is pending)
+#   C18 compute_public_scan_rollup reuses compute_rollup (max severity over
+#       concluded items; a null dep with a live job counts as PENDING, which never
+#       competes with the outcome)
 import pytest
 import sqlalchemy as sa
 
@@ -294,10 +295,10 @@ async def test_progress_finalizes_when_no_active_job(public_engine) -> None:
     assert scan["failed"] == 1  # lost (no verdict, no active job)
 
 
-async def test_rollup_reuse_never_safe_while_pending(public_engine) -> None:
-    """C18: compute_public_scan_rollup reuses the shared worst-dep-wins rollup —
-    a DANGEROUS dep wins, and a still-null dep lands in unknown so a snapshot is
-    never SAFE while a dep is pending."""
+async def test_rollup_reuse_counts_pending_separately(public_engine) -> None:
+    """C18: compute_public_scan_rollup reuses the shared rollup — DANGEROUS wins
+    the outcome, and the still-null dep is counted as PENDING rather than folded
+    into a bucket that competes with the outcome."""
     engine, factory = public_engine
     scan_id = await engine.create_public_repo_scan(
         _input(
@@ -310,13 +311,17 @@ async def test_rollup_reuse_never_safe_while_pending(public_engine) -> None:
     )
     await engine.verdict_index.upsert("safe-pkg", "1.0.0", "SAFE")
     await engine.verdict_index.upsert("bad-pkg", "2.0.0", "DANGEROUS")
-    # pending-pkg keeps a null verdict.
+    # pending-pkg keeps a null verdict, and create_public_repo_scan enqueued a
+    # job for it — so it is pending, not errored.
 
     async with factory() as session:
         rollup = await compute_public_scan_rollup(session, scan_id)
-    wire = rollup.as_wire()
-    assert wire["verdict"] == "DANGEROUS"
-    assert wire["dangerous"] == 1
-    assert wire["safe"] == 1
-    assert wire["unknown"] == 1  # the pending dep
-    assert wire["suspect"] == 0  # dev never emits SUSPECT
+    assert rollup.as_wire() == {
+        "outcome": "DANGEROUS",
+        "total": 3,
+        "safe": 1,
+        "dangerous": 1,
+        "error": 0,
+        "pending": 1,
+        "cached": 0,
+    }

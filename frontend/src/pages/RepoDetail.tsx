@@ -15,10 +15,12 @@ import {
 import { Link, useNavigate, useParams } from "react-router";
 import { UpgradeDialog } from "../components/panel/UpgradeDialog.tsx";
 import {
-  VerdictPill,
+  OutcomePill,
+  depPriority,
+  depTone,
+  outcomeTone,
   toneAccent,
   toneDotClass,
-  verdictTone,
   type Tone,
 } from "../components/panel/tone.tsx";
 import { ApiError } from "../lib/api-base.ts";
@@ -38,30 +40,11 @@ const DEP_FILTERS: { key: DepFilter; label: string }[] = [
   { key: "pending", label: "Pending" },
 ];
 
-/** Severity-first sort rank: DANGEROUS > SUSPECT > failed > running >
- * pending > UNKNOWN > SAFE. */
-function depPriority(dep: DepDetail): number {
-  if (dep.verdict === "DANGEROUS") return 0;
-  if (dep.verdict === "SUSPECT") return 1;
-  if (dep.verdict === null) {
-    if (dep.jobState === "failed") return 2;
-    if (dep.jobState === "running") return 3;
-    return 4;
-  }
-  if (dep.verdict === "UNKNOWN") return 5;
-  return 6;
-}
-
-function depTone(dep: DepDetail): Tone {
-  if (dep.verdict) return verdictTone(dep.verdict);
-  if (dep.jobState === "running") return "running";
-  if (dep.jobState === "failed") return "danger";
-  return "unknown";
-}
-
 function DepStatusPill({ dep }: { dep: DepDetail }) {
-  if (dep.verdict) return <VerdictPill verdict={dep.verdict} />;
-  if (dep.jobState === "failed") return <span className="pill pill--danger">Audit failed</span>;
+  // Outcome first, progress only for the not-concluded case: a null outcome
+  // ALWAYS resolves itself (a job is live), so it gets a spinner and never the
+  // "Audit failed" copy — that belongs to ERROR, which needs a retry.
+  if (dep.outcome) return <OutcomePill outcome={dep.outcome} />;
   if (dep.jobState === "running")
     return (
       <span className="pill pill--running">
@@ -140,7 +123,7 @@ export function RepoDetail() {
                   dep.name === message.name && dep.version === message.version
                     ? {
                         ...dep,
-                        verdict: message.verdict,
+                        outcome: message.outcome,
                         verdictReason: message.verdictReason,
                         evidenceCount: message.evidenceCount,
                         jobState: message.jobState,
@@ -178,30 +161,16 @@ export function RepoDetail() {
 
   const deps = useMemo(() => detail?.deps ?? [], [detail]);
 
-  const counts = useMemo(() => {
-    let dangerous = 0;
-    let suspect = 0;
-    let unknown = 0;
-    let safe = 0;
-    let pending = 0;
-    for (const dep of deps) {
-      if (dep.verdict === "DANGEROUS") dangerous += 1;
-      else if (dep.verdict === "SUSPECT") suspect += 1;
-      else if (dep.verdict === "UNKNOWN") unknown += 1;
-      else if (dep.verdict === "SAFE") safe += 1;
-      else pending += 1;
-    }
-    return { dangerous, suspect, unknown, safe, pending };
-  }, [deps]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return deps
       .filter((dep) => {
-        if (filter === "flagged" && dep.verdict !== "DANGEROUS" && dep.verdict !== "SUSPECT")
+        // "Flagged" is what needs a human: confirmed danger, or an audit that
+        // could not conclude. A pending dep is neither — it resolves itself.
+        if (filter === "flagged" && dep.outcome !== "DANGEROUS" && dep.outcome !== "ERROR")
           return false;
         if (filter === "direct" && !dep.direct) return false;
-        if (filter === "pending" && dep.verdict !== null) return false;
+        if (filter === "pending" && dep.outcome !== null) return false;
         if (q && !`${dep.name}@${dep.version}`.toLowerCase().includes(q)) return false;
         return true;
       })
@@ -216,7 +185,7 @@ export function RepoDetail() {
   const queueDeps = useMemo(
     () =>
       deps
-        .filter((dep) => dep.verdict === "DANGEROUS" || dep.verdict === "SUSPECT")
+        .filter((dep) => dep.outcome === "DANGEROUS" || dep.outcome === "ERROR")
         .sort((a, b) => depPriority(a) - depPriority(b) || a.name.localeCompare(b.name))
         .slice(0, 4),
     [deps],
@@ -267,8 +236,12 @@ export function RepoDetail() {
   const running = scan?.status === "running";
   const completed = scan ? scan.cached + scan.audited + scan.failed : 0;
   const pct = scan && scan.total > 0 ? Math.round((completed / scan.total) * 100) : 0;
-  const flagged = counts.dangerous + counts.suspect;
-  const checked = deps.length - counts.pending;
+  // The ONE rollup, computed server-side over the repo's dep index. The client
+  // used to recompute these counters from `deps` and never read this field —
+  // a third implementation of the same sum, free to disagree with the other two.
+  const rollup = detail.rollup;
+  const flagged = rollup.dangerous + rollup.error;
+  const checked = rollup.total - rollup.pending;
 
   const lastScanCopy = scan
     ? `Last ${scan.trigger} scan started ${formatDate(scan.startedAt)}`
@@ -293,37 +266,43 @@ export function RepoDetail() {
       tone: "unknown",
       copy: "Run the first audit to establish a dependency baseline.",
     };
-  } else if (counts.dangerous > 0) {
+  } else if (rollup.dangerous > 0) {
     overview = { label: "Action required", tone: "danger", copy: lastScanCopy };
-  } else if (counts.suspect > 0) {
-    overview = { label: "Review recommended", tone: "suspect", copy: lastScanCopy };
-  } else if (counts.pending > 0 || counts.unknown > 0) {
+  } else if (rollup.error > 0) {
+    // Severity DANGEROUS > ERROR > SAFE: audits that could not conclude are a
+    // coverage gap, so this repo is NOT reported as having no known threats.
+    overview = {
+      label: `${rollup.error} could not be audited`,
+      tone: "error",
+      copy: lastScanCopy,
+    };
+  } else if (rollup.pending > 0) {
     overview = { label: "Coverage incomplete", tone: "unknown", copy: lastScanCopy };
   } else {
     overview = { label: "No known threats", tone: "safe", copy: lastScanCopy };
   }
 
+  // The four buckets partition the set (safe + dangerous + error + pending ==
+  // total), so the rail is a true proportion rather than an overlapping tally.
   const railSegments: { key: string; tone: Tone; count: number }[] = [
-    { key: "dangerous", tone: "danger", count: counts.dangerous },
-    { key: "suspect", tone: "suspect", count: counts.suspect },
-    { key: "pending", tone: running ? "running" : "unknown", count: counts.pending },
-    { key: "unknown", tone: "unknown", count: counts.unknown },
-    { key: "safe", tone: "safe", count: counts.safe },
+    { key: "dangerous", tone: "danger", count: rollup.dangerous },
+    { key: "error", tone: "error", count: rollup.error },
+    { key: "pending", tone: running ? "running" : "unknown", count: rollup.pending },
+    { key: "safe", tone: "safe", count: rollup.safe },
   ];
 
   const tiles: { label: string; value: number; tone: Tone }[] = [
-    { label: "Dangerous", value: counts.dangerous, tone: "danger" },
-    { label: "Suspect", value: counts.suspect, tone: "suspect" },
-    { label: "Unknown", value: counts.unknown, tone: "unknown" },
-    { label: "Safe", value: counts.safe, tone: "safe" },
-    { label: "Pending", value: counts.pending, tone: running ? "running" : "unknown" },
+    { label: "Dangerous", value: rollup.dangerous, tone: "danger" },
+    { label: "Audit failed", value: rollup.error, tone: "error" },
+    { label: "Safe", value: rollup.safe, tone: "safe" },
+    { label: "Pending", value: rollup.pending, tone: running ? "running" : "unknown" },
   ];
 
   const filterCounts: Record<DepFilter, number> = {
     all: deps.length,
     flagged,
     direct: deps.filter((dep) => dep.direct).length,
-    pending: counts.pending,
+    pending: rollup.pending,
   };
 
   const runAudit = async () => {
@@ -440,7 +419,7 @@ export function RepoDetail() {
           <div>
             <h2 className="headline panel-overview__label">{overview.label}</h2>
             <p className="subtext">
-              {checked} of {deps.length} dependencies checked
+              {checked} of {rollup.total} dependencies checked
             </p>
           </div>
           <p className="microtext">{overview.copy}</p>
@@ -448,7 +427,7 @@ export function RepoDetail() {
         <div
           className="rail"
           role="img"
-          aria-label={`${counts.dangerous} dangerous, ${counts.suspect} suspect, ${counts.unknown} unknown, ${counts.safe} safe, ${counts.pending} pending`}
+          aria-label={`${rollup.dangerous} dangerous, ${rollup.error} could not be audited, ${rollup.safe} safe, ${rollup.pending} pending`}
         >
           {railSegments
             .filter((segment) => segment.count > 0)
@@ -497,11 +476,11 @@ export function RepoDetail() {
                     className="panel-queue__row"
                     onClick={() => navigate(`/package/${alert.packageName}`)}
                   >
-                    <span className={toneDotClass(verdictTone(alert.verdict))} />
+                    <span className={toneDotClass(outcomeTone(alert.verdict))} />
                     <span className="mono">
                       {alert.packageName}@{alert.version}
                     </span>
-                    <VerdictPill verdict={alert.verdict} />
+                    <OutcomePill outcome={alert.verdict} />
                     <span className="microtext panel-queue__meta">
                       {alert.kind} · {formatDate(alert.createdAt)}
                     </span>
@@ -518,7 +497,7 @@ export function RepoDetail() {
                     <span className="mono">
                       {dep.name}@{dep.version}
                     </span>
-                    {dep.verdict && <VerdictPill verdict={dep.verdict} />}
+                    {dep.outcome && <OutcomePill outcome={dep.outcome} />}
                     <span className="microtext panel-queue__meta">
                       {dep.direct ? "Direct" : "Transitive"}
                     </span>
@@ -600,7 +579,10 @@ export function RepoDetail() {
                             <div className="panel-dep">
                               <span className={toneDotClass(depTone(dep))} />
                               <div className="panel-dep__id">
-                                {dep.verdict ? (
+                                {/* A report page exists only where an audit
+                                    CONCLUDED with a verdict — an ERROR dep has
+                                    no report to link to. */}
+                                {dep.outcome === "SAFE" || dep.outcome === "DANGEROUS" ? (
                                   <Link className="mono panel-link" to={`/package/${dep.name}`}>
                                     {dep.name}
                                   </Link>

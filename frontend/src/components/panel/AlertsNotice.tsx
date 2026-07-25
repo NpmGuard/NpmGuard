@@ -3,7 +3,7 @@
 
 import { TriangleAlert } from "lucide-react";
 import { usePanelStore } from "../../stores/panelStore.ts";
-import { VerdictPill } from "./tone.tsx";
+import { OutcomePill } from "./tone.tsx";
 
 export function AlertsNotice() {
   const alerts = usePanelStore((s) => s.alerts);
@@ -12,7 +12,9 @@ export function AlertsNotice() {
   const unseen = alerts.filter((alert) => !alert.seen);
   if (unseen.length === 0) return null;
 
-  const tone = unseen.some((alert) => alert.verdict === "DANGEROUS") ? "danger" : "suspect";
+  // Only DANGEROUS is ever raised (the type says so), so there is no second
+  // tone to pick — the ternary that used to be here had an unreachable arm.
+  const tone = "danger";
 
   return (
     <div className={`banner banner--${tone} panel-alerts`} role="status">
@@ -27,7 +29,7 @@ export function AlertsNotice() {
               <span className="mono">
                 {alert.packageName}@{alert.version}
               </span>{" "}
-              is <VerdictPill verdict={alert.verdict} />
+              is <OutcomePill outcome={alert.verdict} />
             </li>
           ))}
         </ul>

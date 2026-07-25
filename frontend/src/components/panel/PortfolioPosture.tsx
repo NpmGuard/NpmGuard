@@ -1,5 +1,6 @@
 /** Portfolio coverage strip: protection ratio + stacked proportion rail
- * (attention / scanning / safe / unknown) with a legend. */
+ * (attention / scanning / safe / unknown) with a legend. One repo lands in
+ * exactly one segment, so the rail is a true proportion. */
 
 import type { PanelRepo } from "../../lib/engine-types.ts";
 import { toneDotClass, type Tone } from "./tone.tsx";
@@ -21,12 +22,14 @@ export function PortfolioPosture({ repos }: { repos: PanelRepo[] }) {
   for (const repo of repos) {
     const scan = repo.lastScan;
     if (scan?.status === "running") running += 1;
+    // ERROR counts as attention: a repo whose audits crashed is not a green
+    // repo, and folding it in with "never scanned" is what hid that.
     else if (
       scan &&
-      (scan.status === "failed" || scan.verdict === "DANGEROUS" || scan.verdict === "SUSPECT")
+      (scan.status === "failed" || scan.outcome === "DANGEROUS" || scan.outcome === "ERROR")
     )
       attention += 1;
-    else if (scan?.verdict === "SAFE") safe += 1;
+    else if (scan?.outcome === "SAFE") safe += 1;
     else unknown += 1;
   }
 

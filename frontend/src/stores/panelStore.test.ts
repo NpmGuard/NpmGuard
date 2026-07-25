@@ -76,23 +76,21 @@ const entitlements = (
   monthlyAudits: bucket(0, 100, 100),
 });
 
-const repo = (id: number, prot: boolean): PanelRepo =>
-  ({
-    id,
-    githubRepoId: id * 10,
-    owner: "acme",
-    name: `repo-${id}`,
-    fullName: `acme/repo-${id}`,
-    htmlUrl: `https://github.com/acme/repo-${id}`,
-    installationId: 1,
-    accountLogin: "acme",
-    private: false,
-    defaultBranch: "main",
-    protected: prot,
-    lockfilePath: "package-lock.json",
-    scan: null,
-    rollup: { total: 0, safe: 0, suspect: 0, dangerous: 0, unknown: 0, verdict: "UNKNOWN" },
-  }) as unknown as PanelRepo;
+// No cast: the fixture is the CURRENT PanelRepo. The `as unknown as PanelRepo`
+// that used to be here hid six TS-engine-era fields (githubRepoId, htmlUrl,
+// accountLogin, lockfilePath, scan, and a 4-state rollup) that this engine never
+// emits — a test asserting against a shape nothing produces.
+const repo = (id: number, prot: boolean): PanelRepo => ({
+  id,
+  installationId: 1,
+  owner: "acme",
+  name: `repo-${id}`,
+  fullName: `acme/repo-${id}`,
+  private: false,
+  defaultBranch: "main",
+  protected: prot,
+  lastScan: null,
+});
 
 const capExceeded = (installationId: number, ent: AccountEntitlements): CapExceededBody => ({
   error: "Protected-repository limit reached",

@@ -12,8 +12,9 @@
 #       host (github_raw_base → the stub) streams the root lockfile, and every
 #       dep is a pre-seeded CACHE HIT (one DANGEROUS) → 201 {scanId}; the snapshot
 #       finalizes at creation (no uncached work) [C1]
-#     - poll GET /panel/public-repos/:id to status=='done': rollup is worst-dep-
-#       wins DANGEROUS, deps carry their cached verdicts, danger sorts first [C2]
+#     - poll GET /panel/public-repos/:id to status=='done': rollup is max-severity
+#       DANGEROUS with every item concluded (error 0, pending 0), deps carry their
+#       cached outcomes, danger sorts first [C2]
 #     - an SSRF reference (wrong host) → 400; a PRIVATE repo → 403 [C3]
 #
 #   S-bill-1  Stripe subscription billing lifts a cap [C4-C6]:
@@ -203,8 +204,8 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
         scan_id = created.json()["scanId"]
         assert isinstance(scan_id, int)
 
-        # C2: poll the detail endpoint to done → rollup is worst-dep-wins
-        # DANGEROUS; the deps carry their cached verdicts, danger sorts first.
+        # C2: poll the detail endpoint to done → max-severity DANGEROUS rollup;
+        # the deps carry their cached outcomes, danger sorts first.
         deadline = time.monotonic() + SCAN_DONE_TIMEOUT_SECONDS
         detail: dict = {}
         while time.monotonic() < deadline:
@@ -217,17 +218,18 @@ def test_s_pub_1_public_repo_scan_polls_to_dangerous_rollup(
         assert detail["scan"]["status"] == "done", detail
 
         rollup = detail["scan"]["rollup"]
-        assert rollup["verdict"] == "DANGEROUS", rollup
+        assert rollup["outcome"] == "DANGEROUS", rollup
         assert rollup["dangerous"] == 1
         assert rollup["safe"] == 1
-        assert rollup["suspect"] == 0
-        assert rollup["unknown"] == 0
+        assert rollup["error"] == 0, rollup
+        assert rollup["pending"] == 0, rollup
+        assert rollup["cached"] == 2, rollup
 
         deps = {d["name"]: d for d in detail["dependencies"]}
-        assert deps["danger-dep"]["verdict"] == "DANGEROUS"
+        assert deps["danger-dep"]["outcome"] == "DANGEROUS"
         assert deps["danger-dep"]["cached"] is True
         assert deps["danger-dep"]["evidenceCount"] == 2
-        assert deps["safe-dep"]["verdict"] == "SAFE"
+        assert deps["safe-dep"]["outcome"] == "SAFE"
         assert deps["safe-dep"]["cached"] is True
         # Severity-DESC ordering: the DANGEROUS dep is first.
         assert detail["dependencies"][0]["name"] == "danger-dep"

@@ -1,13 +1,18 @@
 # CLASS MAP — panel.github.checks (port of TS github/checks.ts)
-# (seam: check_conclusion is PURE — verdict in, check state out, no IO. The
+# (seam: check_conclusion is PURE — outcome in, check state out, no IO. The
 #  create/conclude API calls run against a FAKE githubkit octo that records
 #  calls or raises — no network, no GitHub App, no real check runs.)
-# check_conclusion mapping (trust contract §5.10 — fail ONLY on DANGEROUS):
-#   C1  DANGEROUS -> 'failure' (the only blocking verdict)
+# check_conclusion — total over the outcome domain (§4.4) x progress:
+#   C1  DANGEROUS -> 'failure' (the only blocking outcome, trust contract §5.10)
 #   C2  SAFE -> 'success'
-#   C3  None (pending/unaudited) -> 'in_progress' (never concluded prematurely)
-#   C4  UNKNOWN -> 'in_progress' (rollup bucket, not a pass/fail)
-#   C5  SUSPECT (reserved/unused in dev) -> 'in_progress' (warns, never blocks)
+#   C3  ERROR -> 'neutral': visible, non-blocking, and NOT a success — an audit
+#       that could not conclude must never read as a clean bill of health
+#   C4  None (nothing concluded yet) -> 'in_progress'; the only non-terminal
+#       state, and it is progress rather than an outcome
+#   C5  a value outside the domain (a legacy UNKNOWN/SUSPECT) raises, instead of
+#       silently parking the check in_progress forever
+# check_summary:
+#   C10 the ERROR summary names the failed count and refuses to claim safety
 # create_check_run:
 #   C6  success -> returns the new check-run id, POSTs status='in_progress'
 #   C7  a GitHub failure is swallowed -> returns None (never fatal)
@@ -19,6 +24,7 @@ import pytest
 from npmguard.panel.github.checks import (
     CHECK_NAME,
     check_conclusion,
+    check_summary,
     conclude_check_run,
     create_check_run,
 )
@@ -29,19 +35,36 @@ from npmguard.panel.github.checks import (
 
 
 @pytest.mark.parametrize(
-    ("verdict", "expected"),
+    ("outcome", "expected"),
     [
         ("DANGEROUS", "failure"),  # C1
         ("SAFE", "success"),  # C2
-        (None, "in_progress"),  # C3
-        ("UNKNOWN", "in_progress"),  # C4
-        ("SUSPECT", "in_progress"),  # C5
+        ("ERROR", "neutral"),  # C3
+        (None, "in_progress"),  # C4
     ],
 )
-def test_check_conclusion_mapping(verdict, expected) -> None:
-    """C1-C5: only DANGEROUS blocks (failure); SAFE passes; everything else
-    (pending/unknown/suspect) stays in_progress and is never concluded."""
-    assert check_conclusion(verdict) == expected
+def test_check_conclusion_mapping(outcome, expected) -> None:
+    """C1-C4: only DANGEROUS blocks; SAFE passes; ERROR concludes as neutral so a
+    failed audit is neither hidden nor reported green; nothing-concluded-yet is
+    the one state left in_progress."""
+    assert check_conclusion(outcome) == expected
+
+
+@pytest.mark.parametrize("legacy", ["UNKNOWN", "SUSPECT"])
+def test_check_conclusion_rejects_legacy_verdict(legacy) -> None:
+    """C5: the retired 4-state vocabulary fails loud here. Before, both mapped to
+    in_progress — so a check run was silently never concluded."""
+    with pytest.raises(AssertionError, match="not a panel outcome"):
+        check_conclusion(legacy)
+
+
+def test_check_summary_error_never_claims_safe() -> None:
+    """C10: the ERROR summary reports the count and says no clean bill of
+    health — the SAFE copy ("no dangerous dependencies") would be a lie."""
+    summary = check_summary("ERROR", {"error": 12, "dangerous": 0})
+    assert "12" in summary
+    assert "could not complete" in summary
+    assert "no dangerous dependencies" not in summary
 
 
 # --------------------------------------------------------------------------
