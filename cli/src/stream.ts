@@ -1,10 +1,13 @@
 import chalk from "chalk";
 import ora from "ora";
 import EventSource from "eventsource";
-import { renderVerdict, renderHypothesisResolved, renderPhase } from "./render.js";
+import { renderVerdict, renderUnusableVerdict, renderHypothesisResolved, renderPhase } from "./render.js";
+import { asVerdict, type Verdict } from "./api.js";
 
 export interface StreamResult {
-  verdict: string;
+  /** `null` when the stream ended without a usable verdict — an error, a dropped
+   *  connection, or a value outside the domain. Never a third verdict. */
+  verdict: Verdict | null;
   exitCode: number;
 }
 
@@ -20,8 +23,10 @@ export async function streamAuditEvents(
   const es = new EventSource(eventsUrl);
   const spinner = ora("Audit in progress...").start();
 
-  let verdict = "UNKNOWN";
-  let exitCode = 0;
+  // Non-zero until a verdict actually arrives: a stream that drops mid-audit must
+  // not read to a CI gate as a clean pass.
+  let verdict: Verdict | null = null;
+  let exitCode = 1;
 
   await new Promise<void>((resolve) => {
     es.addEventListener("phase_started", (event) => {
@@ -49,11 +54,13 @@ export async function streamAuditEvents(
       try {
         const data = JSON.parse(event.data);
         spinner.stop();
-        verdict = (data.verdict ?? "UNKNOWN").toString().toUpperCase();
-        renderVerdict(verdict, data.rationale ?? "", data.counts);
-        // Only DANGEROUS is a hard failure for scripting; SUSPECT/UNKNOWN are
-        // non-zero too so a CI gate treats "not verified clean" as non-success.
-        exitCode = verdict === "SAFE" ? 0 : 1;
+        verdict = asVerdict(data.verdict);
+        if (verdict === null) {
+          renderUnusableVerdict(data.verdict);
+        } else {
+          renderVerdict(verdict, data.rationale ?? "", data.counts);
+          exitCode = verdict === "SAFE" ? 0 : 1;
+        }
       } catch {
         spinner.stop();
       }
