@@ -6,6 +6,17 @@ Read `README.md` first. Scope changes to one subproject. Each has its own `CLAUD
 - [`engine/CLAUDE.md`](engine/CLAUDE.md) — payment verification, chain config, report-store versioning
 - [`contracts/README.md`](contracts/README.md) — Foundry setup, deploy + verify on Base Sepolia
 
+## Start here to understand the system
+
+- [`docs/architecture/AUDIT_CORE_EXPLAINED.md`](docs/architecture/AUDIT_CORE_EXPLAINED.md)
+  — **the audit core, first principles, traced with a real recorded audit.**
+  Everything else in the product is a consumer of this: the CLI, the web app, the
+  GitHub panel, and the benchmark all differ only in *which* `(package, version)`
+  pairs they ask about and who pays. Read this before anything else.
+- [`docs/specs/2026-07-24-platform-v3-system-design.md`](docs/specs/2026-07-24-platform-v3-system-design.md)
+  — the v3 platform design: requirements, entities, APIs, the architectural
+  rework (R-1…R-7), the decisions log (D-1…D-8), and the phase plan.
+
 ## Rules
 
 - Prefer configuration over new abstraction (especially for OpenAI-compatible LLM services).

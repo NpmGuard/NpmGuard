@@ -35,6 +35,23 @@ Run `scripts/gate.sh` before pushing.
 
 Never launch work before the payment proof is verified and claimed.
 
+## How the audit core actually works
+
+[`../docs/architecture/AUDIT_CORE_EXPLAINED.md`](../docs/architecture/AUDIT_CORE_EXPLAINED.md)
+is the first-principles walkthrough of the whole path — admission → resolve →
+inventory → intent → flag → hypothesize → graph → full-oracle orchestration →
+evidence-bound judgment → report — traced with a real recorded audit, so every
+value in it is true rather than illustrative. Read it before changing pipeline
+shape, and read it instead of re-deriving the pipeline from the code.
+
+It is the reference for the questions that keep recurring: what a hypothesis /
+claim / experiment actually are, what "full oracle" observes, why a DEFERRED
+hypothesis can never yield SAFE, and the **two report stores** —
+`audit_sessions.report` keyed by `audit_id` versus
+`data/reports/<pkg>/<version>.json` keyed by `(name, version)`. Confusing those
+two is a live trap: the filesystem store keeps only the last audit of a given
+`(name, version)`, so anything needing per-run reports must read the DB.
+
 ## Route ownership
 
 - `api.py`: FastAPI routes, lifespan, `/api` mirror, static frontend
