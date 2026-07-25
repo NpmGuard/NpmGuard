@@ -551,6 +551,25 @@ kbd {
 .topbar__center { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
 .topbar__right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 
+/* Below the tablet breakpoint the three `minmax(180px, 1fr)` tracks are wider
+   than a phone, so the side columns and the centred nav overlap — the brand
+   renders on top of the first nav item. Drop the side reservations and let the
+   nav scroll rather than collide. Desktop is untouched. */
+@media (max-width: 767px) {
+  .topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding-inline: 12px;
+    gap: 10px;
+  }
+  .topbar__center {
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar__center::-webkit-scrollbar { display: none; }
+  .topbar__center > * { flex: none; }
+}
+
 .brand {
   display: inline-flex; align-items: center; gap: 9px;
   user-select: none;
