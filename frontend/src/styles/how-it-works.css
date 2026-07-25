@@ -522,15 +522,78 @@
 }
 .hiw-cites { display: inline-flex; gap: var(--ng-space-1); }
 
-/* off-ramps */
-.hiw-offramps { display: grid; gap: var(--ng-space-5); margin-top: var(--ng-space-16); }
-@media (min-width: 768px) { .hiw-offramps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.hiw-offramp { border-left: 3px solid var(--ng-border-strong); padding-left: var(--ng-space-5); }
-.hiw-offramp__k {
-  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
-  text-transform: uppercase; letter-spacing: 0.1em; color: var(--ng-text-3);
+/* --- The two early exits, drawn as the audit cards they are ------------- */
+
+.hiw-offramps { display: grid; gap: var(--ng-space-5); margin-top: var(--ng-space-10); }
+@media (min-width: 840px) { .hiw-offramps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.hiw-exit {
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-left: 3px solid var(--ng-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  box-shadow: var(--ng-shadow-card);
+  overflow: hidden;
 }
-.hiw-offramp p { margin-top: var(--ng-space-2); color: var(--ng-text-2); }
+.hiw-exit--danger { border-left-color: var(--ng-danger); }
+.hiw-exit--safe { border-left-color: var(--ng-safe); }
+.hiw-exit__bar {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  padding: var(--ng-space-3) var(--ng-space-4);
+  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
+  background: var(--ng-sunken);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs); color: var(--ng-text-3);
+}
+
+/* Six ticks: the steps that ran, and the ones that never started wearing the
+   same 45° hatch the app uses everywhere for "no signal here". */
+.hiw-ticks {
+  display: flex; gap: 4px;
+  padding: var(--ng-space-4) var(--ng-space-4) var(--ng-space-2);
+}
+.hiw-tick {
+  position: relative; flex: 1; height: 7px; border-radius: 2px; overflow: hidden;
+  background: repeating-linear-gradient(
+    45deg, transparent 0 3px, var(--ng-border-strong) 3px 4px);
+}
+.hiw-tick--ran { background: var(--ng-border-faint); }
+.hiw-tick__fill {
+  position: absolute; inset: 0; background: var(--ng-accent);
+  transform-origin: left center;
+}
+.hiw-ticks__k {
+  padding-inline: var(--ng-space-4);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs); color: var(--ng-text-3);
+}
+
+.hiw-exit__rows {
+  display: grid; gap: var(--ng-space-1);
+  padding: var(--ng-space-4) var(--ng-space-4) 0;
+}
+.hiw-exit__row {
+  display: grid; grid-template-columns: 24px 58px minmax(0, 1fr);
+  gap: var(--ng-space-2); align-items: baseline;
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-2);
+}
+.hiw-exit__n, .hiw-exit__k { color: var(--ng-text-3); }
+.hiw-bad { color: var(--ng-danger-text); }
+
+.hiw-exit__verdict {
+  display: flex; align-items: baseline; gap: var(--ng-space-3); flex-wrap: wrap;
+  margin: var(--ng-space-5) var(--ng-space-4) 0;
+  padding-top: var(--ng-space-4);
+  border-top: var(--ng-border-hairline) solid var(--ng-border-faint);
+}
+.hiw-exit__rationale {
+  flex: 1 1 220px;
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  line-height: 1.6; color: var(--ng-text-2);
+}
+.hiw-exit__foot {
+  padding: var(--ng-space-3) var(--ng-space-4) var(--ng-space-4);
+  font-size: var(--text-base); color: var(--ng-text-3);
+}
 
 /* --- Act 3: the recorders ------------------------------------------------ */
 
@@ -545,12 +608,24 @@
   background: var(--ng-surface);
   padding: var(--ng-space-5);
   box-shadow: var(--ng-shadow-card);
+  /* The trace is deliberately wider than the content box so it runs edge to
+     edge; this is what clips it back to the card's own corners. */
+  overflow: hidden;
 }
 .hiw-sensor__k {
   font-family: var(--ng-font-mono); font-size: var(--text-2xs);
   text-transform: uppercase; letter-spacing: 0.1em; color: var(--ng-text-3);
 }
-.hiw-sensor svg { width: 100%; height: 44px; margin-block: var(--ng-space-4); }
+/* The trace is the point of the card, so it gets real height and bleeds to
+   both edges — a scope reading, not a decorative squiggle. */
+.hiw-sensor svg {
+  display: block;
+  width: calc(100% + var(--ng-space-5) * 2);
+  margin-inline: calc(var(--ng-space-5) * -1);
+  height: 76px;
+  margin-block: var(--ng-space-4);
+}
+.hiw-sensor .hiw-wave { stroke-width: 2; }
 .hiw-sensor p { font-size: var(--text-base); color: var(--ng-text-2); line-height: 1.55; }
 .hiw-sensor--blind .hiw-wave { stroke: var(--ng-text-3); }
 .hiw-sensor__flag {
@@ -618,10 +693,33 @@
   font-size: var(--text-xs); line-height: 1.95; color: var(--ng-text-2);
   overflow-x: auto;
 }
-.hiw-term__body code { white-space: normal; }
-.hiw-term__body .hiw-line { min-height: 1.95em; }
+.hiw-term__body { font-family: var(--ng-font-mono); }
+.hiw-term__body .hiw-line { min-height: 1.95em; padding-inline: var(--ng-space-2); }
 .hiw-line--cmd { color: var(--ng-text); }
 .hiw-line--bad { color: var(--ng-danger-text); }
+.hiw-line--muted { color: var(--ng-text-3); }
+.hiw-line__aside { color: var(--ng-border-strong); margin-inline-start: var(--ng-space-4); }
+
+/* What an install actually prints when the verdict is in: the finding, where
+   it lives, and the three events that prove it — the same three the hero
+   cited, arriving where they matter. */
+.hiw-verdictblock {
+  margin: var(--ng-space-3) 0;
+  border-left: 3px solid var(--ng-danger);
+  background: var(--ng-danger-wash);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--ng-space-3) var(--ng-space-4);
+}
+.hiw-verdictblock__head {
+  display: flex; align-items: center; gap: var(--ng-space-3); flex-wrap: wrap;
+  color: var(--ng-danger-text); font-size: var(--text-xs);
+}
+.hiw-verdictblock__where {
+  margin-top: var(--ng-space-3);
+  font-size: var(--text-2xs); color: var(--ng-text-2);
+}
+.hiw-verdictblock .hiw-evlist { margin-top: var(--ng-space-3); }
+.hiw-verdictblock .hiw-ev.is-cited { background: transparent; }
 
 .hiw-cta {
   margin-top: var(--ng-space-6);
