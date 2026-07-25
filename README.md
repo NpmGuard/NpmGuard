@@ -188,13 +188,13 @@ host. Deploys are manual. See [deploy/README.md](deploy/README.md).
 |---|---|
 | Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) + [Tailwind](https://tailwindcss.com/) — real-time SSE dashboard |
 | Audit pipeline | Python + FastAPI + Pydantic + SQLAlchemy — inventory, LLM analysis, Docker sandbox |
-| LLM | [DeepSeek V4 Flash](https://www.deepseek.com/) via OpenRouter (OpenAI-compatible) |
+| LLM | Configurable per role (`NPMGUARD_TRIAGE_MODEL` / `NPMGUARD_INVESTIGATION_MODEL`) over an Anthropic, Google, or OpenAI-compatible backend |
 | Fiat payment | [Stripe](https://stripe.com/) checkout + webhook |
 | Crypto payment | Solidity contract on [Base Sepolia](https://docs.base.org/chain/base-contracts) + WalletConnect v2 |
 | Contract tooling | [Foundry](https://book.getfoundry.sh/) — compile, test (fuzz), deploy, Basescan verification |
 | Chain RPC | [Alchemy](https://alchemy.com/) Base Sepolia (+ public fallback) |
 | Storage | Filesystem reports plus SQLite/Postgres durable sessions/events/payment claims — no IPFS, no RPC writes |
-| CLI | TypeScript, zero blockchain deps in the binary — wallet signs, engine verifies |
+| CLI | TypeScript — `viem` to encode calldata and await receipts, WalletConnect for sessions; the wallet signs, the CLI only observes |
 | Hosting | Any Ubuntu host — nginx + systemd, see `deploy/` |
 
 ## Team
