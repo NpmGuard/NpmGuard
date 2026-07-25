@@ -11,8 +11,8 @@
 # Axes: requested-URL shape (explicit port / default port / string / URL instance
 #       / host-with-port) × api used (request / get) × body presence and size
 #       × require origin (instrument / node bootstrap / package) × inspector on-off
-#   C1 a non-default port survives into the logged URL (three judges refuted live
-#      credential exfil citing the port the old builder dropped)
+#   C1 a non-default port survives into the logged URL — dropping it is enough for
+#      a judge to refute live credential exfil
 #   C2 a default port is NOT invented — the mirror-image mismatch
 #   C3 the request body is captured, bounded by the per-request cap, and bodyBytes
 #      reports the TRUE submitted size so truncation is visible not silent

@@ -83,8 +83,8 @@ async def test_s1_clean_safe_via_registry(engine_factory, mock_llm: MockLlmClien
 
     terminal = terminal_frame(frames)
     assert terminal is not None and terminal.type == "verdict_reached", event_types(frames)
-    assert terminal.data["verdict"] == "SAFE"
-    assert terminal.data["counts"]["total"] == 0
+    assert terminal.payload["verdict"] == "SAFE"
+    assert terminal.payload["counts"]["total"] == 0
     assert "audit_error" not in event_types(frames)
 
     report = _wait_report_file(_report_path(engine, "chalk", "5.6.2"))
@@ -107,8 +107,9 @@ async def test_s1_clean_safe_via_registry(engine_factory, mock_llm: MockLlmClien
             captured_roles = {role for _, role in runs}
             # intent + flag are the roles S1 exercises (scripted_safe_roles).
             assert {"intent", "flag"} <= captured_roles, captured_roles
-            attempt_counts = dict(
-                connection.execute(
+            attempt_counts = {
+                run_id: count
+                for run_id, count in connection.execute(
                     sa.text(
                         "SELECT run_id, COUNT(*) FROM llm_attempts"
                         " WHERE run_id IN (SELECT id FROM llm_runs"
@@ -117,7 +118,7 @@ async def test_s1_clean_safe_via_registry(engine_factory, mock_llm: MockLlmClien
                     ),
                     {"audit_id": audit_id},
                 ).all()
-            )
+            }
             runs_without_attempts = [
                 run_id for run_id, _ in runs if attempt_counts.get(run_id, 0) < 1
             ]
@@ -171,9 +172,9 @@ async def test_s2_dangerous_confirmed_live_docker(
     assert terminal is not None and terminal.type == "verdict_reached", (
         f"types={event_types(frames)} unmatched={mock_llm.unmatched()}"
     )
-    assert terminal.data["verdict"] == "DANGEROUS"
-    assert terminal.data["counts"]["confirmed"] >= 1
-    resolved_states = {frame.data["state"] for frame in find_frames(frames, "hypothesis_resolved")}
+    assert terminal.payload["verdict"] == "DANGEROUS"
+    assert terminal.payload["counts"]["confirmed"] >= 1
+    resolved_states = {frame.payload["state"] for frame in find_frames(frames, "hypothesis_resolved")}
     assert "CONFIRMED" in resolved_states
 
     # Live run emits the recorded vocabulary plus audit_enqueued — the single-owner
@@ -226,12 +227,12 @@ async def test_s3_all_refuted_is_safe(engine_factory, mock_llm: MockLlmClient):
 
     terminal = terminal_frame(frames)
     assert terminal is not None and terminal.type == "verdict_reached", event_types(frames)
-    assert terminal.data["verdict"] == "SAFE"
-    counts = terminal.data["counts"]
+    assert terminal.payload["verdict"] == "SAFE"
+    counts = terminal.payload["counts"]
     assert counts["confirmed"] == 0
     assert counts["refuted"] >= 1
     assert counts["deferred"] == 0
-    resolved_states = {frame.data["state"] for frame in find_frames(frames, "hypothesis_resolved")}
+    resolved_states = {frame.payload["state"] for frame in find_frames(frames, "hypothesis_resolved")}
     assert resolved_states == {"REFUTED"}
 
     report = _wait_report_file(_report_path(engine, "test-pkg-child-success", "1.0.0"))
@@ -283,8 +284,8 @@ async def test_s35_huge_file_forced_dynamic_route(
 
     terminal = terminal_frame(frames)
     assert terminal is not None and terminal.type == "verdict_reached", event_types(frames)
-    assert terminal.data["verdict"] == "SAFE"
-    assert terminal.data["counts"]["refuted"] >= 1  # the sandbox+judge leg really ran
+    assert terminal.payload["verdict"] == "SAFE"
+    assert terminal.payload["counts"]["refuted"] >= 1  # the sandbox+judge leg really ran
     # Negative (paired with the positive probes above): the huge file was never
     # read by the flag LLM — the auto-flag branch skips the file_analyzing emit
     # INSIDE the flag phase (the hypothesize phase re-emits file_analyzing per
@@ -293,12 +294,12 @@ async def test_s35_huge_file_forced_dynamic_route(
     flag_started = next(
         index
         for index, frame in enumerate(frames)
-        if frame.type == "phase_started" and frame.data["phase"] == "flag"
+        if frame.type == "phase_started" and frame.payload["phase"] == "flag"
     )
     flag_completed = next(
         index
         for index, frame in enumerate(frames)
-        if frame.type == "phase_completed" and frame.data["phase"] == "flag"
+        if frame.type == "phase_completed" and frame.payload["phase"] == "flag"
     )
     flag_window_types = [frame.type for frame in frames[flag_started + 1 : flag_completed]]
     assert "file_analyzing" not in flag_window_types

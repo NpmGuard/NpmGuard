@@ -7,18 +7,16 @@ from pathlib import Path
 
 from .config import Settings
 
-# The most output one `docker exec` may produce. It is a real resource bound,
-# because it is applied WHILE READING: the 10 MiB slice this replaces ran after
-# `communicate()` had already buffered the entire stream, so it bounded nothing —
-# it only shortened the value the caller went on to hash.
+# The most output one `docker exec` may produce. A real resource bound because it
+# is applied WHILE READING — a slice taken after `communicate()` has buffered the
+# whole stream bounds nothing, it only shortens the value the caller then hashes.
 #
-# 64 MiB, measured against the sandbox rather than picked: every file a sensor
-# reads back out of a run (the strace log, the pcap, the fs-diff snapshots) is
-# written to the container's /tmp, a tmpfs of SANDBOX_TMP_MB — so a WHOLE sensor
-# file transferred RAW cannot reach the cap, the tmpfs being the tighter bound.
-# An ENCODED transfer still can: `base64 -w0` inflates by 4/3, which is exactly
-# how a >7.5 MB capture used to arrive as a 7.5 MiB prefix (see
-# DockerOutputTooLargeError). That is why read_bytes_from_container exists.
+# 64 MiB, measured against the sandbox rather than picked: every file a sensor reads
+# back out of a run (the strace log, the pcap, the fs-diff snapshots) is written to
+# the container's /tmp, a tmpfs of SANDBOX_TMP_MB — so a WHOLE sensor file
+# transferred RAW cannot reach the cap, the tmpfs being the tighter bound. An
+# ENCODED transfer still can, since `base64 -w0` inflates by 4/3, and that is why
+# read_bytes_from_container exists.
 MAX_EXEC_OUTPUT_BYTES = 64 * 1024 * 1024
 _READ_CHUNK = 256 * 1024
 # How long to wait for a killed docker client's pipes to reach EOF. Only bounds
@@ -128,6 +126,9 @@ async def _exec_raw(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    # PIPE was requested for both above, so the handles exist — say so rather
+    # than re-testing at each use.
+    assert process.stdout is not None and process.stderr is not None
     out = _CappedStream("stdout", MAX_EXEC_OUTPUT_BYTES)
     err = _CappedStream("stderr", MAX_EXEC_OUTPUT_BYTES)
 
@@ -144,6 +145,7 @@ async def _exec_raw(
         asyncio.ensure_future(process.wait()),
     ]
     if stdin is not None:
+        assert process.stdin is not None  # PIPE requested exactly when stdin is given
         watched.append(asyncio.ensure_future(_feed(process.stdin, stdin)))
     try:
         _, pending = await asyncio.wait(watched, timeout=timeout_ms / 1000)

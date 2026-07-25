@@ -41,7 +41,12 @@ import httpx
 import pytest
 
 from tests.e2e.llm_mock import SAFE_FLAG_BODY, SAFE_INTENT_BODY, scripted_safe_roles
-from tests.support.sse import SseFrame, collect_frames, iter_frames, terminal_frame
+from tests.support.sse import (
+    SseFrame,
+    collect_frames,
+    iter_frames,
+    require_terminal_frame,
+)
 from tests.support.waits import wait_report_file
 
 pytestmark = pytest.mark.e2e
@@ -194,13 +199,13 @@ async def test_done_sessions_do_not_count_toward_cap(engine_factory, mock_llm):
     frames = await collect_frames(
         engine.base_url, first["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
 
     second = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION)
     frames = await collect_frames(
         engine.base_url, second["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
 
 
 async def test_queued_sessions_count_toward_queue_bound(engine_factory, mock_llm):
@@ -312,9 +317,9 @@ async def test_the_same_package_at_the_bound_completes(
     frames = await collect_frames(
         engine.base_url, started["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
-    terminal = terminal_frame(frames)
+    terminal = require_terminal_frame(frames)
     assert terminal.type == "verdict_reached", event_types_dump(frames)
-    assert terminal.data["verdict"] == "SAFE"
+    assert terminal.payload["verdict"] == "SAFE"
 
 
 # ---------------------------------------------------------------------------
@@ -367,8 +372,8 @@ async def test_concurrent_same_package_audits_and_atomic_report_reads(
     finally:
         stop.set()
     await poller
-    assert terminal_frame(first_frames).data["verdict"] == "SAFE"
-    assert terminal_frame(second_frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(first_frames).payload["verdict"] == "SAFE"
+    assert require_terminal_frame(second_frames).payload["verdict"] == "SAFE"
 
     # positive probe after the writes: the report is present and valid.
     # The terminal frame precedes save_report (see tests/support/waits.py) —
@@ -407,7 +412,7 @@ async def test_scoped_package_end_to_end(engine_factory, mock_llm, registry_stub
     frames = await collect_frames(
         engine.base_url, started["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
 
     # nested directory layout: data/reports/@npmguard-test/demo-pkg/1.0.0.json
     # (bounded wait: the terminal frame precedes save_report — observed flake,
@@ -509,10 +514,10 @@ async def test_zero_source_file_package(engine_factory, mock_llm, registry_stub)
     frames = await collect_frames(
         engine.base_url, started["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
-    terminal = terminal_frame(frames)
-    assert terminal is not None and terminal.type == "verdict_reached", event_types_dump(frames)
-    assert terminal.data["verdict"] == "SAFE"
-    assert terminal.data["counts"]["total"] == 0
+    terminal = require_terminal_frame(frames)
+    assert terminal.type == "verdict_reached", event_types_dump(frames)
+    assert terminal.payload["verdict"] == "SAFE"
+    assert terminal.payload["counts"]["total"] == 0
 
 
 def event_types_dump(frames) -> str:

@@ -508,6 +508,16 @@ is what forces `triggerScan` to stop treating a live scan as a red error (B10).
 6. Frontend imports from shared; `engine-types.ts` keeps only what has no schema.
 7. Boundary validation in the API layer.
 
+> Steps 6-7 are **done, and step 6 landed harder than it is worded here**. "Keeps
+> only what has no schema" was a resting point, not a destination: the leftovers
+> were the audit routes' HTTP envelopes, they were given schemas
+> (`shared/src/audit-api.ts`), and `engine-types.ts` is **deleted** rather than
+> left empty — an empty re-export file is an invitation to add "just one" more
+> hand-written shape beside it. The engine builds those responses from the
+> generated models (`api.py::_wire`) instead of dict literals, so the deletion
+> removed a second author rather than moving one. Step 7 now covers every audit
+> route, not just the two carrying a report.
+
 Engine *behaviour* fixes surfaced here (B1 populate `lastScan`, B2 `commitSha`,
 B3 the `failed` transition, B4 scan-own-items rollup, B7 column tightening) are
 **Phase 1 / R-1 work** — Phase 0 authors the contract that makes them required,

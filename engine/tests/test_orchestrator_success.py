@@ -69,7 +69,8 @@ from npmguard.orchestrator import (
     run_experiment,
     run_orchestrator,
 )
-from npmguard.phases import JudgeVerdict
+from npmguard.phases import JudgeVerdict, Severity
+from tests.support.optional import present
 
 AUDIT_ID = "orch-1"
 GENEROUS_BUDGET_MS = 60_000
@@ -81,7 +82,12 @@ REFUTE = JudgeVerdict(malicious=False, reason="no malicious behavior", citedEven
 BAD_CITATION = JudgeVerdict(malicious=True, reason="made-up evidence", citedEvents=["e999"])
 
 
-def _hyp(hyp_id: str = "hyp-1", *, severity: str = "high", created: str = "2026-07-20T00:00:00Z") -> Hypothesis:
+def _hyp(
+    hyp_id: str = "hyp-1",
+    *,
+    severity: Severity = "high",
+    created: str = "2026-07-20T00:00:00Z",
+) -> Hypothesis:
     return Hypothesis(
         hypId=hyp_id,
         description=f"{hyp_id}: reads NPM_TOKEN and exfiltrates it",
@@ -440,7 +446,7 @@ async def test_experiment_budget_plumbed_into_observation(rig_factory, monkeypat
     assert call["observe"] is FULL_ORACLE
     assert call["budget"] is EXPERIMENT_BUDGET
     assert EXPERIMENT_BUDGET == {"wallMs": 20_000}
-    assert call["experiment"] == list(hypothesis.experiment)
+    assert call["experiment"] == list(present(hypothesis.experiment))
     assert result.confirmed is False
     assert result.evidence_ref.id == artifact.runId
     assert result.evidence_ref.hash == artifact.contentHash

@@ -1,12 +1,12 @@
 # SCENARIO MAP — the stubUrl primitive against a REAL sandbox: does the stub
 # actually intercept, and does the sealed artifact record what was actually served?
 #
-# This tier exists because the defect it pins was invisible to every other one.
-# `stubUrl` used to install itself by setting HTTP_PROXY/HTTPS_PROXY, which Node
-# core's http/https ignore — and so does Node 22's global fetch/undici. The
-# manipulation silently no-opped while `setupApplied.stubUrls[].responseHash`
-# attested a canned response nobody served (explainer §24.0). Only a real container
-# with a real client can falsify that. Note what CANNOT: the L1 strace shows
+# This tier exists because the defect it pins is invisible to every other one. A
+# stub installed via HTTP_PROXY/HTTPS_PROXY no-ops silently — Node core's
+# http/https ignore both, and so does Node 22's global fetch/undici — while
+# `setupApplied.stubUrls[].responseHash` attests a canned response nobody served.
+# Only a real container with a real client can falsify that. Note what CANNOT: the
+# L1 strace shows
 # `connect 127.0.0.1:9999` either way, because netfilter rewrites the destination
 # after the connect syscall returns its argument. Interception is observable only
 # from what the client RECEIVED and from the proxy's own ledger — which is why the
@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,7 @@ from npmguard.config import Settings
 from npmguard.contract.models import RunArtifact, ToolCall
 from npmguard.evidence import render_timeline
 from npmguard.observation import run_under_observation
+from tests.support.optional import present
 
 pytestmark = [pytest.mark.e2e, pytest.mark.docker]
 
@@ -117,7 +119,11 @@ def echoing_stub(*extra: str) -> ToolCall:
 
 
 async def run_package(
-    tmp_path: Path, source: str, *calls: ToolCall, observe: dict | None = None, **files: str
+    tmp_path: Path,
+    source: str,
+    *calls: ToolCall,
+    observe: dict | None = None,
+    files: Mapping[str, str] | None = None,
 ) -> RunArtifact:
     """Run `source` as index.js in a real sandbox container under the given setup.
     Extra files use `__` for a path separator (node_modules__x__index.js)."""
@@ -125,7 +131,7 @@ async def run_package(
     package.mkdir(exist_ok=True)
     (package / "package.json").write_text(json.dumps({"name": "stub-probe", "version": "1.0.0"}))
     (package / "index.js").write_text(ECHO_JS + source)
-    for name, content in files.items():
+    for name, content in (files or {}).items():
         target = package / name.replace("__", "/")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
@@ -148,7 +154,7 @@ def received(artifact: RunArtifact) -> list[str]:
 
 
 def served_hash(artifact: RunArtifact, pattern: str) -> str | None:
-    return next(ref.responseHash for ref in artifact.setupApplied.stubUrls if ref.pattern == pattern)
+    return next(ref.responseHash for ref in present(artifact.setupApplied.stubUrls) if ref.pattern == pattern)
 
 
 async def test_s38_core_http_receives_the_canned_response(tmp_path) -> None:
@@ -207,7 +213,7 @@ async def test_s40_a_userland_client_with_its_own_agent_is_intercepted(tmp_path)
         }});
         """,
         echoing_stub(),
-        **{
+        files={
             "node_modules__tiny-client__package.json": json.dumps(
                 {"name": "tiny-client", "version": "1.0.0", "main": "index.js"}
             ),

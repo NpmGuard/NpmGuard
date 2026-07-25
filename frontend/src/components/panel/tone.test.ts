@@ -3,16 +3,16 @@
  *
  * Pure functions over the two axes: `outcome` (SAFE | ERROR | DANGEROUS, null
  * until concluded) and progress (`jobState`, scan `status`). The tone→CSS-var and
- * tone→dot-class maps used to be covered here too; they are one-line lookups whose
+ * tone→dot-class maps are deliberately NOT covered: they are one-line lookups whose
  * only failure mode is a missing class, and asserting the map restates it.
  *
  * Input classes:
  *  T1  outcomeTone — one per outcome + null. ERROR gets its OWN tone: not `danger`
  *      (it does not block) and not `unknown` (it IS information).
  *  T3  scanTone — set progress outranks outcome: a running set is read before its
- *      rollup, and a null set is unknown. There is no failed-SET arm, because the
- *      status domain is `running | done` — a falsification pass found zero
- *      producers for a failed set, and a branch for an unreachable state is cost.
+ *      rollup, and a null set is unknown. There is no failed-SET arm: the status
+ *      domain is `running | done`, no producer for a failed set exists, and a
+ *      branch for an unreachable state is cost.
  *  T4  depPriority — DANGEROUS > ERROR > running > queued > SAFE. ERROR above a
  *      live attempt is the load-bearing one: an errored dep needs a human, a
  *      running one resolves itself.

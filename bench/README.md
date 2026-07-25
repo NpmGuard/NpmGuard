@@ -10,7 +10,7 @@ never entries × runs).
 **Measurement is Python, in the engine.** `engine/npmguard/bench/` holds the
 corpus loader, the derived projector, the render-fidelity recordables, the ops
 runner and the read-only `/bench/*` routes. It is there because a bench audit is
-an ordinary audit: same admission path, same queue, same worker pool (F-G1), and
+an ordinary audit: same admission path, same queue, same worker pool, and
 the observations it reads are `audit_sessions.report` rows keyed by `audit_id`.
 
 **This directory is corpus material.** Selection and fixture materialisation only
@@ -25,7 +25,7 @@ bench/
 │   └── datadog/corpus.json  # the 50-sample selection this manifest is cut from
 └── src/
     ├── datadog/             # select + fetch the Datadog samples into fixtures
-    └── seeds/               # SRI-locked seed catalogue (mutation testing, deferred)
+    └── seeds/               # SRI-locked seed catalogue (for mutation testing)
 ```
 
 Deleted with v1, and why: `src/types.ts` (declared `ProofKind` and the
@@ -75,12 +75,12 @@ npm run -w @npmguard/bench datadog:fetch    # materialise fixtures into sandbox/
 
 `datadog:fetch` writes **live malware** into `sandbox/test-fixtures/test-pkg-bench-dd-*`.
 Never `npm install` it, never execute it outside the Docker sandbox, never commit
-it (F-G7). `sandbox/` is deliberately not an npm workspace so a fixture install
+it. `sandbox/` is deliberately not an npm workspace so a fixture install
 cannot reach the repo root.
 
-There is no longer a TypeScript step that turns `corpus.json` into a manifest; the
-committed `manifest.full.json` is already the v2 shape, and a regenerator belongs
-with the corpus expansion B-8 asks for (50 malware + 75 negative controls at N=2).
+There is no TypeScript step between `corpus.json` and the manifest: the committed
+`manifest.full.json` is already the shape the engine reads. A regenerator belongs
+with the next corpus expansion, not ahead of it.
 
 ## Running a benchmark
 
@@ -114,5 +114,5 @@ split across two configured models and each carries a fallback tail, so what
 matters is the `(role, actual_model)` pairs the run's own LLM ledger recorded.
 
 Observations from two different `engineSha`s are **not pooled** — the projector
-raises instead. Three landed commits changed what the engine can *see*, so a
-pre-fix miss is evidence about a renderer, not about detection (B-13, §3.4.3).
+raises instead. A change to what the engine can *see* makes an older miss evidence
+about a renderer rather than about detection, and pooling the two hides that.

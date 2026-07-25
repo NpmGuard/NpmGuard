@@ -5,12 +5,12 @@
 #       lands on the client's RESUMED cursor [C9]
 #   S21 payment claim survives restart: replayed txHash after restart → same auditId,
 #       no relaunch [C10]
-#   S32 (flip) restart mid-QUEUE (max_concurrent=1): only the EXECUTING CRE session gets a
+#   S32 restart mid-QUEUE (max_concurrent=1): only the EXECUTING CRE session gets a
 #       0031; the two QUEUED sessions are RE-ENQUEUED by restart recovery and run to
 #       completion (verdict SAFE) — a claimed/queued audit is never dropped [C9,C12]
-#   S31 (flip) bounded shutdown: SIGTERM with an in-flight audit is GRACEFUL within grace —
-#       audits.close(deadline) finalizes the stalled session error/0031 and returns bounded,
-#       never the old unbounded await
+#   S31 bounded shutdown: SIGTERM with an in-flight audit is GRACEFUL within grace —
+#       audits.close(deadline) finalizes the stalled session error/0031 and returns
+#       bounded, never an unbounded await
 # DB axis — DELIBERATE narrowing: S20/S21/S32 run sqlite-only. Restart
 #   recovery + claim durability go through AuditSessionStore/claim_payment,
 #   whose engine divergence (MVCC vs serialized writers) is proven by the
@@ -36,6 +36,7 @@ from tests.support.sse import (
     event_types,
     find_frames,
     iter_frames,
+    require_terminal_frame,
     terminal_frame,
 )
 from tests.support.waits import wait_audit_report
@@ -77,7 +78,7 @@ SHORT_STALL_DELAY_MS = 5_000
 # SHUTDOWN_MAX_SECONDS discriminates the three outcomes that matter and leaves
 # 3.3x headroom over the measured cost: honors the 1.5s deadline (1.8s) < 6.0s <
 # silently fell back to the 10s config default (10.1s) < never bounded at all
-# (STALL_DELAY_MS = 120s, the old unbounded await). GRACE is only the harness's
+# (STALL_DELAY_MS = 120s, an unbounded await). GRACE is only the harness's
 # SIGKILL fallback and is deliberately far above both, so a slow machine makes
 # this scenario FAIL ON ITS OWN ASSERTION with a measured number in the message
 # rather than on a SIGKILL that also destroys the row evidence below.
@@ -188,8 +189,8 @@ async def test_restart_mid_run_emits_retryable_error_on_resumed_cursor(
     )
     terminal = terminal_frame(resumed)
     assert terminal is not None and terminal.type == "audit_error"
-    assert terminal.data["code"] == INTERRUPTED_CODE
-    assert terminal.data["retryable"] is True
+    assert terminal.payload["code"] == INTERRUPTED_CODE
+    assert terminal.payload["retryable"] is True
     # no duplicate launch: audit_started was before the cursor, none after
     assert find_frames(resumed, "audit_started") == []
 
@@ -218,7 +219,7 @@ async def test_payment_claim_survives_restart(engine_factory, mock_llm, fake_cha
     frames = await collect_frames(
         engine.base_url, first["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
 
     engine.restart()
     replay = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION, txHash=TX_HASH)
@@ -227,7 +228,7 @@ async def test_payment_claim_survives_restart(engine_factory, mock_llm, fake_cha
         engine.base_url, first["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
     assert len(find_frames(replay_frames, "audit_started")) == 1
-    assert terminal_frame(replay_frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(replay_frames).payload["verdict"] == "SAFE"
     assert _row_count(engine.db_url, "audit_sessions") == 1
     assert _row_count(engine.db_url, "payment_claims") == 1
 
@@ -268,8 +269,8 @@ async def test_restart_mid_queue_reenqueues_queued_sessions(engine_factory, mock
     )
     terminal0 = terminal_frame(frames0)
     assert terminal0 is not None and terminal0.type == "audit_error", event_types(frames0)
-    assert terminal0.data["code"] == INTERRUPTED_CODE
-    assert terminal0.data["retryable"] is True
+    assert terminal0.payload["code"] == INTERRUPTED_CODE
+    assert terminal0.payload["retryable"] is True
 
     # the two queued ones were RE-ENQUEUED and completed — SAFE, never 0031'd
     for audit_id in audit_ids[1:]:
@@ -278,7 +279,7 @@ async def test_restart_mid_queue_reenqueues_queued_sessions(engine_factory, mock
         )
         terminal = terminal_frame(frames)
         assert terminal is not None and terminal.type == "verdict_reached", event_types(frames)
-        assert terminal.data["verdict"] == "SAFE"
+        assert terminal.payload["verdict"] == "SAFE"
         assert find_frames(frames, "audit_error") == []
 
 

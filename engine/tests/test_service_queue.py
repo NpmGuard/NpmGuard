@@ -8,13 +8,12 @@
 #
 # What the shape of this file is arguing, since no single test says it: every path
 # funnels through submit()/admit(), and `status` splits queued/running so that
-# running ⟺ an owned worker will finalize it. Before that there were five
-# session-creation paths and no execution owner, which produced one cluster of bugs
-# with one cause — paid audits bypassing the cap, an enqueue check-then-act, close()
-# orphaning the queued item, an unbounded shutdown await, and /audit/stream skipping
-# the queue. So submit() is deliberately NOT privileged: it queues behind a busy
-# worker exactly like admit(), and the running-count session cap is retired in favour
-# of the wait-queue bound plus the worker pool.
+# running ⟺ an owned worker will finalize it. Several session-creation paths with no
+# execution owner is one cause with a cluster of consequences — paid audits bypassing
+# the cap, an enqueue check-then-act, close() orphaning the queued item, an unbounded
+# shutdown await, /audit/stream skipping the queue. So submit() is deliberately NOT
+# privileged: it queues behind a busy worker exactly like admit(), and admission is
+# bounded by the wait queue plus the worker pool, never by a running-count cap.
 #
 # Four facts the assertions turn on:
 #  - A refusal at the queue bound happens in reserve(), BEFORE the row is created, so
@@ -33,7 +32,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -46,6 +45,7 @@ from kit_stream import StreamService
 from npmguard.errors import AuditIncompleteError, QueueFullError
 from npmguard.events import audit_channel
 from npmguard.persistence import DEMO_PACKAGE_PATH, AuditSessionStore
+from npmguard.pipeline import AuditPipeline
 from npmguard.service import AuditService, SubmitResult
 
 WAIT_SECONDS = 15  # generous bound for any awaited queue outcome
@@ -368,7 +368,9 @@ async def test_audit_enqueued_precedes_audit_started(rig) -> None:
     """NOTIFY: audit_enqueued (emitted at submit) is durable BEFORE audit_started
     (emitted when execution begins) — the client sees "queued" then "starting"."""
     pipeline, sessions, stream = StartEmittingPipeline(), rig.sessions, rig.stream
-    service = AuditService(pipeline, sessions, stream, queue_size=5, max_concurrent=1)
+    service = AuditService(
+        cast(AuditPipeline, pipeline), sessions, stream, queue_size=5, max_concurrent=1
+    )
     await service.start()
     try:
         session = await sessions.create("pkg-notify", "1.0.0")

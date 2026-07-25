@@ -16,10 +16,9 @@
 #   C9  exactly at limit (used==limit) -> raises CapExceededError(resource=protected_repos)
 #   C10 unlimited (limit 0) at high usage -> passes
 #   only protected_at IS NOT NULL repos count toward the cap
-# Public-repo-audit cap boundary (public_repo_audits):
-#   C11 under limit -> passes; count is DISTINCT github_repo_id
-#   C12 at limit, NEW repo id -> raises (resource=public_repo_audits)
-#   C13 at limit, but re-audit of an ALREADY-scanned repo id -> passes (free)
+# The public-repo scan has NO bucket here: after D-1 it is not billed to an
+# installation at all, so its ceiling is per-user cost control and lives in
+# tests/test_panel_public_limits.py.
 # Monthly audit budget (monthly_audits):
 #   C14 used + count <= limit -> passes
 #   C15 used + count > limit  -> raises (resource=monthly_audits)
@@ -50,11 +49,10 @@ _ = tables
 def _settings(**overrides) -> Settings:
     base = dict(
         free_max_protected_repos=3,
-        free_max_public_repo_audits=2,
         free_max_audits_month=250,
         pro_max_protected_repos=25,
-        pro_max_public_repo_audits=0,  # unlimited
-        pro_max_audits_month=5000,
+        pro_max_audits_month=0,  # unlimited
+
     )
     base.update(overrides)
     # env_prefix is NPMGUARD_; pass fields directly (pydantic-settings still reads
@@ -123,40 +121,6 @@ async def _add_user(sessions, user_id: int = 1) -> None:
         )
 
 
-async def _add_public_scan(
-    sessions, scan_id: int, installation_id: int, github_repo_id: int, requested_by: int = 1
-) -> None:
-    """One completed public-repo audit: an audit_set (origin_ref = the stable
-    github_repo_id the cap counts, billed_to = the payer) plus its snapshot row."""
-    now = now_iso()
-    async with sessions() as s, s.begin():
-        await s.execute(
-            tables.audit_sets.insert().values(
-                id=scan_id,
-                origin="public_repo_scan",
-                origin_ref=github_repo_id,
-                billed_to=installation_id,
-                trigger_kind="manual",
-                started_at=now,
-                finished_at=now,
-            )
-        )
-        await s.execute(
-            tables.public_repo_scans.insert().values(
-                set_id=scan_id,
-                requested_by=requested_by,
-                github_repo_id=github_repo_id,
-                owner="acme",
-                name=f"pub{github_repo_id}",
-                full_name=f"acme/pub{github_repo_id}",
-                html_url="https://github.com/acme/pub",
-                default_branch="main",
-                lockfile_path="package-lock.json",
-                lockfile_sha="deadbeef",
-            )
-        )
-
-
 async def _set_usage(sessions, installation_id: int, month: str, audits: int) -> None:
     async with sessions() as s, s.begin():
         await s.execute(
@@ -208,12 +172,12 @@ async def test_no_billing_row_is_free_inactive(db) -> None:
 
 
 async def test_zero_limit_is_unlimited_remaining_none(db) -> None:
-    """C6: a 0 limit (pro publicRepoAudits) reports remaining=None (unlimited)."""
+    """C6: a 0 limit (pro monthlyAudits) reports remaining=None (unlimited)."""
     store, sessions = db
     await _add_installation(sessions, 1, subscription_status="active")  # pro
     ent = await store.entitlements(1)
-    assert ent["publicRepoAudits"]["limit"] == 0
-    assert ent["publicRepoAudits"]["remaining"] is None
+    assert ent["monthlyAudits"]["limit"] == 0
+    assert ent["monthlyAudits"]["remaining"] is None
 
 
 async def test_positive_limit_remaining_is_limit_minus_used(db) -> None:
@@ -260,41 +224,6 @@ async def test_protect_cap_unlimited_passes_at_high_usage(tmp_path) -> None:
         await store.assert_protect_cap(1)  # unlimited -> passes
     finally:
         await engine.dispose()
-
-
-# --- Public-repo-audit cap boundary --------------------------------------
-
-
-async def test_public_cap_under_limit_passes(db) -> None:
-    """C11: below the public-audit limit (distinct repo ids), passes."""
-    store, sessions = db
-    await _add_installation(sessions, 1, subscription_status="inactive")  # free, limit 2
-    await _add_user(sessions)
-    await _add_public_scan(sessions, 100, 1, github_repo_id=555)
-    await store.assert_public_repo_audit_cap(1, github_repo_id=999)  # 1 used < 2
-
-
-async def test_public_cap_at_limit_new_repo_raises(db) -> None:
-    """C12: at the public-audit limit, a NEW repo id raises."""
-    store, sessions = db
-    await _add_installation(sessions, 1, subscription_status="inactive")
-    await _add_user(sessions)
-    await _add_public_scan(sessions, 100, 1, github_repo_id=555)
-    await _add_public_scan(sessions, 101, 1, github_repo_id=556)  # 2 distinct == limit
-    with pytest.raises(CapExceededError) as exc:
-        await store.assert_public_repo_audit_cap(1, github_repo_id=777)
-    assert exc.value.resource == "public_repo_audits"
-
-
-async def test_public_cap_reaudit_of_known_repo_is_free(db) -> None:
-    """C13: at the limit, re-auditing an already-scanned repo id passes (free)."""
-    store, sessions = db
-    await _add_installation(sessions, 1, subscription_status="inactive")
-    await _add_user(sessions)
-    await _add_public_scan(sessions, 100, 1, github_repo_id=555)
-    await _add_public_scan(sessions, 101, 1, github_repo_id=556)  # at limit
-    # Re-audit of 555 (already counted) must not raise even though we're at cap.
-    await store.assert_public_repo_audit_cap(1, github_repo_id=555)
 
 
 # --- Monthly audit budget -------------------------------------------------

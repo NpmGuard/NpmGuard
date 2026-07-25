@@ -298,11 +298,12 @@ class AuditService:
             return SubmitResult(aid, 0, fut, created=False)
 
         # Fresh 'queued' (create/claim) or a recoverable 'error' replay. REGISTER
-        # with NO await between the `_waiters` check above and this assignment, so
-        # a concurrent submit of the SAME audit_id dedups here. (The old order
-        # awaited reset_to_queued BEFORE registering, so two errored replays could
-        # both reach it and the loser's guarded reset asserted on a rowcount of 0
-        # → a spurious 500 on a valid retry.)
+        # the waiter with NO await between the `_waiters` check above and this
+        # assignment, so a concurrent submit of the SAME audit_id dedups here —
+        # both the webhook-vs-stream race AND a double paid-replay of an errored
+        # claim (two callers that both read status=='error') resolve to one waiter.
+        # Registering AFTER reset_to_queued instead lets two errored replays both
+        # reach it, and the loser's guarded reset then asserts on a rowcount of 0.
         fut = loop.create_future()
         self._waiters[aid] = fut
         if session.status == "error":
@@ -763,12 +764,11 @@ class AuditService:
                     # audit_sessions.report keyed by audit_id, which is what
                     # GET /audit/{id}/report and the terminal SSE frame serve, so
                     # the verdict still reaches every consumer of THIS audit.
-                    # Letting the refusal propagate (it used to escape as a bare
-                    # ValueError → NPMGUARD-9999, retryable=False, HTTP 500)
-                    # suppressed a finished — possibly DANGEROUS — verdict over a
-                    # filing key. The file is skipped, never faked: a latest.json
-                    # alias must not exist. Loud, because an unversioned package
-                    # silently missing from data/reports/ is its own gap.
+                    # Letting the refusal propagate would suppress a finished —
+                    # possibly DANGEROUS — verdict over a filing key. The file is
+                    # skipped, never faked: a latest.json alias must not exist. Loud,
+                    # because an unversioned package silently missing from
+                    # data/reports/ is its own gap.
                     log.error(
                         "report file skipped: no concrete version",
                         audit_id=session.audit_id,

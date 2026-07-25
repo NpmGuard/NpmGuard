@@ -1,8 +1,8 @@
 # NpmGuard Python Engine
 
-FastAPI audit service for npm supply-chain analysis. Python owns HTTP,
-payments, orchestration, persistence, LLM calls, evidence, and verdicts. Node
-is retained only inside the sandbox because the audited packages are npm code.
+FastAPI audit service for npm supply-chain analysis. Python owns HTTP, payments,
+orchestration, persistence, LLM calls, evidence, and verdicts. The only Node in
+the engine runs inside the sandbox, because the audited packages are npm code.
 
 ## Run
 
@@ -22,9 +22,9 @@ Or from the repository root:
 ./run.sh --dev
 ```
 
-The engine exposes the legacy-compatible root routes and their `/api` mirrors,
-including `/audit`, `/audit/stream`, durable SSE events, reports, registry,
-Stripe/on-chain payment verification, demos, and benchmark-result reads.
+Every route is served at the root AND under an `/api` mirror: `/audit`,
+`/audit/stream`, durable SSE events, reports, registry, Stripe/on-chain payment
+verification, demos, and benchmark-result reads.
 
 ## Test and lint
 

@@ -31,6 +31,7 @@
 
 import argparse
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pytest
@@ -38,6 +39,9 @@ import pytest
 from npmguard.bench import runner
 from npmguard.bench.corpus import Corpus, Entry
 from npmguard.bench.projector import HARNESS_TIMEOUT_CODE
+from npmguard.bench.runner import BenchApi
+from npmguard.bench.store import Attempt, BenchRunStore
+from tests.support.optional import present
 
 
 def _entry(name: str) -> Entry:
@@ -198,10 +202,10 @@ async def test_a_client_timeout_is_recorded_with_the_harness_code() -> None:
     """C9: the runner giving up is a harness artifact, so it carries a BENCH- code
     that cannot collide with an NPMGUARD one and that the projector buckets VOID.
     Filing it as ABSTAINED would blame the tool for the runner's patience."""
-    recorded: list[object] = []
+    recorded: list[Attempt] = []
 
     class _Store:
-        async def record(self, run_id, attempt):
+        async def record(self, run_id: int, attempt: Attempt) -> None:
             recorded.append(attempt)
 
     class _Api:
@@ -215,10 +219,12 @@ async def test_a_client_timeout_is_recorded_with_the_harness_code() -> None:
 
     import asyncio
 
-    await runner._one(_Api(), _Store(), 1, _entry("test-pkg-bench-x"), 0, asyncio.Semaphore(1))
+    # Fakes for the two collaborators _one touches; cast because it takes the
+    # concrete client and store, and standing either up would need a server.
+    await runner._one(cast(BenchApi, _Api()), cast(BenchRunStore, _Store()), 1, _entry("test-pkg-bench-x"), 0, asyncio.Semaphore(1))
     assert recorded[0].code == HARNESS_TIMEOUT_CODE
     assert recorded[0].audit_id == "a1"
-    assert "gave up" in recorded[0].error
+    assert "gave up" in present(recorded[0].error)
 
 
 def test_a_missing_fixture_is_detected_without_reading_it(tmp_path: Path, monkeypatch) -> None:

@@ -2,22 +2,16 @@
  * (attention / scanning / safe / unknown) with its counts. One repo lands in
  * exactly one segment, so the rail is a true proportion.
  *
- * ── PRESENTATION: what the recomposition changed ────────────────────────────
+ * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
- * Nothing about the four buckets, the denominator, or which repo lands where.
- * Two things about what the rail SAYS, and both are the §2.2/§2.4 corrections the
- * repo-detail rail got in the same pass:
- *
- * 1. **`scanning` was BLUE.** A hue on the progress axis, which §2.2 rule 2 makes
- *    achromatic precisely so an in-flight scan cannot read as a verdict — and
- *    danger-red against progress-blue is the pair §2.3's colourblind check
- *    failed. It is neutral ink on the progress track now.
- * 2. **`unknown` was a grey FILL, and the legend was coloured dots.** A repo that
- *    has never been audited is the definition of "no signal here", so it wears the
- *    one texture that means that (§3.4 rule 3, `HATCH_NEUTRAL`). And a dot encodes
- *    state in colour alone; §2.4 requires the word too, so every segment now
- *    carries its own count and label and the dot legend is gone. That retires this
- *    file's use of `toneDotClass`.
+ * 1. **`scanning` is neutral ink, never blue.** §2.2 rule 2 keeps the progress
+ *    axis achromatic precisely so an in-flight scan cannot read as a verdict, and
+ *    danger-red against progress-blue is the pair §2.3's colourblind check fails.
+ * 2. **`unknown` is a HATCH, not a grey fill, and there is no dot legend.** A repo
+ *    that has never been audited is the definition of "no signal here", so it
+ *    wears the one texture that means that (§3.4 rule 3, `HATCH_NEUTRAL`). A dot
+ *    encodes state in colour alone; §2.4 requires the word too, so every segment
+ *    carries its own count and label.
  *
  * ── WHY NOT `SeverityRibbon` ────────────────────────────────────────────────
  *
@@ -37,6 +31,7 @@ import { PanelSection } from "../../../components/panel/layout.tsx";
 import { Card, CardBody } from "../../../components/ui/card.tsx";
 import { HATCH_NEUTRAL } from "../../../components/ui/hatch.ts";
 import { cn } from "../../../lib/cn.ts";
+import { portfolioCounts } from "../posture.ts";
 
 interface Segment {
   key: string;
@@ -52,25 +47,20 @@ interface Segment {
 export function PortfolioPosture({ repos }: { repos: PanelRepo[] }) {
   if (repos.length === 0) return null;
 
-  let attention = 0;
-  let running = 0;
-  let safe = 0;
-  let unknown = 0;
-  for (const repo of repos) {
-    const set = repo.lastScan;
-    const outcome = set?.rollup.outcome ?? null;
-    if (set?.status === "running") running += 1;
-    // ERROR counts as attention: a repo whose audits crashed is not a green
-    // repo, and folding it in with "never scanned" is what hid that. There is no
-    // failed-SET arm any more — the status domain is `running | done`, and every
-    // way a set can go wrong lands in its rollup as ERROR.
-    else if (outcome === "DANGEROUS" || outcome === "ERROR") attention += 1;
-    else if (outcome === "SAFE") safe += 1;
-    else unknown += 1;
-  }
-
-  const protectedCount = repos.filter((repo) => repo.protected).length;
-  const audited = repos.filter((repo) => repo.lastScan !== null).length;
+  // The classification lives in `posture.ts`, beside the one the dashboard's
+  // Attention filter reads — the two are shown within a few hundred pixels of
+  // each other, and two inline copies of one rule is a pair that can disagree on
+  // screen. ERROR counting as attention (a repo whose audits crashed is not a
+  // green repo) and `running` winning over a partial rollup are decisions
+  // recorded there, with the tests that pin them.
+  const {
+    attention,
+    running,
+    safe,
+    unknown,
+    protectedRepos: protectedCount,
+    audited,
+  } = portfolioCounts(repos);
   const pct = Math.round((protectedCount / repos.length) * 100);
 
   // Order is fixed and is NOT sorted by count — attention is always leftmost so

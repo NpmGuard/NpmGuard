@@ -35,7 +35,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pydantic import BaseModel
@@ -46,6 +46,7 @@ from kit_spine.notify_polling import PollingNotifier
 from kit_stream import StreamService
 from npmguard.events import audit_channel
 from npmguard.persistence import AuditSessionStore
+from npmguard.pipeline import AuditPipeline
 from npmguard.service import AuditService
 
 pytestmark = [pytest.mark.e2e, pytest.mark.postgres]
@@ -131,7 +132,9 @@ async def cluster(pg_provisioner, tmp_path, monkeypatch):
         def instance(self, **kwargs) -> AuditService:
             kwargs.setdefault("queue_size", 10)
             kwargs.setdefault("max_concurrent", 1)
-            service = AuditService(pipeline, sessions, stream, **kwargs)
+            service = AuditService(
+                cast(AuditPipeline, pipeline), sessions, stream, **kwargs
+            )
             instances.append(service)
             return service
 

@@ -3,7 +3,7 @@
 R-2 / D-2. There were two queues solving one problem and the core had the weaker
 one. `panel_jobs` was DB-backed with a durable state machine, a partial-unique
 dedupe index and orphan recovery; `AuditService` was an in-process asyncio.Queue.
-0008 gave the core the durable claim. This migration gives it the four things
+The durable claim landed first. This migration gives the core the four things
 `panel_jobs` still had that the core did not, so that ONE queue can serve every
 kind of work and the panel's second hop can be deleted.
 
@@ -64,8 +64,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "npmguard_audit_lanes_0009"
-down_revision = "npmguard_audit_claims_0008"
+revision = "npmguard_audit_lanes_0010"
+down_revision = "npmguard_audit_claims_0009"
 branch_labels = None
 depends_on = None
 
@@ -90,7 +90,7 @@ def upgrade() -> None:
     )
     op.add_column(_TABLE, sa.Column("dedupe_key", sa.String(400), nullable=True))
     # Covers claim_next's candidate scan, which orders by lane before anything
-    # else. The 0008 lease index stays: it serves the orphan sweep, whose
+    # else. The lease index stays: it serves the orphan sweep, whose
     # selectivity is the lease and not the lane.
     op.create_index(_LANE_INDEX, _TABLE, ["lane", "status", "created_at"])
     op.create_index(
@@ -105,7 +105,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # REVERSIBLE and loses no audit data: every column here is dispatch metadata,
-    # and the pre-0009 code reads none of it. A row mid-flight on a panel lane
+    # and the lane-unaware code reads none of it. A row mid-flight on a panel lane
     # lands as an ordinary audit — which is precisely what it was before the fold.
     op.drop_index(_DEDUPE_INDEX, table_name=_TABLE)
     op.drop_index(_LANE_INDEX, table_name=_TABLE)

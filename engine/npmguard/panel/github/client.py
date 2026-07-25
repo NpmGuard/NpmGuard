@@ -134,11 +134,13 @@ def token_not_expired(token_expires_at: str | None, now: str) -> bool:
 
 def _expires_at_from_ttl(now: datetime, expires_in: object) -> str | None:
     """Absolute expiry ISO string from a relative ``expires_in`` (seconds)."""
-    if not expires_in:
+    # ``expires_in`` is whatever GitHub's JSON carried — narrow before converting
+    # so a dict or a list is refused as "no expiry", not as a TypeError.
+    if not isinstance(expires_in, int | float | str):
         return None
     try:
         seconds = int(expires_in)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
     if seconds <= 0:
         return None
@@ -159,13 +161,17 @@ class GitHubAppClient:
             raise GitHubAppError(
                 "GitHub App is not configured (see NPMGUARD_GITHUB_* env vars)"
             )
-        # github_app_enabled guarantees these are all set.
-        self._app_id: str = settings.github_app_id  # type: ignore[assignment]
-        self._private_key: str = Path(
-            settings.github_app_private_key_path  # type: ignore[arg-type]
-        ).read_text(encoding="utf-8")
-        self._client_id: str = settings.github_client_id  # type: ignore[assignment]
-        self._client_secret: str = settings.github_client_secret  # type: ignore[assignment]
+        app_id = settings.github_app_id
+        key_path = settings.github_app_private_key_path
+        client_id = settings.github_client_id
+        client_secret = settings.github_client_secret
+        # What github_app_enabled means, stated where the credentials are read
+        # rather than assumed: the property is `all([...])` over exactly these.
+        assert app_id and key_path and client_id and client_secret
+        self._app_id = app_id
+        self._private_key = Path(key_path).read_text(encoding="utf-8")
+        self._client_id = client_id
+        self._client_secret = client_secret
         self._api_base = resolve_api_base(settings)
         self._oauth_base = resolve_oauth_base(self._api_base)
         self._panel_base_url = settings.panel_base_url

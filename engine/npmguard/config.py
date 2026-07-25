@@ -23,14 +23,10 @@ class ConfigError(ValueError):
 def _named_by_variable(exc: ValidationError) -> str:
     """Re-render a pydantic ValidationError against the env vars an operator writes.
 
-    Measured (pydantic 2.13 / pydantic-settings 2.x): a bad `NPMGUARD_DEMO_SPEED`
-    reports `demo_speed\\n  Input should be a valid number …` — the message
-    contains neither the prefix nor the variable name, in any of the three error
-    kinds this surface can produce (float_parsing, int_parsing,
-    greater_than_equal). An operator greps `.env` for `demo_speed` and finds
-    nothing. Mapping `loc → NPMGUARD_<LOC>` here fixes every knob at once, where
-    per-field `validation_alias`es would have to be added one at a time and would
-    be silently forgotten on the next one.
+    pydantic names the FIELD (`demo_speed`); an operator greps `.env` for the
+    VARIABLE (`NPMGUARD_DEMO_SPEED`). Mapping `loc → NPMGUARD_<LOC>` here covers
+    every knob at once, where per-field `validation_alias`es would have to be
+    added one at a time and forgotten on the next one.
     """
     prefix = Settings.model_config.get("env_prefix") or ""
     lines = []
@@ -45,36 +41,18 @@ def _named_by_variable(exc: ValidationError) -> str:
     )
 
 
-# INVARIANT: every setting declared here is read by production code under
-# `npmguard/`. A knob nothing reads is worse than an absent one, because an
-# unread *cap* reads as a protection that does not exist — someone sizing a
-# deployment from this file must be able to trust it. Enforced by
-# tests/test_config_surface.py (an `ast` scan for `settings.<field>`), which is
-# why the surface carries no exemption list. Inherited `KitSettings` fields are
-# Kit's surface, not this one's.
-#
-# Eight knobs were deleted rather than wired, none of which ever had a reader:
-# `triage_max_files`, `max_agent_turns`,
-# `investigation_enabled`, `test_gen_model`, `test_gen_mode`,
-# `max_findings_to_prove`, `verify_timeout_sec`, `max_docker_exec_timeout_sec`.
-# Two of them named bounds the code contradicts — `max_docker_exec_timeout_sec`
-# defaulted to 30s beside a 180s `docker_exec` npm install (deps.py), and
-# `max_agent_turns` defaulted to 30 above the agent's own [10, 24] budget
-# (hypothesis_agent.py). A bound lands here together with its reader, never
-# ahead of it. `extra="ignore"` means a stale `NPMGUARD_*` left in a deployed
-# `.env` is inert rather than a boot failure.
-#
-# The inverse rule holds too, and is enforced by the same test file: every
-# `NPMGUARD_*` variable read anywhere under `npmguard/` is declared HERE, so a
-# malformed value is a named boot rejection instead of a `ValueError` on whichever
-# code path first happens to touch it. `NPMGUARD_DEMO_SPEED=fast` used to stop the
-# engine booting with `could not convert string to float: 'fast'` — a message that
-# names neither the knob nor what to do about it. That direction now holds with NO
-# exemptions: `test_config_surface.py`'s `UNDECLARED_READS` table is EMPTY, and both
-# entries it used to carry landed together with their readers
-# (`triage_concurrency` → phases.py, `data_dir` → report_store.py). The property
-# worth keeping is the empty table, not the rule with a list beside it — a knob
-# lands with its reader in one change, in either direction.
+# INVARIANT, both directions, enforced by tests/test_config_surface.py with no
+# exemption list:
+#   every setting declared here is read by production code under `npmguard/`, and
+#   every `NPMGUARD_*` variable production code reads is declared here.
+# An unread *cap* reads as a protection that does not exist, and someone sizing a
+# deployment from this file must be able to trust it. Going the other way, an
+# undeclared read means a malformed value surfaces as a bare `ValueError` on
+# whichever code path first touches it, mid-audit, instead of as a named boot
+# rejection. So a knob lands together with its reader, in one change, in either
+# direction. Inherited `KitSettings` fields are Kit's surface, not this one's.
+# `extra="ignore"` keeps a stale `NPMGUARD_*` in a deployed `.env` inert rather
+# than a boot failure.
 class Settings(KitSettings):
     model_config = SettingsConfigDict(
         env_file=(REPO_ROOT / ".env", Path.cwd() / ".env"),
@@ -108,27 +86,21 @@ class Settings(KitSettings):
     llm_budget_margin: float = Field(default=0.1, ge=0, le=1)
     mock_llm: bool = False
     # The only bound on ONE audit's model spend, and it is a REFUSAL, not a cap on
-    # what gets read: FLAG issues exactly one triage call per file in
-    # phases.flag_source_files, so this number IS the worst-case FLAG call count
-    # (pipeline.py raises PackageTooLargeError above it, before the first model
-    # call). Truncating instead — read the first N of 3953 files and report SAFE —
-    # would be a coverage gap wearing a green badge, and the unread files are
-    # exactly where a payload hides.
+    # what gets read: FLAG issues exactly one triage call per file, so this number
+    # IS the worst-case FLAG call count (pipeline.py raises PackageTooLargeError
+    # above it, before the first model call). Truncating instead — read the first N
+    # of 3953 files and report SAFE — would be a coverage gap wearing a green badge,
+    # and the unread files are exactly where a payload hides.
     #
-    # Measured over 650 installed packages on a dev machine, counted through
+    # Measured over 650 installed dev-dependency packages, counted through
     # flag_source_files itself: median 2 files, p90 33, p95 81, p99 647, max 3953
-    # (viem; then lucide-react 2016, es-toolkit 1893, jsdom 647, zod 275). 183 of
-    # the 650 have zero source files. Refusal rate by bound: 500 → 1.08%,
-    # 1000 → 0.77%, 2000 → 0.31%, 4000 → 0%. The corpus is dev dependencies, so it
-    # is tilted toward frontend tooling and understates nothing at the tail.
+    # (viem). Refusal rate by bound: 500 → 1.08%, 1000 → 0.77%, 2000 → 0.31%,
+    # 4000 → 0%. Recommended production value: 1000.
     #
-    # 0 = OFF, deliberately, exactly as llm_budget_usd_24h defaults off. The
-    # refusal lands AFTER the payment claim: an errored row is re-submittable
-    # (reset_to_queued) but a re-submit hits the same refusal, so switching this on
-    # needs either a refund path or a pre-payment probe — and a pre-payment probe
-    # cannot exist before `resolve` has downloaded the tarball. That is an owner
-    # decision, so the mechanism ships dark and enabling it is one env var.
-    # Recommended production value once that decision is made: 1000.
+    # 0 = OFF, because the refusal lands AFTER the payment claim: an errored row is
+    # re-submittable but a re-submit hits the same refusal, so switching this on
+    # needs a refund path or a pre-payment probe — and no probe can exist before
+    # `resolve` has downloaded the tarball. Owner decision; the mechanism ships dark.
     max_source_files: int = Field(default=0, ge=0)
     # Whether an install-time coverage gap (`inventory.INSTALL_COVERAGE_GAP` — a hook
     # whose code is nowhere in the tarball, or a target that ships as a type no model
@@ -138,20 +110,13 @@ class Settings(KitSettings):
     # a hypothesis CONFIRMED — in which case the evidence wins and the verdict is
     # DANGEROUS, so the switch can never suppress a true positive.
     #
-    # Defaults OFF for the same reason `max_source_files` does, and it is the same
-    # kind of decision: turning it on CHANGES THE CONCLUSION for real, benign
-    # packages. Measured over 834 installed packages (5 with an install-time hook,
-    # 132 with any lifecycle hook): 2 stop reaching SAFE — better-sqlite3
-    # (`prebuild-install || node-gyp rebuild`) and msw
-    # (`node -e "import('./config/scripts/postinstall.js')"`) — i.e. 0.24% of
-    # manifests and 40% of install-hooked ones. Both are genuinely unaudited
-    # install-time execution, and both are ordinary published packages a user will
-    # expect a verdict for, so the trade (a retryable error instead of a green badge
-    # over code nobody read) belongs to whoever owns what the product asserts. The
-    # refusal also lands AFTER the payment claim and after the full model spend — it
-    # cannot be raised earlier without discarding a possible DANGEROUS — so an
-    # operator switching it on is choosing to pay for audits that end in 0031.
-    # Recommended production value once that decision is made: true.
+    # Defaults OFF because turning it on CHANGES THE CONCLUSION for real, benign
+    # packages. Measured over 834 installed packages: 2 stop reaching SAFE —
+    # better-sqlite3 and msw — i.e. 0.24% of manifests and 40% of install-hooked
+    # ones. Like `max_source_files` the refusal lands after the payment claim (and
+    # after the full model spend — it cannot be raised earlier without discarding a
+    # possible DANGEROUS), so switching it on means paying for audits that end in
+    # 0031. Recommended production value: true.
     refuse_install_coverage_gap: bool = False
 
     payment_required: bool = True
@@ -175,14 +140,11 @@ class Settings(KitSettings):
     investigation_model: str = "claude-sonnet-4-6"
     # Model-call concurrency of BOTH triage fan-outs (phases.run_flag over the FLAG
     # file set, phases.run_hypothesize over the flags it produced) — i.e. how many
-    # provider calls one audit has in flight, not how many it makes. `ge=1` is what
-    # makes the semaphore's argument valid by construction: the raw read this
-    # replaces needed `max(1, int(...))` because `NPMGUARD_TRIAGE_CONCURRENCY=0`
-    # would otherwise deadlock the phase, and a typo raised a bare ValueError
-    # MID-AUDIT (NPMGUARD-9999, non-retryable) on an audit already paid for.
-    # Upper bound at 64 because every slot is a concurrent provider request against
-    # one API key: past a provider's own concurrency limit the extra slots buy 429s,
-    # which kit retries and bills for.
+    # provider calls one audit has in flight, not how many it makes. `ge=1` makes the
+    # semaphore's argument valid by construction; 0 would deadlock the phase. Bounded
+    # at 64 because every slot is a concurrent provider request against one API key:
+    # past a provider's own concurrency limit the extra slots buy 429s, which kit
+    # retries and bills for.
     triage_concurrency: int = Field(default=8, ge=1, le=64)
 
     sandbox_image: str = "npmguard-sandbox:v1"
@@ -212,11 +174,24 @@ class Settings(KitSettings):
     scan_concurrency: int = Field(default=4, ge=1, le=16)
     watch_interval_min: int = Field(default=15, ge=1)
     free_max_protected_repos: int = Field(default=3, ge=0)
-    free_max_public_repo_audits: int = Field(default=2, ge=0)
     free_max_audits_month: int = Field(default=250, ge=0)
     pro_max_protected_repos: int = Field(default=25, ge=0)
-    pro_max_public_repo_audits: int = Field(default=0, ge=0)  # 0 = unlimited
     pro_max_audits_month: int = Field(default=5000, ge=0)
+    # Public-repo scan cost control (D-1 / F-F6). A public scan requires a GitHub
+    # sign-in and nothing more — no installation, nothing charged — so the sign-in
+    # is the abuse ceiling and these three knobs are the COST ceiling. They are
+    # per USER, not per installation: a public scan has a requester and no payer.
+    #
+    # A scan's cost is exactly its cache MISSES; a verdict already in
+    # `package_verdicts` is free to serve. So both of F-F6's first two bullets are
+    # this one quantity: a 900-dep monorepo cannot buy 900 audits, and past the
+    # ceiling a scan still runs on cached verdicts alone. Coverage is then smaller
+    # than the lockfile, which the wire reports rather than hides.
+    #
+    # 0 = UNLIMITED on both budgets, matching the plan-limit convention in caps.py.
+    public_scan_max_new_audits: int = Field(default=150, ge=0)
+    public_scan_monthly_new_audits: int = Field(default=400, ge=0)
+    public_scan_max_concurrent: int = Field(default=2, ge=1)
     stripe_pro_price_id: str | None = None
     # TEST-ONLY: point githubkit at a mock host (default = api.github.com).
     github_api_base: str | None = None
@@ -227,9 +202,8 @@ class Settings(KitSettings):
     github_raw_base: str | None = None
 
     # Divisor on the demo replay's human throttle (demo.py); e2e/Playwright uses 0
-    # to emit instantly. NOT bounded below here: demo.py clamps negatives to 0 and
-    # that clamp is the pinned contract (test_demo.py C11). A `ge=0` would be the
-    # better invariant — see the note in demo.py.
+    # to emit instantly. Not bounded below here: demo.py clamps negatives to 0 and
+    # that clamp is the pinned contract.
     demo_speed: float = 1
 
     @field_validator("api_url", "npm_registry")
@@ -248,19 +222,16 @@ class Settings(KitSettings):
     def _absolute_directory(cls, value: Path) -> Path:
         # A relative audit-log or report root silently follows the process cwd, which
         # for the engine is whatever systemd/uvicorn/pytest happened to start it in —
-        # so the logs for one audit and the next can land in different trees. Empty
-        # string parses to Path(".") and is caught by the same check; it used to fall
-        # back to the default through an `or`, which hid the typo.
+        # so the logs for one audit and the next can land in different trees. An empty
+        # string parses to Path(".") and is caught by the same check.
         if not value.is_absolute():
             raise ValueError(f"must be an absolute path (got {str(value)!r})")
         return value
 
     def __init__(self, **values: Any) -> None:
-        # INVARIANT: a Settings instance exists only if every knob it declares
-        # parsed and validated — so no reader downstream needs a guard, and no
-        # malformed knob can surface mid-audit on the one code path that happens to
-        # touch it. The wrapper exists only to rename: pydantic reports the FIELD
-        # (`demo_speed`), an operator writes the VARIABLE (`NPMGUARD_DEMO_SPEED`).
+        # INVARIANT: a Settings instance exists only if every knob it declares parsed
+        # and validated — so no reader downstream needs a guard, and no malformed knob
+        # can surface mid-audit. The wrapper exists only to rename the error.
         try:
             super().__init__(**values)
         except ValidationError as exc:
@@ -298,16 +269,13 @@ def get_settings() -> Settings:
 # construction (inventory.run_inventory_checks emits `install-coverage-gap` for one).
 #
 # `shell` is in the set because a `postinstall.sh` an install hook names and the
-# tarball SHIPS is the same fact as a `postinstall.js`: code npm will execute. It
-# was previously "resolved" — no dealbreaker — and read by nobody, which is a
-# coverage gap wearing a green badge, and the file is right there. Measured over 834
-# installed package copies: 22 `.sh` files enter the FLAG set — playwright-core 10
-# (two installed copies), better-sqlite3 1, pino 1 — against the 36,239 files FLAG
-# already read, i.e. +0.06%. The whole of this change's cost is those 22 calls.
+# tarball ships is the same fact as a `postinstall.js`: code npm will execute.
+# Measured over 834 installed package copies it adds 22 files against the 36,239
+# FLAG already reads, i.e. +0.06%.
 #
-# Not in the set, deliberately: `python`/`ruby`/`perl` targets (SCRIPT_INTERPRETERS
-# accepts them, so they resolve) have no extension mapping at all and stay `unknown`
-# → they keep producing a gap flag. That is the honest answer while no FLAG prompt
-# has been validated on them; widening this set is what would turn it into coverage.
+# `python`/`ruby`/`perl` targets are deliberately out: SCRIPT_INTERPRETERS accepts
+# them so they resolve, but they have no extension mapping, stay `unknown`, and keep
+# producing a gap flag. That is the honest answer while no FLAG prompt has been
+# validated on them; widening this set is what would turn it into coverage.
 SOURCE_FILE_TYPES = frozenset({"js", "ts", "shell"})
 SKIP_DIRS = frozenset({"node_modules", ".git", ".svn"})

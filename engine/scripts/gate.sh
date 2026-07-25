@@ -1,6 +1,6 @@
 #!/bin/sh
 # The merge gate, cheap first (see TESTING.md "The gate"):
-#   ruff -> default pytest -> fixture lint -> e2e sqlite -> docker/postgres/cli tiers.
+#   ruff -> ty -> default pytest -> fixture lint -> e2e sqlite -> docker/postgres/cli tiers.
 # Postgres is provisioned here as a throwaway container when docker is available
 # so the DSN-gated unit classes (the only honest concurrency proofs) actually
 # run; without docker they skip LOUDLY — they remain required before merge.
@@ -13,6 +13,9 @@ note() { printf '\ngate: %s\n' "$1" >&2; }
 
 note "ruff"
 uv run ruff check .
+
+note "ty"
+uv run ty check
 
 # Throwaway postgres for the DSN-gated unit + e2e postgres classes.
 PG_NAME=""
