@@ -46,7 +46,8 @@ from npmguard.panel.github.content import find_root_lockfile
 from npmguard.panel.lockfile import UnsupportedLockfileError
 from npmguard.panel.routes._common import (
     current_user,
-    require_enabled,
+    panel_disabled_response,
+    require_panel,
     runtime_of,
 )
 from npmguard.panel.scan.repo_scan import LockfileNotFoundError
@@ -158,9 +159,9 @@ async def _sync_user_installations(
 
 @router.get("/panel/orgs")
 async def panel_orgs(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -227,9 +228,9 @@ async def _refresh_auditability(
 
 @router.get("/panel/repos")
 async def panel_repos(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -441,9 +442,9 @@ async def _live_set_id(runtime: Any, repo_id: int) -> int | None:
 
 @router.post("/panel/repo/{repo_id}/scan")
 async def panel_repo_scan(repo_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -508,9 +509,9 @@ async def _initial_protect_scan(runtime: Any, repo: dict[str, Any]) -> None:
 
 @router.post("/panel/repo/{repo_id}/protect")
 async def panel_repo_protect(repo_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -535,9 +536,9 @@ async def panel_repo_protect(repo_id: int, request: Request) -> Response:
 
 @router.delete("/panel/repo/{repo_id}/protect")
 async def panel_repo_unprotect(repo_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -552,9 +553,9 @@ async def panel_repo_unprotect(repo_id: int, request: Request) -> Response:
 
 @router.post("/panel/repo/{repo_id}/resync")
 async def panel_repo_resync(repo_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -576,9 +577,9 @@ async def panel_repo_resync(repo_id: int, request: Request) -> Response:
 
 @router.get("/panel/repo/{owner}/{name}")
 async def panel_repo_detail(owner: str, name: str, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -689,9 +690,9 @@ async def panel_scan_events(scan_id: int, request: Request) -> Response:
     per-connection "what did I already send" dict is gone, and so is the public
     scan's client-side polling loop, because a public set streams here too.
     """
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -734,9 +735,9 @@ ALERTS_FEED_LIMIT = 50
 
 @router.get("/panel/alerts")
 async def panel_alerts(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -768,9 +769,9 @@ async def panel_alerts_seen(request: Request) -> Response:
     banner. Idempotent — a second call matches nothing and still returns ok, so
     a double-click cannot 500.
     """
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()

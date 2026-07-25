@@ -111,6 +111,7 @@ async def test_terminal_pair_can_requeue(db) -> None:
     queue = PanelJobQueue(db)
     await queue.enqueue("pkg", "1.0.0")
     job = await queue.claim_next()
+    assert job is not None
     await queue.complete(job.id)
     assert await queue.enqueue("pkg", "1.0.0") is True
     assert await _count_jobs(db, "pkg", "1.0.0") == 2  # one done, one fresh queued
@@ -152,6 +153,7 @@ async def test_release_does_not_count_attempt(db) -> None:
     queue = PanelJobQueue(db)
     await queue.enqueue("busy", "1.0.0")
     job = await queue.claim_next()
+    assert job is not None
     await queue.release(job)
     row = await _job_row(db, job.id)
     assert row["state"] == "queued"
@@ -165,6 +167,7 @@ async def test_reset_stale_requeues_running(db) -> None:
     queue = PanelJobQueue(db)
     await queue.enqueue("stuck", "1.0.0")
     job = await queue.claim_next()  # -> running
+    assert job is not None
     count = await queue.reset_stale()
     assert count == 1
     row = await _job_row(db, job.id)
@@ -237,12 +240,14 @@ async def test_worker_full_cycle_indexes_verdict(db) -> None:
 
     await queue.enqueue("evil-pkg", "1.2.3")
     job = await queue.claim_next()
+    assert job is not None
     await worker.process(job)
 
     assert audits.calls == [("evil-pkg", "1.2.3")]
     row = await _job_row(db, job.id)
     assert row["state"] == "done"
     verdict = await index.get("evil-pkg", "1.2.3")
+    assert verdict is not None
     assert verdict["verdict"] == "DANGEROUS"
     assert verdict["reason"] == "exfil"
     assert verdict["evidenceCount"] == 2
@@ -259,6 +264,7 @@ async def test_worker_queue_full_releases_job(db) -> None:
 
     await queue.enqueue("busy-pkg", "1.0.0")
     job = await queue.claim_next()
+    assert job is not None
     await worker.process(job)
 
     row = await _job_row(db, job.id)
@@ -284,6 +290,7 @@ async def test_worker_audit_failure_retries_and_notifies(db) -> None:
 
     await queue.enqueue("crash-pkg", "2.0.0")
     job = await queue.claim_next()
+    assert job is not None
     await worker.process(job)
 
     row = await _job_row(db, job.id)

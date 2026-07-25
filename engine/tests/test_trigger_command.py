@@ -11,6 +11,7 @@
 #   C8 l4=True injects the --require instrumentation preamble; l4=False does not
 from npmguard.contract.models import Trigger
 from npmguard.observation import build_trigger_command
+from tests.support.optional import present
 
 
 def _require_spec(command: list[str] | None) -> str:
@@ -72,5 +73,9 @@ def test_lifecycle_and_bin_have_no_run_command() -> None:
 def test_l4_flag_injects_instrumentation_require() -> None:
     """C8: l4=True prepends the --require instrumentation preamble."""
     trigger = Trigger(kind="entrypoint", target="/pkg/driver.js")
-    assert build_trigger_command(trigger, l4=True)[:3] == ["node", "--require", "/tmp/_instrument.js"]
-    assert "--require" not in build_trigger_command(trigger, l4=False)
+    assert present(build_trigger_command(trigger, l4=True))[:3] == [
+        "node",
+        "--require",
+        "/tmp/_instrument.js",
+    ]
+    assert "--require" not in present(build_trigger_command(trigger, l4=False))

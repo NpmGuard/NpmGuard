@@ -139,7 +139,7 @@ def _environment_access() -> tuple[dict[str, set[str]], list[str]]:
                     if ENV_VARIABLE.fullmatch(key.value):
                         found.setdefault(key.value, set()).add(path.name)
                 else:
-                    computed.append(f"{path.name}:{node.lineno}")
+                    computed.append(f"{path.name}:{getattr(node, 'lineno', '?')}")
     return found, sorted(computed)
 
 

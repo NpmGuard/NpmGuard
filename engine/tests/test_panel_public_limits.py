@@ -32,6 +32,8 @@
 #   C14 a repeat scan of the same package set costs nothing: everything is cached
 #       by then, so it is fully covered under a budget of 0
 #   C15 max_new_audits=None (every billed origin) never trims
+from collections.abc import Sequence
+
 import pytest
 import sqlalchemy as sa
 
@@ -109,7 +111,7 @@ async def _add_set(
     origin_ref: int = 999,
     finished: bool = True,
     started_at: str | None = None,
-    items: list[tuple[str, str, bool]] = (),
+    items: Sequence[tuple[str, str, bool]] = (),
 ) -> int:
     """One audit set with hand-written items. `items` is (name, version, cached)."""
     now = now_iso()

@@ -75,10 +75,11 @@ def check_conclusion(rollup: Rollup) -> str:
     if rollup.total == 0:
         return _EMPTY_CONCLUSION
     # INVARIANT: total > 0 and pending == 0 ⇒ something concluded ⇒ outcome is a
-    # panel outcome, so the mapping is total. Unasserted: `_CONCLUSION[...]` below IS
-    # the enforcement and raises a KeyError naming the offending value on the same
-    # input, and the domain arrives guaranteed — `Rollup.outcome` is only ever set
-    # from `item_outcome`, one call chain up in `compute_rollup`.
+    # panel outcome, so the mapping is total. The domain arrives guaranteed —
+    # `Rollup.outcome` is only ever set from `item_outcome`, one call chain up in
+    # `compute_rollup` — and `_CONCLUSION[...]` raises a KeyError naming the
+    # offending value if that ever stops being true.
+    assert rollup.outcome is not None
     return _CONCLUSION[rollup.outcome]
 
 

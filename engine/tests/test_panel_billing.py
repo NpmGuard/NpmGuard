@@ -127,6 +127,7 @@ async def test_upsert_inserts_then_updates_in_place(db):
         installation_id=10, customer_id="cus_1", subscription_id="sub_1", status="trialing"
     )
     first = await store.get_billing_account(10)
+    assert first is not None
     assert first["stripe_customer_id"] == "cus_1"
     assert first["stripe_subscription_id"] == "sub_1"
     assert first["subscription_status"] == "trialing"
@@ -142,6 +143,7 @@ async def test_upsert_inserts_then_updates_in_place(db):
         ).scalar_one()
     assert count == 1  # updated in place, not a second row
     second = await store.get_billing_account(10)
+    assert second is not None
     assert second["stripe_subscription_id"] == "sub_2"
     assert second["subscription_status"] == "active"
 
@@ -158,13 +160,16 @@ async def test_upsert_coalesces_customer_id(db):
         installation_id=11, customer_id=None, subscription_id="sub_a", status="past_due"
     )
     row = await store.get_billing_account(11)
+    assert row is not None
     assert row["stripe_customer_id"] == "cus_keep"  # retained
     assert row["subscription_status"] == "past_due"
     # A non-None customer overwrites.
     await store.upsert_subscription(
         installation_id=11, customer_id="cus_new", subscription_id="sub_a", status="active"
     )
-    assert (await store.get_billing_account(11))["stripe_customer_id"] == "cus_new"
+    updated = await store.get_billing_account(11)
+    assert updated is not None
+    assert updated["stripe_customer_id"] == "cus_new"
 
 
 # --- find / update / exists -------------------------------------------------
@@ -190,7 +195,9 @@ async def test_update_subscription_status_returns_match(db):
         installation_id=13, customer_id=None, subscription_id="sub_u", status="active"
     )
     assert await store.update_subscription_status("sub_u", "canceled") is True
-    assert (await store.get_billing_account(13))["subscription_status"] == "canceled"
+    account = await store.get_billing_account(13)
+    assert account is not None
+    assert account["subscription_status"] == "canceled"
     assert await store.update_subscription_status("sub_nope", "canceled") is False
 
 
@@ -204,7 +211,9 @@ async def test_installation_exists_and_get_account(db):
     await store.upsert_subscription(
         installation_id=14, customer_id="cus_g", subscription_id="sub_g", status="active"
     )
-    assert (await store.get_billing_account(14))["stripe_customer_id"] == "cus_g"
+    account = await store.get_billing_account(14)
+    assert account is not None
+    assert account["stripe_customer_id"] == "cus_g"
 
 
 # --- entitlements plan resolution over billing rows -------------------------
@@ -276,6 +285,7 @@ async def test_subscription_updated_upserts_status(db):
         "status": "active",
     }
     row = await store.get_billing_account(30)
+    assert row is not None
     assert row["subscription_status"] == "active"
     assert row["stripe_customer_id"] == "cus_30"
 
@@ -292,8 +302,10 @@ async def test_subscription_deleted_by_stored_id(db):
         {"id": "sub_31", "customer": "cus_31", "status": "canceled", "metadata": {}},
     )
     changed = await handle_subscription_event(_settings(), event, store)
-    assert changed["kind"] == "subscription_deleted"
-    assert (await store.get_billing_account(31))["subscription_status"] == "canceled"
+    assert changed is not None and changed["kind"] == "subscription_deleted"
+    account = await store.get_billing_account(31)
+    assert account is not None
+    assert account["subscription_status"] == "canceled"
 
 
 async def test_subscription_event_unknown_installation_ignored(db):

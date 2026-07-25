@@ -25,6 +25,14 @@ class AppNotConfigured(BaseModel):
     error: str
 
 
+class AuditAcceptedResponse(BaseModel):
+    status: Literal['accepted']
+    auditId: str
+    packageName: str
+    version: str | None
+    queuePosition: Annotated[int, Field(ge=0)]
+
+
 class AuditEnqueuedEvent(BaseModel):
     auditId: str
     timestamp: str
@@ -97,6 +105,25 @@ class Budget(BaseModel):
     maxBytesCapture: MaxBytesCapture | None = None
 
 
+class CheckoutResponse(BaseModel):
+    url: str
+    sessionId: str
+
+
+class CheckoutStatus(BaseModel):
+    paid: bool
+    packageName: str
+    version: str
+    auditId: str | None
+
+
+class CryptoConfig(BaseModel):
+    chain: Literal['base-sepolia']
+    chainId: Literal[84532]
+    contract: str
+    auditFeeWei: str
+
+
 class CryptoOp(BaseModel):
     method: str
     algo: str
@@ -105,6 +132,10 @@ class CryptoOp(BaseModel):
 class DealBreaker(BaseModel):
     check: str
     detail: str
+
+
+class DemoPackagesResponse(BaseModel):
+    packages: list[str]
 
 
 class DependencyGroups(BaseModel):
@@ -271,6 +302,14 @@ class ProcessSpawn(BaseModel):
     args: list[str] | None = []
 
 
+class PublicConfig(BaseModel):
+    paymentRequired: bool
+    paymentEnabled: bool
+    stripeEnabled: bool
+    priceCents: int
+    crypto: CryptoConfig | None
+
+
 class PublicRepoScanRequest(BaseModel):
     repository: str
 
@@ -290,6 +329,11 @@ class PublicRepo(BaseModel):
 class ReauthRequired(BaseModel):
     error: str
     reauth: Literal[True]
+
+
+class ResolveResponse(BaseModel):
+    packageName: str
+    version: str
 
 
 class ResolvedPackage(BaseModel):
@@ -325,6 +369,11 @@ class SessionUser(BaseModel):
     name: str | None
     email: str | None
     avatarUrl: str | None
+
+
+class StartAuditResponse(BaseModel):
+    auditId: str
+    packageName: str
 
 
 class StubUrlRef(BaseModel):
@@ -914,6 +963,13 @@ class InventoryReport(BaseModel):
     dealbreaker: DealBreaker | None = None
 
 
+class PackageSummary(BaseModel):
+    packageName: str
+    version: str
+    verdict: Annotated[Literal['SAFE', 'DANGEROUS'], Field(title='Verdict')]
+    auditedAt: str
+
+
 class PanelRepo(BaseModel):
     id: int
     installationId: int
@@ -1133,6 +1189,16 @@ class HypothesisGraphSnapshot(BaseModel):
     nodes: list[Hypothesis]
     createdAt: str
     updatedAt: str
+
+
+class PackageIndexResponse(BaseModel):
+    packages: list[PackageSummary]
+
+
+class PackageReportResponse(BaseModel):
+    report: AuditReport
+    version: str
+    packageName: str
 
 
 class PublicRepoScanDetailResponse(BaseModel):

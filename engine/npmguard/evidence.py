@@ -6,16 +6,22 @@ import re
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import rfc8785
 from pydantic import BaseModel
 
+from .contract.kinds import EventKind
 from .contract.models import EventSummary, EvidenceEvent, RunArtifact
 
 TRACE_START = "__NPMGUARD_TRACE__"
 TRACE_END = "__NPMGUARD_TRACE_END__"
+# The `type` values instrumentation.ts emits. An entry carrying anything else is
+# not a trace record and is dropped — `_normalize_l4` maps exactly this set.
+L4_TRACE_TYPES = frozenset(
+    {"require", "fs", "network", "process", "env", "eval", "crypto", "timer", "script"}
+)
 # Where observation writes the L4 instrument inside the sandbox, and therefore the
 # `from` value that would appear on a require the INSTRUMENT made rather than the
 # package. Single source of truth: observation.py mounts it here and passes it to
@@ -239,18 +245,11 @@ def parse_l4_trace(
     if not isinstance(raw, list):
         return None
     events = []
-    for index, entry in enumerate(raw):
-        if not isinstance(entry, dict) or entry.get("type") not in {
-            "require",
-            "fs",
-            "network",
-            "process",
-            "env",
-            "eval",
-            "crypto",
-            "timer",
-            "script",
-        }:
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        entry = cast("dict[str, Any]", item)  # JSON object keys are strings by construction
+        if entry.get("type") not in L4_TRACE_TYPES:
             continue
         kind, normalized = _normalize_l4(entry)
         if kind == "require" and normalized["from"] == instrument_path:
@@ -280,7 +279,7 @@ def parse_l4_trace(
     return events
 
 
-def _normalize_l4(entry: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def _normalize_l4(entry: dict[str, Any]) -> tuple[EventKind, dict[str, Any]]:
     event_type = entry["type"]
     if event_type == "require":
         return "require", {
@@ -321,7 +320,7 @@ def _normalize_l4(entry: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     }
 
 
-def synthetic_event(kind: str, detail: str, timestamp: int = 0) -> EvidenceEvent:
+def synthetic_event(kind: EventKind, detail: str, timestamp: int = 0) -> EvidenceEvent:
     return EvidenceEvent(
         stream="engine",
         timestamp=timestamp,
