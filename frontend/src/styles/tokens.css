@@ -1,0 +1,750 @@
+/* =============================================================================
+   NpmGuard v3 — design tokens
+   Authored from docs/specs/2026-07-25-frontend-design-direction.md §2.
+   That document is the authority; every value here is quoted from it, and any
+   deviation carries a comment saying why. Do not re-pick a colour by eye — the
+   ratios in §2.2 were computed, and `token-contract.test.ts` recomputes them.
+
+   THE SHAPE (§2.1)
+   ----------------
+   1. Primitives live in scoped custom properties (`:root` / system-dark /
+      `.dark`) because their VALUES change per theme.
+   2. `@theme inline` maps them into Tailwind's namespaces so utilities are
+      generated as `var(--ng-canvas)` rather than as a copied hex. That is the
+      whole reason for `inline`: one class (`bg-canvas`) works in both themes,
+      and a `.dark` stamped on a SUBTREE works too — a non-inline `@theme`
+      resolves `--color-canvas` once at `:root` and the subtree inherits the
+      stale value.
+
+   WHY EVERY PRIMITIVE IS `--ng-`-PREFIXED (a deviation from §2.1's snippet)
+   ------------------------------------------------------------------------
+   §2.1 writes the primitives unprefixed (`--canvas`, `--surface`). We cannot:
+   the legacy sheet `base.css` already defines `--canvas`, `--surface`,
+   `--danger`, `--safe`, `--error`, `--focus-ring`, `--scrim`, `--shadow-card`,
+   `--font-sans`, `--font-mono`, `--h-row` and `--h-topbar` at `:root` with
+   DIFFERENT values — and `--focus-ring` with a different *type* (legacy holds a
+   colour and does `outline: 3px solid var(--focus-ring)`; §2.8's is a
+   box-shadow list). Sharing those names would repaint the eight legacy pages
+   and silently delete their focus ring. Prefixing makes the collision
+   unrepresentable instead of merely unlikely.
+   The names a component author touches are UNCHANGED from the brief: the
+   utilities are `bg-canvas`, `text-text-2`, `border-border-control`,
+   `shadow-card`, `rounded-lg`, `ease-out`. `--ng-*` is an implementation
+   detail of the mapping. Once the legacy sheets are deleted the prefix can go.
+
+   HOW A PAGE CONSUMES THIS
+   ------------------------
+   Utilities, first and last: `class="bg-surface text-text border border-border
+   rounded-lg shadow-card p-4"`.
+
+   Raw CSS — a keyframe, an SVG `fill` attribute, an inline style, a `calc()` —
+   reads the PRIMITIVE: `var(--ng-surface)`, `var(--ng-dur-enter)`,
+   `var(--ng-ease-out)`. Not `var(--color-surface)`: an `@theme inline` key is
+   substituted into the utility at build time and is deliberately never emitted
+   as a custom property, so `var(--color-surface)` resolves to nothing. Verified
+   against the built stylesheet, not assumed.
+   The literal-valued keys below (`--radius-*`, `--text-*`) are utility-only for
+   a second reason: Tailwind tree-shakes theme variables nothing references, so
+   `var(--radius-xl)` in raw CSS would work or not depending on whether some
+   other file happened to use `rounded-xl`. Use the utility.
+
+   There is no third source of colour: §6's "no raw hex outside the token block"
+   is enforced mechanically below by closing the default palette.
+   ============================================================================= */
+
+/* `source(none)` + explicit `@source`: automatic content detection walks up from
+   the CSS file and would sweep the whole monorepo — `engine/`, and
+   `sandbox/test-fixtures/` which holds live malware from the Datadog corpus.
+   Scanning it as text is harmless but it is not something to do by accident,
+   and an explicit list is also deterministic and fast. Add a line here if a new
+   source root appears. */
+@import "tailwindcss" source(none);
+@source "../../index.html";
+@source "../**/*.{ts,tsx}";
+
+/* The `dark:` variant, and why it has two arms rather than §2.1's one.
+   §2.1 shows only `&:where(.dark, .dark *)` — the shadcn convention. But §2.1's
+   own token blocks ALSO flip on `prefers-color-scheme`, so with a single-arm
+   variant a `dark:`-prefixed utility would silently not apply to a system-dark
+   user who has never stamped a class. The two arms make the variant fire in
+   exactly the cases where the dark tokens are live. Colour needs this rarely
+   (that is what `@theme inline` buys); non-colour dark overrides — a dropped
+   shadow, a flipped gradient — need it always. */
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   Close the inherited vocabulary.
+
+   Tailwind ships ~300 palette colours, 4 extra type steps, 3 extra radii, 6
+   extra shadows and a bounce. Every one of them is a way to put an off-system
+   value on screen while looking like idiomatic Tailwind — `bg-red-500` reads
+   fine in review and is exactly what §6's checklist forbids. Setting them to
+   `initial` deletes the utility, so the review item becomes a build outcome
+   instead of a discipline. This is the N-0 move: make the bad state
+   unrepresentable rather than handle it.
+
+   If you reach for one of these and find it gone, the substitute is a token:
+     bg-white          → bg-surface (a surface) or bg-danger-on (ink on a fill)
+     bg-black/50       → bg-scrim   (§2.6 fixes the alpha per theme)
+     bg-red-50         → bg-danger-wash
+     text-red-700      → text-danger-text
+     shadow-md         → shadow-card / shadow-pop / shadow-modal (§2.6)
+     rounded-2xl       → rounded-xl is the roundest thing in this system (§2.8)
+     ease-in-out       → ease-std (same curve; §2.9 names three eases, not four)
+   ----------------------------------------------------------------------------- */
+@theme {
+  --color-*: initial;
+  /* Structural keywords, not colours — `border-transparent`, `text-current`
+     and `fill-inherit` are plumbing and have no design opinion. */
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-inherit: inherit;
+
+  /* §2.7's scale tops out at `--text-figure`. */
+  --text-6xl: initial;
+  --text-6xl--line-height: initial;
+  --text-7xl: initial;
+  --text-7xl--line-height: initial;
+  --text-8xl: initial;
+  --text-8xl--line-height: initial;
+  --text-9xl: initial;
+  --text-9xl--line-height: initial;
+
+  /* §2.8: "modest, because a case file is not a bubble." */
+  --radius-2xl: initial;
+  --radius-3xl: initial;
+  --radius-4xl: initial;
+
+  /* §2.6 defines four elevations. Tailwind's neutral-grey shadows would also
+     break the warm tint that is the palette's cheapest differentiator. */
+  --shadow-2xs: initial;
+  --shadow-xs: initial;
+  --shadow-md: initial;
+  --shadow-lg: initial;
+  --shadow-xl: initial;
+  --shadow-2xl: initial;
+  --inset-shadow-*: initial;
+
+  /* §2.9 names three eases, each with one job. `ease-in-out` is byte-identical
+     to `ease-std` and its name implies a fourth job that does not exist. */
+  --ease-in-out: initial;
+
+  /* §2.9 rule 3: "no scale-up, no bounce, no confetti — for either verdict." */
+  --animate-bounce: initial;
+
+  /* D-8 (system design §8b): no serif. The type system is sans for interface
+     and mono for machine-authored fact; a third voice competes with the mono
+     signal, which is the one that carries meaning here. Deleting the namespace
+     means `font-serif` cannot be reintroduced by autocomplete. */
+  --font-serif: initial;
+}
+
+/* =============================================================================
+   §2.2 — PRIMITIVES, light
+   All colours authored in OKLCH (perceptually uniform lightness is what makes
+   the two themes derivable rather than guessed) and shipped as hex for
+   predictability. The OKLCH triple stays in a comment on every token so the
+   next person can re-step a ramp instead of eyedropping it.
+   ============================================================================= */
+:root {
+  color-scheme: light;
+
+  /* -- surfaces: four elevation levels ------------------------------------- */
+  --ng-sunken: #f4f3f0; /* oklch(0.964 0.0045 95) — log panes, code, table head */
+  --ng-canvas: #fbfaf8; /* oklch(0.986 0.0030 95) — the page plane */
+  --ng-surface: #ffffff; /* oklch(1.000 0      95) — cards, panels, table body */
+  --ng-raised: #ffffff; /* oklch(1.000 0      95) — popovers, dialogs, tooltips */
+
+  /* Hue 95 at chroma <= 0.005 in BOTH themes: a barely-perceptible warmth that
+     survives into dark mode, so dark reads as "ink and paper at night" rather
+     than as a console. In light mode elevation rises toward white while inset
+     elements go darker; dark mode inverts that and carries elevation on the
+     surface step plus the hairline (§2.6). */
+
+  /* -- text ---------------------------------------------------------------- */
+  --ng-text: #22201c; /* 15.59 canvas / 16.26 surface / 14.65 sunken */
+  --ng-text-2: #585752; /*  6.94 /  7.24 /  6.53 */
+  --ng-text-3: #6e6d68; /*  4.97 /  5.18 /  4.67 — the tightest pair in the system */
+
+  /* `--ng-text-3` is deliberately still legal for body text (4.67:1 at its
+     worst, on sunken). One step lighter measured 4.03:1 and FAILED; it was
+     darkened to clear AA. In a product full of dense tables the muted step
+     inevitably carries real content — versions, timestamps, paths — and a muted
+     token that cannot legally carry content is a trap. */
+
+  /* -- borders ------------------------------------------------------------- */
+  --ng-border-faint: #ededea; /* row separators inside a table */
+  --ng-border: #dddcd9; /* default hairline: cards, panels, dividers */
+  --ng-border-strong: #c3c2bf; /* emphasis dividers, active table column */
+  --ng-border-control: #8d8c88; /* INTERACTIVE boundaries — 3.37:1 on surface */
+
+  /* `--ng-border-control` is the token the old app never had, which made every
+     input it rendered a latent WCAG 1.4.11 failure. The decorative hairlines
+     measure 1.31–1.43:1 and are never the sole indicator of a control; an
+     input, checkbox or unfilled button wears `border-control`. */
+
+  /* -- semantics: five steps each (§2.2) ----------------------------------- */
+  /* mark (>=3:1, icons/fills/chart marks) · text (>=4.5:1 on canvas/surface/
+     wash) · border (the wash's hairline) · wash (tinted background) · on (text
+     placed ON a mark fill). */
+  --ng-danger: #cb2529; /* oklch(0.545 0.200 26)  */
+  --ng-danger-text: #ab0d19; /* oklch(0.470 0.185 26)  */
+  --ng-danger-border: #ec978e; /* oklch(0.760 0.105 26)  */
+  --ng-danger-wash: #ffefed; /* oklch(0.966 0.020 26)  */
+  --ng-danger-on: #ffffff;
+
+  --ng-safe: #197c4d; /* oklch(0.520 0.115 157) */
+  --ng-safe-text: #066039; /* oklch(0.430 0.100 157) */
+  --ng-safe-border: #96c9a9; /* oklch(0.790 0.070 157) */
+  --ng-safe-wash: #ebf8f0; /* oklch(0.968 0.018 157) */
+  --ng-safe-on: #ffffff;
+
+  --ng-error: #7e47ba; /* oklch(0.520 0.175 303) */
+  --ng-error-text: #6d2ea9; /* oklch(0.455 0.185 303) */
+  --ng-error-border: #c5afe5; /* oklch(0.790 0.080 303) */
+  --ng-error-wash: #f7f2fe; /* oklch(0.968 0.017 303) */
+  --ng-error-on: #ffffff;
+
+  --ng-accent: #1566c5; /* oklch(0.520 0.165 256) */
+  --ng-accent-text: #0052af; /* oklch(0.455 0.165 256) */
+  --ng-accent-border: #9bbdeb; /* oklch(0.790 0.075 256) */
+  --ng-accent-wash: #ecf5ff; /* oklch(0.968 0.019 256) */
+  --ng-accent-on: #ffffff;
+
+  /* -- chart series 2 and 3 (§2.5; slot 1 aliases accent, below) ----------- */
+  --ng-series-2: #eb6834; /* orange */
+  --ng-series-3: #1baf7a; /* aqua — 2.70:1 on light canvas, see the relief rule */
+
+  /* -- elevation (§2.6): two-layer, low-alpha, warm-tinted ----------------- */
+  --ng-shadow-sm: 0 1px 2px rgb(34 32 28 / 0.05);
+  --ng-shadow-card: 0 2px 4px rgb(34 32 28 / 0.05), 0 1px 1px rgb(34 32 28 / 0.04);
+  --ng-shadow-pop: 0 8px 24px rgb(34 32 28 / 0.1), 0 2px 6px rgb(34 32 28 / 0.06);
+  --ng-shadow-modal: 0 24px 64px rgb(34 32 28 / 0.18), 0 4px 12px rgb(34 32 28 / 0.08);
+  --ng-scrim: rgb(24 22 19 / 0.42); /* inside the 40–60% legibility band */
+}
+
+/* =============================================================================
+   §2.2 — PRIMITIVES, dark
+   Authored, not derived: these are NOT a lightness-flip of the light steps.
+   They were re-stepped for the dark band, and `danger` was placed a full
+   lightness step below `safe`/`error` (L 0.56 vs 0.66) because equal-lightness
+   red and green are precisely what deuteranopia cannot separate — that single
+   offset moved dark-mode CVD separation from a failing dE 5.8 to a passing 9.9
+   (§2.3). Re-run `validate_palette.js` on ANY palette edit; do not reason about
+   dE by eye.
+
+   The block appears twice — once for the system preference, once for an
+   explicit `.dark` — because CSS has no way to share a declaration list between
+   two selectors that must stay independently addressable. `token-contract.test`
+   asserts the two copies are identical, so they cannot drift.
+   ============================================================================= */
+@media (prefers-color-scheme: dark) {
+  /* `:not(.light)` is the escape hatch: an explicit light stamp beats OS dark. */
+  :root:not(.light) {
+    color-scheme: dark;
+
+    --ng-sunken: #0a0908; /* oklch(0.142 0.0040 95) */
+    --ng-canvas: #100f0d; /* oklch(0.170 0.0040 95) */
+    --ng-surface: #181816; /* oklch(0.208 0.0045 95) */
+    --ng-raised: #23221f; /* oklch(0.252 0.0050 95) */
+
+    --ng-text: #f5f4f2; /* 17.43 canvas / 16.18 surface / 18.10 sunken */
+    --ng-text-2: #b2b2ae; /*  9.01 /  8.36 /  9.35 */
+    --ng-text-3: #8f8e8a; /*  5.84 /  5.42 /  6.07 */
+
+    --ng-border-faint: #22211e;
+    --ng-border: #302f2c;
+    --ng-border-strong: #464541;
+    --ng-border-control: #6a6964; /* 3.23:1 on surface, 3.48:1 on canvas */
+
+    --ng-danger: #ca3735; /* oklch(0.560 0.185 26)  — a step below safe/error */
+    --ng-danger-text: #ff8e84; /* oklch(0.780 0.150 26)  */
+    --ng-danger-border: #892a27; /* oklch(0.430 0.130 26)  */
+    --ng-danger-wash: #3c1b18; /* oklch(0.268 0.052 26)  */
+    --ng-danger-on: #ffffff; /* the only `on` that stays white in dark */
+
+    --ng-safe: #37aa70; /* oklch(0.660 0.135 157) */
+    --ng-safe-text: #76d59f; /* oklch(0.800 0.120 157) */
+    --ng-safe-border: #1e5d3c; /* oklch(0.430 0.085 157) */
+    --ng-safe-wash: #0f2b1c; /* oklch(0.262 0.045 157) */
+    --ng-safe-on: #100f0d; /* white on #37aa70 is 2.94:1 — a FAIL. Hence a token. */
+
+    --ng-error: #a677df; /* oklch(0.660 0.155 303) */
+    --ng-error-text: #cfa9ff; /* oklch(0.800 0.130 303) */
+    --ng-error-border: #5f4184; /* oklch(0.440 0.110 303) */
+    --ng-error-wash: #2c203d; /* oklch(0.272 0.055 303) */
+    --ng-error-on: #100f0d;
+
+    --ng-accent: #468ae2; /* oklch(0.630 0.150 256) */
+    --ng-accent-text: #84bdff; /* oklch(0.790 0.125 256) */
+    --ng-accent-border: #26518a; /* oklch(0.435 0.105 256) */
+    --ng-accent-wash: #132640; /* oklch(0.268 0.055 256) */
+    --ng-accent-on: #100f0d;
+
+    --ng-series-2: #d95926;
+    --ng-series-3: #199e70;
+
+    /* §2.6: shadow is nearly invisible on a #100f0d canvas, so elevation is
+       carried by the surface step and the hairline, plus a 1px inset top
+       highlight to catch the edge. */
+    --ng-shadow-sm: none;
+    --ng-shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03);
+    --ng-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.05);
+    --ng-shadow-modal: 0 32px 72px rgb(0 0 0 / 0.7), inset 0 1px 0 rgb(255 255 255 / 0.06);
+    --ng-scrim: rgb(0 0 0 / 0.62); /* higher than light: the dialog surface sits
+                                      closer in lightness to the canvas */
+  }
+}
+
+.dark {
+  color-scheme: dark;
+
+  --ng-sunken: #0a0908; /* oklch(0.142 0.0040 95) */
+  --ng-canvas: #100f0d; /* oklch(0.170 0.0040 95) */
+  --ng-surface: #181816; /* oklch(0.208 0.0045 95) */
+  --ng-raised: #23221f; /* oklch(0.252 0.0050 95) */
+
+  --ng-text: #f5f4f2; /* 17.43 canvas / 16.18 surface / 18.10 sunken */
+  --ng-text-2: #b2b2ae; /*  9.01 /  8.36 /  9.35 */
+  --ng-text-3: #8f8e8a; /*  5.84 /  5.42 /  6.07 */
+
+  --ng-border-faint: #22211e;
+  --ng-border: #302f2c;
+  --ng-border-strong: #464541;
+  --ng-border-control: #6a6964; /* 3.23:1 on surface, 3.48:1 on canvas */
+
+  --ng-danger: #ca3735; /* oklch(0.560 0.185 26)  — a step below safe/error */
+  --ng-danger-text: #ff8e84; /* oklch(0.780 0.150 26)  */
+  --ng-danger-border: #892a27; /* oklch(0.430 0.130 26)  */
+  --ng-danger-wash: #3c1b18; /* oklch(0.268 0.052 26)  */
+  --ng-danger-on: #ffffff; /* the only `on` that stays white in dark */
+
+  --ng-safe: #37aa70; /* oklch(0.660 0.135 157) */
+  --ng-safe-text: #76d59f; /* oklch(0.800 0.120 157) */
+  --ng-safe-border: #1e5d3c; /* oklch(0.430 0.085 157) */
+  --ng-safe-wash: #0f2b1c; /* oklch(0.262 0.045 157) */
+  --ng-safe-on: #100f0d; /* white on #37aa70 is 2.94:1 — a FAIL. Hence a token. */
+
+  --ng-error: #a677df; /* oklch(0.660 0.155 303) */
+  --ng-error-text: #cfa9ff; /* oklch(0.800 0.130 303) */
+  --ng-error-border: #5f4184; /* oklch(0.440 0.110 303) */
+  --ng-error-wash: #2c203d; /* oklch(0.272 0.055 303) */
+  --ng-error-on: #100f0d;
+
+  --ng-accent: #468ae2; /* oklch(0.630 0.150 256) */
+  --ng-accent-text: #84bdff; /* oklch(0.790 0.125 256) */
+  --ng-accent-border: #26518a; /* oklch(0.435 0.105 256) */
+  --ng-accent-wash: #132640; /* oklch(0.268 0.055 256) */
+  --ng-accent-on: #100f0d;
+
+  --ng-series-2: #d95926;
+  --ng-series-3: #199e70;
+
+  --ng-shadow-sm: none;
+  --ng-shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03);
+  --ng-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --ng-shadow-modal: 0 32px 72px rgb(0 0 0 / 0.7), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --ng-scrim: rgb(0 0 0 / 0.62);
+}
+
+/* =============================================================================
+   PRIMITIVES that are the same in both themes.
+   Anything defined as `var(--ng-…)` here is theme-aware for free, and aliasing
+   is how the brief wrote it — an alias cannot drift from its source, a copied
+   hex can.
+   ============================================================================= */
+:root {
+  /* -- §2.2 the progress axis, explicitly achromatic ----------------------- */
+  /* Rule 2 of §0: the progress axis (unaudited -> queued -> running ->
+     concluded) gets no hue at all. Only OUTCOMES get colour. This is what makes
+     the old `UNKNOWN` conflation impossible to re-express visually even by
+     accident, and it is what fixed the §2.3 colourblind failure. */
+  --ng-progress-ink: var(--ng-text-2); /* "queued" / "running" label */
+  --ng-progress-idle: var(--ng-text-3); /* "unaudited" label */
+  --ng-progress-track: var(--ng-border-faint); /* meter / bar track */
+  --ng-progress-mark: var(--ng-accent); /* the MOVING part only (spinner arc) */
+  --ng-progress-hatch: var(--ng-border-strong); /* 45 degree hatch stroke */
+
+  /* `--ng-progress-mark` is the ONLY place accent appears in a status context,
+     and it is confined to the animated arc of a spinner — the label beside it
+     stays neutral ink. That confinement is what keeps "running" from ever
+     reading as a verdict, and it is why accent never has to be distinguishable
+     from the outcome hues in a status column: it is never a status. */
+
+  /* -- §2.5 chart series 1 ------------------------------------------------- */
+  /* "Slot 1 is the accent step in each theme — the accent is not a status
+     colour, so reusing it for the primary series is intentional and keeps the
+     system's one interactive/system hue consistent between chrome and charts."
+     THREE SERIES IS THE CAP. There is no slot 4; do not generate one. */
+  --ng-series-1: var(--ng-accent);
+
+  /* -- §2.5 sequential ramp (single hue, blue, for magnitude) -------------- */
+  /* One ramp for both themes: the contrast column in §2.5 is stated against
+     each canvas separately, and the steps themselves do not change. For ORDINAL
+     ramps the step nearest the surface must still clear 2:1 — on light start no
+     lighter than 300, on dark go no darker than 600. Diverging scales are NOT
+     defined, deliberately: nothing here is bipolar, and a diverging scale
+     invites someone to encode "safety" on a continuum. */
+  --ng-seq-100: #dbe9fc; /* 1.18 light canvas / 15.58 dark */
+  --ng-seq-200: #bed6f7; /* 1.42 / 12.91 */
+  --ng-seq-300: #9fc0ed; /* 1.79 / 10.25 */
+  --ng-seq-400: #7ca7e0; /* 2.38 /  7.72 */
+  --ng-seq-500: #578bcf; /* 3.36 /  5.47 */
+  --ng-seq-600: #3270c0; /* 4.78 /  3.84 */
+  --ng-seq-700: #0055ae; /* 6.92 /  2.66 */
+  --ng-seq-800: #003c94; /* 9.71 /  1.89 */
+
+  /* -- §2.7 faces ---------------------------------------------------------- */
+  /* Mono = a machine-authored fact (package name, version, hash, path, code,
+     count, rate, duration, audit id). Sans = interface language. There is no
+     third face: D-8 settled that against a survey of dev-tool landing pages.
+     Corollary, and it is enforceable in review: EVERY number that is a
+     measurement is set in mono, including the hero figures on /benchmark. A
+     percentage is a reading, not a headline.
+     "Inter Variable" is the family name @fontsource-variable/inter installs;
+     §2.7 writes "Inter var", which is the old self-hosted name. Both are listed
+     so either source satisfies the stack. */
+  --ng-font-sans: "Inter Variable", "Inter var", Inter, ui-sans-serif, system-ui, -apple-system,
+    sans-serif;
+  --ng-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* -- §2.8 spacing: 4px base, dense-dashboard biased ---------------------- */
+  /* Derived from Tailwind's `--spacing` rather than restated as px, so
+     `var(--ng-space-4)` and `p-4` cannot disagree — the ladder in §2.8 IS the
+     4px ladder. Rem-based, so it scales with a user's root font size. */
+  --ng-space-0-5: calc(var(--spacing) * 0.5); /*  2px */
+  --ng-space-1: calc(var(--spacing) * 1); /*  4px */
+  --ng-space-1-5: calc(var(--spacing) * 1.5); /*  6px */
+  --ng-space-2: calc(var(--spacing) * 2); /*  8px */
+  --ng-space-3: calc(var(--spacing) * 3); /* 12px — within a card */
+  --ng-space-4: calc(var(--spacing) * 4); /* 16px — within a card */
+  --ng-space-5: calc(var(--spacing) * 5); /* 20px */
+  --ng-space-6: calc(var(--spacing) * 6); /* 24px — between cards */
+  --ng-space-8: calc(var(--spacing) * 8); /* 32px */
+  --ng-space-10: calc(var(--spacing) * 10); /* 40px */
+  --ng-space-12: calc(var(--spacing) * 12); /* 48px — between page sections */
+  --ng-space-16: calc(var(--spacing) * 16); /* 64px */
+  --ng-space-20: calc(var(--spacing) * 20); /* 80px */
+  --ng-space-24: calc(var(--spacing) * 24); /* 96px — static-surface sections */
+
+  /* -- §2.8 borders -------------------------------------------------------- */
+  --ng-border-hairline: 1px; /* everything, by default */
+  --ng-border-emphasis: 2px; /* focus ring, active phase indicator */
+  --ng-border-rule: 3px; /* left rule on a DANGEROUS / ERROR row or card */
+
+  /* The 3px left rule is how severity reaches a row without adding a coloured
+     background to three hundred of them. Whole-row wash tinting is reserved for
+     the log and evidence panes, where rows are few and the tint is the point. */
+
+  /* -- §2.8 control sizes -------------------------------------------------- */
+  --ng-h-control-sm: 28px;
+  --ng-h-control: 34px;
+  --ng-h-control-lg: 40px;
+  --ng-h-row-dense: 32px;
+  --ng-h-row: 40px;
+  --ng-h-row-comfy: 48px;
+  --ng-h-topbar: 56px;
+  --ng-size-icon-sm: 14px;
+  --ng-size-icon: 16px;
+  --ng-size-icon-lg: 20px;
+  --ng-tap-min: 44px; /* HIT area, extended via padding or ::before — not the
+                         visual box. Below 768px every control's hit area grows
+                         to this even while its visual box stays 34px, and dense
+                         table rows relax to --ng-h-row-comfy. */
+
+  /* -- §2.8 focus: one ring, everywhere, no exceptions --------------------- */
+  /* Accent-on-canvas is 5.38:1 light / 5.47:1 dark, well clear of the 3:1
+     non-text floor. The inner canvas-coloured ring keeps it legible when the
+     focused element sits on a wash or a fill. Focus is never removed;
+     `:focus-visible` only, so mouse users don't see it and keyboard users
+     always do. Applied in base.css. */
+  --ng-focus-ring: 0 0 0 2px var(--ng-canvas), 0 0 0 4px var(--ng-accent);
+
+  /* -- §2.9 motion --------------------------------------------------------- */
+  /* Enter uses ease-out, exit uses ease-in and is shorter. Only `transform` and
+     `opacity` animate — never width, height, top or left. Animations are
+     interruptible and never block input.
+     The eases get primitives (unlike the radii and the type scale) because an
+     `animation:` shorthand in a component's own CSS needs the curve by name,
+     and a tree-shaken `var(--ease-std)` would silently fall back to linear. */
+  --ng-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); /* entering */
+  --ng-ease-in: cubic-bezier(0.4, 0, 1, 1); /* exiting */
+  --ng-ease-std: cubic-bezier(0.4, 0, 0.2, 1); /* moving / resizing */
+
+  --ng-dur-press: 80ms; /* active state */
+  --ng-dur-fast: 120ms; /* hover, focus, colour change */
+  --ng-dur-base: 180ms; /* state change, popover, tooltip */
+  --ng-dur-enter: 240ms; /* dialog, sheet, drawer */
+  --ng-dur-exit: 160ms; /* ~65% of enter */
+  --ng-dur-reveal: 420ms; /* the verdict reveal — the one deliberate slow one */
+  --ng-stagger: 40ms; /* per item, capped at 6 items = 240ms total */
+
+  /* Not named in §2.9, required by it: reduced motion sends "all durations to
+     0ms, EXCEPT content-replacement crossfades which hold at 80ms opacity-only
+     so a swap doesn't read as a glitch." That exception needs its own token,
+     because it is the one duration that must survive the override below. */
+  --ng-dur-crossfade: 80ms;
+
+  /* -- the 45 degree hatch ------------------------------------------------- */
+  /* §3.4 rule 3: one texture, one meaning — "no signal here". It is the fill
+     for a DegradedState body, an unknown meter, a pending ribbon segment, and
+     the reduced-motion replacement for the indeterminate marching hairline.
+     §5 leaves the geometry open; 1px on a 6px pitch reads as texture rather
+     than as stripes at the 32–48px band heights these components use, and it
+     stays legible at the 2px segment gaps of the SeverityRibbon. */
+  --ng-hatch-stroke: 1px;
+  --ng-hatch-pitch: 6px;
+}
+
+/* =============================================================================
+   §2.9 — REDUCED MOTION, designed rather than defaulted.
+
+   Done at the TOKEN level, not by disabling animations. Every component that
+   spends a duration token complies automatically, and the one exception §2.9
+   grants — the 80ms content crossfade — survives, which a blanket
+   `animation: none` would flatten. The rest of §2.9's reduced-motion contract
+   is component work and cannot live here: spinners become a static glyph plus
+   the phase name plus the live elapsed counter; the marching hairline becomes
+   the static hatch; streaming inserts appear with a persistent NEW chip for 8s
+   instead of an animation; the verdict reveal becomes an immediate state change
+   plus an `aria-live="polite"` announcement.
+   ============================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ng-dur-press: 0ms;
+    --ng-dur-fast: 0ms;
+    --ng-dur-base: 0ms;
+    --ng-dur-enter: 0ms;
+    --ng-dur-exit: 0ms;
+    --ng-dur-reveal: 0ms;
+    --ng-stagger: 0ms;
+    /* --ng-dur-crossfade deliberately holds at 80ms. */
+  }
+}
+
+/* =============================================================================
+   THE MAPPING — primitives into Tailwind's namespaces.
+   `inline` throughout: see the header. Every line here is the contract between
+   a token and the utility that reaches it.
+   ============================================================================= */
+@theme inline {
+  /* -- surfaces (§2.2) → bg-canvas, bg-surface, bg-sunken, bg-raised ------- */
+  --color-sunken: var(--ng-sunken);
+  --color-canvas: var(--ng-canvas);
+  --color-surface: var(--ng-surface);
+  --color-raised: var(--ng-raised);
+
+  /* -- text (§2.2) → text-text, text-text-2, text-text-3 ------------------- */
+  --color-text: var(--ng-text);
+  --color-text-2: var(--ng-text-2);
+  --color-text-3: var(--ng-text-3);
+
+  /* -- borders (§2.2) → border-border, border-border-control, … ------------ */
+  --color-border-faint: var(--ng-border-faint);
+  --color-border: var(--ng-border);
+  --color-border-strong: var(--ng-border-strong);
+  --color-border-control: var(--ng-border-control);
+
+  /* -- semantics (§2.2) → bg-danger-wash, text-danger-text, fill-danger, … - */
+  --color-danger: var(--ng-danger);
+  --color-danger-text: var(--ng-danger-text);
+  --color-danger-border: var(--ng-danger-border);
+  --color-danger-wash: var(--ng-danger-wash);
+  --color-danger-on: var(--ng-danger-on);
+
+  --color-safe: var(--ng-safe);
+  --color-safe-text: var(--ng-safe-text);
+  --color-safe-border: var(--ng-safe-border);
+  --color-safe-wash: var(--ng-safe-wash);
+  --color-safe-on: var(--ng-safe-on);
+
+  --color-error: var(--ng-error);
+  --color-error-text: var(--ng-error-text);
+  --color-error-border: var(--ng-error-border);
+  --color-error-wash: var(--ng-error-wash);
+  --color-error-on: var(--ng-error-on);
+
+  --color-accent: var(--ng-accent);
+  --color-accent-text: var(--ng-accent-text);
+  --color-accent-border: var(--ng-accent-border);
+  --color-accent-wash: var(--ng-accent-wash);
+  --color-accent-on: var(--ng-accent-on);
+
+  /* -- progress axis (§2.2) → text-progress-ink, bg-progress-track, … ------ */
+  --color-progress-ink: var(--ng-progress-ink);
+  --color-progress-idle: var(--ng-progress-idle);
+  --color-progress-track: var(--ng-progress-track);
+  --color-progress-mark: var(--ng-progress-mark);
+  --color-progress-hatch: var(--ng-progress-hatch);
+
+  /* -- charts (§2.5) → fill-series-1, stroke-seq-500, … -------------------- */
+  --color-series-1: var(--ng-series-1);
+  --color-series-2: var(--ng-series-2);
+  --color-series-3: var(--ng-series-3);
+  --color-seq-100: var(--ng-seq-100);
+  --color-seq-200: var(--ng-seq-200);
+  --color-seq-300: var(--ng-seq-300);
+  --color-seq-400: var(--ng-seq-400);
+  --color-seq-500: var(--ng-seq-500);
+  --color-seq-600: var(--ng-seq-600);
+  --color-seq-700: var(--ng-seq-700);
+  --color-seq-800: var(--ng-seq-800);
+
+  /* -- scrim (§2.6) → bg-scrim -------------------------------------------- */
+  --color-scrim: var(--ng-scrim);
+
+  /* -- faces (§2.7) → font-sans, font-mono -------------------------------- */
+  --font-sans: var(--ng-font-sans);
+  --font-mono: var(--ng-font-mono);
+
+  /* -- easings (§2.9) → ease-out, ease-in, ease-std ----------------------- */
+  --ease-out: var(--ng-ease-out);
+  --ease-in: var(--ng-ease-in);
+  --ease-std: var(--ng-ease-std);
+
+  /* -- elevation (§2.6) → shadow-sm, shadow-card, shadow-pop, shadow-modal - */
+  --shadow-sm: var(--ng-shadow-sm);
+  --shadow-card: var(--ng-shadow-card);
+  --shadow-pop: var(--ng-shadow-pop);
+  --shadow-modal: var(--ng-shadow-modal);
+
+  /* -- control sizes (§2.8) ----------------------------------------------- */
+  /* The `--spacing-*` namespace feeds every spacing-shaped utility, so one
+     token yields `h-control`, `min-h-tap`, `size-icon`, `gap-icon`, `p-row`. */
+  --spacing-control-sm: var(--ng-h-control-sm);
+  --spacing-control: var(--ng-h-control);
+  --spacing-control-lg: var(--ng-h-control-lg);
+  --spacing-row-dense: var(--ng-h-row-dense);
+  --spacing-row: var(--ng-h-row);
+  --spacing-row-comfy: var(--ng-h-row-comfy);
+  --spacing-topbar: var(--ng-h-topbar);
+  --spacing-icon-sm: var(--ng-size-icon-sm);
+  --spacing-icon: var(--ng-size-icon);
+  --spacing-icon-lg: var(--ng-size-icon-lg);
+  --spacing-tap: var(--ng-tap-min);
+
+  /* Bare `transition` should spend §2.9's state-change duration, not Tailwind's
+     150ms — and because it resolves to the token, it also drops to 0ms under
+     reduced motion for free. Tailwind's default timing function is already
+     byte-identical to §2.9's `--ease-std`, so it is left alone. */
+  --default-transition-duration: var(--ng-dur-base);
+}
+
+/* =============================================================================
+   Theme keys whose §2 names ALREADY are Tailwind namespaces and whose values do
+   not vary by theme. Literal here rather than aliased through `--ng-*`: the
+   indirection would buy nothing and cost a lookup.
+   ============================================================================= */
+@theme {
+  /* -- §2.7 type scale ---------------------------------------------------- */
+  /* Root 16px. App base is 14px (`text-base`) because the app is dense; static
+     surfaces base at 16px (`text-md`) because they are read. Rem values are
+     §2.7's own second column. */
+  --text-2xs: 0.6875rem; /* 11px — table meta, kbd, chart tick. NEVER body. */
+  --text-2xs--line-height: 1.45;
+  --text-xs: 0.75rem; /* 12px — column headers, chips, secondary cell text */
+  --text-xs--line-height: 1.45;
+  --text-sm: 0.8125rem; /* 13px — dense table body, dep rows */
+  --text-sm--line-height: 1.5;
+  --text-base: 0.875rem; /* 14px — app body default */
+  --text-base--line-height: 1.55;
+  --text-md: 1rem; /* 16px — static-surface body; ALL form inputs on mobile */
+  --text-md--line-height: 1.6;
+  --text-lg: 1.125rem; /* 18px — lead paragraph */
+  --text-lg--line-height: 1.6;
+  --text-xl: 1.25rem; /* 20px — card titles, section headings in app */
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.5rem; /* 24px — page titles */
+  --text-2xl--line-height: 1.3;
+  --text-3xl: 1.875rem; /* 30px — static section headings */
+  --text-3xl--line-height: 1.25;
+  --text-4xl: 2.375rem; /* 38px — static page titles */
+  --text-4xl--line-height: 1.15;
+  --text-5xl: 3rem; /* 48px — landing hero */
+  --text-5xl--line-height: 1.05;
+  --text-figure: 3.75rem; /* 60px — /benchmark hero figures (MONO, tabular) */
+  --text-figure--line-height: 1;
+
+  /* §2.7: prose measure caps at 68ch (Tailwind's default is 65ch). */
+  --max-width-prose: 68ch;
+
+  /* -- §2.8 radii: no `rounded-full` on any status element ---------------- */
+  /* The verdict chip is a 4px-radius rectangle — a stamp, not a pill. This is a
+     deliberate break from the category default (Surfshark, GitLab and
+     Cloudflare all use fully-round severity pills) and it is the single
+     strongest carrier of the "record, not a consumer app" read. Fully-round is
+     reserved for avatars and the count dot on a nav item; `rounded-full` is a
+     static utility and cannot be removed from the token layer, so that one
+     stays a review item. */
+  --radius-xs: 3px; /* kbd, tiny chips */
+  --radius-sm: 4px; /* verdict stamps, badges, inputs, dense buttons */
+  --radius-md: 6px; /* buttons, list rows, table row hover */
+  --radius-lg: 8px; /* cards, panels */
+  --radius-xl: 10px; /* dialogs, sheets */
+
+  /* -- §2.8 breakpoints --------------------------------------------------- */
+  /* §2.8's gutter ladder steps 16 -> 24 -> 32 -> 48 across 375 / 768 / 1024 /
+     1440. 375 is the base (no query), 768 is `md`, 1024 is `lg`; 1440 has no
+     Tailwind default, so it is added rather than redefining `2xl` (1536) —
+     redefining a well-known stop would mislead every reader of `2xl:`.
+     This is the ONE token that cannot be aliased through a primitive: a media
+     query cannot read a custom property. */
+  --breakpoint-wide: 90rem; /* 1440px */
+}
+
+/* =============================================================================
+   Custom utilities. Two kinds only, both because the brief states them as one
+   thing used in many places — a shared texture and a fixed duration ladder.
+   Anything more specific belongs in a component.
+   ============================================================================= */
+
+/* The system's signature for "no signal here" (§3.4 rule 3). Set
+   `--ng-hatch-color` to pick the hue: `error` for a DegradedState (a failed
+   fetch is not a security finding — red is reserved for claims about packages),
+   the neutral progress hatch for a pending ribbon segment or an unknown meter.
+   `print-color-adjust: exact` because a hatch that vanishes on print takes the
+   "we don't know" with it. */
+@utility hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--ng-hatch-color, var(--ng-progress-hatch)) 0 var(--ng-hatch-stroke),
+    transparent var(--ng-hatch-stroke) var(--ng-hatch-pitch)
+  );
+  print-color-adjust: exact;
+}
+
+/* §2.9's duration ladder as utilities. Tailwind has no `--duration-*` theme
+   namespace — `duration-*` only accepts a number or an arbitrary value — so
+   without these the ladder would be reachable only as
+   `duration-[var(--ng-dur-base)]`, which is exactly the kind of spelling that
+   gets "simplified" to `duration-200` by the next person. */
+@utility duration-press {
+  transition-duration: var(--ng-dur-press);
+}
+@utility duration-fast {
+  transition-duration: var(--ng-dur-fast);
+}
+@utility duration-base {
+  transition-duration: var(--ng-dur-base);
+}
+@utility duration-enter {
+  transition-duration: var(--ng-dur-enter);
+}
+@utility duration-exit {
+  transition-duration: var(--ng-dur-exit);
+}
+@utility duration-reveal {
+  transition-duration: var(--ng-dur-reveal);
+}
+@utility duration-crossfade {
+  transition-duration: var(--ng-dur-crossfade);
+}
