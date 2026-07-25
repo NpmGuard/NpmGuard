@@ -233,6 +233,7 @@
   <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="7.8" r="4"/><path d="M4.6 20.6a7.4 7.4 0 0 1 14.8 0"/></symbol>
   <symbol id="i-box" viewBox="0 0 24 24"><path d="M12 2.6l8.6 4.7v9.4L12 21.4 3.4 16.7V7.3z"/><path d="M3.4 7.3L12 12l8.6-4.7M12 12v9.4"/></symbol>
   <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 3v9.6M12 12.6l-3.4-3.4M12 12.6l3.4-3.4"/><path d="M3.6 16v3.4a1.6 1.6 0 0 0 1.6 1.6h13.6a1.6 1.6 0 0 0 1.6-1.6V16"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.28 4.2a2 2 0 0 1 3.44 0l7.7 13.35a2 2 0 0 1-1.72 3H4.3a2 2 0 0 1-1.72-3z"/><path d="M12 9.5v4.6M12 17.7h.01"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M6 18L18 6"/></symbol>
 </svg>
 
@@ -281,7 +282,7 @@
   <div class="stage rv">
     <div class="side red bad"><span class="node"><svg><use href="#i-install"/></svg></span><span class="ttl">Installed automatically</span></div>
     <div class="step">npm<br>install</div>
-    <div class="side green good"><span class="node"><svg><use href="#i-stop"/></svg></span><span class="ttl">Publisher break</span></div>
+    <div class="side green good"><span class="node"><svg><use href="#i-warn"/></svg></span><span class="ttl">Warned: not the real publisher</span></div>
   </div>
 
   <!-- 5 · the outcome -->
@@ -315,6 +316,7 @@
       <dl class="rows">
         <div class="row"><dt>Adoption</dt><dd><b>axios never used this.</b> The four proved releases are reconstructed.</dd></div>
         <div class="row"><dt>The decoy</dt><dd>Continuity says <b>nothing</b> about the hidden dependency — a brand-new package has no history to break. That one is the code audit's job.</dd></div>
+        <div class="row"><dt>Not a block</dt><dd>NpmGuard <b>warns and asks</b> — a developer can still choose to install. It removes the silence, not the choice.</dd></div>
         <div class="row"><dt>Known gap</dt><dd><code>0.30.4</code> returns only <code>UNATTESTED</code> — the first bad release poisons the streak for the second. Measured, unfixed.</dd></div>
       </dl>
     </div>
