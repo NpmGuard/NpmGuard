@@ -56,8 +56,14 @@
 #      marker; early death and deadline expiry raise (→ SensorError → DEFER),
 #      never a silent dead capture
 #   C12 stop_pcap — a capture that died mid-run raises; collection waits for
-#      tcpdump's flush-and-exit; tshark failure raises instead of degrading to
-#      zero network events
+#      tcpdump's flush-and-exit; the capture is fetched RAW (no encoding hop);
+#      tshark failure raises instead of degrading to zero network events
+#   C12b INVARIANT: an over-cap transfer of a WHOLE capture is UNREPRESENTABLE,
+#      not merely loud — PCAP_FILE lives on the /tmp tmpfs, whose size the
+#      transfer cap dominates, and the transfer is raw. `base64 -w0`'s 4/3
+#      inflation was the last way a complete capture could pass the cap (13 MB
+#      arriving as a sealed 7.5 MiB pcapHash). Measured at the boundary in
+#      e2e/test_pcap_transfer.py (S48)
 # Adversarial pass: 2026-07-23/W6 — added the pure parse_snapshot and
 # parse_tshark_json partitions (previously untested).
 # Invariant pass: 2026-07-23 sensor-fidelity — C10-C12 flip the pinned
@@ -69,12 +75,13 @@
 # errno, dropped mdns/llmnr packets, dropped tab/newline paths) were invisible.
 # Classes C1-C9 are now driven by committed captures.
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from npmguard import sensors
-from npmguard.docker import ExecResult
+from npmguard.docker import MAX_EXEC_OUTPUT_BYTES, TMPFS_TMP, ExecResult
 from npmguard.sensors import (
     PCAP_FIELDS,
     PCAP_FILTER,
@@ -530,18 +537,21 @@ async def test_stop_pcap_raises_when_capture_died_mid_run(monkeypatch) -> None:
 
 async def test_stop_pcap_waits_for_flush_then_collects(monkeypatch) -> None:
     """C12: collection starts only after tcpdump has exited (TERM handler flushed
-    and closed the dump file); pcap bytes and parsed events come back. The tshark
-    invocation carries the shared PCAP_FILTER, so the filter can never drift from
-    the fields the parser extracts."""
-    import base64 as b64
-
+    and closed the dump file); pcap bytes and parsed events come back. The capture
+    is fetched through read_bytes_from_container — no `base64` exec appears in the
+    sequence at all, which is C12b's other half. The tshark invocation carries the
+    shared PCAP_FILTER, so the filter can never drift from the fields the parser
+    extracts."""
     pgrep_polls = 0
     order: list[str] = []
     filters: list[str] = []
+    execs: list[str] = []
+    reads: list[tuple[str, str, str | None]] = []
 
     async def fake(args, timeout_ms, stdin=None):
         nonlocal pgrep_polls
         joined = " ".join(args)
+        execs.append(joined)
         if "pkill" in args:
             order.append("pkill")
             return _ok()
@@ -549,20 +559,26 @@ async def test_stop_pcap_waits_for_flush_then_collects(monkeypatch) -> None:
             pgrep_polls += 1
             order.append("pgrep")
             return _ok("4242\n" if pgrep_polls < 3 else "")
-        if "base64" in args:
-            order.append("base64")
-            return _ok(b64.b64encode(b"PCAPBYTES").decode())
         assert "tshark" in args
         order.append("tshark")
         filters.append(args[args.index("-Y") + 1])
         return _ok("[]")
 
+    async def fake_read(container, path, *, user=None):
+        order.append("read")
+        reads.append((container, path, user))
+        return b"PCAPBYTES"
+
     monkeypatch.setattr(sensors, "docker_exec", fake)
+    monkeypatch.setattr(sensors, "read_bytes_from_container", fake_read)
     result = await sensors.stop_pcap("c1")
     assert result.raw_pcap == b"PCAPBYTES"
     assert result.events == []
-    assert order == ["pkill", "pgrep", "pgrep", "pgrep", "base64", "tshark"]
+    assert order == ["pkill", "pgrep", "pgrep", "pgrep", "read", "tshark"]
     assert filters == [PCAP_FILTER]
+    # The whole capture, read as root (tcpdump writes it with -Z root).
+    assert reads == [("c1", sensors.PCAP_FILE, "0")]
+    assert not [command for command in execs if "base64" in command]
 
 
 async def test_stop_pcap_failed_liveness_probe_is_not_exit_confirmation(monkeypatch) -> None:
@@ -585,20 +601,37 @@ async def test_stop_pcap_failed_liveness_probe_is_not_exit_confirmation(monkeypa
 async def test_stop_pcap_tshark_failure_raises_not_zero_events(monkeypatch) -> None:
     """C12: a failed tshark parse is missing evidence, not absent traffic — it
     raises instead of silently returning no network events."""
-    import base64 as b64
 
     async def fake(args, timeout_ms, stdin=None):
         if "pkill" in args:
             return _ok()
         if "pgrep" in " ".join(args):
             return _ok("")
-        if "base64" in args:
-            return _ok(b64.b64encode(b"PCAPBYTES").decode())
         return ExecResult("", "tshark: cut short in the middle of a packet", 2, False)
 
+    async def fake_read(container, path, *, user=None):
+        return b"PCAPBYTES"
+
     monkeypatch.setattr(sensors, "docker_exec", fake)
+    monkeypatch.setattr(sensors, "read_bytes_from_container", fake_read)
     with pytest.raises(RuntimeError, match="tshark parse failed"):
         await sensors.stop_pcap("c1")
+
+
+def test_a_whole_capture_cannot_pass_the_transfer_cap() -> None:
+    """C12b: the argument that makes an over-cap whole capture UNREPRESENTABLE,
+    checked where it can actually break. Two links: the capture is written to the
+    mount TMPFS_TMP describes (the same container also carries a 256 MiB /pkg
+    tmpfs and a 64 MiB /home/node one, so "a sensor file is bounded by the tmpfs"
+    is a claim about WHICH mount), and that mount's docker option really carries a
+    size the cap dominates — an unsized tmpfs defaults to half of host RAM and puts
+    the cap back in charge of which evidence arrives. docker.py's import-time assert
+    checks the CONSTANT; this checks the option string docker is handed, so
+    size=256m with SANDBOX_TMP_MB left at 64 fails here and nowhere else."""
+    assert sensors.PCAP_FILE.startswith(TMPFS_TMP.path + "/")
+    size = re.search(r"\bsize=(\d+)m\b", TMPFS_TMP.options)
+    assert size, f"TMPFS_TMP has no size option: {TMPFS_TMP.options}"
+    assert int(size.group(1)) * 1024 * 1024 <= MAX_EXEC_OUTPUT_BYTES
 
 
 def test_committed_runartifact_raws_all_reparse_through_the_current_parser() -> None:

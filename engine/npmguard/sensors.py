@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import json
 import re
 import shlex
@@ -7,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .contract.models import EvidenceEvent
-from .docker import docker_exec
+from .docker import docker_exec, read_bytes_from_container
 
 DEFAULT_WATCH_PATHS = ("/pkg", "/home/node")
 TRACED_SYSCALLS = (
@@ -166,8 +165,7 @@ def _complete_lines(log: str) -> list[str]:
     # a syscall that never happened. Both are asserted, never guessed.
     pending: dict[int | None, tuple[str, str, str]] = {}
     output: list[str] = []
-    lines = log.splitlines()
-    for line in lines:
+    for line in log.splitlines():
         if not line.strip():
             continue
         split = _split_prefix(line)
@@ -203,22 +201,20 @@ def _complete_lines(log: str) -> list[str]:
             )
             continue
         if not STRACE_CALL.match(body):
-            # The one benign cause is a TRUNCATED log: docker_exec caps stdout at
-            # 10MiB, so `cat /tmp/strace.log` on a very chatty run returns a prefix
-            # ending mid-line. Say so, because "unrecognised strace line" would send
-            # the reader hunting for a syntax they do not have. Either way this
-            # raises — a truncated trace is missing evidence, and refuting a
-            # hypothesis on a partial syscall record would be unsound.
-            truncated = line is lines[-1]
-            raise AssertionError(
-                f"strace: unrecognised line body — {body[:200]!r}"
-                + (
-                    " (this is the LAST line, so the log is most likely truncated: "
-                    "docker_exec caps stdout at 10MiB)"
-                    if truncated
-                    else ""
-                )
-            )
+            # No cause is named, because this parser cannot tell them apart and the
+            # one it used to name is now impossible. It said "docker_exec caps stdout
+            # at 10MiB, so a chatty run's log arrives as a prefix ending mid-line":
+            # the cap is 64 MiB and it RAISES rather than returning a prefix, and a
+            # timed-out read comes back with exit_code -1, which observation.py never
+            # parses. So the TRANSFER can no longer hand this parser a torn log.
+            # A torn log is still reachable from the PRODUCER side — strace writing
+            # into a /tmp that hit ENOSPC leaves the file ending mid-line (measured:
+            # a 64 MiB tmpfs filled by one writer ends "… = 3\nopen") — but a partial
+            # last line and an unknown complete shape are indistinguishable here, so
+            # the body is quoted and the diagnosis left to whoever reads it. Either
+            # way this raises: refuting a hypothesis on a partial syscall record
+            # would be unsound.
+            raise AssertionError(f"strace: unrecognised line body — {body[:200]!r}")
         output.append(line)
     # A syscall still in flight when the trace ended (the wall-clock budget killed
     # the process mid-call) DID happen — its packet went out, its file was opened.
@@ -714,11 +710,16 @@ async def stop_pcap(container: str) -> PcapResult:
                 f"tcpdump did not flush and exit within {PCAP_FLUSH_DEADLINE_SEC:g}s of SIGTERM"
             )
         await asyncio.sleep(0.1)
-    copied = await docker_exec(
-        ["exec", "--user", "0", container, "base64", "-w0", PCAP_FILE], 30_000
-    )
-    if copied.exit_code:
-        raise RuntimeError(f"pcap read failed: {copied.stderr[:300]}")
+    # INVARIANT: an over-cap transfer of a WHOLE capture is unrepresentable, not
+    # merely loud. tcpdump writes the capture to the container's /tmp, a tmpfs of
+    # SANDBOX_TMP_MB, and docker.py asserts at import that the tmpfs is no larger
+    # than MAX_EXEC_OUTPUT_BYTES — so a raw transfer of the whole file cannot pass
+    # the cap. Measured at the exact boundary: a file written until /tmp hit ENOSPC
+    # is 67,108,864 bytes = the cap, and read_bytes_from_container returned all of
+    # it sha256-identical; `base64 -w0` of the SAME file raised at 67,280,896 bytes
+    # read. The 4/3 inflation was the last way a complete capture could arrive as a
+    # prefix (13 MB -> a sealed 7.5 MiB pcapHash), and it bought no fidelity.
+    raw_pcap = await read_bytes_from_container(container, PCAP_FILE, user="0")
     tshark = await docker_exec(
         [
             "exec",
@@ -737,4 +738,4 @@ async def stop_pcap(container: str) -> PcapResult:
     if tshark.exit_code:
         # A failed parse is missing evidence, not absent traffic — fail loud.
         raise RuntimeError(f"tshark parse failed: {tshark.stderr[:300]}")
-    return PcapResult(parse_tshark_json(tshark.stdout), base64.b64decode(copied.stdout.strip()))
+    return PcapResult(parse_tshark_json(tshark.stdout), raw_pcap)

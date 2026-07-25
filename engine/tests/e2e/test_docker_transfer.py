@@ -19,7 +19,8 @@
 #   S45 a binary file leaves a real container byte-exact with NO encoding hop, and
 #       `base64 -w0` of the same file agrees byte-for-byte while costing 4/3 the
 #       transfer — so the hop buys nothing and pays the inflation that caused the
-#       truncation. This is the evidence for dropping it in sensors.stop_pcap
+#       truncation. This was the evidence for dropping it in sensors.stop_pcap,
+#       which has since happened (the boundary it left is e2e/test_pcap_transfer.py)
 #   S46 a run whose CAPTURE cannot be transferred whole: pcapHash is null (never a
 #       prefix's hash), the error is a SensorError naming the cap, a `truncated`
 #       row reaches the timeline, and the L4 evidence collected before the gap is
@@ -54,8 +55,13 @@ from npmguard.observation import run_under_observation
 
 pytestmark = [pytest.mark.e2e, pytest.mark.docker]
 
-# ~2 MiB pushed over loopback in 64 KiB writes, captured by `tcpdump -i any` in
-# both directions: a >3 MiB pcap, which is what S46 needs against a 2 MiB cap.
+# ~2 MiB pushed over loopback in 64 KiB writes. The resulting capture is what S46
+# needs to be BIGGER than the cap it mocks; measured on this sandbox it is
+# 2,025,357 bytes (tcpdump wrote 80 of the 178 packets its filter saw), so the
+# claim this comment used to make — ">3 MiB" — was not true here, and S46's 2 MiB
+# cap only ever overflowed because `base64 -w0` inflated 1.93 MiB to 2.58 MiB. The
+# mocked cap is now well under the capture instead (see S46), which is what makes
+# the scenario about the CAP rather than about an encoding that no longer happens.
 # Loopback only, so the volume does not depend on any remote host.
 TRAFFIC_JS = """
 const http = require('http');
@@ -144,7 +150,13 @@ async def test_capture_over_the_cap_defers_and_seals_no_hash(
     (routing to DEFERRED, so this run can never be SAFE), a `truncated` row is in
     the timeline, and the L4 network evidence captured before the gap is still
     there, which is what keeps a real exfiltration confirmable."""
-    monkeypatch.setattr(docker_module, "MAX_EXEC_OUTPUT_BYTES", 2 * 1024 * 1024)
+    # 512 KiB, comfortably under the ~2 MB this package's traffic captures. It was
+    # 2 MiB, which passed for the wrong reason: the capture measured 2,025,357 bytes,
+    # so the RAW transfer fitted and only base64's 4/3 inflation (2,700,476 bytes)
+    # passed the cap. sensors.stop_pcap no longer encodes, so at 2 MiB this run now
+    # transfers whole and seals a pcapHash — verified, which is how this line came to
+    # move. A cap below the capture makes the gap independent of the encoding.
+    monkeypatch.setattr(docker_module, "MAX_EXEC_OUTPUT_BYTES", 512 * 1024)
     artifact = await run_under_observation(
         traffic_package, TRIGGER, Settings(_env_file=None), observe=OBSERVE, budget=BUDGET
     )
