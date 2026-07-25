@@ -11,11 +11,13 @@ import {
 } from "../utils.js";
 import { auditCommand } from "./audit.js";
 import { payViaWalletConnect, readAuditFee } from "../wallet/walletconnect.js";
+import { resolveChain, type ChainTarget } from "../contract.js";
 import { streamAuditEvents } from "../stream.js";
 
 interface InstallOpts {
   api: string;
   force?: boolean;
+  chain?: string;
 }
 
 /**
@@ -118,7 +120,7 @@ export async function installCommand(
   console.log();
   console.log(chalk.bold("  How do you want to pay for the audit?"));
   console.log("    1) Stripe (credit card)");
-  console.log("    2) WalletConnect — ETH on Base Sepolia");
+  console.log("    2) WalletConnect — pay on-chain from a mobile wallet");
   console.log("    3) Install without audit (at your own risk)");
   console.log("    4) Cancel");
   console.log();
@@ -130,7 +132,7 @@ export async function installCommand(
   }
 
   if (choice === "2") {
-    await runCryptoAuditAndInstall(fullSpec, name, version, apiUrl);
+    await runCryptoAuditAndInstall(fullSpec, name, version, apiUrl, opts.chain);
     return;
   }
 
@@ -237,16 +239,82 @@ async function runStripeAuditAndInstall(
   await finalizeAfterAudit(fullSpec, name, version, apiUrl);
 }
 
+/**
+ * Pick the settlement chain. The engine is the authority on which chains are
+ * usable and at which address — a chain the engine has no contract for could
+ * take a real payment it would then refuse to verify.
+ */
+async function selectChain(
+  apiUrl: string,
+  requested?: string,
+): Promise<ChainTarget> {
+  let options: api.ChainOption[];
+  try {
+    options = api.chainOptions(await api.getPublicConfig(apiUrl));
+  } catch (err) {
+    console.error(
+      chalk.red(
+        "Could not read engine chain config: " +
+          (err instanceof Error ? err.message : String(err)),
+      ),
+    );
+    process.exit(1);
+  }
+
+  const targets = options
+    .map((option) => resolveChain(option.chain, option.contract))
+    .filter((target): target is ChainTarget => target !== null);
+
+  if (targets.length === 0) {
+    console.log(chalk.red("  This engine has no on-chain payment configured."));
+    process.exit(1);
+  }
+
+  if (requested) {
+    const match = targets.find((target) => target.name === requested);
+    if (!match) {
+      console.log(
+        chalk.red(
+          `  Chain '${requested}' is not available. This engine offers: ${targets
+            .map((target) => target.name)
+            .join(", ")}`,
+        ),
+      );
+      process.exit(1);
+    }
+    return match;
+  }
+
+  if (targets.length === 1) return targets[0];
+
+  console.log();
+  console.log(chalk.bold("  Which chain do you want to pay on?"));
+  targets.forEach((target, index) =>
+    console.log(`    ${index + 1}) ${target.label}`),
+  );
+  console.log();
+  const answer = await prompt(`  Choice [1-${targets.length}]: `);
+  const picked = targets[Number(answer) - 1];
+  if (!picked) {
+    console.log(chalk.gray("  Cancelled."));
+    process.exit(0);
+  }
+  return picked;
+}
+
 async function runCryptoAuditAndInstall(
   fullSpec: string,
   name: string,
   version: string,
   apiUrl: string,
+  requestedChain?: string,
 ): Promise<void> {
-  // 1. Read current fee from contract
+  const target = await selectChain(apiUrl, requestedChain);
+
+  // 1. Read current fee from the contract on the selected chain
   let feeWei: bigint;
   try {
-    feeWei = await readAuditFee();
+    feeWei = await readAuditFee(target);
   } catch (err) {
     console.error(
       chalk.red(
@@ -256,10 +324,11 @@ async function runCryptoAuditAndInstall(
     );
     process.exit(1);
   }
-  const feeDisplay = `${formatEther(feeWei)} ETH`;
+  const symbol = target.chain.nativeCurrency.symbol;
+  const feeDisplay = `${formatEther(feeWei)} ${symbol}`;
 
   const confirm = await prompt(
-    chalk.yellow(`  Pay ${feeDisplay} on Base Sepolia? (y/N) `),
+    chalk.yellow(`  Pay ${feeDisplay} on ${target.label}? (y/N) `),
   );
   if (confirm !== "y" && confirm !== "yes") {
     console.log(chalk.gray("  Cancelled."));
@@ -267,7 +336,13 @@ async function runCryptoAuditAndInstall(
   }
 
   // 2. WalletConnect → user signs → we get txHash
-  const result = await payViaWalletConnect(name, version, feeWei, feeDisplay);
+  const result = await payViaWalletConnect(
+    name,
+    version,
+    feeWei,
+    feeDisplay,
+    target,
+  );
   if (!result.paid || !result.txHash) {
     console.log(chalk.red("  Payment failed, aborting."));
     process.exit(1);
@@ -282,6 +357,7 @@ async function runCryptoAuditAndInstall(
       name,
       version,
       result.txHash,
+      target.name,
     );
     auditId = res.auditId;
     startSpinner.succeed(`Audit started (id: ${auditId})`);

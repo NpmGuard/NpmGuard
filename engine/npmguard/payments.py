@@ -7,7 +7,7 @@ from web3 import Web3
 
 from .config import Settings
 
-SupportedChain = Literal["base-sepolia", "base"]
+SupportedChain = Literal["base-sepolia", "base", "0g-testnet", "0g"]
 AUDIT_EVENT_TOPIC = Web3.keccak(text="AuditRequested(string,string,address,uint256)").hex()
 AUDIT_FEE_ABI = [
     {
@@ -34,24 +34,65 @@ class VerifiedPayment:
     explorer_url: str
 
 
+@dataclass(frozen=True)
+class ChainSpec:
+    """Everything chain-specific about one settlement network. The verification
+    path below is entirely chain-agnostic — it decodes the same contract event
+    from the same receipt shape — so supporting another EVM chain is a row here,
+    not a branch there."""
+
+    chain_id: int
+    rpc_setting: str
+    contract_setting: str
+    default_rpc: str
+    explorer: str
+
+
+# A chain is only offered once its contract address is configured; nothing here
+# implies a deployment exists. 0G ids verified against the live RPCs on
+# 2026-07-25 (eth_chainId → 0x40da / 0x4115); most third-party sources still
+# report 16601 for Galileo, which is stale.
+CHAINS: dict[str, ChainSpec] = {
+    "base-sepolia": ChainSpec(
+        84532,
+        "base_sepolia_rpc_url",
+        "base_sepolia_contract",
+        "https://sepolia.base.org",
+        "https://sepolia.basescan.org",
+    ),
+    "base": ChainSpec(
+        8453,
+        "base_rpc_url",
+        "base_contract",
+        "https://mainnet.base.org",
+        "https://basescan.org",
+    ),
+    "0g-testnet": ChainSpec(
+        16602,
+        "zerog_testnet_rpc_url",
+        "zerog_testnet_contract",
+        "https://evmrpc-testnet.0g.ai",
+        "https://chainscan-galileo.0g.ai",
+    ),
+    "0g": ChainSpec(
+        16661,
+        "zerog_rpc_url",
+        "zerog_contract",
+        "https://evmrpc.0g.ai",
+        "https://chainscan.0g.ai",
+    ),
+}
+
+
 def _chain(settings: Settings, chain: SupportedChain) -> tuple[str, str, str] | None:
-    if chain == "base-sepolia":
-        contract = settings.base_sepolia_contract
-        return (
-            (
-                settings.base_sepolia_rpc_url or "https://sepolia.base.org",
-                contract,
-                "https://sepolia.basescan.org",
-            )
-            if contract
-            else None
-        )
-    contract = settings.base_contract
-    return (
-        (settings.base_rpc_url or "https://mainnet.base.org", contract, "https://basescan.org")
-        if contract
-        else None
-    )
+    spec = CHAINS.get(chain)
+    if spec is None:
+        return None
+    contract = getattr(settings, spec.contract_setting, None)
+    if not contract:
+        return None
+    rpc = getattr(settings, spec.rpc_setting, None) or spec.default_rpc
+    return rpc, contract, spec.explorer
 
 
 def is_chain_configured(settings: Settings, chain: SupportedChain) -> bool:
@@ -61,6 +102,11 @@ def is_chain_configured(settings: Settings, chain: SupportedChain) -> bool:
 def chain_contract(settings: Settings, chain: SupportedChain) -> str | None:
     configured = _chain(settings, chain)
     return configured[1] if configured else None
+
+
+def configured_chains(settings: Settings) -> list[str]:
+    """Chain names with a contract address configured, in declaration order."""
+    return [name for name in CHAINS if is_chain_configured(settings, name)]
 
 
 async def verify_audit_payment(

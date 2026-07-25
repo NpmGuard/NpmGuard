@@ -3,12 +3,7 @@ import ora from "ora";
 import qrcode from "qrcode-terminal";
 import { SignClient } from "@walletconnect/sign-client";
 import { createPublicClient, http, encodeFunctionData, type Hex } from "viem";
-import { baseSepolia } from "viem/chains";
-import {
-  AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
-  AUDIT_REQUEST_ABI,
-  BASE_SEPOLIA_CHAIN_ID,
-} from "../contract.js";
+import { AUDIT_REQUEST_ABI, type ChainTarget } from "../contract.js";
 
 const WALLETCONNECT_PROJECT_ID =
   process.env.WALLETCONNECT_PROJECT_ID ?? "d5eb170c427570e15ac00ae53acc93ba";
@@ -33,6 +28,7 @@ export async function payViaWalletConnect(
   version: string,
   feeWei: bigint,
   feeDisplay: string,
+  target: ChainTarget,
 ): Promise<WalletConnectResult> {
   const calldata = encodeFunctionData({
     abi: AUDIT_REQUEST_ABI,
@@ -41,7 +37,7 @@ export async function payViaWalletConnect(
   });
 
   const publicClient = createPublicClient({
-    chain: baseSepolia,
+    chain: target.chain,
     transport: http(),
   });
 
@@ -72,7 +68,7 @@ export async function payViaWalletConnect(
       requiredNamespaces: {
         eip155: {
           methods: ["eth_sendTransaction"],
-          chains: [`eip155:${BASE_SEPOLIA_CHAIN_ID}`],
+          chains: [`eip155:${target.chainId}`],
           events: ["chainChanged", "accountsChanged"],
         },
       },
@@ -94,7 +90,7 @@ export async function payViaWalletConnect(
 
     const accounts = session.namespaces.eip155?.accounts ?? [];
     const baseAccount = accounts.find((a: string) =>
-      a.startsWith(`eip155:${BASE_SEPOLIA_CHAIN_ID}:`),
+      a.startsWith(`eip155:${target.chainId}:`),
     );
     const sender = baseAccount
       ? baseAccount.split(":")[2]
@@ -111,19 +107,19 @@ export async function payViaWalletConnect(
 
     console.log(
       chalk.cyan(
-        `  Confirm the ${feeDisplay} transaction in your wallet (Base Sepolia)...`,
+        `  Confirm the ${feeDisplay} transaction in your wallet (${target.label})...`,
       ),
     );
 
     const txHash = (await signClient.request({
       topic: session.topic,
-      chainId: `eip155:${BASE_SEPOLIA_CHAIN_ID}`,
+      chainId: `eip155:${target.chainId}`,
       request: {
         method: "eth_sendTransaction",
         params: [
           {
             from: sender,
-            to: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
+            to: target.address,
             data: calldata,
             value: "0x" + feeWei.toString(16),
           },
@@ -139,7 +135,7 @@ export async function payViaWalletConnect(
     if (receipt.status === "success") {
       confirmSpinner.succeed("Payment confirmed on-chain");
       console.log(
-        chalk.gray(`  Tx: https://sepolia.basescan.org/tx/${txHash}`),
+        chalk.gray(`  Tx: ${target.explorer}/tx/${txHash}`),
       );
       console.log();
       return { paid: true, txHash, sender };
@@ -162,13 +158,13 @@ export async function payViaWalletConnect(
   }
 }
 
-export async function readAuditFee(): Promise<bigint> {
+export async function readAuditFee(target: ChainTarget): Promise<bigint> {
   const publicClient = createPublicClient({
-    chain: baseSepolia,
+    chain: target.chain,
     transport: http(),
   });
   return (await publicClient.readContract({
-    address: AUDIT_REQUEST_ADDRESS_BASE_SEPOLIA,
+    address: target.address,
     abi: AUDIT_REQUEST_ABI,
     functionName: "auditFee",
   })) as bigint;

@@ -3,6 +3,10 @@
 #  postgres claim variants gated on NPMGUARD_TEST_PG_DSN with a loud skip)
 # Chain config: C1 chain unconfigured → ChainVerificationError (route maps to 501, S6)
 #               C2 other chain ("base") unconfigured → same refusal
+#               C2a 0G settles through the SAME decode path → VerifiedPayment + 0G explorer
+#               C2b configuring 0G leaves every other chain absent
+#               C2c published chain ids match the live networks (the wallet signs for them)
+#               C2d the request validator accepts exactly the chain table's names
 # Receipt:      C3 valid receipt, status=1, log at contract, topic+(pkg,ver) match → VerifiedPayment
 #               C4 receipt arrives DELAYED (<30s) → verified via wait_for polling
 #                  (C17: stub delay, never a wall-clock 30s; poll count observed at the stub)
@@ -44,14 +48,17 @@ import os
 
 import pytest
 import stripe
+from pydantic import ValidationError
 from web3 import Web3
 
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard.config import Settings
 from npmguard.payments import (
+    CHAINS,
     ChainVerificationError,
     chain_contract,
+    configured_chains,
     construct_webhook_event,
     create_checkout_session,
     is_chain_configured,
@@ -60,6 +67,7 @@ from npmguard.payments import (
     verify_checkout_session,
 )
 from npmguard.persistence import AuditSessionStore
+from npmguard.validation import StreamAuditRequest
 from tests.support.stubs import FakeChainRpc, StripeStub
 
 CONTRACT = Web3.to_checksum_address("0x" + "12" * 20)
@@ -145,6 +153,61 @@ async def test_other_chain_unconfigured_refuses_independently(chain) -> None:
     assert not is_chain_configured(settings, "base")
     with pytest.raises(ChainVerificationError, match="not configured"):
         await verify_audit_payment(settings, "base", "0x" + "11" * 32, "left-pad", "1.3.0")
+
+
+def _zerog_settings(chain) -> Settings:
+    return Settings(
+        _env_file=None,
+        zerog_testnet_rpc_url=chain.base_url,
+        zerog_testnet_contract=CONTRACT,
+    )
+
+
+async def test_zerog_verifies_through_the_same_chain_agnostic_path(chain) -> None:
+    """C2a: settlement on 0G Chain is a table row, not a second verification
+    path. The identical receipt+event decode must produce a VerifiedPayment with
+    the 0G explorer — if this needed new decoding logic, the chain table would be
+    a lie."""
+    tx = "0x" + "0f" * 32
+    chain.add_receipt(
+        tx, contract=CONTRACT, package_name="left-pad", version="1.3.0", fee_wei=7 * 10**14
+    )
+    verified = await verify_audit_payment(
+        _zerog_settings(chain), "0g-testnet", tx, "left-pad", "1.3.0"
+    )
+    assert verified.package_name == "left-pad"
+    assert verified.fee_paid == 7 * 10**14
+    assert verified.explorer_url == f"https://chainscan-galileo.0g.ai/tx/{tx}"
+
+
+async def test_configuring_zerog_leaves_base_absent(chain) -> None:
+    """C2b: chains stay independent — a 0G deployment must not make the CLI
+    offer an unconfigured Base contract."""
+    settings = _zerog_settings(chain)
+    assert configured_chains(settings) == ["0g-testnet"]
+    assert not is_chain_configured(settings, "base-sepolia")
+    assert not is_chain_configured(settings, "0g")
+
+
+def test_chain_ids_match_the_live_networks() -> None:
+    """C2c: the wallet signs for whatever chain id we publish, so a wrong id
+    sends a real payment to the wrong network. Galileo is 16602 — verified by
+    eth_chainId (0x40da) on 2026-07-25; most public sources still say 16601."""
+    assert {name: spec.chain_id for name, spec in CHAINS.items()} == {
+        "base-sepolia": 84532,
+        "base": 8453,
+        "0g-testnet": 16602,
+        "0g": 16661,
+    }
+
+
+def test_stream_request_accepts_every_known_chain_name() -> None:
+    """C2d: the request validator and the chain table cannot drift apart, or a
+    configured chain becomes unreachable through the API."""
+    for name in CHAINS:
+        assert StreamAuditRequest(txHash="0x" + "ab" * 32, chain=name).chain == name
+    with pytest.raises(ValidationError):
+        StreamAuditRequest(txHash="0x" + "ab" * 32, chain="ethereum")
 
 
 # ── Receipt verification ──────────────────────────────────────────────────────

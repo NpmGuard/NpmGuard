@@ -2,6 +2,8 @@ import re
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
+from .payments import CHAINS
+
 PACKAGE_NAME_RE = re.compile(r"^(@[a-z0-9\-~][a-z0-9._~\-]*/)?[a-z0-9\-~][a-z0-9._~\-]*$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$")
 TX_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
@@ -50,6 +52,8 @@ class StreamAuditRequest(BaseModel):
             valid_semver(self.version)
         if self.txHash is not None and TX_HASH_RE.fullmatch(self.txHash) is None:
             raise ValueError("Invalid txHash")
-        if self.chain not in (None, "base-sepolia", "base"):
+        # Names only — whether a chain is actually usable is decided by
+        # is_chain_configured at admission, not by request validation.
+        if self.chain is not None and self.chain not in CHAINS:
             raise ValueError("Invalid chain")
         return self

@@ -273,8 +273,11 @@ export interface PackageSummary {
 // ===== payment / config =====
 
 export interface CryptoConfig {
-  chain: "base-sepolia";
-  chainId: 84532;
+  // Was pinned to the literals "base-sepolia"/84532. The engine now settles on
+  // any chain in payments.py::CHAINS (Base and 0G), so a literal type here would
+  // be a compile-time promise the runtime cannot keep.
+  chain: string;
+  chainId: number;
   contract: string;
   auditFeeWei: string | null;
 }
@@ -284,6 +287,9 @@ export interface PublicConfig {
   paymentEnabled: boolean;
   stripeEnabled: boolean;
   priceCents: number;
+  /** Every chain the engine has a contract configured for. */
+  chains?: CryptoConfig[];
+  /** The first configured chain — the pre-multichain shape this app still reads. */
   crypto: CryptoConfig | null;
 }
 

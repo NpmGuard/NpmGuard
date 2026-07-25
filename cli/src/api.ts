@@ -80,12 +80,44 @@ export async function startAuditWithTxHash(
   packageName: string,
   version: string,
   txHash: string,
+  chain: string,
 ): Promise<StartAuditResponse> {
   return request<StartAuditResponse>(`${apiUrl}/audit/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ packageName, version, txHash, chain: "base-sepolia" }),
+    body: JSON.stringify({ packageName, version, txHash, chain }),
   });
+}
+
+export interface ChainOption {
+  chain: string;
+  chainId: number;
+  contract: string | null;
+  auditFeeWei: string | null;
+}
+
+export interface PublicConfig {
+  paymentRequired: boolean;
+  stripeEnabled: boolean;
+  priceCents: number;
+  /** Every chain the engine has a contract configured for. */
+  chains?: ChainOption[];
+  /** Pre-multichain shape: the first configured chain, or null. */
+  crypto: ChainOption | null;
+}
+
+export async function getPublicConfig(apiUrl: string): Promise<PublicConfig> {
+  return request<PublicConfig>(`${apiUrl}/config/public`);
+}
+
+/**
+ * The chains the engine will actually verify a receipt on. Falls back to the
+ * legacy single-chain `crypto` field so a new CLI still works against an engine
+ * that predates the multichain response.
+ */
+export function chainOptions(config: PublicConfig): ChainOption[] {
+  if (config.chains?.length) return config.chains;
+  return config.crypto ? [config.crypto] : [];
 }
 
 export async function startAuditFree(
@@ -140,4 +172,45 @@ export async function getPackageReport(
     }
     throw err;
   }
+}
+
+// --- publisher attestation ---------------------------------------------------
+
+export interface AttestSession {
+  sessionId: string;
+  packageName: string;
+  version: string;
+  status: "created" | "owned" | "verified" | "failed";
+  githubLogin: string | null;
+  error: string | null;
+  url?: string;
+  integrity?: string;
+  attestation?: {
+    tier: number;
+    nullifier: string;
+    environment: string;
+    assertions: Record<string, boolean>;
+    storageRoot: string | null;
+    chainTx: string | null;
+    attestedAt: string;
+  };
+}
+
+export async function openAttestSession(
+  apiUrl: string,
+  packageName: string,
+  version: string,
+): Promise<AttestSession> {
+  return request<AttestSession>(`${apiUrl}/attest/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ packageName, version }),
+  });
+}
+
+export async function getAttestSession(
+  apiUrl: string,
+  sessionId: string,
+): Promise<AttestSession> {
+  return request<AttestSession>(`${apiUrl}/attest/session/${sessionId}`);
 }
