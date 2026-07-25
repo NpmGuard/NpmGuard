@@ -367,6 +367,33 @@ placed *on* a `mark` fill.
 --accent-on:     #100f0d;
 ```
 
+#### The progress axis — explicitly achromatic
+
+`pending` / `queued` / `running` are part of the semantic set and therefore get
+tokens, but they are **neutral by construction** (§2.3). They are listed here so
+nobody has to invent them:
+
+```css
+/* light */
+--progress-ink:    #585752;  /* = text-2 — "queued"/"running" label            */
+--progress-idle:   #6e6d68;  /* = text-3 — "unaudited" label                   */
+--progress-track:  #ededea;  /* = border-faint — meter/bar track               */
+--progress-mark:   #1566c5;  /* = accent — the MOVING part only (spinner arc)  */
+--progress-hatch:  #c3c2bf;  /* = border-strong — 45° hatch stroke             */
+/* dark */
+--progress-ink:    #b2b2ae;
+--progress-idle:   #8f8e8a;
+--progress-track:  #22211e;
+--progress-mark:   #468ae2;
+--progress-hatch:  #464541;
+```
+
+`--progress-mark` is the *only* place accent appears in a status context, and it
+is confined to the animated arc of a spinner — the label beside it stays neutral
+ink. That confinement is what keeps "running" from ever reading as a verdict, and
+it is why the accent blue never has to be distinguishable from the outcome hues in
+a status column: it is never a status.
+
 **Semantic contrast, measured** (light / dark, `:1`):
 
 | Pair | Required | Light | Dark |
@@ -490,12 +517,16 @@ categorical, assigned in fixed order, never cycled:
 
 | Slot | Hue | Light | Dark |
 |---|---|---|---|
-| 1 | blue | `#1566c5` | `#4a97ec` |
+| 1 | blue | `#1566c5` | `#468ae2` |
 | 2 | orange | `#eb6834` | `#d95926` |
 | 3 | aqua | `#1baf7a` | `#199e70` |
 
+Slot 1 is the accent step in each theme — the accent is not a status color, so
+reusing it for the primary series is intentional and keeps the system's one
+"interactive/system" hue consistent between chrome and charts.
+
 Validated all-pairs in both modes: light worst CVD ΔE 9.2, normal-vision 27.0;
-dark worst CVD ΔE 9.4, normal-vision 20.1. Both **pass**. One caveat the
+dark worst CVD ΔE 9.4, normal-vision 20.2. Both **pass**. One caveat the
 validator flagged: light-mode aqua measures **2.7:1** on canvas — below 3:1 — so
 the **relief rule** applies whenever it is used in light mode: visible direct
 labels or the table view must be present. **Three series is the cap.** A fourth
