@@ -197,14 +197,13 @@ describe("api — C2/C3 error → ApiError, status branching", () => {
 
 describe("api — C5 report responses are CHECKED, not cast", () => {
   /**
-   * The report routes used to be `getJson<AuditReport>` — a cast that promised a
-   * report and delivered whatever the engine sent. These assert the two halves of
-   * the replacement: drift throws, and it throws something the retry policy will
-   * not loop on.
+   * `getJson<AuditReport>` is a cast: it promises a report and delivers whatever
+   * the engine sent. These assert the two halves of checking instead: drift
+   * throws, and it throws something the retry policy will not loop on.
    */
   it("C5: fetchAuditReport rejects a report that violates AuditReportSchema", async () => {
     // An out-of-domain verdict is the sharpest case: SUSPECT is not in the domain,
-    // and the old cast would have handed it to a tone lookup that has no arm for it.
+    // and a cast hands it straight to a tone lookup that has no arm for it.
     server.use(
       http.get("/api/audit/:id/report", () => HttpResponse.json({ ...report, verdict: "SUSPECT" })),
     );
@@ -231,10 +230,10 @@ describe("api — C5 report responses are CHECKED, not cast", () => {
     expect(err).toBeInstanceOf(ContractViolationError);
   });
 
-  it("C5: a 202 still-running body no longer passes as a finished report", async () => {
-    // The engine answers 202 {status} while the audit runs. Under the old cast this
-    // became `report = {status:"running"}` — a live object in the report view with
-    // no verdict, no counts and no complaint.
+  it("C5: a 202 still-running body does not pass as a finished report", async () => {
+    // The engine answers 202 {status} while the audit runs. A cast turns that into
+    // `report = {status:"running"}` — a live object in the report view with no
+    // verdict, no counts and no complaint.
     server.use(
       http.get("/api/audit/:id/report", () => HttpResponse.json({ status: "running" }, { status: 202 })),
     );

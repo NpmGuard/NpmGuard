@@ -520,14 +520,11 @@ def truncated(rollup: Rollup, shown: int) -> bool:
 # ---------------------------------------------------------------------------
 # The stream — ONE progress transport for every origin
 # ---------------------------------------------------------------------------
-# The panel scan stream used to be a 1.5s DB poll with a per-connection "what did
-# I already send" dict, and the public scan had no stream at all (the client
-# polled a detail route). Both are replaced by the durable log kit_stream already
-# provides (R-4: the fan-out is already right — copy it, don't invent one):
-# frames are appended by whoever advances the set, and a reader replays from a
-# `seq` cursor. Frame payloads are the contract's; the SSE framing carries an
-# `id:` line and NO `event:` line, so `onmessage` fires and `Last-Event-ID`
-# resumes.
+# Every origin's progress rides the durable log kit_stream provides: frames are
+# appended by whoever advances the set, and a reader replays from a `seq` cursor —
+# no DB poll and no per-connection "what did I already send" state. Frame payloads
+# are the contract's; the SSE framing carries an `id:` line and NO `event:` line, so
+# `onmessage` fires and `Last-Event-ID` resumes.
 
 
 def set_channel(set_id: int) -> str:
@@ -889,9 +886,6 @@ class AuditSetStore:
                             # the audit core's own admission path and never create a
                             # panel job, so it has no jobs to be orphaned FROM --
                             # sweeping it finalizes a run that is still going.
-                            # Execution-proven before this guard existed: a live
-                            # bench set with finished_at=None came back stamped after
-                            # one sweep.
                             audit_sets.c.origin != ORIGIN_BENCH_RUN,
                         )
                     )

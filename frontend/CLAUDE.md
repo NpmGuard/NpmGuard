@@ -238,10 +238,10 @@ Tailwind a second, slower entry point that silently shadows it.
   token means adding it here too.
 - Reach for an existing `components/ui/` primitive before writing behaviour.
   They are Radix-backed where Radix covers the pattern, and hand-built with
-  correct semantics where it does not. `PanelDialog` used to hand-roll its focus
-  trap, escape handling, portal and ARIA — four places to be invisibly wrong,
-  and subtly wrong accessibility is the failure nobody notices until a user
-  cannot operate the app. Radix 1.1.x deliberately emits no `aria-modal`;
+  correct semantics where it does not. Hand-rolling a focus trap, escape
+  handling, a portal and ARIA is four places to be invisibly wrong, and subtly
+  wrong accessibility is the failure nobody notices until a user cannot operate
+  the app. Radix 1.1.x deliberately emits no `aria-modal`;
   modality comes from the rest of the page being `aria-hidden`. Don't hand-add
   the attribute.
 - One meaning per seam: `focus.ts` is the one ring (`:focus-visible` only, with

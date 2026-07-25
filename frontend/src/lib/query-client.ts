@@ -2,10 +2,9 @@
  * The query client, and the two pieces of HTTP policy that are genuinely
  * cross-cutting.
  *
- * Everything the old store hand-wrote — caching, dedupe, staleness, polling,
- * retry — is configuration here, not code. Nothing in this file wraps
- * react-query; a wrapper that added nothing over the library would just be the
- * god store with a new name.
+ * Caching, dedupe, staleness, polling and retry are CONFIGURATION here, not
+ * code. Nothing in this file wraps react-query; a wrapper that adds nothing over
+ * the library is a god store with a new name.
  *
  * Layering note: this module is the composition root for HTTP policy, which is
  * why it is the one file under `lib/` that reaches into `features/`. The
@@ -50,8 +49,8 @@ export function retryable(error: unknown): boolean {
 
 function handleError(error: unknown): void {
   // An expired GitHub token is not an error to render, it is a flow to restart.
-  // Handled here so no route has to remember: the old store checked `isReauth`
-  // in two of the five branches of `refresh()` and nowhere else.
+  // Handled here so no route has to remember — a per-call-site check is one a
+  // branch will eventually be added without.
   if (isReauth(error)) {
     window.location.href = githubLoginUrl();
   }
@@ -64,8 +63,8 @@ export function createQueryClient(): QueryClient {
         // Panel reads are cheap to keep and expensive to make (`/panel/repos`
         // paginates live GitHub and probes for lockfiles). 30s of freshness is
         // what turns a navigation between the dashboard and a repo page into
-        // zero requests, which is the behaviour the old store's `bootedRef`
-        // guard was approximating with a boolean.
+        // zero requests — the thing a hand-rolled `bootedRef` boolean can only
+        // approximate.
         staleTime: 30_000,
         gcTime: 5 * 60_000,
         retry: (attempt, error) => attempt < 2 && retryable(error),
@@ -86,8 +85,8 @@ export function createQueryClient(): QueryClient {
         // A cap is one fact with two consequences, so it is handled once here
         // rather than in each of the four mutations that can 402: open the
         // paywall, AND patch the ledger from the fresh entitlements the 402
-        // carries. Doing it per-mutation is how the old store ended up calling
-        // `handleCap` from four places with a fifth that forgot.
+        // carries. Doing it per-mutation is how you end up with the handler in
+        // four places and a fifth that forgot.
         const cap = capBody(error);
         if (cap) {
           usePanelUi.getState().openPaywall(cap);

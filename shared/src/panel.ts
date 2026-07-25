@@ -1,11 +1,10 @@
 import { z } from "zod";
 
 /**
- * The GitHub-panel wire contract, authored at its TARGET shape (design §4.4 +
- * findings C2, decision D-5): generalized `AuditSet`, 3-state `Outcome`,
- * `verdictReason` + `jobState` everywhere, every error body named. The engine
- * does not emit this yet — Phase 1 / R-1 migrate to it, and each divergence is
- * a failing boundary rather than a judgement call.
+ * The GitHub-panel wire contract: a generalized `AuditSet`, the 3-state
+ * `Outcome`, `verdictReason` + `jobState` everywhere, and a named body for
+ * every error. This file is the authority — an engine divergence from it is a
+ * failing boundary, not a judgement call.
  */
 
 // INVARIANT: a WIRE schema expresses nullability as .nullable(), never
@@ -112,21 +111,19 @@ export type AuditSetTrigger = z.infer<typeof AuditSetTriggerSchema>;
 // set. That is what makes the invariant below unrepresentable-if-violated
 // instead of merely asserted.
 //
-// `failed` was removed in R-1 after the falsification pass found zero producers:
-// every way a set can go wrong already resolves into its rollup. A refused
-// budget or a missing lockfile raises BEFORE any row exists (no set at all); a
-// lost enqueue batch leaves items with no verdict and no live job, which is
-// outcome ERROR per §4.4; a crashed engine leaves the set `running` until the
-// boot sweep finalizes it, again as ERROR. A reserved-but-unproduced status is
-// the exact class this contract deletes — and with it went `AuditSet.error`,
-// whose only stated meaning was "non-null when status === failed".
+// There is deliberately no `failed` status, and no `AuditSet.error`: every way a
+// set can go wrong already resolves into its rollup. A refused budget or a
+// missing lockfile raises BEFORE any row exists (no set at all); a lost enqueue
+// batch leaves items with no verdict and no live job, i.e. outcome ERROR; a
+// crashed engine leaves the set `running` until the boot sweep finalizes it,
+// again as ERROR. A reserved-but-unproduced status is the class this contract
+// exists to delete.
 export const AuditSetStatusSchema = z.enum(["running", "done"]);
 export type AuditSetStatus = z.infer<typeof AuditSetStatusSchema>;
 
-// The single counters object over a set's items — it replaces today's
-// `{total, cached, audited, failed}` PLUS a separate `{verdict, dangerous,
-// suspect, unknown, safe}` rollup. Two objects counting the same items, neither
-// summing to anything checkable, is how `unknown` came to mean three facts.
+// The single counters object over a set's items. Two objects counting the same
+// items, neither summing to anything checkable, is how a bucket like `unknown`
+// comes to mean three different facts.
 //
 // INVARIANT: safe + dangerous + error + pending == total. Every item is in
 // exactly one of those four states, which is what makes an `unknown` bucket
@@ -177,17 +174,16 @@ export const AuditSetSchema = z.object({
   status: AuditSetStatusSchema,
   rollup: AuditSetRollupSchema,
   // Populated for repo origins. A snapshot without a commit sha is not
-  // reproducible, which is why the public-scan path hardcoding null was a bug.
+  // reproducible.
   commitSha: z.string().nullable(),
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
 });
 export type AuditSet = z.infer<typeof AuditSetSchema>;
 
-// One (name, version) inside a set — the ONE dep projection. It replaces four
-// divergent ones (repo detail, repo list, public detail, verdict index), and
-// unifies on the richer names: `verdictReason` (not `reason`) and `jobState`
-// (not a boolean `active`, which collapsed queued/running/failed into one bit).
+// One (name, version) inside a set — the ONE dep projection, shared by repo
+// detail, repo list, public detail and the verdict index. `jobState` rather than
+// a boolean `active`, which collapses queued/running/failed into one bit.
 //
 // INVARIANT: the set's rollup counts this item as concluded iff `outcome !==
 // null`; `jobState` describes the attempt, never the result.
@@ -222,9 +218,9 @@ export const PanelRepoSchema = z.object({
   // Continuous protection: push webhooks trigger a delta scan + check-run.
   protected: z.boolean(),
   // The repo's most recent `repo_scan` set; null iff it has never been scanned.
-  // Kept deliberately (resolves O-4): the dashboard's entire triage story — the
-  // attention filter, "not audited", the posture rail, the audited counter —
-  // reads it, so the engine hardcoding null makes four surfaces inert.
+  // The dashboard's entire triage story — the attention filter, "not audited",
+  // the posture rail, the audited counter — reads this, so a null here makes
+  // four surfaces inert.
   lastScan: AuditSetSchema.nullable(),
 });
 export type PanelRepo = z.infer<typeof PanelRepoSchema>;
@@ -253,9 +249,9 @@ export const AlertSchema = z.object({
   // every tone map to accept any string) and NOT widened to Outcome: a
   // reserved-but-unproduced value is the exact class this contract deletes.
   outcome: z.literal("DANGEROUS"),
-  // Replaces the old `kind: "scan" | "watch"`, which was derived as
-  // `"watch" if scan_id is None` and therefore filed every public-repo audit's
-  // finding as a watch alert. Origin belongs to the set that raised it.
+  // The origin of the SET that raised the alert. Deriving it from the alert
+  // itself (`"watch" if scan_id is None`) files every public-repo audit's
+  // finding as a watch alert.
   origin: AuditSetOriginSchema,
   message: z.string(),
   seen: z.boolean(),
@@ -274,11 +270,10 @@ export type AlertsResponse = z.infer<typeof AlertsResponseSchema>;
 //
 // `deps` is the SET's item list, never the repo's current dep index: summing
 // `deps` must reproduce `set.rollup` (modulo truncation), and that is only true
-// when the two describe one population. R-1 therefore made every `repo_scan` set
-// cover the whole parsed lockfile — the push path's "audit only what changed" is
-// an ENQUEUE optimization that the cache-first check already performs, so a
-// narrower item set bought nothing and made `lastScan` a posture it could not
-// honestly claim.
+// when the two describe one population, so every `repo_scan` set covers the
+// whole parsed lockfile. The push path's "audit only what changed" is an ENQUEUE
+// optimization the cache-first check already performs; narrowing the ITEM set
+// instead makes `lastScan` a posture it cannot honestly claim.
 export const RepoDetailResponseSchema = z.object({
   repo: PanelRepoSchema,
   // The scan being shown: the live one if any, else the most recent. Null iff
@@ -313,9 +308,8 @@ export type RepoDetailResponse = z.infer<typeof RepoDetailResponseSchema>;
 // SNAPSHOT of its subject, so replaying one is idempotent.
 export const ScanDepFrameSchema = z.object({
   type: z.literal("dep"),
-  // The whole item, not a flattened subset. The old frame dropped direct /
-  // range / auditedAt / cached, making the stream a second, lossier projection
-  // of the same dep shape the detail response returns.
+  // The whole item, not a flattened subset — anything less makes the stream a
+  // second, lossier projection of the dep shape the detail response returns.
   item: AuditSetItemSchema,
 });
 export type ScanDepFrame = z.infer<typeof ScanDepFrameSchema>;
@@ -374,7 +368,7 @@ export const PublicRepoScanSchema = z.object({
   id: z.number().int(),
   repo: PublicRepoSchema,
   // Progress, rollup, commitSha, error and timing all live here (origin
-  // `public_repo_scan`) — not duplicated onto the scan row as they are today.
+  // `public_repo_scan`), never duplicated onto the scan row.
   set: AuditSetSchema,
   // The gh_user who asked. A sign-in is required and is the whole abuse ceiling
   // (D-1); what remains is cost control, not abuse control.
