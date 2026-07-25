@@ -3,9 +3,9 @@
  *
  * `useSession` is called from the header and from every gated page. That is safe
  * and deliberate: react-query dedupes by key, so N components observing one key
- * make ONE request and share one cache entry. The old store approximated this
- * with a `fetchMe()` action plus a `userLoaded` boolean that every consumer had
- * to remember to check.
+ * make ONE request and share one cache entry. A global store can only
+ * approximate this with a `fetchMe()` action plus a `userLoaded` boolean every
+ * consumer has to remember to check.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -48,10 +48,9 @@ export function useLogout() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: logout,
-    // `clear()` rather than a field-by-field reset. The old store nulled nine
-    // named fields on logout, which is a list that has to be extended every time
-    // a tenth read is added — and was already missing `billingError`. Dropping
-    // the whole cache cannot go stale.
+    // `clear()` rather than a field-by-field reset: a list of named fields has to
+    // be extended every time a read is added, and the one that gets forgotten
+    // survives the logout. Dropping the whole cache cannot go stale.
     onSettled: () => client.clear(),
   });
 }

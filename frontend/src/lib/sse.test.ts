@@ -12,8 +12,8 @@
  *                                    stream closes and onContractViolation fires,
  *                                    with NO reconnect (drift is deterministic, so
  *                                    retrying replays the same bad frame forever).
- *                                    This is the class that used to be a silent
- *                                    `as AuditEvent` cast.
+ *                                    The class an `as AuditEvent` cast makes
+ *                                    silent.
  *  C4  reconnect on error          — onerror → onReconnecting(attempt) + a reopen
  *                                    scheduled through the injected backoff.
  *  C5  attempt reset               — a delivered event resets the attempt counter so a
@@ -227,9 +227,9 @@ describe("connectAuditStream — C8 close idempotence", () => {
 });
 
 describe("connectAuditStream — C9 contract violation", () => {
-  /** A frame that is valid JSON and a real event NAME, but has lost a field. This
-   * is the shape that used to flow straight into the fold: `file_list` without
-   * `files` is not a cosmetic gap — the fold iterates it. */
+  /** A frame that is valid JSON and a real event NAME, but has lost a field —
+   * the shape a cast lets flow straight into the fold. `file_list` without
+   * `files` is not a cosmetic gap: the fold iterates it. */
   it("C9: a frame violating its schema never reaches onEvent; the stream closes and reports drift", () => {
     const onEvent = vi.fn();
     const onContractViolation = vi.fn();
@@ -278,9 +278,9 @@ describe("connectAuditStream — C9 contract violation", () => {
 
   it("C9: an audit_error with null fields is rejected, not defaulted", () => {
     // The engine cannot emit this frame (all three fields required non-null, every
-    // emit site supplies them). The fold used to accept it and substitute "The
-    // audit failed", which turned a contract break into a plausible-looking error
-    // message. It is now refused by name.
+    // emit site supplies them). Accepting it and substituting "The audit failed"
+    // turns a contract break into a plausible-looking error message, so it is
+    // refused by name.
     const onEvent = vi.fn();
     const onContractViolation = vi.fn();
     const handle = connectAuditStream(
@@ -344,8 +344,8 @@ describe("connectAuditStream — C9 contract violation", () => {
  *                              ScanStreamFrame and handed to onMessage; no named
  *                              listeners are registered. The dep frame carries the
  *                              WHOLE contract item under `item`, not a flattened
- *                              subset (the old frame dropped direct / range /
- *                              auditedAt / cached).
+ *                              subset — a flattened frame silently drops direct /
+ *                              range / auditedAt / cached.
  *  S2  malformed frame       — a bad-JSON default frame is skipped, never onMessage,
  *                              never throws.
  *  S3  error → onError       — onerror closes the source and fires onError exactly

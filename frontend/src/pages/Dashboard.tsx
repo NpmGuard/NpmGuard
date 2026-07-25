@@ -1,35 +1,30 @@
 /** GitHub workspace dashboard: posture hero, plan ledger, public audit
  * history, portfolio rail, alerts, and the filterable repo grid.
  *
- * Every region below reads its OWN query, and that is the point of this page's
- * rewrite. The old `refresh()` fetched five resources through one
- * `Promise.allSettled` and collapsed them into one `loading` plus one `error`, so
- * a partial fetch rendered as a confident view: alerts failing while repos
- * succeeded left a repo list that looked complete beside an alerts banner that
- * looked absent — "no threats" where the truth was "no knowledge". Per-query
- * status makes that state representable, and every region now says which of the
- * two it is.
+ * Every region below reads its OWN query, and that is the point. Fetching five
+ * resources through one `Promise.allSettled` collapses them into one `loading`
+ * plus one `error`, so a partial fetch renders as a confident view: alerts
+ * failing while repos succeed leaves a repo list that looks complete beside an
+ * alerts banner that looks absent — "no threats" where the truth is "no
+ * knowledge". Per-query status makes the difference representable, and every
+ * region says which of the two it is.
  *
- * The polling that used to live in three `useEffect`s here is gone: the
+ * There is no polling `useEffect` in this file: the
  * public-scan list carries its own data-dependent `refetchInterval`, and the
  * post-checkout billing poll stops on the fact it is waiting for.
  *
- * ── PRESENTATION: what the recomposition onto the token layer changed ───────
+ * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
- * Nothing about what this page fetches or decides. Three things about what it
- * SAYS, all three §3.4 corrections rather than restyling:
- *
- * 1. An unreadable session rendered `banner--danger` — RED. §3.4 rule 2 and §0
- *    rule 3 both forbid it: a failed fetch is not a security finding, red is
- *    reserved for claims NpmGuard makes about a package, and the UI must never
- *    cry wolf about its own plumbing. It is now a `DegradedSurface`: violet,
- *    hatched, named, with a retry only when retrying could answer differently.
- * 2. "This server has no GitHub App" rendered as a grey `.empty-state` box —
- *    visually identical to "you have no repositories". They are now distinct by
- *    construction: that branch mints an `EmptyState` from the session's own
- *    `read` token, and the failure branches cannot reach it.
- * 3. "No repositories match this view" was a bare grey box too. It now goes
- *    through `DataRegion` over `loaded(visible)`, so the one chokepoint handles
+ * 1. An unreadable session is a `DegradedSurface` — violet, hatched, named, with
+ *    a retry only when retrying could answer differently — and never RED. §3.4
+ *    rule 2 and §0 rule 3 both forbid red here: a failed fetch is not a security
+ *    finding, red is reserved for claims NpmGuard makes about a package, and the
+ *    UI must never cry wolf about its own plumbing.
+ * 2. "This server has no GitHub App" and "you have no repositories" are distinct
+ *    by construction, not merely by copy: that branch mints an `EmptyState` from
+ *    the session's own `read` token, and the failure branches cannot reach it.
+ * 3. "No repositories match this view" goes through `DataRegion` over
+ *    `loaded(visible)`, so the one chokepoint handles
  *    every no-content case on the page rather than three of four.
  *
  * The stale/degraded/empty trio is otherwise unchanged, and `Dashboard.test.tsx`
@@ -159,7 +154,7 @@ export function Dashboard() {
   }, []);
 
   /** Refresh means "every panel read on this page", and the cache already knows
-   * what those are. The old page hand-listed them in `refresh()`, which is how
+   * what those are. Hand-listing them at the call site is how
    * `publicScans` ended up refreshed from three different places. */
   const refreshAll = () => void client.invalidateQueries();
 
@@ -199,7 +194,7 @@ export function Dashboard() {
 
   // 503 from every panel route: this deployment has no GitHub App. Distinct from
   // "signed out", because no amount of signing in will fix it — and distinct from
-  // a failed read, which is the distinction the old grey box lost. The session
+  // a failed read — the distinction a single grey box loses. The session
   // read SUCCEEDED and told us this, so hatching it would say "we don't know"
   // about the one thing we know for certain; it gets the achromatic empty
   // treatment, and `session.read` — narrowed out of the ok arm and impossible to

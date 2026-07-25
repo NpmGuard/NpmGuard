@@ -27,9 +27,9 @@
 #      fixture path enforces the same link boundary _safe_extract gives
 #      tarballs; internal relative symlinks stay allowed
 #   C9 INVARIANT: resolve_package either returns an owner for its workdir or
-#      leaves none behind. CANCELLATION is the third case that used to escape:
-#      CancelledError is a BaseException, so `except Exception` missed the phase
-#      timeout and engine shutdown, leaking the whole extracted tree
+#      leaves none behind. CANCELLATION is the third case: CancelledError is a
+#      BaseException, so an `except Exception` cleanup misses the phase timeout
+#      and engine shutdown and leaks the whole extracted tree
 #   C10 the real committed npm registry response parses: resolve_tarball_url
 #      reads the concrete version and dist.tarball off a captured version
 #      document, and a document missing either is a checked ValueError

@@ -14,9 +14,9 @@
 #      base×2.05 (what the unfiltered 62-file list would buy)
 #   C3 success → the workdir SURVIVES run(); AuditResult.cleanup() removes it
 #      (the pairing that makes C4/C5/C6's absence assertions meaningful)
-#   C4 log.write("resolve.json") fails (disk) → no workdir left behind. This
-#      write used to sit OUTSIDE the pipeline's cleanup handler.
-#   C5 sessions.set_package_path fails (DB) → same. Same pre-try window.
+#   C4 log.write("resolve.json") fails (disk) → no workdir left behind
+#   C5 sessions.set_package_path fails (DB) → same; both sit in the window
+#      between acquiring the workdir and entering the cleanup handler
 #   C6 malformed package.json → AuditIncompleteError(stage=inventory), NO report
 #      returned (the audit cannot reach a verdict), workdir removed
 # Blackbox: asserts only run()'s return value, the exception it raises, and the

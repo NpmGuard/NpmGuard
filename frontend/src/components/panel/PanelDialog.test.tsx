@@ -61,7 +61,7 @@ describe("PanelDialog — P1/P3 the preserved signature", () => {
   it("P1: ariaLabel is the accessible name and the caller's body renders verbatim", async () => {
     render(<Harness />);
     const dialog = await openDialog();
-    // The old shell passed this as `aria-label`; it is now an `sr-only` Title, so
+    // Carried as an `sr-only` `DialogTitle` rather than an `aria-label`, so
     // Radix can wire `aria-labelledby` from a real node. Same name either way,
     // which is what makes the three untouched callers keep working.
     expect(dialog).toHaveAccessibleName("Public audit snapshot 12");

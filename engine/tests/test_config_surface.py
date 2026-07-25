@@ -58,16 +58,9 @@ ENV_VARIABLE = re.compile(rf"{re.escape(ENV_PREFIX)}[A-Z0-9_]+")
 # Environment reads C3 does not require a Settings field for. Each entry would be debt
 # with a named owner, not a design choice — delete the entry together with the swap.
 #
-# EMPTY, and that is the property this table protects. Both entries it used to carry
-# landed with their readers: `NPMGUARD_TRIAGE_CONCURRENCY` → `triage_concurrency`
-# (`Field(default=8, ge=1, le=64)`, read as `Settings().triage_concurrency` at both
-# phases.py fan-outs — `Settings()` rather than the `get_settings()` the exemption
-# proposed, because lru_cache would freeze the first value read anywhere in the
-# process and silently kill the per-call env seam the e2e harness and test_fail_fast
-# use), and `NPMGUARD_DATA_DIR` → `data_dir: Path` (validated absolute, read once into
-# report_store.DATA_DIR at import, which stays the constant eight test modules
-# re-point). An entry here is a licence to crash mid-audit on a typo; the honest move
-# when one is tempting is to land the reader, not to grow the list.
+# EMPTY, and that is the property this table protects. An entry here is a licence to
+# crash mid-audit on a typo; the honest move when one is tempting is to land the
+# reader, not to grow the list.
 UNDECLARED_READS: dict[str, str] = {}
 def _own_fields() -> list[str]:
     inherited = set(KitSettings.model_fields)

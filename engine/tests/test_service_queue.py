@@ -8,13 +8,12 @@
 #
 # What the shape of this file is arguing, since no single test says it: every path
 # funnels through submit()/admit(), and `status` splits queued/running so that
-# running ⟺ an owned worker will finalize it. Before that there were five
-# session-creation paths and no execution owner, which produced one cluster of bugs
-# with one cause — paid audits bypassing the cap, an enqueue check-then-act, close()
-# orphaning the queued item, an unbounded shutdown await, and /audit/stream skipping
-# the queue. So submit() is deliberately NOT privileged: it queues behind a busy
-# worker exactly like admit(), and the running-count session cap is retired in favour
-# of the wait-queue bound plus the worker pool.
+# running ⟺ an owned worker will finalize it. Several session-creation paths with no
+# execution owner is one cause with a cluster of consequences — paid audits bypassing
+# the cap, an enqueue check-then-act, close() orphaning the queued item, an unbounded
+# shutdown await, /audit/stream skipping the queue. So submit() is deliberately NOT
+# privileged: it queues behind a busy worker exactly like admit(), and admission is
+# bounded by the wait queue plus the worker pool, never by a running-count cap.
 #
 # Four facts the assertions turn on:
 #  - A refusal at the queue bound happens in reserve(), BEFORE the row is created, so

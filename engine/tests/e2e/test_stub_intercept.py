@@ -1,12 +1,12 @@
 # SCENARIO MAP — the stubUrl primitive against a REAL sandbox: does the stub
 # actually intercept, and does the sealed artifact record what was actually served?
 #
-# This tier exists because the defect it pins was invisible to every other one.
-# `stubUrl` used to install itself by setting HTTP_PROXY/HTTPS_PROXY, which Node
-# core's http/https ignore — and so does Node 22's global fetch/undici. The
-# manipulation silently no-opped while `setupApplied.stubUrls[].responseHash`
-# attested a canned response nobody served (explainer §24.0). Only a real container
-# with a real client can falsify that. Note what CANNOT: the L1 strace shows
+# This tier exists because the defect it pins is invisible to every other one. A
+# stub installed via HTTP_PROXY/HTTPS_PROXY no-ops silently — Node core's
+# http/https ignore both, and so does Node 22's global fetch/undici — while
+# `setupApplied.stubUrls[].responseHash` attests a canned response nobody served.
+# Only a real container with a real client can falsify that. Note what CANNOT: the
+# L1 strace shows
 # `connect 127.0.0.1:9999` either way, because netfilter rewrites the destination
 # after the connect syscall returns its argument. Interception is observable only
 # from what the client RECEIVED and from the proxy's own ledger — which is why the

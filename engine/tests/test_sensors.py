@@ -5,10 +5,10 @@
 # PARSER INPUT RULE (TESTING.md, "Parsers of external formats"): strace, tshark and
 # find are external producers, so every input comes from tests/fixtures/sensors/ —
 # output captured from the real producer and committed, its command line recorded in
-# PROVENANCE.json. Nothing here asserts a line shape we invented. That is the whole
-# point of the file: every parser class was once covered with input we wrote
-# ourselves, and it hid four live defects at once — dropped split syscalls, a dropped
-# errno, dropped mdns/llmnr packets, and dropped tab/newline paths.
+# PROVENANCE.json. Nothing here asserts a line shape we invented — that is the whole
+# point of the file. Covering a parser class with input we wrote ourselves hides live
+# defects by construction: dropped split syscalls, a dropped errno, dropped
+# mdns/llmnr packets, and dropped tab/newline paths all pass such a test.
 #
 # Axes: strace line format variants × line completeness (whole / split across
 #       unfinished+resumed / status line) × syscall normalization × sockaddr family
@@ -138,8 +138,8 @@ def test_captured_log_normalizes_security_relevant_fields() -> None:
     assert present(boot.normalized)["path"] == "/usr/local/bin/node"
     assert present(boot.normalized)["argv"] == ["node", "/cprobe.js"]
     assert present(_find(events, 'write(22, "hello-from-client"').normalized)["fd"] == 22
-    # A DNS response's peer sockaddr: 221 recvfrom events in the committed corpus
-    # carry one, and every one of them used to be discarded.
+    # A DNS response's peer sockaddr — the only place an unconnected socket's peer
+    # appears at all.
     resolver = _find(events, "recvfrom(21, \"T\\0")
     assert (present(resolver.normalized)["addr"], present(resolver.normalized)["port"]) == ("127.0.0.53", 53)
 

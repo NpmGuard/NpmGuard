@@ -6,21 +6,19 @@
  * axes stay separate here too: `outcomeTone` maps what we KNOW, and the dep
  * helpers below fold in progress (`jobState`) only where the UI shows progress.
  *
- * The param is no longer widened to `string`: the retired 4-state PanelVerdict
- * and a bare-`string` Alert.verdict were what forced that, and a widened param
- * silently accepted values the map had no arm for.
+ * The param is typed `Outcome`, never widened to `string`: a widened param
+ * silently accepts values the map has no arm for.
  *
  * ── WHY THIS FILE HAS TWO STYLING SUBSTRATES ────────────────────────────────
  *
  * The renderers below (`OutcomePill`, `ProgressPill`) are on the v3 token layer.
- * The two class/var *helpers* (`toneAccent`, `toneDotClass`) are still on the
- * legacy `base.css` names, and that is deliberate rather than unfinished: after
- * the panel-page recomposition their only remaining callers are
+ * The two class/var *helpers* (`toneAccent`, `toneDotClass`) are on the legacy
+ * `base.css` names, deliberately: their only callers are
  * `features/repos/components/{RepoCard,PortfolioPosture}.tsx`, which are still
- * whole-hog legacy. Handing a legacy card a token-coloured mark would put two
- * palettes inside one 18px-padded warm-paper box, which reads worse than either.
- * They die with those two components; the renderers did not have to wait,
- * because a stamp is self-contained and upgrades every call site at once. */
+ * whole-hog legacy. Handing a legacy card a token-coloured mark puts two palettes
+ * inside one 18px-padded warm-paper box, which reads worse than either. They die
+ * with those two components; a stamp is self-contained, so the renderers did not
+ * have to wait. */
 
 import type { AuditSet, AuditSetItem, Outcome } from "@npmguard/shared";
 import type { LucideIcon } from "lucide-react";
@@ -67,10 +65,9 @@ export function toneAccent(tone: Tone): string {
 /** Card accent for a repo's last audit set: set progress first (still running),
  * then the outcome over its own items.
  *
- * There is no `failed` arm any more — R-1's falsification pass found zero
- * producers for a failed SET, so the status domain is `running | done` and the
- * branch that handled it was dead. Every way a set can go wrong now resolves into
- * its rollup, where ERROR is a real, countable outcome. */
+ * There is no `failed` arm: the set status domain is `running | done`. Every way
+ * a set can go wrong resolves into its rollup, where ERROR is a real, countable
+ * outcome. */
 export function scanTone(set: AuditSet | null): Tone {
   if (!set) return "unknown";
   if (set.status === "running") return "running";

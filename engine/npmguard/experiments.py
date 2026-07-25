@@ -394,9 +394,9 @@ def _stub_url(args: dict[str, Any]) -> Manipulation:
         )
         # INVARIANT: the compiled record asserts NOTHING about responses. At compile
         # time nothing has been served, so `responseHash` can only be null; `observe`
-        # below fills it in from the proxy's ledger. Hashing the PLAN here (what this
-        # used to do) made a sealed artifact attest a canned response for a stub that
-        # never intercepted anything — the defect this path exists to make impossible.
+        # below fills it in from the proxy's ledger. Hashing the PLAN here would make
+        # a sealed artifact attest a canned response for a stub that never
+        # intercepted anything.
         refs.append(StubUrlRef(pattern=stub["pattern"], responseHash=None))
 
     targets = [stub_intercept_target(item["pattern"]) for item in clean]
@@ -409,8 +409,8 @@ def _stub_url(args: dict[str, Any]) -> Manipulation:
     # No HTTP_PROXY/HTTPS_PROXY here, deliberately. Node core's http/https ignore
     # them, and so does Node 22's global fetch/undici (verified in the sandbox image:
     # every client dialled the real endpoint and the proxy logged nothing) — so as an
-    # interception mechanism they were inert, which is how a stub could no-op while
-    # the artifact claimed a response was served. They are also actively harmful
+    # interception mechanism they are inert, which lets a stub no-op while the
+    # artifact claims a response was served. They are also actively harmful
     # alongside the redirect: a client that DOES honour them (axios) would route ALL
     # its traffic to the proxy and get 502s for endpoints no stub declared, silently
     # breaking behaviour the run is supposed to observe. One mechanism, one semantics.
@@ -443,8 +443,8 @@ def _stub_url(args: dict[str, Any]) -> Manipulation:
         # Deterministic bounded wait on the proxy's OWN signals: a positive .ready
         # marker (listen callback) succeeds; a .err marker (bad env / bind failure /
         # any uncaught throw) fails FAST with the captured reason; otherwise time out
-        # at 120s. Replaces the old 30×50ms loop of node-cold-start TCP probes, which
-        # could neither distinguish a crash from a slow bind nor survive a tail spike.
+        # at 120s. Polling with TCP probes instead can distinguish neither a crash from
+        # a slow bind nor a cold start from a hang.
         probe = (
             f"if [ -f {_STUB_READY} ]; then echo READY; "
             f"elif [ -f {_STUB_ERR} ]; then echo ERR; "
