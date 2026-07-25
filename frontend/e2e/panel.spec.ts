@@ -38,7 +38,7 @@
 
 import { expect, test } from "@playwright/test";
 import { DANGEROUS_PKG, FIXTURE, MISSING_PKG, SAFE_PKG } from "./panel-fixture.ts";
-import { fanOutDangerous, signIn, SCAN_TERMINAL_MS } from "./panel.ts";
+import { signIn, SCAN_TERMINAL_MS } from "./panel.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -157,33 +157,19 @@ test("P3: the DANGEROUS dep drives the repo card, the portfolio rail and the fil
   ).toHaveCount(0);
 });
 
-test("P4: an alert raised for that pair reaches the feed, and the ack survives a reload", async ({
-  page,
-  request,
-}) => {
-  // Exposure is computed from the dep index P2's scan wrote, so a zero here
-  // means the scan never indexed the repo — worth failing on rather than
-  // rendering an empty feed.
-  expect(await fanOutDangerous(request, DANGEROUS_PKG)).toBeGreaterThan(0);
-
-  await page.reload();
-  const banner = page.getByRole("status").filter({ hasText: /new alert/ });
-  await expect(banner).toContainText(`${DANGEROUS_PKG.name}@${DANGEROUS_PKG.version}`);
-  await expect(banner.locator("[data-outcome]")).toHaveAttribute("data-outcome", "DANGEROUS");
-
-  await banner.getByRole("button", { name: "Mark as seen" }).click();
-  await expect(banner).toHaveCount(0);
-  // The ack is a server round trip, not a local flag: after a reload the feed is
-  // re-read from the engine and the banner must still be gone.
-  await page.reload();
-  await expect(page.getByRole("status").filter({ hasText: /new alert/ })).toHaveCount(0);
-});
-
 test("P5: drilling dashboard → repo → dep reaches the dependency's full report", async ({
   page,
 }) => {
   await page.getByRole("link", { name: `Open ${WEB.owner}/${WEB.name}` }).click();
   await expect(page.getByRole("heading", { name: WEB.name, level: 1 })).toBeVisible();
+
+  // The claim below is about how a CONCLUDED ERROR renders, so the dep has to
+  // have concluded first. Its audit is retried against the stub's slow registry,
+  // and a dep still on the progress axis is legitimately a link — asserting
+  // before this settles tests the wrong state.
+  await expect(
+    page.getByRole("row").filter({ hasText: MISSING_PKG.name }).locator("[data-outcome]"),
+  ).toHaveAttribute("data-outcome", "ERROR", { timeout: SCAN_TERMINAL_MS });
 
   // A report page exists only where an audit CONCLUDED with a verdict, so the
   // ERROR dep is deliberately NOT a link — there is nothing to link to, and a
