@@ -200,7 +200,7 @@ describe("api — C5 report responses are CHECKED, not cast", () => {
    * not loop on.
    */
   it("C5: fetchAuditReport rejects a report that violates AuditReportSchema", async () => {
-    // A retired verdict is the sharpest case: SUSPECT was removed from the domain,
+    // An out-of-domain verdict is the sharpest case: SUSPECT is not in the domain,
     // and the old cast would have handed it to a tone lookup that has no arm for it.
     server.use(
       http.get("/api/audit/:id/report", () => HttpResponse.json({ ...report, verdict: "SUSPECT" })),

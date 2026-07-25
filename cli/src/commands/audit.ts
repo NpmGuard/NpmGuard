@@ -3,7 +3,7 @@ import ora from "ora";
 import qrcode from "qrcode-terminal";
 import EventSource from "eventsource";
 import * as api from "../api.js";
-import { renderVerdict, renderHypothesisResolved, renderPhase } from "../render.js";
+import { renderVerdict, renderUnusableVerdict, renderHypothesisResolved, renderPhase } from "../render.js";
 import { parsePackageArg } from "../utils.js";
 
 /** Read a field off a report that may be flat or wrapped in `{ report: {...} }`. */
@@ -43,7 +43,12 @@ export async function auditCommand(
   if (existing) {
     console.log(chalk.yellow("This package has already been audited."));
     console.log();
-    const verdict = (reportField<string>(existing, "verdict") ?? "UNKNOWN").toUpperCase();
+    const raw = reportField<string>(existing, "verdict");
+    const verdict = api.asVerdict(raw);
+    if (verdict === null) {
+      renderUnusableVerdict(raw);
+      return done(1);
+    }
     renderVerdict(
       verdict,
       reportField<string>(existing, "rationale") ?? "",
@@ -144,7 +149,9 @@ export async function auditCommand(
   const eventsUrl = `${apiUrl}/audit/${encodeURIComponent(auditId)}/events`;
   const es = new EventSource(eventsUrl);
 
-  let exitCode = 0;
+  // Non-zero until a verdict actually arrives: a stream that drops mid-audit must
+  // not read to a CI gate as a clean pass.
+  let exitCode = 1;
 
   await new Promise<void>((resolve) => {
     es.addEventListener("phase_started", (event) => {
@@ -172,8 +179,13 @@ export async function auditCommand(
       try {
         const data = JSON.parse(event.data);
         spinner.stop();
-        renderVerdict(data.verdict ?? "UNKNOWN", data.rationale ?? "", data.counts);
-        exitCode = data.verdict?.toUpperCase() === "SAFE" ? 0 : 1;
+        const verdict = api.asVerdict(data.verdict);
+        if (verdict === null) {
+          renderUnusableVerdict(data.verdict);
+        } else {
+          renderVerdict(verdict, data.rationale ?? "", data.counts);
+          exitCode = verdict === "SAFE" ? 0 : 1;
+        }
       } catch {
         spinner.stop();
       }

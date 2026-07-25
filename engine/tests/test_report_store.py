@@ -27,6 +27,10 @@
 #   C15 list_reports visibility + order: test-pkg-*/test-package*/-bench- names are
 #       saved but NOT listed (the mechanism keeping malware-fixture reports out of
 #       the public listing); verdict-less files skipped; ordering newest-first
+#   C16 a report whose schemaVersion is absent or not 2 reads as ABSENT from every
+#       load path and never appears in the listing — a pre-v2 body carries an
+#       IN-DOMAIN verdict, so the verdict screen alone lets it through to a client
+#       that cannot parse it
 import json
 import os
 import threading
@@ -54,7 +58,7 @@ def _report(version: str | None = None, *, verdict: str = "SAFE", pad: str = "")
     trace = []
     if version is not None:
         trace.append({"phase": "inventory", "output": {"metadata": {"version": version}}})
-    return {"verdict": verdict, "trace": trace, "pad": pad}
+    return {"schemaVersion": 2, "verdict": verdict, "trace": trace, "pad": pad}
 
 
 def test_real_inventory_version_names_the_file(data_dir) -> None:
@@ -260,6 +264,43 @@ def test_listing_hides_fixture_names_skips_verdictless_orders_newest(data_dir) -
     # positive pair: the hidden reports really exist on disk
     assert (data_dir / "test-pkg-env-exfil" / "2.0.1.json").is_file()
     assert (data_dir / "acme-bench-dd-probe" / "1.0.0.json").is_file()
+
+
+PRE_V2_REPORT = {
+    "verdict": "SAFE",
+    "capabilities": [],
+    "findings": [],
+    "proofs": [],
+    "runtimeEvidence": None,
+    "triage": None,
+    "trace": [{"phase": "inventory", "output": {"metadata": {"version": "4.0.1"}}}],
+}
+
+
+def test_foreign_schema_version_reads_as_absent(data_dir) -> None:
+    """C16: the shape screen, not just the verdict screen.
+
+    `PRE_V2_REPORT` has no `schemaVersion` and a verdict of `SAFE` that the verdict
+    screen happily passes. Reaching a client it fails the contract parse on the
+    first missing v2 field and bricks that package's page, so absence is the only
+    honest answer here.
+    """
+    directory = data_dir / "event-stream"
+    directory.mkdir(parents=True)
+    (directory / "4.0.1.json").write_text(json.dumps(PRE_V2_REPORT), encoding="utf-8")
+
+    assert load_report("event-stream") is None  # newest-mtime path
+    assert load_report("event-stream", "4.0.1") is None  # exact-filename path
+    os.rename(directory / "4.0.1.json", directory / "renamed-by-hand.json")
+    assert load_report("event-stream", "4.0.1") is None  # embedded-version scan
+    assert list_reports() == []
+
+    # And it is the VERSION that rejects it: the same body at 2 is served.
+    (directory / "renamed-by-hand.json").write_text(
+        json.dumps({**PRE_V2_REPORT, "schemaVersion": 2}), encoding="utf-8"
+    )
+    loaded = load_report("event-stream", "4.0.1")
+    assert loaded is not None and loaded[1] == "4.0.1"
 
 
 def test_extract_version_edge_shapes(data_dir) -> None:

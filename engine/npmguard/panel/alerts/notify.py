@@ -1,4 +1,4 @@
-"""DANGEROUS-verdict fan-out (port of TS ``alerts/notify.ts``).
+"""DANGEROUS-verdict fan-out.
 
 Called when any audit — scan-triggered or registry-watch — lands a DANGEROUS
 verdict. Two exposure kinds (spec §5.6 / provocation 1):

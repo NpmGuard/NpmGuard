@@ -72,10 +72,8 @@ export type OrgsResponse = z.infer<typeof OrgsResponseSchema>;
 // alias for it: an audit that fails emits an `audit_error` event, so failure is
 // not a value the audit domain can hold — but it IS one the panel must roll up.
 //
-// SUSPECT and UNKNOWN are deliberately absent. SUSPECT had zero producers
-// anywhere while forcing a branch in ~8 files; UNKNOWN was "not audited yet"
-// (progress) and "audit failed" (outcome) under one name, so no branch on it
-// could be correct.
+// UNKNOWN is deliberately absent: it meant "not audited yet" (progress) and
+// "audit failed" (outcome) under one name, so no branch on it could be correct.
 export const OutcomeSchema = z.enum(["SAFE", "ERROR", "DANGEROUS"]);
 export type Outcome = z.infer<typeof OutcomeSchema>;
 

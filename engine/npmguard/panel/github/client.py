@@ -1,7 +1,6 @@
 """GitHub App client: App JWT, installation tokens, and the OAuth web flow.
 
-A port of the TS engine's ``github/app.ts`` (``@octokit/app``) onto
-``githubkit``. Everything here is engine-side only — the CLI never touches the
+Everything here is engine-side only — the CLI never touches the
 App private key or user tokens.
 
 Three client flavours, by trust surface:

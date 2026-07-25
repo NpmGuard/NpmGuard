@@ -3,9 +3,8 @@
 Classic is yarn's own custom format; berry is YAML with a ``__metadata`` block.
 Neither records which deps are direct, so classification comes from the
 package.json manifest (best-effort: with no manifest everything is marked
-transitive). A port of TS ``lockfile/yarn.ts`` — the classic format is parsed
-directly here (no ``@yarnpkg/lockfile`` analog is needed for the subset a
-committed lockfile uses). Version/range/resolution values are always quoted or
+transitive). The classic format is parsed directly here — the subset a
+committed lockfile uses needs no dedicated library. Version/range/resolution values are always quoted or
 bare tokens; comments and blank lines are ignored.
 """
 

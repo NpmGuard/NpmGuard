@@ -293,11 +293,6 @@ class ReauthRequired(BaseModel):
     reauth: Literal[True]
 
 
-class ReplayStartResponse(BaseModel):
-    auditId: str
-    slug: str
-
-
 class ResolvedPackage(BaseModel):
     path: str
     needsCleanup: bool | None = False
@@ -965,15 +960,12 @@ class PublicRepoScansResponse(BaseModel):
 
 
 class ReplayEntry(BaseModel):
-    slug: str
+    auditId: str
     packageName: str
-    version: str
+    version: str | None
     verdict: Annotated[Literal['SAFE', 'DANGEROUS'], Field(title='Verdict')]
-    whyInteresting: str
     durationMs: Annotated[int, Field(ge=0)]
     recordedAt: str
-    reportSchemaVersion: Annotated[int, Field(gt=0)]
-    engineVersion: str | None
 
 
 class ReplayGalleryResponse(BaseModel):

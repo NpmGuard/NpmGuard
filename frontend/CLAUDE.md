@@ -264,8 +264,8 @@ the vocabulary is **closed** (Tailwind's default palette, extra type steps,
   crash.
 - **The report is schemaVersion 2**: `{schemaVersion:2, verdict, rationale,
   counts, confirmedHypIds, hypotheses[], fileSummaries[], dealbreaker, trace[]}`.
-  There is **no** `proofs[]` / `runtimeEvidence` / top-level `capabilities`
-  (that was the retired TS-engine shape). `verdict_reached` carries
+  There is **no** `proofs[]` / `runtimeEvidence` / top-level `capabilities`.
+  `verdict_reached` carries
   `{verdict, rationale, counts, confirmedCount}`.
 - **The audit event union is exactly 17 types**, and `EVENT_TYPES`
   (`shared/src/events.ts`) is the one list — the engine registers its emit names
