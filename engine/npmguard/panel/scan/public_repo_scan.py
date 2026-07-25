@@ -5,8 +5,8 @@ at any public GitHub repository, and its root lockfile is audited against the
 shared verdict cache. Unlike an owned-repo scan there is no repo row, no check run,
 and no webhook relationship.
 
-After R-1 the only things this module owns are the SSRF boundary, the cap, and the
-snapshot subject row. Progress, the rollup, the item projection, truncation and the
+After R-1 the only things this module owns are the SSRF boundary, the cost
+ceiling, and the snapshot subject row. Progress, the rollup, the item projection, truncation and the
 SSE stream are the shared audit-set entity's — the second progress refresher and
 the second rollup call site that used to live here are gone, and so is the
 client-side polling loop they fed, because a public set streams on exactly the same
@@ -19,17 +19,28 @@ Two boundaries remain load-bearing:
   — never an arbitrary fetch URL — and hands back a validated ``owner``/``repo``.
   The bytes are then pulled by the credential-free public octokit + the raw-host
   allow-list in ``github/content.py``; a private repo 404s by construction.
-- The cap is asserted by stable ``github_repo_id``, so **re-auditing the same repo
-  is always free** — a rename can't make a repo cost a second Free slot. That same
-  stable id is the set's ``origin_ref``, which is what replaced the stored
-  lowercased ``full_name`` mirror the active-scan uniqueness used to need.
+- The set is scoped by its **requester** (D-1): a signed-in user, no App
+  installation, no ownership, nothing charged. ``audit_sets.requested_by`` is that
+  identity — the key column of ``ix_audit_sets_active_public``, the read
+  authorization, and the per-user budget in ``panel/public_limits.py``. The stable
+  ``github_repo_id`` remains the set's ``origin_ref``, which is what replaced the
+  lowercased ``full_name`` mirror the active-scan uniqueness used to need, and a
+  rename still cannot smuggle in a second concurrent audit.
 
-Billing (the one per-origin difference besides discovery): a public snapshot is
-NOT charged against the org's monthly audit budget — the public-audit cap, counted
-by distinct ``github_repo_id``, is the only quota. So it passes no budget hooks.
-Its jobs still carry the org as their fairness key, because starving other
-installations behind one account's public audits is a scheduling bug, not a
-billing decision, and conflating the two is why they were previously ``org=None``.
+Billing (the one per-origin difference besides discovery): **nobody is billed**.
+A public snapshot passes no budget hooks and no ``billed_to``; its ceiling is
+cost, bounded per user, and a scan past that ceiling covers less of the lockfile
+rather than being refused. What it covers versus what the lockfile held is
+recorded on the snapshot row (``dep_count``) so the difference can be stated
+instead of hidden.
+
+Its jobs carry the REQUESTER's login as their queue fairness key, because
+starving every other user behind one user's monorepo is a scheduling bug, not a
+billing decision, and conflating the two is why these jobs were once ``org=None``.
+TODO(R-2): they belong in the durable queue's ``public`` lane, which is where
+"can never starve paid or panel work" (F-F6) is actually expressible — a lane
+built here would be this repo's THIRD queue implementation, the exact mistake
+R-1 was done to stop.
 """
 
 from __future__ import annotations
@@ -45,10 +56,11 @@ from ..audit_set import (
     ORIGIN_PUBLIC_REPO_SCAN,
     AuditSetSpec,
     AuditSetStore,
+    dedupe,
 )
-from ..caps import CapsStore
 from ..lockfile import LockfileDep
-from ..tables import audit_sets, installations, public_repo_scans
+from ..public_limits import PublicScanLimits
+from ..tables import audit_sets, gh_users, public_repo_scans
 
 # GitHub identity grammar (mirrors the TS OWNER_PATTERN / REPO_PATTERN).
 _OWNER_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -60,9 +72,7 @@ class InvalidPublicRepoReferenceError(Exception):
     """The input was not a recognizable GitHub repository identity."""
 
     def __init__(self) -> None:
-        super().__init__(
-            "Enter a GitHub repository as owner/repo or https://github.com/owner/repo"
-        )
+        super().__init__("Enter a GitHub repository as owner/repo or https://github.com/owner/repo")
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,11 +121,7 @@ def parse_public_repo_reference(raw: str) -> PublicRepoReference:
 
     owner = segments[0]
     repo = re.sub(r"\.git$", "", segments[1], flags=re.IGNORECASE)
-    if (
-        not _OWNER_PATTERN.match(owner)
-        or not _REPO_PATTERN.match(repo)
-        or repo in {".", ".."}
-    ):
+    if not _OWNER_PATTERN.match(owner) or not _REPO_PATTERN.match(repo) or repo in {".", ".."}:
         raise InvalidPublicRepoReferenceError()
     return PublicRepoReference(owner=owner, repo=repo, full_name=f"{owner}/{repo}")
 
@@ -124,13 +130,11 @@ def parse_public_repo_reference(raw: str) -> PublicRepoReference:
 class CreatePublicRepoScanInput:
     """Everything needed to persist one public-repo snapshot.
 
-    ``deps`` is the parsed lockfile; ``github_repo_id`` is the stable id the cap
-    counts on (free re-audit) and the set's ``origin_ref``; the
-    ``owner``/``name``/``full_name`` are the canonical values from the GitHub repo
-    response, not the user's input.
+    ``deps`` is the parsed lockfile; ``github_repo_id`` is the set's
+    ``origin_ref``; the ``owner``/``name``/``full_name`` are the canonical values
+    from the GitHub repo response, not the user's input.
     """
 
-    installation_id: int
     requested_by: int
     github_repo_id: int
     owner: str
@@ -149,15 +153,13 @@ class PublicRepoScanEngine:
     """Discovers a public repo's items, opens the set, writes the snapshot row."""
 
     sessions: async_sessionmaker
-    caps: CapsStore
+    limits: PublicScanLimits
     sets: AuditSetStore
 
     # -- lookups -----------------------------------------------------------
 
-    async def find_running_public_scan(
-        self, installation_id: int, github_repo_id: int
-    ) -> int | None:
-        """The set id of a still-live audit of this repo for this payer, or ``None``.
+    async def find_running_public_scan(self, user_id: int, github_repo_id: int) -> int | None:
+        """The set id of a still-live audit of this repo for this USER, or ``None``.
 
         Keyed on the stable ``github_repo_id``, so a rename cannot smuggle in a
         second concurrent audit — the case-insensitive ``full_name`` mirror this
@@ -171,7 +173,7 @@ class PublicRepoScanEngine:
                     .where(
                         audit_sets.c.origin == ORIGIN_PUBLIC_REPO_SCAN,
                         audit_sets.c.origin_ref == github_repo_id,
-                        audit_sets.c.billed_to == installation_id,
+                        audit_sets.c.requested_by == user_id,
                         audit_sets.c.finished_at.is_(None),
                     )
                     .limit(1)
@@ -183,26 +185,36 @@ class PublicRepoScanEngine:
     async def create_public_repo_scan(self, data: CreatePublicRepoScanInput) -> int:
         """Open a ``public_repo_scan`` set and persist its snapshot subject row.
 
-        The cap is re-asserted here (a repo consumes one Free slot only once; the
-        stable ``github_repo_id`` survives renames) as the race guard. The
-        ``ix_audit_sets_active_public`` partial unique index is the durable guard
-        against two concurrent live audits of one repo by one payer.
+        The requester's live-scan concurrency is re-asserted here as the race
+        guard, and the ``ix_audit_sets_active_public`` partial unique index is the
+        durable guard against two concurrent live audits of one repo by one user.
+
+        The set covers the lockfile's cached verdicts plus at most
+        ``new_audit_budget`` misses, so a 900-dep monorepo cannot buy 900 audits.
+        ``dep_count`` records what the lockfile actually held, which is the only
+        way the difference can be stated later — the set knows what it covers and
+        nothing about what it declined to.
 
         Returns the SET id — which is also the snapshot's id, because ``set_id`` is
         the snapshot's primary key. One id, so ``scanId`` means the same thing on
         every route.
         """
-        await self.caps.assert_public_repo_audit_cap(
-            data.installation_id, data.github_repo_id
-        )
+        await self.limits.assert_capacity(data.requested_by)
         set_id = await self.sets.create(
             AuditSetSpec(
                 origin=ORIGIN_PUBLIC_REPO_SCAN,
                 origin_ref=data.github_repo_id,
                 trigger="manual",
                 items=data.deps,
-                billed_to=data.installation_id,
-                billed_org=await self._org_of(data.installation_id),
+                requested_by=data.requested_by,
+                # The queue fairness key is the REQUESTER's login, not an org.
+                # `billed_org` is not a billing field (money is metered by the
+                # budget hooks, which this origin passes none of) — it is what
+                # `claim_next` groups on, and leaving it NULL would drop every
+                # public scan into one bucket, so one user's 900-dep monorepo
+                # would starve every other user's scan.
+                billed_org=await self._login_of(data.requested_by),
+                max_new_audits=await self.limits.new_audit_budget(data.requested_by),
                 commit_sha=data.commit_sha,
             )
         )
@@ -210,7 +222,6 @@ class PublicRepoScanEngine:
             await session.execute(
                 public_repo_scans.insert().values(
                     set_id=set_id,
-                    requested_by=data.requested_by,
                     github_repo_id=data.github_repo_id,
                     owner=data.owner,
                     name=data.name,
@@ -219,18 +230,15 @@ class PublicRepoScanEngine:
                     default_branch=data.default_branch,
                     lockfile_path=data.lockfile_path,
                     lockfile_sha=data.lockfile_sha,
+                    dep_count=len(dedupe(data.deps)),
                 )
             )
         return set_id
 
-    async def _org_of(self, installation_id: int) -> str | None:
+    async def _login_of(self, user_id: int) -> str | None:
         async with self.sessions() as session:
             return (
-                await session.execute(
-                    sa.select(installations.c.account_login).where(
-                        installations.c.id == installation_id
-                    )
-                )
+                await session.execute(sa.select(gh_users.c.login).where(gh_users.c.id == user_id))
             ).scalar_one_or_none()
 
 

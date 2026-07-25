@@ -86,7 +86,7 @@ async def _run_safe_audit(engine, package: str, version: str | None) -> str:
     )
     terminal = terminal_frame(frames)
     assert terminal is not None and terminal.type == "verdict_reached"
-    assert terminal.data["verdict"] == "SAFE"
+    assert terminal.payload["verdict"] == "SAFE"
     wait_report_file(
         engine.data_dir / "reports" / ENV_EXFIL_PKG / f"{ENV_EXFIL_VERSION}.json"
     )

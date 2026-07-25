@@ -28,10 +28,12 @@ import asyncio
 import json
 import re
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-from kit_llm import ScriptedLlm
+from kit_llm import LlmClient, ScriptedLlm
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard import pipeline as pipeline_module
@@ -53,7 +55,7 @@ SCALE_FOR_21_READABLE = 1.025  # 1 + (21-20)×0.025 — the FLAG set
 SCALE_FOR_ALL_62_SOURCES = 2.05  # 1 + (62-20)×0.025 — every source file, noise included
 
 
-def _script(**extra: list[str]) -> ScriptedLlm:
+def _script(**extra: list[Any]) -> ScriptedLlm:
     return ScriptedLlm(
         {
             "intent": [
@@ -90,7 +92,7 @@ class _HangingFlagProvider(ScriptedLlm):
 async def build(tmp_path, monkeypatch):
     """Builds a pipeline over a package materialized in a private tmp workdir,
     exactly as resolve_package would hand one over."""
-    opened: list[tuple[object, object]] = []
+    opened: list[tuple[AsyncEngine, LlmClient]] = []
 
     async def _build(files: dict[str, str], provider) -> SimpleNamespace:
         monkeypatch.setenv("NPMGUARD_AUDIT_LOG_DIR", str(tmp_path / "logs"))
@@ -206,7 +208,9 @@ async def test_flag_budget_scales_over_the_flag_set_only(build, monkeypatch) -> 
     with pytest.raises(AuditTimeoutError) as excinfo:
         await _run(rig)
     assert excinfo.value.stage == "flag"
-    reported = int(re.fullmatch(r'Phase "flag" timed out after (\d+)ms', str(excinfo.value))[1])
+    match = re.fullmatch(r'Phase "flag" timed out after (\d+)ms', str(excinfo.value))
+    assert match is not None, str(excinfo.value)
+    reported = int(match[1])
     assert reported == int(SCALED_FLAG_BASE_MS * SCALE_FOR_21_READABLE)
     assert reported < int(SCALED_FLAG_BASE_MS * SCALE_FOR_ALL_62_SOURCES)
 

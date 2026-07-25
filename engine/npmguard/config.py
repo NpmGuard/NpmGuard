@@ -174,11 +174,24 @@ class Settings(KitSettings):
     scan_concurrency: int = Field(default=4, ge=1, le=16)
     watch_interval_min: int = Field(default=15, ge=1)
     free_max_protected_repos: int = Field(default=3, ge=0)
-    free_max_public_repo_audits: int = Field(default=2, ge=0)
     free_max_audits_month: int = Field(default=250, ge=0)
     pro_max_protected_repos: int = Field(default=25, ge=0)
-    pro_max_public_repo_audits: int = Field(default=0, ge=0)  # 0 = unlimited
     pro_max_audits_month: int = Field(default=5000, ge=0)
+    # Public-repo scan cost control (D-1 / F-F6). A public scan requires a GitHub
+    # sign-in and nothing more — no installation, nothing charged — so the sign-in
+    # is the abuse ceiling and these three knobs are the COST ceiling. They are
+    # per USER, not per installation: a public scan has a requester and no payer.
+    #
+    # A scan's cost is exactly its cache MISSES; a verdict already in
+    # `package_verdicts` is free to serve. So both of F-F6's first two bullets are
+    # this one quantity: a 900-dep monorepo cannot buy 900 audits, and past the
+    # ceiling a scan still runs on cached verdicts alone. Coverage is then smaller
+    # than the lockfile, which the wire reports rather than hides.
+    #
+    # 0 = UNLIMITED on both budgets, matching the plan-limit convention in caps.py.
+    public_scan_max_new_audits: int = Field(default=150, ge=0)
+    public_scan_monthly_new_audits: int = Field(default=400, ge=0)
+    public_scan_max_concurrent: int = Field(default=2, ge=1)
     stripe_pro_price_id: str | None = None
     # TEST-ONLY: point githubkit at a mock host (default = api.github.com).
     github_api_base: str | None = None

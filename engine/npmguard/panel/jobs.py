@@ -24,6 +24,7 @@ import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 import sqlalchemy as sa
 import structlog
@@ -35,6 +36,9 @@ from ..errors import QueueFullError
 from ..report_store import load_report as default_load_report
 from .tables import panel_jobs
 from .verdict_index import LANDABLE_VERDICTS, VerdictIndex, assess_report
+
+if TYPE_CHECKING:
+    from ..service import SubmitResult
 
 log = structlog.get_logger("npmguard.panel.jobs")
 
@@ -251,9 +255,10 @@ class PanelJobQueue:
 
 # The AuditService seam the worker funnels into. Only ``admit`` is used; typed
 # structurally so tests can inject a fake without the full service.
-class _Admitting:
-    async def admit(self, package_name: str, version: str | None = None):  # pragma: no cover
-        ...
+class _Admitting(Protocol):
+    async def admit(
+        self, package_name: str, version: str | None = None
+    ) -> SubmitResult: ...  # pragma: no cover
 
 
 LoadReport = Callable[[str, str], tuple[dict, str] | None]

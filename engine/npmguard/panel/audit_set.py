@@ -54,6 +54,7 @@ from kit_stream import StreamService
 from kit_stream.service import READ_BATCH
 
 from ..contract import models as contract
+from ..contract.kinds import JobState, PackageOutcome, SetStatus
 from .caps import CapsStore
 from .jobs import JobSpec, PanelJobQueue
 from .lockfile import LockfileDep
@@ -126,7 +127,7 @@ class RollupItem:
     the rollup pure and stops it from guessing which key holds the verdict.
     """
 
-    outcome: str | None
+    outcome: PackageOutcome | None
     cached: bool = False
 
 
@@ -140,7 +141,7 @@ class Rollup:
     three different facts.
     """
 
-    outcome: str | None = None
+    outcome: PackageOutcome | None = None
     total: int = 0
     safe: int = 0
     dangerous: int = 0
@@ -233,7 +234,7 @@ class SetProgress:
     """
 
     rollup: Rollup
-    status: str  # 'running' | 'done'
+    status: SetStatus
 
     @property
     def finished(self) -> bool:
@@ -273,11 +274,11 @@ class ItemState:
     direct: bool
     range: str | None
     cached: bool
-    outcome: str | None
+    outcome: PackageOutcome | None
     verdict_reason: str | None
     evidence_count: int
     audited_at: str | None
-    job_state: str | None
+    job_state: JobState | None
 
     def as_rollup_item(self) -> RollupItem:
         return RollupItem(outcome=self.outcome, cached=self.cached)
@@ -302,7 +303,9 @@ def rollup_items(states: Iterable[ItemState]) -> list[RollupItem]:
     return [state.as_rollup_item() for state in states]
 
 
-def job_state(active_state: str | None, has_failed: Any, verdict: str | None) -> str | None:
+def job_state(
+    active_state: JobState | None, has_failed: Any, verdict: str | None
+) -> JobState | None:
     """The wire ``jobState`` — a fact about the ATTEMPT, never an outcome.
 
     ``failed`` here means "a terminal failed job exists for this pair"; the OUTCOME
@@ -578,11 +581,27 @@ class AuditSetSpec:
     items: list[LockfileDep]
     # The installation that pays for the set (None = nobody is billed).
     billed_to: int | None = None
+    # The gh_user who asked for the set (None = nobody asked; push, reconcile,
+    # watch, bench). Required for `public_repo_scan`, which after D-1 has a
+    # requester and no payer — see the invariant in `create`.
+    requested_by: int | None = None
     # The account login `panel_jobs.org` groups on for queue fairness. NOT a
     # billing field: money is metered by the budget hooks above.
     billed_org: str | None = None
     commit_sha: str | None = None
     check_run_id: int | None = None
+    # At most this many cache MISSES may join the set; the rest are left out of
+    # its coverage entirely. `None` = uncovered, which is what every billed origin
+    # passes: a repo scan covers its repo or refuses (`assert_budget`), it never
+    # half-covers it. Only the public scan degrades, because refusing a signed-in
+    # stranger at the funnel's front door is worse than covering less and saying
+    # so (see public_limits.py).
+    #
+    # Uncovered deps are NOT parked in the set as unenqueued items:
+    # `item_outcome` maps "no verdict and no live job" to ERROR, so that would
+    # report every one of them as an audit that was attempted and failed. What is
+    # covered is the set; what the lockfile held is the caller's to record.
+    max_new_audits: int | None = None
     assert_budget: BudgetHook = _no_budget
     consume_budget: BudgetHook = _no_budget
 
@@ -636,10 +655,36 @@ class AuditSetStore:
             )
         if spec.trigger not in TRIGGERS:
             raise AssertionError(f"{spec.trigger!r} is not an AuditSetTrigger")
+        # INVARIANT: a public repo scan has a REQUESTER and no PAYER (D-1) — a
+        # sign-in is required, an App installation is not, and no installation is
+        # charged. Guarded here, not as a CHECK, for the same reason as the two
+        # above: this table carries no enum constraints so that a new origin
+        # costs no schema change. It is not decoration — `requested_by` is the
+        # key column of `ix_audit_sets_active_public`, so a NULL slipping through
+        # would silently void the "one live scan per (repo, user)" guarantee
+        # rather than fail, and a non-NULL `billed_to` would re-attach the set to
+        # an installation's CASCADE, letting an uninstall delete a user's scans.
+        if spec.origin == ORIGIN_PUBLIC_REPO_SCAN and (
+            spec.requested_by is None or spec.billed_to is not None
+        ):
+            raise AssertionError(
+                "a public_repo_scan set needs requested_by and no billed_to; got "
+                f"requested_by={spec.requested_by!r} billed_to={spec.billed_to!r}"
+            )
         items = dedupe(spec.items)
 
         verdicts = await self.verdicts.get_many([(d.name, d.version) for d in items])
         misses = [d for d in items if (d.name, d.version) not in verdicts]
+
+        if spec.max_new_audits is not None and len(misses) > spec.max_new_audits:
+            # Cover what the budget buys, and drop the rest OUT of the set rather
+            # than into it. Direct dependencies first, then by (name, version):
+            # deterministic, so the same lockfile under the same budget covers the
+            # same packages, and a snapshot stays reproducible.
+            misses.sort(key=lambda d: (not d.direct, d.name, d.version))
+            del misses[spec.max_new_audits :]
+            covered = {(d.name, d.version) for d in misses} | set(verdicts)
+            items = [d for d in items if (d.name, d.version) in covered]
 
         # Budget check BEFORE any row is written — a refusal creates no set.
         await spec.assert_budget(len(misses))
@@ -651,6 +696,7 @@ class AuditSetStore:
                     origin=spec.origin,
                     origin_ref=spec.origin_ref,
                     billed_to=spec.billed_to,
+                    requested_by=spec.requested_by,
                     trigger_kind=spec.trigger,
                     commit_sha=spec.commit_sha,
                     check_run_id=spec.check_run_id,
@@ -670,6 +716,14 @@ class AuditSetStore:
                     )
                 )
 
+        # TODO(R-2): the `public` lane. A public scan's jobs go into the same
+        # queue as paid and panel work, which F-F6 says they must never starve.
+        # That lane belongs to the ONE durable queue R-2 builds (lanes
+        # paid|panel|watch|bench|public, with panel_jobs and the panel worker
+        # pool deleted) — building it here would make this the repo's THIRD queue
+        # implementation, the exact mistake R-1 was done to stop. `public` now has
+        # a live caller. Until then the bound is admission-side: the per-user
+        # budget in public_limits.py caps how much work one scan can enqueue.
         inserted = await self.queue.enqueue_many(
             [JobSpec(d.name, d.version, spec.billed_org, spec.origin) for d in misses]
         )

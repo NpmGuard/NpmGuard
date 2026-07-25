@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from kit_spine import now_iso
 
+from ..contract.kinds import PackageOutcome
 from .tables import package_verdicts
 
 # Rollup severity over the panel outcome domain (design §4.4). A set's outcome
@@ -45,10 +46,10 @@ OUTCOME_SEVERITY: dict[str, int] = {"SAFE": 0, "ERROR": 1, "DANGEROUS": 2}
 # The guards here are `raise`, not `assert`, because both stand at a DB boundary and
 # `python -O` strips `assert` — an assert here is a domain check that is
 # conditionally compiled out of production.
-LANDABLE_VERDICTS = frozenset({"SAFE", "DANGEROUS"})
+LANDABLE_VERDICTS: frozenset[PackageOutcome] = frozenset({"SAFE", "DANGEROUS"})
 
 
-def item_outcome(verdict: str | None, *, pending: bool) -> str | None:
+def item_outcome(verdict: str | None, *, pending: bool) -> PackageOutcome | None:
     """The panel outcome for one ``(name, version)`` (design §4.4).
 
     ``verdict`` is the stored audit verdict (``None`` when nothing landed);

@@ -33,10 +33,11 @@ from kit_llm.bench.replay import (
     _neutral_wire_body,
     _provider_result,
 )
+from kit_llm.client import LlmClient
 from kit_llm.prompts import load_prompt
 from kit_llm.provider import ProviderPort, ProviderRequest, ProviderResult
 from npmguard.config import REPO_ROOT, Settings
-from npmguard.contract.models import RunArtifact
+from npmguard.contract.models import Hypothesis, RunArtifact
 from npmguard.evidence import RenderedTimeline, render_timeline
 from npmguard.orchestrator import ExperimentResult, judge_evidence
 
@@ -418,11 +419,11 @@ class RecordedSandbox:
 
     async def run_experiment(
         self,
-        hypothesis: Any,
+        hypothesis: Hypothesis,
         package_path: Path,
         stated_purpose: str,
         settings: Settings,
-        llm: Any,
+        llm: LlmClient,
         audit_id: str,
     ) -> ExperimentResult:
         artifact = self.bundle.sandbox.get(hypothesis.hypId)

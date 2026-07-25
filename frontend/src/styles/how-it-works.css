@@ -1,0 +1,783 @@
+/* =============================================================================
+   /how-it-works — the static explainer surface.
+
+   Owned by pages/HowItWorks.tsx. Every class is `hiw-`-prefixed: this sheet
+   loads alongside the unlayered legacy sheets, which already own generic names
+   (.card, .chip, .stamp, .term…), and a collision here would repaint pages this
+   file has never heard of.
+
+   Colour, spacing, radii, motion and type all come from the `--ng-*`
+   primitives in tokens.css. There is no raw hex below and no local token block
+   — §6 of the design direction, enforced by reading.
+
+   TYPE. §2.7 of the design direction gives static surfaces a serif voice; D-8
+   of the v3 system design overrules it and deletes serif from the system
+   entirely, so display type here is Inter at 600 with tight tracking. Mono
+   still means "a machine-authored fact" and is used for nothing else.
+
+   MOTION. Driven by GSAP in the page component. Nothing on this surface is
+   ever pinned and the scroll is never hijacked — scroll position drives
+   *progress* on two continuous elements (the rail fill, its pod) and *triggers*
+   everything else. Initial hidden states are set in JS, never here, so the page
+   still reads if the motion layer never runs.
+   ============================================================================= */
+
+/* `.ng-root` (base.css tier 2) already brings v3 typography, the canvas, and
+   the one focus ring to this subtree — this only overrides what a static
+   surface differs on. */
+.hiw {
+  /* Static surfaces base at 16px because they are READ; the app bases at 14px
+     because it is SCANNED. §2.7. */
+  font-size: var(--text-md);
+  line-height: 1.6;
+  color: var(--ng-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.hiw code,
+.hiw pre,
+.hiw .hiw-mono {
+  font-family: var(--ng-font-mono);
+  /* `--force` must read as two hyphens, never an em dash. */
+  font-variant-ligatures: none;
+}
+
+.hiw-wrap {
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+  padding-inline: 20px;
+}
+@media (min-width: 768px) { .hiw-wrap { padding-inline: 28px; } }
+@media (min-width: 1024px) { .hiw-wrap { padding-inline: 36px; } }
+@media (min-width: 1440px) { .hiw-wrap { padding-inline: 48px; } }
+
+/* --- Section furniture --------------------------------------------------- */
+
+.hiw-act { padding-block: var(--ng-space-20); position: relative; }
+@media (min-width: 768px) { .hiw-act { padding-block: var(--ng-space-24); } }
+.hiw-act--dark {
+  background: var(--ng-sunken);
+  border-block: var(--ng-border-hairline) solid var(--ng-border);
+}
+.hiw-act--cta {
+  background: var(--ng-sunken);
+  border-top: var(--ng-border-hairline) solid var(--ng-border);
+}
+
+.hiw-eyebrow {
+  display: inline-flex; align-items: center; gap: var(--ng-space-2);
+  font-family: var(--ng-font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ng-text-3);
+  margin-bottom: var(--ng-space-4);
+}
+.hiw-eyebrow::before {
+  content: ""; width: 22px; height: 1px; background: var(--ng-border-strong);
+}
+
+.hiw-h1 {
+  font-weight: 600;
+  font-size: clamp(2.25rem, 1.4rem + 3.4vw, 3.75rem);
+  line-height: 1.04; letter-spacing: -0.03em;
+  max-width: 15ch;
+}
+.hiw-h2 {
+  font-weight: 600;
+  font-size: clamp(1.75rem, 1.2rem + 2.1vw, 2.75rem);
+  line-height: 1.12; letter-spacing: -0.025em;
+  max-width: 20ch;
+}
+.hiw-lead {
+  font-size: var(--text-lg); line-height: 1.6;
+  color: var(--ng-text-2); max-width: 58ch;
+}
+.hiw-sub { margin-top: var(--ng-space-5); color: var(--ng-text-2); max-width: 58ch; }
+.hiw-note {
+  margin-top: var(--ng-space-12);
+  font-size: var(--text-xl); line-height: 1.4;
+  color: var(--ng-text-2); max-width: 36ch;
+}
+/* Not italic: `.ng-root` sets `font-synthesis: none` and Inter Variable ships
+   no italic axis, so `font-style: italic` renders as nothing at all. Emphasis
+   is carried by ink and by the quotes in the markup. */
+.hiw-note em { font-style: normal; color: var(--ng-text); }
+
+/* Split lines clip their own overflow so glyphs rise into place. */
+.hiw-splitline { display: block; overflow: hidden; }
+
+/* --- Buttons ------------------------------------------------------------- */
+
+.hiw-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--ng-space-2);
+  height: var(--ng-h-control-lg); padding-inline: var(--ng-space-6);
+  border-radius: var(--radius-md);
+  border: var(--ng-border-hairline) solid var(--ng-border-control);
+  background: var(--ng-surface); color: var(--ng-text);
+  font-size: var(--text-md); font-weight: 500; white-space: nowrap;
+  transition:
+    background var(--ng-dur-fast) var(--ng-ease-std),
+    border-color var(--ng-dur-fast) var(--ng-ease-std),
+    transform var(--ng-dur-press) var(--ng-ease-std);
+}
+.hiw-btn:hover { background: var(--ng-sunken); }
+.hiw-btn:active { transform: translateY(1px); }
+/* Focus comes from .ng-root — never restate the ring. */
+.hiw-btn--primary {
+  background: var(--ng-text); color: var(--ng-canvas); border-color: var(--ng-text);
+}
+.hiw-btn--primary:hover { background: var(--ng-text-2); border-color: var(--ng-text-2); }
+
+/* --- Hero ---------------------------------------------------------------- */
+
+.hiw-hero { padding-block: var(--ng-space-16) var(--ng-space-20); position: relative; }
+@media (min-width: 768px) { .hiw-hero { padding-block: var(--ng-space-20) var(--ng-space-24); } }
+.hiw-hero__grid { display: grid; gap: var(--ng-space-12); align-items: center; }
+@media (min-width: 1024px) {
+  .hiw-hero__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr);
+    gap: var(--ng-space-16);
+  }
+}
+.hiw-hero__lead { margin-top: var(--ng-space-6); }
+.hiw-hero__cta { margin-top: var(--ng-space-8); display: flex; flex-wrap: wrap; gap: var(--ng-space-3); }
+
+.hiw-cue {
+  position: absolute; left: 50%; bottom: var(--ng-space-8);
+  width: 1px; height: 40px; background: var(--ng-border); overflow: hidden;
+}
+.hiw-cue span { display: block; width: 100%; height: 14px; background: var(--ng-text-3); }
+@media (max-width: 1023px) { .hiw-cue { display: none; } }
+
+/* --- The exhibit (one real audit, replayed) ------------------------------ */
+
+.hiw-exhibit {
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  box-shadow: var(--ng-shadow-pop);
+  overflow: hidden;
+}
+.hiw-exhibit__bar {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  padding: var(--ng-space-3) var(--ng-space-4);
+  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
+  background: var(--ng-sunken);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs); color: var(--ng-text-3);
+}
+.hiw-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ng-border-strong); flex: none; }
+.hiw-exhibit__body { padding: var(--ng-space-4); }
+.hiw-replay {
+  margin-inline-start: auto;
+  color: var(--ng-text-3);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  padding: var(--ng-space-1) var(--ng-space-2); border-radius: var(--radius-xs);
+}
+.hiw-replay:hover { color: var(--ng-text); background: var(--ng-border-faint); }
+
+.hiw-step {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--ng-space-3);
+  padding-block: var(--ng-space-3);
+  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
+}
+.hiw-step:last-child { border-bottom: 0; padding-bottom: 0; }
+.hiw-step__n {
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-3); padding-top: 3px;
+}
+.hiw-step__label {
+  font-size: var(--text-xs); color: var(--ng-text-3);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.hiw-step__val {
+  font-family: var(--ng-font-mono); font-size: var(--text-sm);
+  margin-top: 2px; word-break: break-word;
+}
+.hiw-step__val em { font-style: normal; color: var(--ng-danger-text); }
+.hiw-step__val--verdict {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  flex-wrap: wrap; margin-top: var(--ng-space-2);
+}
+.hiw-step__cited { color: var(--ng-text-3); font-size: var(--text-xs); }
+.hiw-cite { color: var(--ng-accent-text); }
+
+.hiw-evlist { display: grid; gap: 2px; margin-top: var(--ng-space-2); }
+.hiw-ev {
+  display: grid; grid-template-columns: 30px 42px minmax(0, 1fr); gap: var(--ng-space-2);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-2);
+  padding: 2px var(--ng-space-2); border-radius: var(--radius-xs);
+}
+.hiw-ev__id, .hiw-ev__tag { color: var(--ng-text-3); }
+.hiw-ev.is-cited { background: var(--ng-accent-wash); color: var(--ng-accent-text); }
+.hiw-ev.is-cited .hiw-ev__id { color: var(--ng-accent-text); font-weight: 500; }
+
+/* --- Verdict stamps ------------------------------------------------------ */
+
+.hiw-stamp {
+  display: inline-flex; align-items: center;
+  border-radius: var(--radius-sm);          /* a stamp, not a pill (§2.8) */
+  border: var(--ng-border-hairline) solid;
+  padding: var(--ng-space-1) var(--ng-space-3);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500;
+}
+.hiw-stamp--danger { color: var(--ng-danger-text); border-color: var(--ng-danger-border); background: var(--ng-danger-wash); }
+.hiw-stamp--safe   { color: var(--ng-safe-text);   border-color: var(--ng-safe-border);   background: var(--ng-safe-wash); }
+.hiw-stamp--error  { color: var(--ng-error-text);  border-color: var(--ng-error-border);  background: var(--ng-error-wash); }
+
+/* --- Act 1: the theft ---------------------------------------------------- */
+
+.hiw-heist { margin-top: var(--ng-space-12); display: grid; gap: var(--ng-space-4); }
+@media (min-width: 900px) {
+  .hiw-heist {
+    grid-template-columns: minmax(0, 1.3fr) minmax(120px, 0.55fr) minmax(0, 0.85fr);
+    align-items: center; gap: 0;
+  }
+}
+.hiw-box {
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  padding: var(--ng-space-4);
+  box-shadow: var(--ng-shadow-card);
+}
+.hiw-box--them { border-left: 3px solid var(--ng-border-strong); }
+.hiw-box__title {
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-3); text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--ng-space-3);
+}
+.hiw-shell { margin: 0; font-size: var(--text-xs); line-height: 1.85; }
+/* Each line is its own block, so the newlines between them must not render. */
+.hiw-shell code { white-space: normal; }
+.hiw-line { display: block; white-space: pre; }
+.hiw-line--hook { color: var(--ng-danger-text); }
+.hiw-prompt { color: var(--ng-text-3); }
+
+.hiw-files { display: flex; gap: var(--ng-space-2); margin-top: var(--ng-space-4); flex-wrap: wrap; }
+.hiw-filechip {
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  padding: var(--ng-space-1) var(--ng-space-2);
+  border: var(--ng-border-hairline) solid var(--ng-border-faint);
+  border-radius: var(--radius-sm); color: var(--ng-text-3);
+}
+.hiw-filechip--hot {
+  color: var(--ng-danger-text); border-color: var(--ng-danger-border);
+  background: var(--ng-danger-wash);
+}
+
+.hiw-wire {
+  position: relative; min-height: 56px;
+  display: flex; align-items: center; color: var(--ng-border-strong);
+}
+.hiw-wire svg { width: 100%; height: 40px; }
+/* Stacked, the wire runs DOWN — and so does the token the page animates along
+   it. A horizontal dashed rule under a stacked column would point the wrong
+   way at the one moment the reader is watching it. */
+@media (max-width: 899px) {
+  .hiw-wire { min-height: 64px; justify-content: center; }
+  .hiw-wire svg { display: none; }
+  .hiw-wire::before {
+    content: ""; position: absolute; inset-block: 0; width: 1.5px;
+    background: repeating-linear-gradient(
+      to bottom, currentColor 0 4px, transparent 4px 8px);
+  }
+}
+.hiw-token {
+  position: absolute; left: 0; top: 50%;
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  padding: var(--ng-space-1) var(--ng-space-2);
+  border-radius: var(--radius-sm);
+  background: var(--ng-danger); color: var(--ng-danger-on);
+  white-space: nowrap; box-shadow: var(--ng-shadow-card);
+}
+.hiw-catch { display: grid; gap: var(--ng-space-2); }
+.hiw-got { font-family: var(--ng-font-mono); font-size: var(--text-2xs); color: var(--ng-text-3); }
+.hiw-got--body { color: var(--ng-danger-text); }
+
+/* --- Act 2: the rail ----------------------------------------------------- */
+
+.hiw-rail { position: relative; margin-top: var(--ng-space-16); }
+.hiw-spine { position: absolute; top: 0; bottom: 0; left: 9px; width: 2px; }
+@media (min-width: 980px) { .hiw-spine { left: 50%; margin-left: -1px; } }
+.hiw-spine__track { position: absolute; inset: 0; background: var(--ng-border); }
+.hiw-spine__fill {
+  position: absolute; inset: 0; background: var(--ng-accent);
+  transform-origin: top center;
+}
+.hiw-pod {
+  position: absolute; left: 50%; top: 0;
+  width: 26px; height: 26px; margin-left: -13px; margin-top: -13px;
+  border-radius: var(--radius-sm);
+  background: var(--ng-surface);
+  border: 2px solid var(--ng-accent);
+  display: grid; place-items: center;
+  color: var(--ng-accent); font-size: 11px;
+  box-shadow: var(--ng-shadow-card);
+}
+
+.hiw-station {
+  position: relative; display: grid; gap: var(--ng-space-5);
+  padding-left: 44px; padding-block: var(--ng-space-10);
+}
+@media (max-width: 979px) { .hiw-station + .hiw-station { padding-top: var(--ng-space-8); } }
+@media (min-width: 980px) {
+  .hiw-station {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--ng-space-16);
+    padding-left: 0; padding-block: var(--ng-space-8);
+    align-items: center;
+  }
+  /* nth-of-type, not nth-child — the spine div is .hiw-rail's first child and
+     counting it would flip every station to the wrong side. */
+  .hiw-station:nth-of-type(odd) .hiw-station__copy { padding-right: var(--ng-space-8); }
+  .hiw-station:nth-of-type(even) .hiw-station__copy { order: 2; padding-left: var(--ng-space-8); }
+  .hiw-station:nth-of-type(even) .hiw-station__viz { order: 1; }
+}
+
+.hiw-station__n {
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  color: var(--ng-accent-text); letter-spacing: 0.14em;
+}
+.hiw-station h3 {
+  margin-top: var(--ng-space-2);
+  font-weight: 600;
+  font-size: clamp(1.5rem, 1.15rem + 1.3vw, 2.125rem);
+  line-height: 1.15; letter-spacing: -0.025em;
+}
+.hiw-station p { margin-top: var(--ng-space-3); color: var(--ng-text-2); max-width: 40ch; }
+
+.hiw-station__viz {
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  box-shadow: var(--ng-shadow-pop);
+  padding: var(--ng-space-4);
+  display: grid; gap: var(--ng-space-3); align-content: center;
+  min-height: 210px;
+}
+
+/* station 01 */
+.hiw-tgz {
+  justify-self: start;
+  display: inline-flex; align-items: center; gap: var(--ng-space-2);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  padding: var(--ng-space-2) var(--ng-space-3);
+  border: var(--ng-border-hairline) solid var(--ng-border-control);
+  border-radius: var(--radius-sm);
+  background: var(--ng-sunken); color: var(--ng-text-2);
+}
+.hiw-filelist { display: grid; gap: var(--ng-space-2); }
+.hiw-filerow {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  padding: var(--ng-space-2) var(--ng-space-3);
+  border-radius: var(--radius-sm);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  background: var(--ng-sunken);
+  border: var(--ng-border-hairline) solid var(--ng-border-faint);
+}
+.hiw-filerow__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.hiw-chip {
+  display: inline-flex; align-items: center;
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  background: var(--ng-surface);
+  border-radius: var(--radius-sm);
+  padding: var(--ng-space-1) var(--ng-space-2);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-2); white-space: nowrap;
+}
+.hiw-chip--warn { border-color: var(--ng-danger-border); color: var(--ng-danger-text); background: var(--ng-danger-wash); }
+.hiw-chip--ok   { border-color: var(--ng-safe-border);   color: var(--ng-safe-text);   background: var(--ng-safe-wash); }
+.hiw-chip--info { border-color: var(--ng-accent-border); color: var(--ng-accent-text); background: var(--ng-accent-wash); }
+
+/* station 02 */
+.hiw-pbox {
+  border: var(--ng-border-hairline) solid var(--ng-border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--ng-sunken);
+  padding: var(--ng-space-3);
+}
+.hiw-pbox--out { border-color: var(--ng-border-control); background: var(--ng-surface); }
+.hiw-pbox__k {
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-3); text-transform: uppercase; letter-spacing: 0.1em;
+  margin-bottom: var(--ng-space-2);
+}
+.hiw-pbox p {
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  line-height: 1.6; color: var(--ng-text-3);
+}
+.hiw-pbox--out p { color: var(--ng-text); }
+.hiw-typeline { min-height: 2.6em; }
+.hiw-caret {
+  display: inline-block; width: 7px; height: 1em;
+  background: var(--ng-accent); vertical-align: -0.16em; margin-left: 1px;
+}
+.hiw-chiprow { margin-top: var(--ng-space-3); }
+
+/* station 03 */
+.hiw-code {
+  position: relative; overflow: hidden;
+  font-family: var(--ng-font-mono); font-size: var(--text-xs);
+  background: var(--ng-sunken);
+  border: var(--ng-border-hairline) solid var(--ng-border-faint);
+  border-radius: var(--radius-sm);
+  padding: var(--ng-space-3);
+}
+.hiw-codeline {
+  position: relative; z-index: 0;
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--ng-space-3);
+  color: var(--ng-text-2); white-space: pre;
+}
+.hiw-codeline__n { color: var(--ng-text-3); }
+.hiw-codeline--hot { color: var(--ng-text); }
+.hiw-hl {
+  position: absolute; left: 30px; right: -6px; top: 0; bottom: 0;
+  background: var(--ng-danger-wash); border-radius: 2px; z-index: -1;
+  transform-origin: left center;
+}
+.hiw-scan {
+  position: absolute; left: 0; right: 0; top: 0; height: 26px; pointer-events: none;
+  background: linear-gradient(
+    to bottom, color-mix(in srgb, var(--ng-accent) 16%, transparent), transparent);
+  border-top: 1px solid var(--ng-accent);
+}
+.hiw-cap { font-family: var(--ng-font-mono); font-size: var(--text-2xs); color: var(--ng-text-3); }
+.hiw-cap__tag { color: var(--ng-danger-text); margin-inline-end: var(--ng-space-2); }
+
+/* station 04 */
+.hiw-bench { display: grid; gap: var(--ng-space-2); }
+.hiw-bench__row {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  padding: var(--ng-space-2) var(--ng-space-3);
+  background: var(--ng-sunken);
+  border: var(--ng-border-hairline) solid var(--ng-border-faint);
+  border-radius: var(--radius-sm);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs); color: var(--ng-text-2);
+}
+.hiw-bench__k { color: var(--ng-text-3); flex: none; width: 54px; }
+.hiw-canary { color: var(--ng-accent-text); }
+.hiw-fire {
+  justify-self: start; margin-top: var(--ng-space-1);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  padding: var(--ng-space-2) var(--ng-space-3);
+  border-radius: var(--radius-sm);
+  border: var(--ng-border-hairline) solid var(--ng-border-control);
+  background: var(--ng-surface); color: var(--ng-text);
+}
+.hiw-fire.is-fired {
+  background: var(--ng-danger-wash); border-color: var(--ng-danger-border);
+  color: var(--ng-danger-text);
+}
+
+/* station 05 */
+.hiw-scope {
+  border: var(--ng-border-hairline) dashed var(--ng-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--ng-sunken);
+  padding: var(--ng-space-3);
+}
+.hiw-scope__bar {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs); color: var(--ng-text-3);
+  margin-bottom: var(--ng-space-3);
+}
+.hiw-live { display: inline-flex; align-items: center; gap: var(--ng-space-2); }
+.hiw-live::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ng-accent);
+}
+.hiw-scope svg { width: 100%; height: 120px; }
+.hiw-wave { fill: none; stroke: var(--ng-accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.hiw-scope__keys {
+  display: flex; justify-content: space-between; margin-top: var(--ng-space-2);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs); color: var(--ng-text-3);
+}
+
+/* station 06 */
+.hiw-jcard {
+  border: var(--ng-border-hairline) solid var(--ng-border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--ng-sunken);
+  padding: var(--ng-space-3);
+  font-size: var(--text-sm); color: var(--ng-text-2); line-height: 1.55;
+}
+.hiw-jcard--bad {
+  color: var(--ng-text-3);
+  /* The same 45° hatch the app uses for a degraded / unevaluated state. */
+  background: repeating-linear-gradient(
+    45deg, transparent, transparent 5px,
+    var(--ng-border-faint) 5px, var(--ng-border-faint) 6px);
+}
+.hiw-jcard__k {
+  display: block; margin-top: var(--ng-space-2);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+}
+.hiw-jcard__foot {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  flex-wrap: wrap; margin-top: var(--ng-space-3);
+}
+.hiw-cites { display: inline-flex; gap: var(--ng-space-1); }
+
+/* --- The two early exits, drawn as the audit cards they are ------------- */
+
+.hiw-offramps { display: grid; gap: var(--ng-space-5); margin-top: var(--ng-space-10); }
+@media (min-width: 840px) { .hiw-offramps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.hiw-exit {
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-left: 3px solid var(--ng-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  box-shadow: var(--ng-shadow-card);
+  overflow: hidden;
+}
+.hiw-exit--danger { border-left-color: var(--ng-danger); }
+.hiw-exit--safe { border-left-color: var(--ng-safe); }
+.hiw-exit__bar {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  padding: var(--ng-space-3) var(--ng-space-4);
+  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
+  background: var(--ng-sunken);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs); color: var(--ng-text-3);
+}
+
+/* Six ticks: the steps that ran, and the ones that never started wearing the
+   same 45° hatch the app uses everywhere for "no signal here". */
+.hiw-ticks {
+  display: flex; gap: 4px;
+  padding: var(--ng-space-4) var(--ng-space-4) var(--ng-space-2);
+}
+.hiw-tick {
+  position: relative; flex: 1; height: 7px; border-radius: 2px; overflow: hidden;
+  background: repeating-linear-gradient(
+    45deg, transparent 0 3px, var(--ng-border-strong) 3px 4px);
+}
+.hiw-tick--ran { background: var(--ng-border-faint); }
+.hiw-tick__fill {
+  position: absolute; inset: 0; background: var(--ng-accent);
+  transform-origin: left center;
+}
+.hiw-ticks__k {
+  padding-inline: var(--ng-space-4);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs); color: var(--ng-text-3);
+}
+
+.hiw-exit__rows {
+  display: grid; gap: var(--ng-space-1);
+  padding: var(--ng-space-4) var(--ng-space-4) 0;
+}
+.hiw-exit__row {
+  display: grid; grid-template-columns: 24px 58px minmax(0, 1fr);
+  gap: var(--ng-space-2); align-items: baseline;
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-2);
+}
+.hiw-exit__n, .hiw-exit__k { color: var(--ng-text-3); }
+.hiw-bad { color: var(--ng-danger-text); }
+
+.hiw-exit__verdict {
+  display: flex; align-items: baseline; gap: var(--ng-space-3); flex-wrap: wrap;
+  margin: var(--ng-space-5) var(--ng-space-4) 0;
+  padding-top: var(--ng-space-4);
+  border-top: var(--ng-border-hairline) solid var(--ng-border-faint);
+}
+.hiw-exit__rationale {
+  flex: 1 1 220px;
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  line-height: 1.6; color: var(--ng-text-2);
+}
+.hiw-exit__foot {
+  padding: var(--ng-space-3) var(--ng-space-4) var(--ng-space-4);
+  font-size: var(--text-base); color: var(--ng-text-3);
+}
+
+/* --- Act 3: the recorders ------------------------------------------------ */
+
+.hiw-sgrid { display: grid; gap: var(--ng-space-4); margin-top: var(--ng-space-12); }
+@media (min-width: 640px)  { .hiw-sgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .hiw-sgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--ng-space-5); } }
+
+.hiw-sensor {
+  position: relative;
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  padding: var(--ng-space-5);
+  box-shadow: var(--ng-shadow-card);
+  /* The trace is deliberately wider than the content box so it runs edge to
+     edge; this is what clips it back to the card's own corners. */
+  overflow: hidden;
+}
+.hiw-sensor__head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--ng-space-3);
+}
+.hiw-sensor__k {
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--ng-text-3);
+}
+.hiw-sensor__stream {
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-3);
+}
+
+/* What this layer actually wrote, in that layer's own vocabulary. */
+.hiw-sensor__log {
+  position: relative;
+  margin-block: var(--ng-space-4);
+  padding: var(--ng-space-3);
+  min-height: 96px;
+  border-radius: var(--radius-sm);
+  background: var(--ng-sunken);
+  border: var(--ng-border-hairline) solid var(--ng-border-faint);
+  overflow: hidden;
+}
+.hiw-sensor__rows { display: grid; gap: var(--ng-space-1); }
+/* max-content, not a fixed track: each layer's verbs are its own width, and a
+   shared column would truncate the longest one to spare the shortest. */
+.hiw-srow {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--ng-space-3);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-2);
+}
+.hiw-srow__verb { color: var(--ng-text-3); }
+.hiw-srow__target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The one texture that means "no signal here", same as everywhere else in the
+   app. A blank card would read as "nothing happened", which is the exact
+   misreading this section exists to prevent. */
+.hiw-sensor__hatch {
+  position: absolute; inset: 0; z-index: 1;
+  background:
+    repeating-linear-gradient(
+      45deg, transparent 0 5px, var(--ng-border-strong) 5px 6px),
+    var(--ng-sunken);
+  opacity: 0.9;
+}
+
+.hiw-sensor p { font-size: var(--text-base); color: var(--ng-text-2); line-height: 1.55; }
+.hiw-sensor--blind .hiw-srow { color: var(--ng-text-3); }
+.hiw-sensor__flag {
+  position: absolute; top: var(--ng-space-4); right: var(--ng-space-4);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--ng-error-text);
+  border: var(--ng-border-hairline) solid var(--ng-error-border);
+  background: var(--ng-error-wash);
+  border-radius: var(--radius-sm); padding: 1px var(--ng-space-2);
+}
+
+/* --- Act 4: the verdicts ------------------------------------------------- */
+
+.hiw-vgrid { display: grid; gap: var(--ng-space-5); margin-top: var(--ng-space-12); }
+@media (min-width: 900px) { .hiw-vgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+.hiw-vcard {
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  /* The 3px left rule — how severity reaches a card without a colour wash. */
+  border-left: 3px solid var(--ng-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  padding: var(--ng-space-6);
+  box-shadow: var(--ng-shadow-card);
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--ng-space-4);
+}
+.hiw-vcard--danger { border-left-color: var(--ng-danger); }
+.hiw-vcard--safe   { border-left-color: var(--ng-safe); }
+.hiw-vcard--error  { border-left-color: var(--ng-error); }
+.hiw-vcard h3 { font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.015em; }
+.hiw-vcard p { color: var(--ng-text-2); font-size: var(--text-base); line-height: 1.6; }
+.hiw-vcard__k {
+  margin-top: auto; padding-top: var(--ng-space-2);
+  font-family: var(--ng-font-mono); font-size: var(--text-2xs);
+  color: var(--ng-text-3); line-height: 1.5;
+}
+
+.hiw-quote {
+  margin: var(--ng-space-16) 0 0;
+  font-weight: 600;
+  font-size: clamp(1.375rem, 1rem + 1.7vw, 2.125rem);
+  line-height: 1.3; letter-spacing: -0.02em;
+  max-width: 26ch;
+}
+
+/* --- Act 5: back in your terminal ---------------------------------------- */
+
+.hiw-term {
+  margin-top: var(--ng-space-10);
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  box-shadow: var(--ng-shadow-pop);
+  overflow: hidden;
+}
+.hiw-term__bar {
+  display: flex; align-items: center; gap: var(--ng-space-3);
+  padding: var(--ng-space-3) var(--ng-space-4);
+  border-bottom: var(--ng-border-hairline) solid var(--ng-border-faint);
+  font-family: var(--ng-font-mono); font-size: var(--text-xs); color: var(--ng-text-3);
+}
+.hiw-term__body {
+  margin: 0; padding: var(--ng-space-5) var(--ng-space-4);
+  font-size: var(--text-xs); line-height: 1.95; color: var(--ng-text-2);
+  overflow-x: auto;
+}
+.hiw-term__body { font-family: var(--ng-font-mono); }
+.hiw-term__body .hiw-line { min-height: 1.95em; padding-inline: var(--ng-space-2); }
+.hiw-line--cmd { color: var(--ng-text); }
+.hiw-line--bad { color: var(--ng-danger-text); }
+.hiw-line--muted { color: var(--ng-text-3); }
+.hiw-line__aside { color: var(--ng-border-strong); margin-inline-start: var(--ng-space-4); }
+
+/* What an install actually prints when the verdict is in: the finding, where
+   it lives, and the three events that prove it — the same three the hero
+   cited, arriving where they matter. */
+.hiw-verdictblock {
+  margin: var(--ng-space-3) 0;
+  border-left: 3px solid var(--ng-danger);
+  background: var(--ng-danger-wash);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--ng-space-3) var(--ng-space-4);
+}
+.hiw-verdictblock__head {
+  display: flex; align-items: center; gap: var(--ng-space-3); flex-wrap: wrap;
+  color: var(--ng-danger-text); font-size: var(--text-xs);
+}
+.hiw-verdictblock__where {
+  margin-top: var(--ng-space-3);
+  font-size: var(--text-2xs); color: var(--ng-text-2);
+}
+.hiw-verdictblock .hiw-evlist { margin-top: var(--ng-space-3); }
+.hiw-verdictblock .hiw-ev.is-cited { background: transparent; }
+
+.hiw-cta {
+  margin-top: var(--ng-space-6);
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--ng-space-3);
+  border: var(--ng-border-hairline) solid var(--ng-border);
+  border-radius: var(--radius-lg);
+  background: var(--ng-surface);
+  padding: var(--ng-space-4);
+}
+.hiw-cta__cmd {
+  flex: 1 1 260px; min-width: 0; font-size: var(--text-base);
+  overflow-x: auto; white-space: nowrap;
+}
+
+/* --- Reduced motion ------------------------------------------------------ */
+/* The page component kills every ScrollTrigger and jumps each timeline to its
+   end state, so nothing here has to hide anything — this only stops the
+   ambient loops that have no informational content. */
+
+@media (prefers-reduced-motion: reduce) {
+  .hiw-scan, .hiw-caret, .hiw-cue { display: none; }
+  /* The moving fill becomes the static 45° hatch used for degraded state. */
+  .hiw-spine__fill {
+    background: repeating-linear-gradient(
+      45deg, transparent, transparent 4px,
+      var(--ng-border-strong) 4px, var(--ng-border-strong) 5px);
+  }
+}

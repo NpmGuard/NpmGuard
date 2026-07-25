@@ -67,6 +67,7 @@ The units and the classes they must cover:
 | `types.*` | parsePackageInput (scoped names via last `@`); parseLineRanges (garbage dropped); riskContributionToStatus thresholds; fileFromFileLine |
 | `query-state.*` | the only mapping from react-query into `LoadState`: three states → three arms; data surviving a failed *refetch* stays `ok` tagged with `asOf`; every failure NAMED; `allLoaded` is a product (one failure fails the composite, and names every failure); a 402 yields `null` so a call site cannot double-report a cap |
 | `query-client.*` | the cross-cutting HTTP policy, built from the real `createQueryClient()`: 401-reauth redirect from a query AND a mutation (a plain 401 must not redirect); 402 → paywall + in-place entitlements patch; `retryable()` classification |
+| `features/repos/posture.*` | R1 `needsAttention` = DANGEROUS ∪ ERROR (never SAFE, never a null outcome, never a missing set); R2 it ignores progress — a live set with a DANGEROUS partial rollup still needs a human; R3 `repoBucket` is total and progress WINS there (the same repo buckets `running`), which is the one deliberate divergence between the two; R4 no set and a set covering nothing are both `unknown`, never `safe`; R5 the four buckets PARTITION the list (the rail's proportion depends on it); R6 protected/audited are independent axes; R7 every filter chip's count equals its own predicate; R8 an empty query matches everything |
 
 **Parity (the frontend's contract test).** The audit types are generated from
 `@npmguard/shared`, but the fold's handled union can still drift from what the
@@ -86,9 +87,18 @@ paced fast by `NPMGUARD_DEMO_SPEED`.
 
 **Harness** (`playwright.config.ts`): engine on **:8055** (`uv run uvicorn
 npmguard.api:app`, payment off, hermetic `.e2e-data`, `NPMGUARD_DEMO_SPEED`) +
-vite on **:3100** (proxying `/api` → the engine); `workers:1 retries:0` (audit
-sessions + the SSE hub are in-process engine state — a flaky spec is a bug, not
-a retry). Node ≥ 22 has native `EventSource`, so the app runs unmodified.
+vite on **:3100** (proxying `/api` → the engine) + the **panel fixture server**
+on **:8056** (`engine/tests/support/panel_e2e_server.py` — the GitHub App + OAuth
+stub the Python e2e tier uses, run as a process, plus a slow-404 npm registry);
+`workers:1 retries:0` (audit sessions + the SSE hub are in-process engine state —
+a flaky spec is a bug, not a retry). Node ≥ 22 has native `EventSource`, so the
+app runs unmodified.
+
+The fixture (reports on disk + the GitHub scenario) is one file,
+`e2e/panel-fixture.ts`, and it is applied at **config load** rather than in a
+`globalSetup`: Playwright starts webServers BEFORE globalSetup, and the panel's
+verdict index is built from `data/reports/` once, at engine boot. A report seeded
+after that is invisible to every cache-first scan.
 
 **Scenarios are equivalence classes of the integration surface** (`S<id>
 [C<claims>]` in each spec's first line), not a re-test of endpoint edges.
@@ -120,6 +130,24 @@ replay, live, reconnect-resume-without-duplicates, idle survival):
   advertised methods render); the error taxonomy branches on `ApiError.status`.
 - **S7 expired session** — `/audit/<bogus-uuid>` → the probe 404s → an honest
   "session expired" state, never a blank view.
+- **P1–P6 the GitHub panel** (`panel.spec.ts`, serial — the flow is
+  sequential and later scenarios read the state the scan produced). **P1**
+  sign-in: the real OAuth round trip through the stub mirrors the workspace onto
+  the dashboard, and neither the signed-out card nor the "no GitHub App on this
+  server" empty state is reachable (that pair is what a mis-wired harness would
+  render, so asserting their absence is what makes the rest of the file
+  discriminating). **P2** scan: Run audit → an observably RUNNING set → the
+  SSE-driven page settles on a rollup that PARTITIONS its deps (1 dangerous + 1
+  could-not-conclude + 1 no-threat over 3); the dep whose audit failed is ERROR,
+  never SAFE. **P3** posture: that one DANGEROUS repo drives the card, the
+  portfolio rail's attention segment and the Attention filter identically.
+  **P4** alerts: the engine's own fan-out reaches the feed and "Mark as seen"
+  survives a reload. **P5** drill-through: dashboard → repo → dep → the durable
+  report, with NO link on the ERROR dep (no report exists to link to). **P6**
+  Protect: the toggle answers immediately and kicks the background first scan.
+  Degraded panel states are deliberately NOT here — `Dashboard.test.tsx` D1–D8
+  holds that ground at the unit tier, and re-testing it in a browser buys
+  nothing.
 - **Edge classes** — heartbeat `: keep-alive` frames ignored; a scoped package
   name (`@scope/pkg`) routes with its slash intact; `prefers-reduced-motion`
   disables entrances (no motion assertions depend on animation).

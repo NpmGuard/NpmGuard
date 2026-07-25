@@ -32,7 +32,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -45,6 +45,7 @@ from kit_stream import StreamService
 from npmguard.errors import AuditIncompleteError, QueueFullError
 from npmguard.events import audit_channel
 from npmguard.persistence import DEMO_PACKAGE_PATH, AuditSessionStore
+from npmguard.pipeline import AuditPipeline
 from npmguard.service import AuditService, SubmitResult
 
 WAIT_SECONDS = 15  # generous bound for any awaited queue outcome
@@ -367,7 +368,9 @@ async def test_audit_enqueued_precedes_audit_started(rig) -> None:
     """NOTIFY: audit_enqueued (emitted at submit) is durable BEFORE audit_started
     (emitted when execution begins) — the client sees "queued" then "starting"."""
     pipeline, sessions, stream = StartEmittingPipeline(), rig.sessions, rig.stream
-    service = AuditService(pipeline, sessions, stream, queue_size=5, max_concurrent=1)
+    service = AuditService(
+        cast(AuditPipeline, pipeline), sessions, stream, queue_size=5, max_concurrent=1
+    )
     await service.start()
     try:
         session = await sessions.create("pkg-notify", "1.0.0")

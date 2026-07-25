@@ -172,11 +172,27 @@ audit_sets = sa.Table(
     sa.Column("origin_ref", sa.BigInteger, nullable=False),
     # The installation that pays for this set. A set's lifetime is tied to its
     # payer (CASCADE), which is what makes an uninstall remove its audit history.
-    # NULL = nobody is billed (registry watch, bench) — never cascaded.
+    # NULL = nobody is billed (registry watch, bench, public scan) — never cascaded.
     sa.Column(
         "billed_to",
         sa.BigInteger,
         sa.ForeignKey("installations.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    # The gh_user who ASKED for this set, when a user asked at all: NULL for
+    # push / reconcile / watch / bench work, NOT NULL for a public repo scan.
+    #
+    # This is the identity a public scan is scoped by, in place of `billed_to`,
+    # because D-1 gives a public scan a requester and no payer: no App
+    # installation, no ownership, nothing charged. It lives HERE rather than on
+    # `public_repo_scans` because three things need it and
+    # only this table can serve them — the partial-unique index below, read
+    # authorization on a set, and the per-user scan allowance. Storing it twice
+    # would be two sources of truth for one fact.
+    sa.Column(
+        "requested_by",
+        sa.BigInteger,
+        sa.ForeignKey("gh_users.id", ondelete="CASCADE"),
         nullable=True,
     ),
     # AuditSetTrigger: 'manual'|'push'|'reconcile'|'publish'
@@ -188,15 +204,23 @@ audit_sets = sa.Table(
     sa.Column("started_at", sa.String(64), nullable=False),
     sa.Column("finished_at", sa.String(64), nullable=True),
     sa.Index("ix_audit_sets_subject", "origin", "origin_ref", "started_at"),
-    # At most one LIVE public-repo audit per (repo, payer). Origin-scoped on
+    # At most one LIVE public-repo audit per (repo, REQUESTER). Origin-scoped on
     # purpose: the equivalent statement is FALSE for repo_scan, where two pushes
     # in quick succession legitimately open two overlapping sets, each with its
     # own check run. Keyed on the stable github_repo_id rather than a lowercased
     # full name, so a rename cannot smuggle in a second running audit.
+    #
+    # The second column is `requested_by`, not `billed_to`: after D-1 a public
+    # scan has no payer, and a partial-unique index whose key column is NULL for
+    # every row it covers guarantees nothing — postgres treats distinct NULLs as
+    # distinct, so two concurrent scans of one repo would both open a set. It is
+    # scoped per requester rather than globally because the dedupe that saves
+    # WORK is `ix_panel_jobs_active_pkg` (one live audit per pair, across all
+    # sets); this index only stops one user opening the same set twice.
     sa.Index(
         "ix_audit_sets_active_public",
         "origin_ref",
-        "billed_to",
+        "requested_by",
         unique=True,
         postgresql_where=sa.text("finished_at IS NULL AND origin = 'public_repo_scan'"),
         sqlite_where=sa.text("finished_at IS NULL AND origin = 'public_repo_scan'"),
@@ -355,9 +379,11 @@ alerts = sa.Table(
     sa.Index("ix_alerts_org", "org", "created_at"),
 )
 
-# The SUBJECT of a `public_repo_scan` audit set: which public repo was snapshotted
-# and who asked. Read-only; NOT joined to `repos`. Progress, counters, timing and
-# the rollup all live on the set — this table holds only what the set cannot.
+# The SUBJECT of a `public_repo_scan` audit set: WHICH public repo was
+# snapshotted. Read-only; NOT joined to `repos`. Progress, counters, timing and
+# the rollup all live on the set — this table holds only what the set cannot, and
+# "who asked" is not part of that: it is `audit_sets.requested_by`, where
+# the liveness index and the read authorization can both reach it.
 #
 # INVARIANT: `set_id` is the primary key, so a snapshot and its set are 1:1 and
 # there is exactly ONE id in the system. `PublicRepoScan.id` on the wire and
@@ -373,14 +399,8 @@ public_repo_scans = sa.Table(
         primary_key=True,
         autoincrement=False,
     ),
-    sa.Column(
-        "requested_by",
-        sa.BigInteger,
-        sa.ForeignKey("gh_users.id", ondelete="CASCADE"),
-        nullable=False,
-    ),
-    # The stable id the public-audit cap counts on (a rename never costs a second
-    # Free slot) and the set's `origin_ref`.
+    # The stable id the per-user scan allowance counts on (a rename never costs a
+    # second free slot) and the set's `origin_ref`.
     sa.Column("github_repo_id", sa.BigInteger, nullable=False),
     sa.Column("owner", sa.String(255), nullable=False),
     sa.Column("name", sa.String(255), nullable=False),
@@ -389,5 +409,15 @@ public_repo_scans = sa.Table(
     sa.Column("default_branch", sa.String(255), nullable=False),
     sa.Column("lockfile_path", sa.Text, nullable=False),
     sa.Column("lockfile_sha", sa.String(64), nullable=False),
+    # How many distinct (name, version) pairs the lockfile held. NOT a progress
+    # counter — an immutable property of the snapshot, like `lockfile_sha`, fixed
+    # at creation and never updated, so there is nothing here to desynchronize.
+    #
+    # It exists because a public scan's cost ceiling can make the set cover LESS
+    # than the lockfile (public_limits.py), and the set knows only what it covers.
+    # Without this the difference would be silently invisible, which on a surface
+    # aimed at strangers is the same credibility failure as overstating SAFE.
+    # Coverage is then `rollup.total`, and what was declined is the difference.
+    sa.Column("dep_count", sa.Integer, nullable=False, server_default="0"),
     sa.Index("ix_public_repo_scans_repo", "github_repo_id"),
 )

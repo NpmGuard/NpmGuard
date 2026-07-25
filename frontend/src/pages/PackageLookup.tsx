@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../lib/api-base.ts";
 import { fetchPackageReport } from "../lib/api.ts";
-import type { PackageReportResponse } from "../lib/engine-types.ts";
+import type { PackageReportResponse } from "@npmguard/shared";
 import { verdictTone } from "../lib/report-helpers.ts";
 import { useAuditStore } from "../stores/auditStore.ts";
 import { ReportView } from "../components/report/ReportView.tsx";

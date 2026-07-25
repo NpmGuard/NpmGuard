@@ -25,7 +25,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from npmguard.panel.billing import checkout_enabled
-from npmguard.panel.routes._common import current_user, require_enabled, runtime_of
+from npmguard.panel.routes._common import (
+    current_user,
+    panel_disabled_response,
+    require_panel,
+    runtime_of,
+)
 from npmguard.panel.tables import user_installations
 from npmguard.payments import (
     create_repo_billing_portal,
@@ -84,9 +89,9 @@ async def _installation_id_from_body(request: Request) -> tuple[int | None, JSON
 
 @router.get("/panel/billing")
 async def panel_billing(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -116,9 +121,9 @@ async def panel_billing(request: Request) -> Response:
 
 @router.post("/panel/billing/checkout")
 async def panel_billing_checkout(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     settings = runtime.settings
     if not checkout_enabled(settings):
         return JSONResponse(
@@ -163,9 +168,9 @@ async def panel_billing_checkout(request: Request) -> Response:
 
 @router.post("/panel/billing/portal")
 async def panel_billing_portal(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     settings = runtime.settings
     user = await current_user(request, runtime)
     if user is None:

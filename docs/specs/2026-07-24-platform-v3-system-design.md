@@ -620,10 +620,17 @@ depends on them:
   is that a shared job belongs to no single set, which is why a settle notifies
   every set covering the pair rather than "its own".
 - **`ix_audit_sets_active_public`** — partial-unique on
-  `(origin_ref, billed_to)` while `finished_at IS NULL AND origin =
+  `(origin_ref, requested_by)` while `finished_at IS NULL AND origin =
   'public_repo_scan'`. Origin-scoped on purpose: the same statement is **false**
   for `repo_scan`, where two pushes in quick succession legitimately open two
-  overlapping sets, each with its own check run.
+  overlapping sets, each with its own check run. The second column was
+  `billed_to` until D-1 removed the payer from this origin entirely (alembic
+  0008): a partial-unique index whose key column is NULL for every row it covers
+  guarantees nothing, since distinct NULLs are distinct — it would have kept
+  *looking* enforced while admitting unlimited duplicates. Scoped per requester
+  rather than globally because the dedupe that saves WORK is
+  `ix_panel_jobs_active_pkg`; this one only stops one user opening the same set
+  twice.
 - **No stored `status` and no stored counter on a set.** `finished_at` is the
   single liveness fact and every counter is recomputed from
   `audit_set_items ⋈ package_verdicts` on read. `status='failed'` and a set-level
@@ -1101,6 +1108,16 @@ Covers F-B*, F-C*, F-D1, F-E3, N-6, N-7, N-9.
 Register the OAuth callback; tunnel webhook delivery and prove a real `push`
 produces a push scan + check-run; configure billing so the upgrade path stops
 being an honest 501. Covers F-B1, F-D2, F-E4, N-14. **SMTP stays out (F-D5).**
+
+**Debt this phase inherits from Phase 3:** the alert *trigger* is the one thing
+the browser tier could not drive. `PanelScanWorker` raises an alert only when a
+real audit lands DANGEROUS, which needs docker + a live LLM (and under
+`NPMGUARD_MOCK_LLM` a concluding audit can only be SAFE), so `panel.spec.ts` P4
+fires the engine's own `handle_dangerous_verdict` from the harness process
+(`panel_e2e_server.py`'s `/fixture/dangerous-fanout`) and proves the feed
+downstream of it. **When an audit here can genuinely conclude DANGEROUS, delete
+that endpoint and its helper and let P4 drive a real scan.** Both sites carry a
+`REVISIT IN PHASE 4` marker.
 _Note:_ do **not** harden the plan model here (F-E). Get *a* payment path
 working behind the F-E1 seam and leave the shape changeable.
 
@@ -1111,12 +1128,19 @@ Two features, one phase, because they share the funnel:
   linking to `/audit/:id`, and the verdict-time canonicalization suppressed so a
   permalink survives being followed. No recording step and no curated set — see
   the rewritten F-I for why that half of this plan was dropped rather than done.
-- **Public scan (F-F5/F-F6):** drop the sign-in requirement, add the abuse
-  ceiling (dep cap, rate limit, cached-only past the cap, a lane that can't
-  starve paid work).
+- **Public scan (F-F5/F-F6):** ✅ landed. The installation requirement is gone:
+  a public scan is scoped by its REQUESTER (`audit_sets.requested_by`, which also
+  became the key column of `ix_audit_sets_active_public` — see D-1's note), the
+  installation-scoped `publicRepoAudits` entitlement is retired, and the cost
+  ceiling is per user. `/scan` is the entry surface.
+  **Its lane is NOT built** and deliberately so: F-F6's "a lane that can never
+  starve paid work" belongs to R-2's one durable queue (`TODO(R-2)` at the
+  enqueue site in `panel/audit_set.py`), and building it here would have made it
+  this repo's third queue. `public` now has a live caller. Until R-2, the bound
+  is admission-side.
 _Done when:_ an unauthenticated visitor can watch a real audit replay from a
-permalink (**done**) and scan a public repo they don't own (**outstanding** —
-the public-scan half of this phase is untouched).
+permalink (**done**) and a signed-in visitor with no installation can scan a
+public repo they don't own (**done**).
 
 _Retention became a requirement here, and does not exist yet._ Promoting a
 replay to a permalink means the durable log behind it must outlive it.
@@ -1189,7 +1213,7 @@ needs correcting.
 
 | # | Goal | Phase | Status | Verified by / what is missing |
 |---|---|---|---|---|
-| G1 | Panel wire shapes are generated from `shared/`, not hand-mirrored | 0 | ◐ | Schemas authored at target shape (`0988bd7`, 79 → 137 definitions) and `contract.schema.json` + `contract/models.py` are generated from `shared/`. But `frontend/src/lib/engine-types.ts` is still a partial hand-mirror mid-migration: `d1c4cd7` made it import from `@npmguard/shared`, and `engine-types.ts:19-23` carries a `MIGRATION IN PROGRESS (N-12)` note. Not ✅ until nothing is hand-authored on the frontend side. |
+| G1 | Panel wire shapes are generated from `shared/`, not hand-mirrored | 0 | ✅ | Schemas authored at target shape (`0988bd7`, 79 → 137 → 152 definitions) and `contract.schema.json` + `contract/models.py` are generated from `shared/`. The migration is finished on **both** sides: `frontend/src/lib/engine-types.ts` is **deleted**, not emptied — its last residents were the audit routes' HTTP envelopes, now `shared/src/audit-api.ts` — and the engine builds those responses from the generated models through `api.py::_wire` instead of dict literals, so no shape has two authors. Enforced, per this table's own bar, by three things that *fail*: the file's deletion (a re-import does not compile), `api.test.ts` C6 (each envelope's response is `safeParse`d, so a one-sided engine change throws `ContractViolationError` rather than reaching a component as `undefined`), and `test_contract_wire.py` C7, the codegen-freshness guard that re-renders the zod to a tmpdir and diffs — closing the last silent path, where a `shared/src` edit that skipped `gen-contract.sh` left every consumer agreeing with each other about the old shape. Two dead branches went with it: `CryptoConfig.auditFeeWei` is non-nullable (the engine retracts the whole `crypto` block when it cannot read the fee), and `CheckoutStatus.auditId` is `null`-always-present rather than sometimes-absent. |
 | G2 | `bench` + `replay` schemas exist in `shared/` before their features do | 0 | ✅ | `shared/src/bench.ts` and `shared/src/replay.ts` exist at `1002b5b`; both predate their features, and neither has a hand-written mirror. |
 | G3 | Zero `SUSPECT`/`UNKNOWN` as verdict values anywhere | 1 | ✅ **now, and the earlier ✅ rested on a false claim** | `d1c4cd7` collapsed the domain, and no `SUSPECT`/`UNKNOWN` **verdict** producer exists in `engine/`, `shared/` or `frontend/src/`; surviving hits are comments recording the deletion, plus the unrelated `Confidence` enum (`SUSPECTED`), itself dead — see G31. **But `d1c4cd7`'s stated justification, "`SUSPECT` had zero producers anywhere", was false**, and `a72f1af` establishes the sharper version: a producer exists in *another lineage* (`origin/main`'s TypeScript `proof-quality.ts`, upserted by `verdict-index.ts` with no filter and no CHECK), and worse, its `report-store.ts` ran every report through a normalizer that **overwrote the stored verdict** — so the report **file** on disk carries `SUSPECT`. `data/reports/` is shared, and this checkout still holds a `schemaVersion`-1 file written by that lineage. The leak reproduced through `list_reports` **and** `load_report`, and through a public route the earlier audit never named — `/package/{name}/report`, which returns the whole report dict. Now closed at the **read boundary** rather than per route: one domain predicate at `report_store`'s only two doors out of `data/reports/`, **derived from the generated contract** rather than restated, so it cannot drift from the enum and a legitimate widening needs no edit. `api.py` needed no change at all, which is the point — a future route inherits the rule without knowing it exists. Plus durable enforcement: a `CHECK (verdict IN ('SAFE','DANGEROUS'))` on `package_verdicts.verdict`, in both the table definition (`tables.py:246`) and migration `0007`. |
 | G4 | `ERROR` is a real rollup outcome — failed audits never render as green | 1 | ✅ | `d1c4cd7`. `compute_rollup` asserts the partition (`safe + dangerous + error + pending == total`) and the progress refreshers derive their counters from it, so they cannot disagree with the wire. The falsification pass also found the **real silent green** this was aimed at: `panel.py` rolled up the repo-wide dep index and reported it as *the scan's* verdict, so a delta scan whose only item was DANGEROUS or ERROR returned SAFE. |
@@ -1198,15 +1222,15 @@ needs correcting.
 | G7 | `lastScan` is projected for real or deleted from the contract | 2 | ✅ | `9999648`. Both hardcoded `None`s are gone; `lastScan` is populated at `panel.py:282-288` (list, batched via `latest_set_rows`) and `panel.py:604` (detail). |
 | G8 | `connectScanStream` reconnects with backoff, at parity with the audit stream | 2 | ✅ **by deletion** | `9999648` deleted the polling scan stream and the client-side report poll outright, replacing them with the durable log + `seq` cursor the audit stream already uses. Parity is now structural — there is one stream mechanism, not two. |
 | G9 | `panel-api.ts` has a class map and tests | 2 | ◐ **goal is stale; restate it** | `frontend/src/lib/panel-api.ts` was **deleted** in `0965319` and its job split by R-5 into `frontend/src/features/*/{api,hooks,keys}.ts`. The response-class knowledge it was meant to carry now lives at the call sites as schema parses rather than structural sniffs (e.g. `features/repos/api.ts:93-117` names the 409 as `ScanAlreadyRunning`), and `features/repos/hooks.test.tsx` plus `lib/query-client.test.tsx` cover the transport. Restate the goal against the feature modules; there is no single file left to hold a class map. |
-| G10 | 5 dashboard e2e specs green against a real engine | 3 | ☐ | Not started. |
-| G11 | Panel classification logic is class-mapped and unit-tested | 3 | ◐ | `tone.tsx` classification is unit-tested (`tone.test.ts`, added `d1c4cd7`, extended `9999648`). `needsAttention` and the counters moved into `Dashboard.tsx`/`PortfolioPosture.tsx` and are covered by the new page tests, but not yet as an extracted class map. |
+| G10 | 5 dashboard e2e specs green against a real engine | 3 | ✅ | `frontend/e2e/panel.spec.ts` — six scenarios (P1 sign-in/workspace mirror, P2 scan → live progress → a rollup that partitions its deps, P3 posture across card+rail+filter, P4 the alert feed and its ack, P5 drill-through to the durable report, P6 Protect kicking the first scan) in a real chromium against the real engine with the panel ON. What made it possible: `engine/tests/support/panel_e2e_server.py` runs the Python tier's `GitHubStub` as a **process** (plus a slow-404 npm registry that makes a cache-MISS dep deterministic in both outcome and duration), and `playwright.config.ts` boots it as a third `webServer` with the five App credentials. The fixture — durable reports + the GitHub scenario — is one file (`e2e/panel-fixture.ts`) applied at **config load**, because Playwright starts webServers before `globalSetup` and the verdict index is rebuilt from `data/reports/` only at engine boot. **The tier immediately paid for itself:** it found that `/panel/repos` answered `{"repos": []}` — a confident empty — on a first sign-in, because it read the `user_installations` mirror that only `/panel/orgs` writes and the dashboard fires both queries concurrently. Every Python test called the two in sequence, which is why nine months of green integration tests never saw it. Fixed by making both routes read GitHub through `_sync_user_installations`; pinned at both tiers (`tests/e2e/test_panel_repos.py` R1, and P1), and both go red when the fix is reverted. |
+| G11 | Panel classification logic is class-mapped and unit-tested | 3 | ✅ **restated against `features/*`** | `tone.tsx` (outcome→tone, dep priority) keeps its map in `tone.test.ts`. The repo-level half is now `features/repos/posture.ts` with `posture.test.ts` (R1–R8): `needsAttention`, `repoBucket`, `portfolioCounts`, and the filter chip counts+predicate, extracted out of `Dashboard.tsx` and `PortfolioPosture.tsx`. The goal's original wording predates R-5's feature-module split, so it is restated against `features/*` rather than the file names it named. Two facts the extraction made statable instead of implicit: the four portfolio buckets **partition** the repo list (R5 — the rail is a proportion, not four filters that happen to add up), and `needsAttention` and `repoBucket` **deliberately disagree** on a still-running set with a DANGEROUS partial rollup (R2/R3): the filter says a human is needed now, the rail says the proportion is not settled. That divergence was previously invisible in two inline copies. |
 | G12 | Real GitHub OAuth round-trip completes | 4 | ☐ | Manual, not yet done. |
 | G13 | A real `push` to a real protected repo produces a push scan + check-run | 4 | ☐ | Not verified against a real repo. Note `9999648` changed the semantics being verified: `delta_repo_scan` became `push_repo_scan` covering the whole pushed lockfile, so an empty-delta push now concludes its check run instead of spinning forever. |
 | G14 | *A* payment path closes end to end, behind the F-E1 seam | 4 | ☐ | Not started. |
 | G15 | No table/wire/component encodes plan as a two-valued fact | 4 | ☐ | Not verified. |
 | G16 | Every finished audit is browsable and permalinked | 5 | ✅ | **Goal restated, and the restatement is the result.** It read "≥3 curated replays, browsable, permalinked, contract-pinned" — three clauses that only existed because replays were assumed to be authored artifacts. `GET /replays` projects `audit_sessions`, rows link to `/audit/:id`, and `App.tsx` no longer canonicalizes a followed permalink away (that bug would have silently repointed every link this goal asks for). Count is now a consequence of use, not a target; pinning is moot with nothing authored to pin — see the rewritten F-I. `engine/tests/test_replays.py` C1–C9 (7 of 13 fail against the pre-fix build), `frontend/src/pages/Replays.test.tsx` R1–R5. |
-| G17 | An unauthenticated visitor can scan a public repo they don't own | 5 | ◐ | The public-scan path exists and is exercised by `test_panel_public_billing.py` / `test_panel_scans.py`; `9999648` also made `commit_sha` real for public scans, so a snapshot is now reproducible. The no-cookie e2e assertion the goal names is not yet written. |
-| G18 | Public scan has an abuse ceiling that isn't a login | 5 | ☐ | Not verified. |
+| G17 | A visitor whose only credential is a GitHub sign-in can scan a public repo they don't own | 5 | ✅ | **Goal restated to match D-1**, which decided a sign-in is required and nothing more — "unauthenticated" was the pre-D-1 wording and is not what the product does. The route no longer takes an `installationId`; read authorization on the snapshot, the history and the SSE stream all run through `audit_sets.requested_by` instead of `user_installations`. `engine/tests/e2e/test_panel_public_billing.py::test_s_pub_0` is the falsifiable form: it signs in and never calls `/panel/orgs`, so `user_installations` is empty, and it asserts that precondition before scanning — every assertion in it fails on the pre-fix route (400 without an installation id, 404 on one the user lacks). |
+| G18 | Public scan has a cost ceiling that isn't a login | 5 | ✅ | A scan's cost is exactly its cache MISSES, so F-F6's dep cap and its cached-only-past-the-cap are one number: `public_limits.PublicScanLimits.new_audit_budget` (per-scan ∧ per-month, per USER), spent through `AuditSetSpec.max_new_audits`. Past it a scan covers less of the lockfile rather than being refused, and `public_repo_scans.dep_count` + `PublicRepo.lockfileDepCount` are what let the result say so — uncovered deps are NOT parked in the set as unenqueued items, because `item_outcome` maps "no verdict, no live job" to ERROR and would report each as an audit that failed. The one refusal is 429 on per-user live-scan concurrency. `engine/tests/test_panel_public_limits.py` C1–C15, `frontend/src/features/honest-states.test.tsx` H7. Note "abuse ceiling" → **cost** ceiling: D-1 makes the sign-in the abuse ceiling, so there is no IP rate limit and no captcha by decision. |
 | G19 | `/how-it-works` ships as a static page with zero engine calls | 6 | ☐ | Not started. |
 | G20 | `METHODOLOGY.md` v2 defines detection against a v2 report | 7a | ✅ | `bench/METHODOLOGY-V2-DRAFT.md` (`557c65d`, corrected by `0965319`). Owned elsewhere; not re-reviewed in this pass. |
 | G21 | Corpus size decision made and justified | 7a | ✅ | O-2/O-3 answered in the methodology draft (`557c65d`). |
@@ -1282,7 +1306,7 @@ flowchart LR
         O4["bench_run<br/>pinned corpus manifest"]
         O5["watchlist<br/>a curated package list"]
     end
-    ORIGINS --> SET["audit_sets<br/>id · origin · origin_ref · billed_to<br/>status · started/finished"]
+    ORIGINS --> SET["audit_sets<br/>id · origin · origin_ref · billed_to · requested_by<br/>started/finished"]
     SET --> ITEMS["audit_set_items<br/>set_id · name · version<br/>direct · range · cached"]
     ITEMS --> ONE["ONE progress fn<br/>ONE rollup fn<br/>ONE SSE stream<br/>ONE truncation story"]
 ```
