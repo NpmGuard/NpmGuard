@@ -7,9 +7,15 @@ import { useAuditStore } from "../stores/auditStore.ts";
 
 const NAV = [
   { to: "/", label: "Home" },
+  // Before Dashboard on purpose: `/scan` is the entry a visitor with no App
+  // installation can actually use (F-F5), and the dashboard is what they convert
+  // INTO — a nav that leads with the installed-only surface hides the funnel
+  // behind the thing it feeds.
+  { to: "/scan", label: "Scan" },
   { to: "/dashboard", label: "Dashboard" },
   { to: "/packages", label: "Packages" },
   { to: "/replays", label: "Replays" },
+  { to: "/how-it-works", label: "How it works" },
   { to: "/cli", label: "CLI" },
 ];
 

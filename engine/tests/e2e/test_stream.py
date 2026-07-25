@@ -71,7 +71,7 @@ def _safe_roles(flag_delay_ms: int = 0) -> dict:
 
 
 def _ids(frames: list[SseFrame]) -> list[int]:
-    return [frame.id for frame in frames]
+    return [frame.event_id for frame in frames]
 
 
 def _assert_wire_frame(frame: SseFrame, audit_id: str) -> None:
@@ -143,23 +143,23 @@ async def test_s11_cold_connect_wire_format(engine_factory, mock_llm: MockLlmCli
 
     # Payloads are FLAT — no nested data envelope on the wire.
     verdict = frames[-1]
-    assert {"verdict", "rationale", "counts"} <= verdict.data.keys()
-    assert set(verdict.data["counts"]) == {
+    assert {"verdict", "rationale", "counts"} <= verdict.payload.keys()
+    assert set(verdict.payload["counts"]) == {
         "total", "open", "inProgress", "confirmed", "refuted", "deferred",
     }
-    assert "data" not in verdict.data
+    assert "data" not in verdict.payload
     for frame in frames:
         if frame.type in ("phase_started", "phase_completed"):
-            assert isinstance(frame.data["phase"], str)
+            assert isinstance(frame.payload["phase"], str)
 
     # Every phase_completed has a preceding phase_started for the same phase.
     open_phases: list[str] = []
     for frame in frames:
         if frame.type == "phase_started":
-            open_phases.append(frame.data["phase"])
+            open_phases.append(frame.payload["phase"])
         elif frame.type == "phase_completed":
-            assert frame.data["phase"] in open_phases
-            open_phases.remove(frame.data["phase"])
+            assert frame.payload["phase"] in open_phases
+            open_phases.remove(frame.payload["phase"])
 
 
 async def test_s12_late_join_full_replay_plus_tail(engine_factory, mock_llm: MockLlmClient):
@@ -206,8 +206,8 @@ async def test_s13_resume_via_last_event_id_and_since(engine_factory, mock_llm: 
     engine = engine_factory(llm_url=mock_llm.v1_url)
     audit_id, full = await _finished_safe_audit(engine, mock_llm)
 
-    cursor = full[len(full) // 2].id
-    expected_ids = [frame.id for frame in full if frame.id > cursor]
+    cursor = full[len(full) // 2].event_id
+    expected_ids = [frame.event_id for frame in full if frame.event_id > cursor]
     assert expected_ids, "cursor must leave a tail to resume"
 
     resumed_header = await collect_frames(
@@ -252,7 +252,7 @@ async def test_s13b_resume_onto_running_audit(engine_factory, mock_llm: MockLlmC
     full = await collect_frames(
         engine.base_url, audit_id, deadline=SAFE_VERDICT_DEADLINE_SECONDS
     )
-    expected_ids = [frame.id for frame in full if frame.id > cursor]
+    expected_ids = [frame.event_id for frame in full if frame.event_id > cursor]
     assert _ids(resumed) == expected_ids  # no dup, no gap, cursor honored live
 
 
@@ -337,7 +337,7 @@ async def test_s30_sigterm_with_open_sse_is_graceful(engine_factory, mock_llm: M
         )
         async with asyncio.timeout(SEED_VISIBLE_DEADLINE_SECONDS):
             await marker_seen.wait()
-        assert received[0].data["phase"] == "marker"
+        assert received[0].payload["phase"] == "marker"
 
         graceful = engine.close()
         assert graceful is True, engine.stderr_tail()

@@ -37,6 +37,7 @@ import { PanelSection } from "../../../components/panel/layout.tsx";
 import { Card, CardBody } from "../../../components/ui/card.tsx";
 import { HATCH_NEUTRAL } from "../../../components/ui/hatch.ts";
 import { cn } from "../../../lib/cn.ts";
+import { portfolioCounts } from "../posture.ts";
 
 interface Segment {
   key: string;
@@ -52,25 +53,20 @@ interface Segment {
 export function PortfolioPosture({ repos }: { repos: PanelRepo[] }) {
   if (repos.length === 0) return null;
 
-  let attention = 0;
-  let running = 0;
-  let safe = 0;
-  let unknown = 0;
-  for (const repo of repos) {
-    const set = repo.lastScan;
-    const outcome = set?.rollup.outcome ?? null;
-    if (set?.status === "running") running += 1;
-    // ERROR counts as attention: a repo whose audits crashed is not a green
-    // repo, and folding it in with "never scanned" is what hid that. There is no
-    // failed-SET arm any more — the status domain is `running | done`, and every
-    // way a set can go wrong lands in its rollup as ERROR.
-    else if (outcome === "DANGEROUS" || outcome === "ERROR") attention += 1;
-    else if (outcome === "SAFE") safe += 1;
-    else unknown += 1;
-  }
-
-  const protectedCount = repos.filter((repo) => repo.protected).length;
-  const audited = repos.filter((repo) => repo.lastScan !== null).length;
+  // The classification lives in `posture.ts`, beside the one the dashboard's
+  // Attention filter reads — the two are shown within a few hundred pixels of
+  // each other, and two inline copies of one rule is a pair that can disagree on
+  // screen. ERROR counting as attention (a repo whose audits crashed is not a
+  // green repo) and `running` winning over a partial rollup are decisions
+  // recorded there, with the tests that pin them.
+  const {
+    attention,
+    running,
+    safe,
+    unknown,
+    protectedRepos: protectedCount,
+    audited,
+  } = portfolioCounts(repos);
   const pct = Math.round((protectedCount / repos.length) * 100);
 
   // Order is fixed and is NOT sorted by count — attention is always leftmost so

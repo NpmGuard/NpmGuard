@@ -14,19 +14,12 @@ export function quotaState(bucket: UsageBucket): QuotaState {
   return { kind: "available", remaining: bucket.remaining };
 }
 
-/** Copy for the public-repo-audit allowance. Re-auditing a repository that
- * already consumed a slot is always free — exhausted is not a dead end. */
-export function publicAuditAllowanceCopy(bucket: UsageBucket): string {
-  const state = quotaState(bucket);
-  switch (state.kind) {
-    case "unlimited":
-      return "Unlimited public repository audits.";
-    case "exhausted":
-      return "Free repository allowance used. Existing repositories can still be re-audited.";
-    case "available":
-      return `${state.remaining} new public ${state.remaining === 1 ? "repository" : "repositories"} left. Re-audits are free.`;
-  }
-}
+/* `publicAuditAllowanceCopy` was deleted here when D-1 stopped billing public
+   repository scans to an installation. There is no `publicRepoAudits` bucket to
+   describe any more: the scan needs a GitHub sign-in and nothing else, and its
+   cost ceiling is per user and expressed as COVERAGE ("audited 150 of 900
+   dependencies"), not as an allowance. Copy about a remaining allowance would
+   describe a quota nothing meters. */
 
 export function usageLabel(bucket: UsageBucket): string {
   return bucket.remaining === null ? `${bucket.used} / ∞` : `${bucket.used} / ${bucket.limit}`;

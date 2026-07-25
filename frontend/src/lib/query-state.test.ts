@@ -54,7 +54,6 @@ const ENTITLEMENTS = {
   plan: "free" as const,
   subscriptionStatus: "inactive",
   protectedRepos: { used: 1, limit: 1, remaining: 0 },
-  publicRepoAudits: { used: 0, limit: 3, remaining: 3 },
   monthlyAudits: { used: 0, limit: 100, remaining: 100 },
 };
 

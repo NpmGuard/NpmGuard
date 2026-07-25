@@ -6,6 +6,9 @@ dist-ssr
 # e2e / test artifacts
 .e2e-data
 test-results
+# Scratch data root for driving the panel by hand (seeded reports, the GitHub
+# scenario, a throwaway App key). Same content as .e2e-data, different lifetime.
+.panel-demo-data
 playwright-report
 playwright/.cache
 coverage

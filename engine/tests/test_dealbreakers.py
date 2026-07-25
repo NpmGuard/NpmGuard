@@ -20,7 +20,7 @@
 # near-miss (C5a) and with the real manifests, so a regex matching nothing, or
 # matching everything, fails this file. PUBLISHED_HOOKS holds install-script
 # values copied verbatim out of published manifests, each naming its package,
-# because every one is a BENIGN shape the recogniser used to get wrong.
+# every one a BENIGN shape a narrow recogniser calls DANGEROUS.
 #
 # THREE OUTCOMES, NOT TWO. An install hook whose target cannot be resolved is a
 # statement about THIS ENGINE, not about the package, so it cannot carry the
@@ -74,12 +74,14 @@ from __future__ import annotations
 
 import json
 import tarfile
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-from kit_llm import ScriptedLlm
+from kit_llm import LlmClient, ScriptedLlm
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from kit_spine.notify_polling import PollingNotifier
@@ -160,7 +162,7 @@ def _manifest(**overrides) -> str:
     return json.dumps(package)
 
 
-def _write(root: Path, files: dict[str, str | bytes]) -> Path:
+def _write(root: Path, files: Mapping[str, str | bytes]) -> Path:
     package = root / "package"
     package.mkdir(parents=True)
     for name, content in files.items():
@@ -196,10 +198,27 @@ def _frame_types(frames: list[dict]) -> list[str]:
 async def audit(tmp_path, monkeypatch):
     """Run AuditPipeline.run over a package materialized on disk, and hand back
     the report, the durable frames a consumer would have seen, and the ids."""
-    opened: list[tuple[object, object]] = []
+    opened: list[tuple[AsyncEngine, LlmClient]] = []
     runs = 0
 
-    async def _run(files: dict[str, str | bytes], *, provider=None) -> SimpleNamespace:
+    class _Auditor:
+        """The callable the tests receive.
+
+        ``frames`` lives on the runner, not only on the returned result, so a
+        test asserting on an EXCEPTION can still inspect what the viewer saw —
+        there is no result object in that case.
+        """
+
+        frames: list[dict] = []
+
+        async def __call__(
+            self, files: Mapping[str, str | bytes], *, provider=None
+        ) -> SimpleNamespace:
+            return await _run(files, provider=provider)
+
+    _auditor = _Auditor()
+
+    async def _run(files: Mapping[str, str | bytes], *, provider=None) -> SimpleNamespace:
         nonlocal runs
         runs += 1
         monkeypatch.setenv("NPMGUARD_AUDIT_LOG_DIR", str(tmp_path / f"logs{runs}"))
@@ -228,14 +247,12 @@ async def audit(tmp_path, monkeypatch):
                 PACKAGE_NAME, audit_id=session.audit_id, version=PACKAGE_VERSION, emitter=emitter
             )
         finally:
-            # Drained even when run() raises, and parked on the fixture function so
-            # a test asserting on an EXCEPTION can still inspect what the viewer saw
-            # (there is no result object to hang it off in that case).
-            self_frames = []
+            # Drained even when run() raises — see _Auditor.frames.
+            self_frames: list[dict] = []
             async for frame in sse_events(session.audit_id, stream, follow=False):
                 line = next(part for part in frame.splitlines() if part.startswith("data: "))
                 self_frames.append(json.loads(line.removeprefix("data: ")))
-            _run.frames = self_frames
+            _auditor.frames = self_frames
         return SimpleNamespace(
             report=result.report,
             frames=self_frames,
@@ -243,8 +260,7 @@ async def audit(tmp_path, monkeypatch):
             package=package,
         )
 
-    _run.frames = []
-    yield _run
+    yield _auditor
     for engine, llm in opened:
         await llm.aclose()
         await engine.dispose()

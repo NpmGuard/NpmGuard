@@ -5,9 +5,9 @@
  * wrapper deeper would test Radix twice. What is the ADAPTER's own contract, and
  * can break without a type noticing:
  *  P1  `ariaLabel` still becomes the accessible name. The three `features/**`
- *      dialogs were not edited, so the name has to survive a changed mechanism —
- *      the old shell set `aria-label`, Radix wires `aria-labelledby` from a real
- *      sr-only Title node.
+ *      dialogs pass it verbatim, so the name has to survive the mechanism the
+ *      adapter chooses: Radix wires `aria-labelledby` from a real sr-only Title
+ *      node rather than taking an `aria-label`.
  *  P2  both dismissal paths reach the caller's `onClose`. Radix reports dismissal
  *      as `onOpenChange`; translating that to the callers' signature is this
  *      file's job, and a caller whose `onClose` never fires leaves state stuck.

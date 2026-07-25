@@ -85,7 +85,7 @@ export function scanTone(set: AuditSet | null): Tone {
  * whose legend sits beside a legacy `.rail` in the same card — see the file
  * header. A v3 surface does not use a colour-only mark at all: §2.4 requires
  * glyph + word + colour, in that order of priority, so the state travels on
- * `OutcomePill` / `ProgressPill` and severity reaches a row as a 3px rule. */
+ * `VerdictStamp` / `ProgressStamp` and severity reaches a row as a 3px rule. */
 export function toneDotClass(tone: Tone): string {
   return tone === "unknown" ? "dot" : `dot dot--${tone}`;
 }

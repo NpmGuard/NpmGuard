@@ -36,6 +36,7 @@ from tests.support.sse import (
     event_types,
     find_frames,
     iter_frames,
+    require_terminal_frame,
     terminal_frame,
 )
 from tests.support.waits import wait_audit_report
@@ -188,8 +189,8 @@ async def test_restart_mid_run_emits_retryable_error_on_resumed_cursor(
     )
     terminal = terminal_frame(resumed)
     assert terminal is not None and terminal.type == "audit_error"
-    assert terminal.data["code"] == INTERRUPTED_CODE
-    assert terminal.data["retryable"] is True
+    assert terminal.payload["code"] == INTERRUPTED_CODE
+    assert terminal.payload["retryable"] is True
     # no duplicate launch: audit_started was before the cursor, none after
     assert find_frames(resumed, "audit_started") == []
 
@@ -218,7 +219,7 @@ async def test_payment_claim_survives_restart(engine_factory, mock_llm, fake_cha
     frames = await collect_frames(
         engine.base_url, first["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
-    assert terminal_frame(frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(frames).payload["verdict"] == "SAFE"
 
     engine.restart()
     replay = engine.start_audit(ENV_EXFIL_PKG, ENV_EXFIL_VERSION, txHash=TX_HASH)
@@ -227,7 +228,7 @@ async def test_payment_claim_survives_restart(engine_factory, mock_llm, fake_cha
         engine.base_url, first["auditId"], deadline=AUDIT_DEADLINE_SECONDS
     )
     assert len(find_frames(replay_frames, "audit_started")) == 1
-    assert terminal_frame(replay_frames).data["verdict"] == "SAFE"
+    assert require_terminal_frame(replay_frames).payload["verdict"] == "SAFE"
     assert _row_count(engine.db_url, "audit_sessions") == 1
     assert _row_count(engine.db_url, "payment_claims") == 1
 
@@ -268,8 +269,8 @@ async def test_restart_mid_queue_reenqueues_queued_sessions(engine_factory, mock
     )
     terminal0 = terminal_frame(frames0)
     assert terminal0 is not None and terminal0.type == "audit_error", event_types(frames0)
-    assert terminal0.data["code"] == INTERRUPTED_CODE
-    assert terminal0.data["retryable"] is True
+    assert terminal0.payload["code"] == INTERRUPTED_CODE
+    assert terminal0.payload["retryable"] is True
 
     # the two queued ones were RE-ENQUEUED and completed — SAFE, never 0031'd
     for audit_id in audit_ids[1:]:
@@ -278,7 +279,7 @@ async def test_restart_mid_queue_reenqueues_queued_sessions(engine_factory, mock
         )
         terminal = terminal_frame(frames)
         assert terminal is not None and terminal.type == "verdict_reached", event_types(frames)
-        assert terminal.data["verdict"] == "SAFE"
+        assert terminal.payload["verdict"] == "SAFE"
         assert find_frames(frames, "audit_error") == []
 
 

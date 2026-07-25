@@ -136,7 +136,7 @@ async def exercise(
     context = f"m{model_index}-r{repeat}-flag"
     try:
         result = await run_flag(package, inventory, baseline, llm, context)
-        capabilities = {cap for summary in result.fileSummaries for cap in summary.capabilities}
+        capabilities = {cap for summary in result.fileSummaries for cap in summary.capabilities or []}
         row["phases"]["flag"] = {
             "pass": bool(result.flags),
             "relevantCapabilities": bool(
@@ -150,7 +150,7 @@ async def exercise(
 
     context = f"m{model_index}-r{repeat}-hypothesis"
     try:
-        result = await KitHypothesisGenerator(llm).generate(
+        result = await KitHypothesisGenerator(llm, settings).generate(
             flag,
             package_path=package,
             intent=baseline,
@@ -159,7 +159,7 @@ async def exercise(
             created_at="2026-07-20T00:00:00Z",
             audit_id=context,
         )
-        tools = [call.tool for call in result.experiment]
+        tools = [call.tool for call in result.experiment or []]
         row["phases"]["hypothesis"] = {
             "pass": bool(tools) and tools[-1] == "trigger",
             "claim": result.claim.model_dump(mode="json"),

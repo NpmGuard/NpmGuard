@@ -4,7 +4,7 @@
 //                count; the verdict filter narrows the list; a row navigates to
 //                its durable report; a search that matches nothing renders a
 //                reason-aware, honest empty state (never a fake SAFE row).
-// Seeded (global-setup.ts): chalk@5.6.2 SAFE, npm-telemetry-helper@2.0.1 DANGEROUS.
+// Seeded (panel-fixture.ts): chalk@5.6.2 SAFE, npm-telemetry-helper@2.0.1 DANGEROUS.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { expect, test } from "@playwright/test";
