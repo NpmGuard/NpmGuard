@@ -41,7 +41,6 @@ import hashlib
 import hmac
 import json
 import time
-from pathlib import Path
 
 import httpx
 import pytest
@@ -50,7 +49,7 @@ import sqlalchemy as sa
 from kit_spine import make_engine, make_session_factory
 from npmguard.panel.alerts.notify import handle_dangerous_verdict
 from npmguard.panel.tables import watched_packages
-from tests.support.panel import github_env
+from tests.support.panel import github_env, seed_report
 
 pytestmark = pytest.mark.e2e
 
@@ -95,14 +94,6 @@ WEB_LOCKFILE_PLUS_NEW = json.dumps(
         },
     }
 )
-
-
-def _seed_report(reports_dir: Path, name: str, version: str, report: dict) -> None:
-    directory = reports_dir / name
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{version}.json").write_text(
-        json.dumps(report) + "\n", encoding="utf-8"
-    )
 
 
 def _safe(name: str) -> dict:
@@ -160,8 +151,8 @@ def test_s_pw_1_protect_syncs_watch_cap_and_alert(
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-a", "1.0.0", _safe("safe-a"))
-    _seed_report(reports, "danger-dep", "2.0.0", _dangerous())
+    seed_report(reports, "safe-a", "1.0.0", _safe("safe-a"))
+    seed_report(reports, "danger-dep", "2.0.0", _dangerous())
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
@@ -260,8 +251,8 @@ def test_s_pw_2_push_webhook_check_and_forged_signature(
 
     harness = engine_factory(start=False)
     reports = harness.data_dir / "reports"
-    _seed_report(reports, "safe-a", "1.0.0", _safe("safe-a"))
-    _seed_report(reports, "new-dep", "1.0.0", _safe("new-dep"))
+    seed_report(reports, "safe-a", "1.0.0", _safe("safe-a"))
+    seed_report(reports, "new-dep", "1.0.0", _safe("new-dep"))
     harness.extra_env = github_env(
         api_base=github_stub.base_url,
         private_key_path=app_private_key,
