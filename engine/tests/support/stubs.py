@@ -173,6 +173,33 @@ class RegistryStub(_SelfServing):
             loaded += 1
         return loaded
 
+    def serve_package_dir(self, path: Any) -> tuple[str, str]:
+        """Publish a package directory as a registry package, tarred as npm ships
+        one (a single ``package/`` root).
+
+        Committed fixtures are directories, and a paid or persisted audit resolves
+        from the registry like any other — so an e2e test that wants fixture
+        CONTENT through the real resolve path publishes it here rather than
+        staging it. Name and version come from the package.json, so the served
+        package is the fixture, not a description of it.
+        """
+        import io
+        import json
+        import tarfile
+        from pathlib import Path
+
+        source = Path(path)
+        manifest = json.loads((source / "package.json").read_text(encoding="utf-8"))
+        name, version = manifest["name"], manifest["version"]
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            archive.add(source, arcname="package")
+        self.add_package(
+            {"name": name, "version": version, "dist": {"tarball": f"/-/tarballs/{name}"}},
+            buffer.getvalue(),
+        )
+        return name, version
+
     async def _packument(self, name: str, version: str, request: Request) -> Response:
         resolved = version
         if version == "latest":

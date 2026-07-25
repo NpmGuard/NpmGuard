@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 
-from .config import REPO_ROOT, Settings
+from .config import Settings
 from .errors import PackageNotFoundError
 
 # Bound at import, as before — `panel/watch.py` imports this name and uses it as a
@@ -25,8 +25,9 @@ NPM_REGISTRY = Settings().npm_registry
 class ResolvedPackage:
     """A package staged for auditing.
 
-    ``version`` is the registry-resolved concrete version (None for local
-    test fixtures, which carry their version in package.json).
+    ``version`` is the registry-resolved concrete version, and None for a
+    package staged from a local path — nothing resolved it, so there is no
+    version to claim.
     """
 
     path: Path
@@ -41,13 +42,6 @@ class ResolvedPackage:
         assert self.path.resolve().is_relative_to(self.workdir.resolve()), (
             f"resolved path {self.path} escapes its private workdir {self.workdir}"
         )
-
-
-def _test_fixture(package_name: str) -> Path | None:
-    if not package_name.startswith("test-pkg-"):
-        return None
-    path = REPO_ROOT / "sandbox" / "test-fixtures" / package_name
-    return path if path.exists() else None
 
 
 async def resolve_tarball_url(package_name: str, version: str = "latest") -> tuple[str, str]:
@@ -79,11 +73,10 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
 
 
 def _reject_escaping_symlinks(root: Path, boundary: Path) -> None:
-    """Mirror of _safe_extract's link check for the fixture-copy path: bench
-    fixtures under sandbox/test-fixtures are live malware and may ship
-    symlinks; a link resolving outside the private workdir would hand the
-    audit a read/write channel to host files, breaking the ResolvedPackage
-    invariant."""
+    """Mirror of _safe_extract's link check for the local-copy path: a staged
+    package may be live malware and may ship symlinks; a link resolving outside
+    the private workdir would hand the audit a read/write channel to host files,
+    breaking the ResolvedPackage invariant."""
     resolved_boundary = boundary.resolve()
     for entry in root.rglob("*"):
         if entry.is_symlink() and not entry.resolve().is_relative_to(resolved_boundary):
@@ -105,17 +98,27 @@ def _package_root(extracted: Path, package_name: str) -> Path:
     return roots[0]
 
 
-async def resolve_package(package_name: str, version: str | None = None) -> ResolvedPackage:
+async def resolve_package(
+    package_name: str, version: str | None = None, local_path: str | None = None
+) -> ResolvedPackage:
+    # INVARIANT: the source is DECLARED by the caller, never inferred from the
+    # package name — `local_path is None` iff this resolves from the registry.
+    # A name is an identity; when it also decided the source, four consumers had
+    # to re-derive that fact by re-matching a prefix, and they drifted apart.
     workdir = Path(tempfile.mkdtemp(prefix="npmguard-"))
     try:
-        fixture = _test_fixture(package_name)
-        if fixture is not None:
-            # Offline short-circuit for test-pkg-* fixtures — no network — but the
-            # audit gets a private COPY: the committed fixture tree stays
-            # byte-identical no matter what the run writes into `path`.
-            path = workdir / fixture.name
-            shutil.copytree(fixture, path, symlinks=True)
+        if local_path is not None:
+            # A private COPY: the staged tree stays byte-identical no matter what
+            # the run writes into `path`. Corpus packages are live malware.
+            # Absolute, and a package directory: checked at admission
+            # (`validation.valid_local_path`), so nothing is re-checked here. A
+            # tree removed since then fails loud out of copytree.
+            source = Path(local_path)
+            path = workdir / source.name
+            shutil.copytree(source, path, symlinks=True)
             _reject_escaping_symlinks(path, workdir)
+            # version stays None: a staged package has no registry-resolved
+            # version, which is what keeps it out of the published report store.
             return ResolvedPackage(path=path, workdir=workdir)
 
         resolved_version, tarball_url = await resolve_tarball_url(

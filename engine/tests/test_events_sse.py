@@ -39,6 +39,7 @@ import os
 from typing import Any
 
 import pytest
+from conftest import staged
 from fastapi.testclient import TestClient
 
 from kit_spine import make_engine, make_session_factory
@@ -387,6 +388,8 @@ def route_client(tmp_path_factory):
     patcher.setenv("NPMGUARD_ENV", "test")
     patcher.setenv("NPMGUARD_PAYMENT_REQUIRED", "false")
     patcher.setenv("NPMGUARD_MOCK_LLM", "true")
+    # This fixture outlives the autouse per-test knob in conftest, so it sets its own.
+    patcher.setenv("NPMGUARD_LOCAL_PACKAGE_AUDITS", "true")
     patcher.setenv("NPMGUARD_AUDIT_LOG_DIR", str(tmp / "audit-logs"))
     patcher.setenv("NPMGUARD_DATABASE_URL", f"sqlite+aiosqlite:///{tmp / 'route.sqlite3'}")
     get_settings.cache_clear()
@@ -395,7 +398,7 @@ def route_client(tmp_path_factory):
         import time
 
         audit_id = client.post(
-            "/audit/stream", json={"packageName": "test-pkg-child-success"}
+            "/audit/stream", json=staged("test-pkg-child-success")
         ).json()["auditId"]
         # Same 30s deadline style as test_api.REPORT_DEADLINE_SECONDS — a 5s
         # bound flaked risk on loaded CI for the identical mock-LLM flow.

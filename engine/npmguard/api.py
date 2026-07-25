@@ -98,7 +98,6 @@ from .report_store import (
     extract_report_version,
     list_reports,
     load_report,
-    public_package,
 )
 from .resolve import resolve_tarball_url
 from .service import AuditService
@@ -337,6 +336,23 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _local_path_refused(runtime: Any, local_path: str | None) -> JSONResponse | None:
+    """Refuse a staged-package audit unless this engine is configured for one.
+
+    INVARIANT: the capability is checked HERE, at admission, and nowhere else.
+    Downstream (`service.admit`, `pipeline.run`, `resolve_package`) takes the
+    declared source as given, and no READ path consults the setting at all — an
+    engine with it off still serves every stored bench run, row, metric and
+    replay, which is how production publishes benchmark results it cannot
+    produce.
+    """
+    if local_path is None or runtime.settings.local_package_audits:
+        return None
+    return JSONResponse(
+        {"error": "localPath audits are not enabled on this engine"}, status_code=403
+    )
+
+
 @router.post("/audit")
 async def audit(request: Request) -> JSONResponse:
     parsed, error = await _body(request, AuditRequest)
@@ -355,8 +371,13 @@ async def audit(request: Request) -> JSONResponse:
             },
             status_code=402,
         )
+    refused = _local_path_refused(runtime, parsed.localPath)
+    if refused:
+        return refused
     try:
-        result = await runtime.audits.admit(parsed.packageName, parsed.version)
+        result = await runtime.audits.admit(
+            parsed.packageName, parsed.version, local_path=parsed.localPath
+        )
         if is_cre:
             result.future.add_done_callback(_consume_future)
             return _wire(
@@ -442,8 +463,13 @@ async def start_stream(request: Request) -> JSONResponse:
     if not runtime.settings.payment_required:
         if not parsed.packageName:
             return JSONResponse({"error": "packageName is required"}, status_code=400)
+        refused = _local_path_refused(runtime, parsed.localPath)
+        if refused:
+            return refused
         try:
-            result = await runtime.audits.admit(parsed.packageName, parsed.version)
+            result = await runtime.audits.admit(
+                parsed.packageName, parsed.version, local_path=parsed.localPath
+            )
         except Exception as exc:
             return _audit_error(exc)
         result.future.add_done_callback(_consume_future)  # fire-and-forget; retrieve exc
@@ -531,14 +557,15 @@ async def checkout(request: Request) -> JSONResponse:
         return error
     assert parsed is not None
     version = parsed.version or "latest"
-    if not parsed.packageName.startswith("test-pkg-"):
-        try:
-            await resolve_tarball_url(parsed.packageName, version)
-        except Exception:
-            return JSONResponse(
-                {"error": f"Package {parsed.packageName}@{version} not found on npm"},
-                status_code=404,
-            )
+    # Unconditional: CheckoutRequest refuses a localPath, so everything reaching
+    # here is a registry package and must exist before money is taken.
+    try:
+        await resolve_tarball_url(parsed.packageName, version)
+    except Exception:
+        return JSONResponse(
+            {"error": f"Package {parsed.packageName}@{version} not found on npm"},
+            status_code=404,
+        )
     origin = request.headers.get("origin") or (
         request.headers.get("referer") or "https://npmguard.com"
     ).rstrip("/")
@@ -707,9 +734,11 @@ def _replay_entry(session: AuditSession) -> ReplayEntry | None:
     Every value is read back off the row and its stored report. Nothing here is
     authored, so the gallery cannot describe a run differently from how it went.
 
-    Two rejections, both silent because neither is a failure to report: a fixture
-    package name is not a product exhibit, and a report outside the contract's
-    readable domain is one no client could render.
+    Two rejections, both silent because neither is a failure to report: a locally
+    staged package is not a product exhibit — the gallery claims to show audits of
+    published packages — and a report outside the contract's readable domain is one
+    no client could render. The bench surfaces show these same audits deliberately,
+    and `/audit/{id}` serves every one of them, so nothing here hides a run.
 
     That second screen is `report_store._readable`'s rule, applied at this store's
     door. It cannot BE that function — this reads `audit_sessions.report`, keyed by
@@ -722,7 +751,7 @@ def _replay_entry(session: AuditSession) -> ReplayEntry | None:
     and then dies on the client's first missing v2 field.
     """
     assert session.report is not None, f"replayable() yielded {session.audit_id} with no report"
-    if not public_package(session.package_name):
+    if session.local_path is not None:
         return None
     schema_version, verdict = session.report.get("schemaVersion"), session.report.get("verdict")
     if schema_version not in REPORT_SCHEMA_VERSIONS or verdict not in REPORT_VERDICTS:

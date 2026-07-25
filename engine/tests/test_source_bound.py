@@ -144,7 +144,9 @@ async def build(tmp_path, monkeypatch):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
-        async def _resolve(package_name: str, version: str | None = None) -> ResolvedPackage:
+        async def _resolve(
+            package_name: str, version: str | None = None, local_path: str | None = None
+        ) -> ResolvedPackage:
             return ResolvedPackage(path=package, workdir=workdir)
 
         monkeypatch.setattr(pipeline_module, "resolve_package", _resolve)

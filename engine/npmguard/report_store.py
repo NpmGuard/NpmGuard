@@ -175,11 +175,14 @@ def load_report(package_name: str, version: str | None = None) -> tuple[dict[str
 
 
 def public_package(package_name: str) -> bool:
-    """Whether a package name belongs on a product surface.
+    """Whether a package name belongs on the public listing.
 
-    Exported because the replay gallery reads `audit_sessions` rather than this
-    store and must hide the same fixtures the registry hides — a second copy of
-    this predicate would drift the two lists apart.
+    A name-shaped screen, kept for one reason: this store is a DIRECTORY, and it
+    still holds fixture reports filed before a staged audit stopped filing at all
+    (`service._execute`). That invariant governs new writes and cannot retroact
+    over files already on disk, so the listing keeps screening them out. Callers
+    with an `audit_sessions` row use `local_path` instead — the recorded fact,
+    not a guess about a string.
     """
     return not (
         package_name.startswith("test-pkg-")

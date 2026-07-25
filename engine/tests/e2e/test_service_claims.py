@@ -94,7 +94,15 @@ class SharedPipeline:
         self.started: list[str] = []
         self.first_started = asyncio.Event()
 
-    async def run(self, package_name: str, *, audit_id: str, version: str | None, emitter: Any):
+    async def run(
+        self,
+        package_name: str,
+        *,
+        audit_id: str,
+        version: str | None,
+        local_path: str | None = None,
+        emitter: Any = None,
+    ):
         self.started.append(package_name)
         self.first_started.set()
         blocker = self.blockers.get(package_name)
