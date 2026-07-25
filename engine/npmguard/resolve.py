@@ -131,7 +131,16 @@ async def resolve_package(package_name: str, version: str | None = None) -> Reso
             workdir=workdir,
             version=resolved_version,
         )
-    except Exception:
+    except BaseException:
+        # INVARIANT: resolve_package either RETURNS a ResolvedPackage that owns
+        # `workdir`, or leaves no workdir behind — there is no third state where a
+        # tmpdir exists with no owner to call cleanup_package on it.
+        # BaseException, not Exception: asyncio.CancelledError is a BaseException in
+        # 3.8+, and this function awaits a registry lookup and a streaming tarball
+        # download. `except Exception` therefore missed the two cancellations that
+        # actually happen — the phase's own timeout and engine shutdown — and each
+        # one leaked the whole extracted package tree into /tmp. Verified by
+        # probe: cancel during the download, one npmguard-* workdir left behind.
         shutil.rmtree(workdir, ignore_errors=True)
         raise
 
