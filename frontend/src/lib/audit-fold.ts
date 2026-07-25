@@ -11,18 +11,39 @@
  *   engine may add event types ahead of this file.
  * - Terminal events (verdict_reached | audit_error) end the run; later
  *   non-terminal events are ignored.
+ *
+ * The event is now the contract's own DISCRIMINATED union (`AuditEventUnion`,
+ * shared/src/events.ts), so the switch below narrows on the discriminant the
+ * engine's Pydantic models are generated from rather than on a hand-restated
+ * copy of it. That does NOT weaken the forward-compatibility invariant, and the
+ * reason is worth stating because the two look like they conflict: strictness
+ * lives at the transport boundary and tolerance lives here, and they apply to
+ * different classes of frame.
+ *
+ *   - A NEW event type the engine adds is never delivered to this fold at all:
+ *     the audit stream uses NAMED SSE events and `lib/sse.ts` subscribes only to
+ *     the 17 names in `EVENT_TYPES`, so an unsubscribed name is dropped by
+ *     EventSource itself. Forward-compatible by construction, with no branch.
+ *   - A KNOWN event type whose payload lost a field is a contract violation, and
+ *     `lib/sse.ts` fails it loudly rather than folding a half-frame.
+ *   - Anything that reaches `default` — a retired type replayed from a durable
+ *     log, or a caller that bypasses the stream — is INERT. The union being
+ *     closed makes `default` unreachable to the typechecker, but it is very
+ *     reachable at runtime, because the value came off a wire. Never replace it
+ *     with an exhaustiveness assertion that throws.
  */
 
 import type {
-  AuditEvent,
+  AuditEventUnion,
+  BaseAuditEvent,
   FileRecord,
   FileVerdict,
   HypothesisCounts,
   HypothesisState,
-  InventoryMeta,
+  InventoryMetaEvent,
   TriageHypothesis,
-  Verdict,
-} from "./engine-types.ts";
+  VerdictEnum,
+} from "@npmguard/shared";
 import {
   LIFECYCLE_SCRIPTS,
   PHASE_LABELS,
@@ -33,6 +54,14 @@ import {
   type PhaseInfo,
   type PipelineLogEntry,
 } from "./types.ts";
+
+/**
+ * The inventory payload as the fold stores it: the `inventory_meta` event with
+ * the SSE envelope stripped off. Spelled as a derivation of the contract event
+ * rather than restated, so a field added to the event cannot go missing here —
+ * and so the `inventory_meta` arm's rest-destructure is checked against it.
+ */
+export type InventoryMeta = Omit<InventoryMetaEvent, "type" | keyof BaseAuditEvent>;
 
 export interface TriageSummary {
   hypothesisCount: number;
@@ -78,7 +107,7 @@ export interface AuditFoldState {
   triage: TriageSummary | null;
   hypotheses: HypothesisView[];
 
-  verdict: Verdict | null;
+  verdict: VerdictEnum | null;
   verdictRationale: string | null;
   counts: HypothesisCounts | null;
   confirmedCount: number;
@@ -147,7 +176,7 @@ function upsertHypothesis(list: HypothesisView[], hyp: HypothesisView): Hypothes
 
 const TERMINAL_TYPES = new Set(["verdict_reached", "audit_error"]);
 
-export function foldAuditEvent(state: AuditFoldState, event: AuditEvent): AuditFoldState {
+export function foldAuditEvent(state: AuditFoldState, event: AuditEventUnion): AuditFoldState {
   if (state.seenSeqs.has(event.seq)) return state;
   if (!state.running && !TERMINAL_TYPES.has(event.type)) return state;
 
@@ -367,17 +396,24 @@ export function foldAuditEvent(state: AuditFoldState, event: AuditEvent): AuditF
       };
 
     case "audit_error":
+      // All three fields are REQUIRED and non-null on the contract, and supplied
+      // by every emit site (service.py:184, :246, :338). The previous `?? "The
+      // audit failed"` fallbacks came from a hand-written type that declared them
+      // `?: T | null`; they were unreachable, and a fallback that cannot run only
+      // tells a reader the message might be missing when it never is.
       return {
         ...base,
         running: false,
-        error: event.error ?? "The audit failed",
-        errorCode: event.code ?? null,
-        errorRetryable: event.retryable ?? false,
-        pipelineLog: log(base, { kind: "info", text: `Error: ${event.error ?? "audit failed"}` }, at),
+        error: event.error,
+        errorCode: event.code,
+        errorRetryable: event.retryable,
+        pipelineLog: log(base, { kind: "info", text: `Error: ${event.error}` }, at),
       };
 
     default:
-      // Unknown event type — tolerated for forward compatibility.
+      // Unreachable to the typechecker (the union is closed), reachable at
+      // runtime (the value came off a wire): a retired type replayed from the
+      // durable log lands here. Tolerated and INERT — never a throw.
       return base;
   }
 }

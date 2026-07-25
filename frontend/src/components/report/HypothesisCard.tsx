@@ -5,7 +5,7 @@
  */
 
 import type { CSSProperties } from "react";
-import type { Hypothesis, HypothesisSeverity, HypothesisState } from "../../lib/engine-types.ts";
+import type { Hypothesis, HypothesisSeverity, HypothesisState } from "@npmguard/shared";
 import { claimLabel, STATE_LABELS } from "../../lib/report-helpers.ts";
 
 export interface HypothesisCardProps {

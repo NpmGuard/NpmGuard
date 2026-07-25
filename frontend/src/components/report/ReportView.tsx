@@ -7,7 +7,7 @@
  * words where a metric doesn't exist.
  */
 
-import type { AuditReport } from "../../lib/engine-types.ts";
+import type { AuditReport } from "@npmguard/shared";
 import {
   bySeverityDesc,
   capabilitiesFromReport,

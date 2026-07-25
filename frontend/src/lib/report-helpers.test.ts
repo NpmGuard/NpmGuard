@@ -22,13 +22,13 @@ import {
   verdictHeadline,
   verdictTone,
 } from "./report-helpers.ts";
-import type { AuditReport, Hypothesis, HypothesisSeverity, HypothesisState } from "./engine-types.ts";
+import type { AuditReport, Hypothesis, HypothesisSeverity, HypothesisState } from "@npmguard/shared";
 
 function hyp(id: string, severity: HypothesisSeverity, state: HypothesisState): Hypothesis {
   return {
     hypId: id,
     description: `${id} desc`,
-    claim: { kind: "env_exfil" },
+    claim: { kind: "env_exfil", gating: null },
     focusFiles: [],
     focusLines: [],
     experiment: [],

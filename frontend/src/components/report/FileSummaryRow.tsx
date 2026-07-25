@@ -3,7 +3,7 @@
  * handler is wired), the capabilities observed in it, and a one-line summary.
  */
 
-import type { FileSummary } from "../../lib/engine-types.ts";
+import type { FileSummary } from "@npmguard/shared";
 
 export interface FileSummaryRowProps {
   summary: FileSummary;

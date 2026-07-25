@@ -15,7 +15,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../lib/api-base.ts";
 import { fetchPackages, resolveVersion } from "../lib/api.ts";
-import type { PackageSummary, Verdict } from "../lib/engine-types.ts";
+import type { VerdictEnum } from "@npmguard/shared";
+import type { PackageSummary } from "../lib/engine-types.ts";
 import { formatDate } from "../lib/format.ts";
 import { parsePackageInput } from "../lib/types.ts";
 import { verdictTone } from "../lib/report-helpers.ts";
@@ -26,7 +27,7 @@ type QueryState =
   | { kind: "error"; message: string }
   | { kind: "ready"; packages: PackageSummary[] };
 
-type VerdictFilter = "ALL" | Verdict;
+type VerdictFilter = "ALL" | VerdictEnum;
 
 type LookupState =
   | { kind: "idle" }

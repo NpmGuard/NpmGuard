@@ -8,6 +8,11 @@
  *  C3  status branching      — distinct engine statuses (402/404/501) arrive intact
  *                              on ApiError.status so the UI can dispatch on them.
  *  C4  raw-text file route   — fetchAuditFile returns text on 200, throws on non-ok.
+ *  C5  contract violation    — the report routes PARSE their response against
+ *                              AuditReportSchema, so drift throws
+ *                              ContractViolationError (never ApiError: the request
+ *                              succeeded, so a status branch would call it healthy)
+ *                              instead of reaching a component as `undefined`.
  *
  * Blackbox via msw: ORIGIN-RELATIVE handlers (http.get("/api/…")) matched against
  * the jsdom origin; apiBase() is pinned to `${origin}/api` so undici sees an
@@ -18,6 +23,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { ApiError } from "./api-base.ts";
+import { ContractViolationError } from "./wire.ts";
 import {
   fetchAuditFile,
   fetchAuditReport,
@@ -31,7 +37,7 @@ import {
   startCheckout,
   startDemo,
 } from "./api.ts";
-import type { AuditReport } from "./engine-types.ts";
+import type { AuditReport } from "@npmguard/shared";
 
 const server = setupServer();
 
@@ -183,6 +189,75 @@ describe("api — C2/C3 error → ApiError, status branching", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(500);
     expect((err as ApiError).body).toBe("upstream exploded");
+  });
+});
+
+describe("api — C5 report responses are CHECKED, not cast", () => {
+  /**
+   * The report routes used to be `getJson<AuditReport>` — a cast that promised a
+   * report and delivered whatever the engine sent. These assert the two halves of
+   * the replacement: drift throws, and it throws something the retry policy will
+   * not loop on.
+   */
+  it("C5: fetchAuditReport rejects a report that violates AuditReportSchema", async () => {
+    // A retired verdict is the sharpest case: SUSPECT was removed from the domain,
+    // and the old cast would have handed it to a tone lookup that has no arm for it.
+    server.use(
+      http.get("/api/audit/:id/report", () => HttpResponse.json({ ...report, verdict: "SUSPECT" })),
+    );
+    const err = await fetchAuditReport("aud-1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ContractViolationError);
+    expect((err as ContractViolationError).what).toContain("/audit/aud-1/report");
+  });
+
+  it("C5: a dropped report field fails loud rather than reaching a component as undefined", async () => {
+    const { counts: _dropped, ...withoutCounts } = report;
+    server.use(http.get("/api/audit/:id/report", () => HttpResponse.json(withoutCounts)));
+    const err = await fetchAuditReport("aud-1").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ContractViolationError);
+    // the message names the field, so a support conversation can start from it
+    expect((err as Error).message).toContain("counts");
+  });
+
+  it("C5: a contract violation is NOT an ApiError — a 200 must not read as a healthy report", async () => {
+    // The request succeeded, so `status` would be 200 and every status-based branch
+    // would treat this as fine. That is why drift has its own error type.
+    server.use(http.get("/api/audit/:id/report", () => HttpResponse.json({ nonsense: true })));
+    const err = await fetchAuditReport("aud-1").catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(ApiError);
+    expect(err).toBeInstanceOf(ContractViolationError);
+  });
+
+  it("C5: a 202 still-running body no longer passes as a finished report", async () => {
+    // The engine answers 202 {status} while the audit runs. Under the old cast this
+    // became `report = {status:"running"}` — a live object in the report view with
+    // no verdict, no counts and no complaint.
+    server.use(
+      http.get("/api/audit/:id/report", () => HttpResponse.json({ status: "running" }, { status: 202 })),
+    );
+    await expect(fetchAuditReport("aud-1")).rejects.toBeInstanceOf(ContractViolationError);
+  });
+
+  it("C5: fetchPackageReport validates the NESTED report, not just the envelope", async () => {
+    server.use(
+      http.get("/api/package/*/report", () =>
+        HttpResponse.json({ report: { ...report, counts: "not-an-object" }, version: "5.0.0", packageName: "chalk" }),
+      ),
+    );
+    await expect(fetchPackageReport("chalk", "5.0.0")).rejects.toBeInstanceOf(ContractViolationError);
+  });
+
+  it("C5: fetchPackageReport rejects an envelope missing its label strings", async () => {
+    server.use(http.get("/api/package/*/report", () => HttpResponse.json({ report })));
+    await expect(fetchPackageReport("chalk")).rejects.toBeInstanceOf(ContractViolationError);
+  });
+
+  it("C5: a well-formed report still parses — the checks are not vacuous", async () => {
+    // Guards the opposite failure: a schema nothing satisfies would pass every
+    // assertion above. The happy paths in C1 cover this too; asserted here so the
+    // class stands on its own.
+    server.use(http.get("/api/audit/:id/report", () => HttpResponse.json(report)));
+    await expect(fetchAuditReport("aud-1")).resolves.toMatchObject({ verdict: "SAFE", schemaVersion: 2 });
   });
 });
 

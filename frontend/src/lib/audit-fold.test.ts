@@ -20,32 +20,32 @@
  *  C6  fixture cross-check        — the type sequence of a real skeleton fixture
  *                                  folds to a coherent DANGEROUS terminal state.
  *
- * Blackbox: events are built as typed AuditEvent objects; assertions read only
+ * Blackbox: events are built as typed AuditEventUnion objects; assertions read only
  * the returned AuditFoldState (never fold internals). seq/ts are ours to choose.
  */
 
 import { describe, expect, it } from "vitest";
 import { foldAuditEvent, initialFoldState, type AuditFoldState } from "./audit-fold.ts";
-import type { AuditEvent } from "./engine-types.ts";
+import type { AuditEventUnion } from "@npmguard/shared";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 // Distributive Omit so the per-type payload keys survive the union.
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-type EventPayload = DistOmit<AuditEvent, "auditId" | "timestamp" | "seq">;
+type EventPayload = DistOmit<AuditEventUnion, "auditId" | "timestamp" | "seq">;
 
-/** Build a fully-typed AuditEvent, stamping the envelope base fields. */
-function ev(seq: number, payload: EventPayload): AuditEvent {
+/** Build a fully-typed AuditEventUnion, stamping the envelope base fields. */
+function ev(seq: number, payload: EventPayload): AuditEventUnion {
   return {
     auditId: "audit-1",
     timestamp: `2026-01-01T00:00:${String(seq % 60).padStart(2, "0")}.000Z`,
     seq,
     ...payload,
-  } as AuditEvent;
+  } as AuditEventUnion;
 }
 
 /** Fold a whole buffer from the initial state. */
-function foldAll(events: AuditEvent[], from: AuditFoldState = initialFoldState()): AuditFoldState {
+function foldAll(events: AuditEventUnion[], from: AuditFoldState = initialFoldState()): AuditFoldState {
   return events.reduce(foldAuditEvent, from);
 }
 
@@ -59,7 +59,7 @@ describe("foldAuditEvent — C1 replay / idempotence", () => {
   });
 
   it("C1: re-folding an entire buffer is a no-op (full-replay idempotence)", () => {
-    const buffer: AuditEvent[] = [
+    const buffer: AuditEventUnion[] = [
       ev(1, { type: "audit_started", packageName: "left-pad" }),
       ev(2, { type: "phase_started", phase: "resolve" }),
       ev(3, { type: "phase_completed", phase: "resolve", durationMs: 42 }),
@@ -86,7 +86,7 @@ describe("foldAuditEvent — C1 replay / idempotence", () => {
 describe("foldAuditEvent — C2 unknown / dead types tolerated", () => {
   it("C2: a truly-unknown type falls through to default and never throws", () => {
     const s0 = initialFoldState();
-    const unknown = { auditId: "a", timestamp: "t", seq: 7, type: "brand_new_event", foo: 1 } as unknown as AuditEvent;
+    const unknown = { auditId: "a", timestamp: "t", seq: 7, type: "brand_new_event", foo: 1 } as unknown as AuditEventUnion;
     let s1!: AuditFoldState;
     expect(() => {
       s1 = foldAuditEvent(s0, unknown);
@@ -100,7 +100,7 @@ describe("foldAuditEvent — C2 unknown / dead types tolerated", () => {
   it("C2: the 7 RETIRED agent_*/verify_*/finding_discovered types are inert, not handled", () => {
     // These had zero emit sites in the engine, so their schemas, their fold arms,
     // and the state they wrote (agentSteps/agentThinking/findings) were deleted.
-    // They are no longer members of AuditEvent — hence the cast — and must now
+    // They are no longer members of AuditEventUnion — hence the cast — and must now
     // fall through to `default` exactly like any unknown type. Asserting they are
     // INERT (not merely non-throwing) is what stops an arm being reintroduced.
     const retired = [
@@ -111,7 +111,7 @@ describe("foldAuditEvent — C2 unknown / dead types tolerated", () => {
       { type: "finding_discovered", finding: { capability: "NETWORK" } },
       { type: "verify_started", totalTests: 2 },
       { type: "verify_test_result", proofIndex: 0, testFile: "t.js", status: "confirmed" },
-    ].map((payload, i) => ev(i + 1, payload as never) as AuditEvent);
+    ].map((payload, i) => ev(i + 1, payload as never) as AuditEventUnion);
 
     expect(() => foldAll(retired)).not.toThrow();
     const s = foldAll(retired);
@@ -347,9 +347,22 @@ describe("foldAuditEvent — C3 lifecycle transitions", () => {
     expect(s.errorRetryable).toBe(true);
   });
 
-  it("C3: audit_error with null fields falls back to a generic message", () => {
-    const s = foldAuditEvent(initialFoldState(), ev(1, { type: "audit_error", error: null, code: null, retryable: null }));
-    expect(s.error).toBe("The audit failed");
+  it("C3: audit_error carries the engine's message verbatim — nothing is substituted", () => {
+    // This test used to feed {error:null, code:null, retryable:null} and assert a
+    // generic "The audit failed" fallback. That frame is not emissible: all three
+    // fields are required and non-null on the contract, every emit site supplies
+    // them (service.py:184, :246, :338), and the generated Pydantic model types
+    // them str/str/bool. So the fallback was unreachable and the assertion pinned
+    // the fold's behaviour on traffic the engine cannot produce — it agreed with a
+    // hand-written type rather than with the engine. The null-bearing frame is now
+    // refused at the boundary instead (sse.test.ts C9, contract-audit.test.ts C4),
+    // which is where a contract break belongs.
+    const s = foldAuditEvent(
+      initialFoldState(),
+      ev(1, { type: "audit_error", error: "docker daemon unreachable", code: "NPMGUARD-0042", retryable: false }),
+    );
+    expect(s.error).toBe("docker daemon unreachable");
+    expect(s.errorCode).toBe("NPMGUARD-0042");
     expect(s.errorRetryable).toBe(false);
   });
 });
@@ -388,7 +401,10 @@ describe("foldAuditEvent — C4 terminal freeze", () => {
   });
 
   it("C4: a terminal event still passes the guard after the run stopped", () => {
-    const errored = foldAuditEvent(initialFoldState(), ev(1, { type: "audit_error", error: "boom", code: null, retryable: false }));
+    const errored = foldAuditEvent(
+      initialFoldState(),
+      ev(1, { type: "audit_error", error: "boom", code: "NPMGUARD-9999", retryable: false }),
+    );
     // running is already false; a verdict event is terminal so the guard lets it through.
     const after = foldAuditEvent(errored, ev(2, {
       type: "verdict_reached",
@@ -444,7 +460,7 @@ describe("foldAuditEvent — C6 fixture cross-check (types only)", () => {
 
     let hypSeq = 0;
     let resolveSeq = 0;
-    const events: AuditEvent[] = skeleton.eventTypes.map((type, i) => {
+    const events: AuditEventUnion[] = skeleton.eventTypes.map((type, i) => {
       const seq = i + 1;
       switch (type) {
         case "audit_started":
@@ -513,7 +529,11 @@ describe("foldAuditEvent — C6 fixture cross-check (types only)", () => {
             confirmedCount: skeleton.terminal.counts.confirmed,
           });
         default:
-          return ev(seq, { type: type as never });
+          // A skeleton type this switch does not build a payload for. Cast past
+          // the union on purpose — the whole point is that an event the client
+          // cannot construct is still inert in the fold (the C2 class), and the
+          // contract union now closes tightly enough to reject a bare `{type}`.
+          return ev(seq, { type } as never);
       }
     });
 
