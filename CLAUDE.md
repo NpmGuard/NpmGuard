@@ -36,3 +36,43 @@ Read `README.md` first. Scope changes to one subproject. Each has its own `CLAUD
 - No ephemeral facts in the repo: no server IPs, hosting providers, deploy targets, or "currently running/deployed" status notes — they drift. Deploy material stays platform-agnostic (`deploy/README.md`); where things run lives outside the repo.
 - Bench fixtures under `sandbox/test-fixtures/test-pkg-bench-dd-*` are live malware from the Datadog corpus. Never `npm install` or execute them outside the Docker sandbox; never commit them.
 - `sandbox/` is deliberately **not** an npm workspace — its deps are installed at bench time so fixture installs can't reach the repo root.
+
+## Comments and prose
+
+A comment earns its place by carrying what the reader **cannot get from the code
+and that stays true**. Two questions, and it must pass both:
+
+1. Could I learn this by reading the code beside it? → delete it.
+2. Will this still be true in six months without anyone maintaining it? → if no,
+   delete it or restate it as the rule it implies.
+
+**Keep:** invariants; the failure a guard exists to prevent; a measured number
+that sizes a constant; trust boundaries; why the obvious alternative is wrong.
+
+**Cut, every time:**
+
+- *Archaeology.* "used to", "previously", "the old X", "this replaces", "was a
+  FINDING", "what the recomposition changed", "N was removed in R-1". The reader
+  is looking at the current code; the diff is in git.
+- *Change-log headers.* Dated pass narratives (`Adversarial pass: 2026-07-23/W6 — …`)
+  above a test's CLASS MAP. The map says what each class pins; that is the durable
+  half. How the file grew is not.
+- *Status.* "not yet", "landed", "Phase 2 migrates to this", "tracked", counts of
+  what is fixed. Status is false the moment it is true.
+- *Drifting citations.* `service.py:184, :246`, `dist/index.mjs:154`, "31 committed
+  artifacts", bare requirement IDs (`R-1`, `N-3`, `F-G7`) the reader has no
+  document for. Name the module, or state the substance.
+
+**The rewrite move** is almost always tense, not deletion — the *fact* under the
+archaeology is usually the load-bearing part:
+
+> ~~the dead `sin_addr="…"` regex returned addr=None on every inet connect ever
+> captured and looked exactly like "no address available"~~
+> → returning addr=None shows the judge `connect socket` for a named endpoint,
+> which is indistinguishable from "no address available"
+
+Keep a measurement when it justifies a choice, as a ratio rather than a corpus
+count that moves: "~14% of real `bin` targets ship extensionless", not "13 of 94".
+
+This applies to `CLAUDE.md`, `README.md` and every comment and docstring. It is
+the same rule as "no ephemeral facts in the repo" above, one level down.
