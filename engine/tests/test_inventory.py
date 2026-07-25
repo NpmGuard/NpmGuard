@@ -14,15 +14,23 @@
 #       UnicodeDecodeError (also a 9999 before)
 #   C6  a UTF-8 BOM parses (npm tolerates one) — the classes above must not turn a
 #       merely byte-prefixed manifest into a failed audit
+#   C8  `exports` is a TREE, and a leaf can sit under an array of fallbacks as well
+#       as under a dict — the recursion stopped at a list, so those runtime entry
+#       points vanished (140 of 1317 installed manifests use an array fallback).
+#       They are what phases.trigger_targets offers an experiment as the program to
+#       execute, so a dropped leaf is a program the engine never runs
 #   C7  the swallow this replaces, stated as the state it produced: name/version
 #       None, no scripts, entryPoints.runtime == ["index.js"], dealbreaker None —
 #       an audit that looks complete with zero manifest knowledge. Asserted as
 #       unreachable: no input in C2-C5 can return an InventoryReport at all.
 # Axes deliberately NOT this file's subject: file classification and the
-# structural checks / dealbreakers of run_inventory_checks are unchanged here and
-# are exercised through run_flag (test_fail_fast, test_hypothesis_generation).
-# FINDING (reported, not silently absorbed): no test in the suite covers the
-# dealbreaker verdict path at all — `grep -rl dealbreaker tests/` is empty.
+# structural checks / dealbreakers of run_inventory_checks, which are covered as
+# their own boundary in test_dealbreakers.py (both checks, the install-time hook
+# classification, and the hardcoded-DANGEROUS short-circuit they trigger). C1 below
+# still asserts `entryPoints.install`, so this file pins the ONE fact the two
+# boundaries share: a `preinstall` running a shipped file is an install entry point.
+# (The FINDING this header used to carry — "no test in the suite covers the
+# dealbreaker verdict path at all" — was closed by that file.)
 import json
 
 import pytest
@@ -108,6 +116,35 @@ async def test_manifest_with_invalid_encoding_fails_loud(tmp_path) -> None:
     UnicodeDecodeError that the service maps to a non-retryable 9999."""
     error = await _incomplete(_write(tmp_path, b'{"name": "\xff\xfe caf\xe9"}'))
     assert "not valid JSON" in str(error)
+
+
+async def test_exports_leaves_under_an_array_are_entry_points_too(tmp_path) -> None:
+    """C8: node's `exports` allows an array of fallbacks, so a leaf can sit under a
+    list. The recursion handled str and dict only and returned [] for a list, which
+    silently dropped every entry point behind a fallback — 140 of 1317 installed
+    manifests write one. The conditional-exports shape here (`import`/`require`
+    under a subpath, with a fallback array) is npm's documented form."""
+    inventory = await analyze_inventory(
+        _write(
+            tmp_path,
+            json.dumps(
+                {
+                    **VALID,
+                    "exports": {
+                        ".": {"import": "./esm/index.mjs", "require": "./lib/index.js"},
+                        "./plugin": ["./plugin/new.js", "./plugin/legacy.js"],
+                    },
+                }
+            ),
+        )
+    )
+    assert inventory.entryPoints.runtime == [
+        "lib/index.js",
+        "./esm/index.mjs",
+        "./lib/index.js",
+        "./plugin/new.js",
+        "./plugin/legacy.js",
+    ]
 
 
 async def test_manifest_with_utf8_bom_still_parses(tmp_path) -> None:

