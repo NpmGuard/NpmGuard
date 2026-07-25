@@ -249,6 +249,7 @@ class AuditPipeline:
         *,
         audit_id: str,
         version: str | None = None,
+        local_path: str | None = None,
         emitter: AuditEmitter | None = None,
     ) -> AuditResult:
         # INVARIANT: run() RETURNS its report and never emits a terminal frame
@@ -273,7 +274,7 @@ class AuditPipeline:
 
         async def acquire() -> ResolvedPackage:
             nonlocal acquired
-            acquired = await resolve_package(package_name, version)
+            acquired = await resolve_package(package_name, version, local_path)
             return acquired
 
         try:

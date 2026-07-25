@@ -265,6 +265,7 @@ class AuditService:
         org: str | None = None,
         origin: str | None = None,
         dedupe_key: str | None = None,
+        local_path: str | None = None,
     ) -> SubmitResult:
         """FREE/CRE/dev entry: reserve -> create(queued) -> submit. A refusal
         (QueueFull) creates no row."""
@@ -272,6 +273,7 @@ class AuditService:
         session = await self.sessions.create(
             package_name,
             version,
+            local_path=local_path,
             lane=lane_name,
             org=org,
             origin=origin,
@@ -756,6 +758,7 @@ class AuditService:
                 session.package_name,
                 audit_id=session.audit_id,
                 version=session.requested_version,
+                local_path=session.local_path,
                 emitter=emitter,
             )
             try:
@@ -770,10 +773,19 @@ class AuditService:
                 # and verdict_reached commits atomically with running->done —
                 # a client acting on the terminal frame always finds the
                 # persisted report.
+                # INVARIANT: the published store holds registry-resolved packages
+                # only. `data/reports/<name>/<version>.json` is keyed by, and read
+                # as, "what npm serves under this name" — a package staged from a
+                # local path cannot back that claim, and would file under the real
+                # name it was staged as. The durable record is
+                # audit_sessions.report, which every consumer of THIS audit reads.
                 try:
-                    save_report(
-                        session.package_name, session.requested_version or "latest", result.report
-                    )
+                    if session.local_path is None:
+                        save_report(
+                            session.package_name,
+                            session.requested_version or "latest",
+                            result.report,
+                        )
                 except UnversionedReportError as exc:
                     # INVARIANT: a COMPLETED audit is never discarded. Reaching
                     # here means the verdict was computed, the graph resolved and

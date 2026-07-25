@@ -3,8 +3,9 @@
 #   tested without running audits — except C3, which runs a real audit because a
 #   permalink cannot be proven against a hand-written row. NPMGUARD_DATA_DIR is
 #   pinned to tmp_path as in test_api.py.
-# Axes: row lifecycle (done / error / still-running) × row origin (real / demo /
-#       fixture-named) × report content (verdict domain, resolvable version)
+# Axes: row lifecycle (done / error / still-running) × row origin (registry /
+#       demo / staged-from-a-local-path) × report content (verdict domain,
+#       resolvable version)
 #
 # What the exclusions are protecting, since no one test says it: a listed row is a
 # LINK to /audit/{id}/report, which serves the stored report RAW. So this endpoint
@@ -13,9 +14,9 @@
 # because it passes a verdict check and then dies on the client's first missing v2
 # field, on the page this row sent them to. Demo rows are excluded for a different
 # reason: committed recordings already replay through /demo/*, so listing them here
-# would show one exhibit twice under two identities. Fixture names use the same
-# predicate /packages uses, so the two lists cannot disagree about what is a
-# product exhibit.
+# would show one exhibit twice under two identities. Staged audits are excluded on
+# `local_path` — the source the request declared — so the exclusion holds however
+# the package was named.
 import contextlib
 import json
 import sqlite3
@@ -25,7 +26,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from npmguard.api import create_app
-from npmguard.config import get_settings
+from npmguard.config import REPO_ROOT, get_settings
 from npmguard.contract import models as contract
 
 # /api-only: the root /replays path is the gallery PAGE, so the JSON lives on the
@@ -73,6 +74,7 @@ def _insert(
     report: dict | None = None,
     requested_version: str | None = None,
     package_path: str | None = None,
+    local_path: str | None = None,
     created_at: str = "2026-07-20T12:00:00.000Z",
     updated_at: str = "2026-07-20T12:00:03.500Z",
 ) -> None:
@@ -80,14 +82,15 @@ def _insert(
     with contextlib.closing(sqlite3.connect(tmp_path / "api.sqlite3")) as connection:
         connection.execute(
             "INSERT INTO audit_sessions "
-            "(audit_id, package_name, requested_version, status, package_path, report,"
-            " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            "(audit_id, package_name, requested_version, status, package_path, local_path,"
+            " report, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (
                 audit_id,
                 package_name,
                 requested_version,
                 status,
                 package_path,
+                local_path,
                 json.dumps(report) if report is not None else None,
                 created_at,
                 updated_at,
@@ -145,12 +148,15 @@ def test_listed_audit_id_is_a_working_permalink(make_app, tmp_path) -> None:
     resolves to that audit's stored report and replays its durable event log. This is
     what makes /audit/{id} a permalink rather than a link that merely looks like one.
 
-    The audited package is a local fixture, so it is renamed to a public name after
-    the run: the only thing standing between a fixture audit and a gallery row is
-    `public_package`, and renaming is how `e2e/global-setup.ts` already re-homes this
-    same report for the registry."""
-    with TestClient(make_app()) as client:
-        started = client.post("/audit/stream", json={"packageName": "test-pkg-child-success"})
+    The audited package is staged from a local path, so the row is cleared of that
+    fact after the run: the only thing standing between a staged audit and a gallery
+    row is `local_path`, and this is the permalink's test, not the filter's."""
+    fixture = REPO_ROOT / "sandbox" / "test-fixtures" / "test-pkg-child-success"
+    with TestClient(make_app(NPMGUARD_LOCAL_PACKAGE_AUDITS="true")) as client:
+        started = client.post(
+            "/audit/stream",
+            json={"packageName": "test-pkg-child-success", "localPath": str(fixture)},
+        )
         audit_id = started.json()["auditId"]
         deadline = time.monotonic() + REPORT_DEADLINE_SECONDS
         while time.monotonic() < deadline:
@@ -161,8 +167,8 @@ def test_listed_audit_id_is_a_working_permalink(make_app, tmp_path) -> None:
 
         with contextlib.closing(sqlite3.connect(tmp_path / "api.sqlite3")) as connection:
             connection.execute(
-                "UPDATE audit_sessions SET package_name = ? WHERE audit_id = ?",
-                ("npm-telemetry-helper", audit_id),
+                "UPDATE audit_sessions SET local_path = NULL WHERE audit_id = ?",
+                (audit_id,),
             )
             connection.commit()
 
@@ -199,13 +205,24 @@ def test_demo_rows_are_absent(make_app, tmp_path) -> None:
 
 @pytest.mark.parametrize(
     "package_name",
-    ["test-pkg-env-exfil", "test-package-thing", "npm-bench-dd-01"],
+    ["test-pkg-env-exfil", "chalk", "ember-browser-services"],
 )
-def test_fixture_names_are_absent(make_app, tmp_path, package_name) -> None:
-    """C6: fixture package names are absent."""
+def test_staged_audits_are_absent_whatever_they_are_named(
+    make_app, tmp_path, package_name
+) -> None:
+    """C6: a staged audit is absent because of `local_path`, NOT its name.
+
+    Both halves discriminate. A staged audit under an ordinary registry name is
+    still absent — the gallery claims to show audits of published packages, and a
+    directory on this host cannot back that claim under any name. And a
+    fixture-LOOKING name with no staged path is present, because the engine
+    attaches no meaning to a package name."""
     with TestClient(make_app()) as client:
-        _insert(tmp_path, "fixture", package_name, report=_report())
-        assert _replays(client) == []
+        _insert(
+            tmp_path, "staged", package_name, report=_report(), local_path="/srv/corpus/pkg"
+        )
+        _insert(tmp_path, "registry", "test-pkg-shaped-but-real", report=_report())
+        assert [row["auditId"] for row in _replays(client)] == ["registry"]
 
 
 def test_unreadable_reports_are_dropped(make_app, tmp_path) -> None:

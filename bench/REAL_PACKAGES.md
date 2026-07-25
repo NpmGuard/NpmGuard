@@ -1,42 +1,44 @@
-# Real package audit runs
+# Watchlist runs against currently published packages
 
-This runbook tracks production-like audits against currently published npm
-packages. It complements the mutation benchmark in `METHODOLOGY.md`.
+Audits of live npm packages, driven by `npmguard-ops`. Distinct from the
+benchmark in two ways that matter: it audits whatever the registry currently
+serves rather than a pinned corpus, and it stores result *files* rather than
+database observations. So it cannot produce a reproducible rate — what it
+produces is a false-positive canary and a latency signal against real traffic.
 
-## Watchlists
+The pinned-corpus measurement is `METHODOLOGY-V2-DRAFT.md`; its negative-control
+half draws its selection pool from the same watchlist
+(`CORPUS-PLAN.md` §4, item 2).
 
-- `engine/config/watchlist-smoke.json`: 35 packages for quick coverage across
-  popular frameworks, security-sensitive tooling, crypto dependencies, and
-  historically interesting packages.
-- `engine/config/watchlist-packages.json`: larger watchlist for 100+ package
-  runs.
+## The watchlist
 
-## Smoke run
+`engine/config/watchlist-packages.json` — 165 popular packages, presumed clean.
+Use `--limit` for a smoke-sized slice rather than maintaining a second file.
 
-Run against the engine directly to avoid public nginx rate limits:
+## Run
+
+Against the engine directly, to avoid public nginx rate limits:
 
 ```bash
 cd engine
 NPMGUARD_CRE_API_KEY="$NPMGUARD_CRE_API_KEY" \
 uv run npmguard-ops audit-latest \
   --api http://127.0.0.1:8000 \
-  --watchlist config/watchlist-smoke.json \
   --limit 5 \
-  --out ../bench/results/watchlist-smoke.json
+  --out ../data/watchlist/smoke.json
 ```
 
-Use `--dry-run` first to count already-audited, missing, and failing packages
-without spending LLM budget.
+`--dry-run` first counts already-audited, missing, and failing packages without
+spending LLM budget. Raise `--limit` in batches so cost, latency, and failures
+stay visible; `--result-limit` stops after an exact number of result rows,
+counting already-audited packages and timeouts.
 
-## Monitoring check
-
-After a run, fail fast if the latest result contains timeouts, failed rows,
-unexpected dangerous verdicts, or a p95 latency regression:
+## Gate
 
 ```bash
 cd engine
-uv run npmguard-ops bench-check \
-  --results-dir ../bench/results \
+uv run npmguard-ops watchlist-check \
+  --results-dir ../data/watchlist \
   --min-rows 25 \
   --max-timeouts 0 \
   --max-failed 0 \
@@ -44,39 +46,18 @@ uv run npmguard-ops bench-check \
   --max-p95-ms 600000
 ```
 
-This command is intentionally CI/systemd friendly: it prints a compact summary
-and exits non-zero when a threshold is breached.
-
-## Larger run
-
-```bash
-cd engine
-NPMGUARD_CRE_API_KEY="$NPMGUARD_CRE_API_KEY" \
-uv run npmguard-ops audit-latest \
-  --api http://127.0.0.1:8000 \
-  --watchlist config/watchlist-packages.json \
-  --limit 25 \
-  --result-limit 25 \
-  --out ../bench/results/watchlist-full-part-1.json
-```
-
-Increase `--limit` in batches so cost, latency, and failures stay visible.
-Use `--result-limit` when a benchmark should stop after an exact number of
-result rows, including already-audited packages and timeouts.
+`--max-dangerous 0` is the substance: a DANGEROUS verdict on a popular,
+presumed-clean package is a false alarm and should fail the run. The command
+prints a compact summary and exits non-zero on any breach, so it drops into CI
+or a systemd timer unchanged.
 
 ## Model comparison
 
-Compare models by keeping the watchlist, engine commit, and sandbox config
-constant. For each provider, restart the engine with the provider-specific LLM
-environment, verify the configured provider, then run the same `audit-latest` command.
+Hold the watchlist, engine commit, and sandbox config constant; vary only the
+LLM environment. Restart the engine per provider, verify the configured
+provider, then run the same `audit-latest` command and name the provider in the
+output file (`smoke-minimax-m3.json`).
 
-Recommended first matrix:
-
-| Provider | Backend | Base URL | Model |
-| --- | --- | --- | --- |
-| Gemini | `google` or `openai_compatible` | provider default or OpenRouter | `gemini-2.5-flash` |
-| MiniMax | `openai_compatible` | `https://api.minimax.io/v1` | `MiniMax-M3` |
-| MiMo | `openai_compatible` | provider URL | provider model id |
-
-Each result file should include the provider in its filename, for example
-`watchlist-smoke-minimax-m3.json`.
+A cheap tier has returned false-SAFE on textbook exfiltration, so a comparison
+that reports only cost is misleading — report the verdict distribution beside
+it.

@@ -235,7 +235,9 @@ async def audit(tmp_path, monkeypatch):
         workdir = tmp_path / f"work{runs}"
         package = _write(workdir, files)
 
-        async def _resolve(package_name: str, version: str | None = None) -> ResolvedPackage:
+        async def _resolve(
+            package_name: str, version: str | None = None, local_path: str | None = None
+        ) -> ResolvedPackage:
             return ResolvedPackage(path=package, workdir=workdir)
 
         monkeypatch.setattr(pipeline_module, "resolve_package", _resolve)

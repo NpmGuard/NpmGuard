@@ -324,7 +324,15 @@ async def audit_latest(args: argparse.Namespace) -> int:
     return int(any(row["status"] in {"failed", "timeout"} for row in results))
 
 
-def bench_check(args: argparse.Namespace) -> int:
+def watchlist_check(args: argparse.Namespace) -> int:
+    """The false-positive gate over ``audit-latest`` output.
+
+    Not a bench command despite its former name: it reads the result files
+    ``audit-latest`` writes, and the bench domain reads observations out of the
+    database. ``--max-dangerous 0`` is the substance — a watchlist of popular,
+    presumed-clean packages should raise no DANGEROUS verdict, so this is a
+    specificity canary that costs nothing to keep running between corpus runs.
+    """
     if args.file:
         path = args.file
     else:
@@ -332,7 +340,7 @@ def bench_check(args: argparse.Namespace) -> int:
             args.results_dir.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True
         )
         if not files:
-            raise ValueError(f"No benchmark JSON files found in {args.results_dir}")
+            raise ValueError(f"no audit-latest result files in {args.results_dir}")
         path = files[0]
     payload = json.loads(path.read_text(encoding="utf-8"))
     rows = payload.get("results")
@@ -376,8 +384,8 @@ def bench_check(args: argparse.Namespace) -> int:
     print(
         json.dumps(result, indent=2)
         if args.json
-        else f"[bench:check] {'ok' if result['ok'] else 'failed'} {path}\n[bench:check] rows={len(rows)} safe={verdicts['SAFE']} dangerous={verdicts['DANGEROUS']} timeout={counts['timeout']} failed={counts['failed']} p95Ms={p95 or '-'}"
-        + (f"\n[bench:check] violations: {'; '.join(violations)}" if violations else "")
+        else f"[watchlist:check] {'ok' if result['ok'] else 'failed'} {path}\n[watchlist:check] rows={len(rows)} safe={verdicts['SAFE']} dangerous={verdicts['DANGEROUS']} timeout={counts['timeout']} failed={counts['failed']} p95Ms={p95 or '-'}"
+        + (f"\n[watchlist:check] violations: {'; '.join(violations)}" if violations else "")
     )
     return int(bool(violations))
 
@@ -410,9 +418,9 @@ def parser() -> argparse.ArgumentParser:
     latest.add_argument("--delay-ms", type=int, default=0)
     latest.add_argument("--out", type=Path)
     latest.add_argument("--dry-run", action="store_true")
-    check = commands.add_parser("bench-check")
+    check = commands.add_parser("watchlist-check")
     check.add_argument("--file", type=Path)
-    check.add_argument("--results-dir", type=Path, default=REPO_ROOT / "bench" / "results")
+    check.add_argument("--results-dir", type=Path, default=REPO_ROOT / "data" / "watchlist")
     check.add_argument("--min-rows", type=int, default=1)
     check.add_argument("--max-timeouts", type=int, default=0)
     check.add_argument("--max-failed", type=int, default=0)
@@ -426,8 +434,8 @@ def main() -> None:
     args = parser().parse_args()
     try:
         code = (
-            bench_check(args)
-            if args.command == "bench-check"
+            watchlist_check(args)
+            if args.command == "watchlist-check"
             else asyncio.run(
                 audit_batch(args) if args.command == "audit-batch" else audit_latest(args)
             )

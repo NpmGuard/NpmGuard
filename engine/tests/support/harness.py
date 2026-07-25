@@ -28,6 +28,8 @@ from sqlalchemy.engine import make_url
 ENGINE_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = ENGINE_ROOT.parent
 
+FIXTURES_DIR = REPO_ROOT / "sandbox" / "test-fixtures"
+
 READY_TIMEOUT_SECONDS = 20.0
 READY_POLL_INTERVAL_SECONDS = 0.15
 CLOSE_GRACE_SECONDS = 5.0
@@ -306,6 +308,9 @@ class EngineHarness:
                 "NPMGUARD_TRIAGE_MODEL": self.triage_model,
                 "NPMGUARD_INVESTIGATION_MODEL": self.investigation_model,
                 "NPMGUARD_MOCK_LLM": "false",
+                # Tests audit fixture directories, which is what the capability is
+                # for. Production leaves it off and serves the registry only.
+                "NPMGUARD_LOCAL_PACKAGE_AUDITS": "true",
                 "NPMGUARD_PAYMENT_REQUIRED": "true" if self.payment_required else "false",
                 "NPMGUARD_TRIAGE_CONCURRENCY": str(self.triage_concurrency),
                 "NPMGUARD_STRIPE_SECRET_KEY": self.stripe_secret_key or "",
@@ -439,7 +444,13 @@ class EngineHarness:
             os.killpg(target.pid, sig)
 
     def start_audit(self, package_name: str, version: str | None = None, **extra: Any) -> dict:
-        """POST /audit/stream (dev free path unless extra carries payment proof)."""
+        """POST /audit/stream (dev free path unless extra carries payment proof).
+
+        Resolves from the registry, like production. A test that wants a package
+        staged from disk passes ``localPath=`` itself — this harness infers
+        nothing from a package name, for the same reason the engine does not.
+        Fixture CONTENT reaches an audit through ``registry_stub.serve_package_dir``.
+        """
         payload: dict[str, Any] = {"packageName": package_name, **extra}
         if version is not None:
             payload["version"] = version

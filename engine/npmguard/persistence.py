@@ -42,6 +42,11 @@ audit_sessions = sa.Table(
     sa.Column("requested_version", sa.String(128), nullable=True),
     sa.Column("status", sa.String(16), nullable=False),
     sa.Column("package_path", sa.Text, nullable=True),
+    # Where this audit's bytes came from. NULL means the registry — the only
+    # source a public audit ever has. Set once at admission and never updated:
+    # it is the durable record of a decision, so a row re-claimed after a
+    # restart resolves the same way it would have the first time.
+    sa.Column("local_path", sa.Text, nullable=True),
     sa.Column("file_contents", sa.JSON, nullable=True),
     sa.Column("report", sa.JSON, nullable=True),
     sa.Column("error", sa.Text, nullable=True),
@@ -242,6 +247,7 @@ class AuditSession:
     requested_version: str | None
     status: Literal["queued", "running", "done", "error"]
     package_path: str | None
+    local_path: str | None
     file_contents: dict[str, str] | None
     report: dict[str, Any] | None
     error: str | None
@@ -271,6 +277,7 @@ class AuditSessionStore:
         *,
         file_contents: dict[str, str] | None = None,
         package_path: str | None = None,
+        local_path: str | None = None,
         lane: str = DEFAULT_LANE,
         org: str | None = None,
         origin: str | None = None,
@@ -304,6 +311,8 @@ class AuditSessionStore:
             values["file_contents"] = file_contents
         if package_path is not None:
             values["package_path"] = package_path
+        if local_path is not None:
+            values["local_path"] = local_path
         async with self._sessions() as session, session.begin():
             await session.execute(audit_sessions.insert().values(**values))
         result = await self.get(audit_id)
