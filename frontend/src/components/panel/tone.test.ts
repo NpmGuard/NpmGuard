@@ -27,7 +27,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { AuditSet, AuditSetItem, Outcome } from "../../lib/engine-types.ts";
+import type { AuditSet, AuditSetItem, Outcome } from "@npmguard/shared";
 import {
   depPriority,
   depTone,

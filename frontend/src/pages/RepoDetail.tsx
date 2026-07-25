@@ -1,19 +1,20 @@
 /** Repository detail: overview posture, review queue, and the full
- * dependency inventory. While a scan is running it holds ONE scan-events
- * SSE stream (unnamed messages: dep diffs, progress ticks, done). */
+ * dependency inventory. While a scan is running it follows ONE scan-events SSE
+ * stream (unnamed messages: dep snapshots, progress ticks, done).
+ *
+ * The page holds no copy of the response. The old version kept the detail in
+ * `useState` and the stream wrote into that copy, which made the fetched value
+ * and the streamed value two facts about one thing — and the page then had to
+ * reconcile them by hand on every action (`toggleProtect` re-read the store to
+ * decide whether its own optimistic write was safe). Now the query cache is the
+ * single source of truth and the stream is one of its writers.
+ */
 
+import type { AuditSetItem } from "@npmguard/shared";
 import { ArrowLeft, RefreshCw, Search, Shield, ShieldCheck, X } from "lucide-react";
 import { AnimatePresence } from "motion/react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { UpgradeDialog } from "../components/panel/UpgradeDialog.tsx";
 import {
   OutcomePill,
   depPriority,
@@ -23,12 +24,18 @@ import {
   toneDotClass,
   type Tone,
 } from "../components/panel/tone.tsx";
-import { ApiError } from "../lib/api-base.ts";
-import type { AuditSetItem, RepoDetailResponse } from "../lib/engine-types.ts";
+import { DegradedSurface } from "../components/ui/degraded-state.tsx";
+import { UpgradeDialog } from "../features/billing/components/UpgradeDialog.tsx";
+import {
+  useRepoDetail,
+  useRepoDetailStream,
+  useResync,
+  useSetProtect,
+  useTriggerScan,
+} from "../features/repos/hooks.ts";
 import { formatDate } from "../lib/format.ts";
-import { scanEventsUrl } from "../lib/panel-api.ts";
-import { connectScanStream } from "../lib/sse.ts";
-import { usePanelStore } from "../stores/panelStore.ts";
+import { actionFailure } from "../lib/query-state.ts";
+import { usePanelUi } from "../stores/panelStore.ts";
 
 type DepFilter = "all" | "flagged" | "direct" | "pending";
 const PAGE = 100;
@@ -75,94 +82,34 @@ export function RepoDetail() {
   const name = params.name ?? "";
   const navigate = useNavigate();
 
-  const fetchRepoDetail = usePanelStore((s) => s.fetchRepoDetail);
-  const triggerScan = usePanelStore((s) => s.triggerScan);
-  const setProtect = usePanelStore((s) => s.setProtect);
-  const resync = usePanelStore((s) => s.resync);
-  const clearRepoActionError = usePanelStore((s) => s.clearRepoActionError);
-  const repoActionErrors = usePanelStore((s) => s.repoActionErrors);
-  const paywall = usePanelStore((s) => s.paywall);
-
-  const [detail, setDetail] = useState<RepoDetailResponse | null>(null);
-  const [phase, setPhase] = useState<"loading" | "ready" | "missing" | "error">("loading");
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"audit" | "protect" | "resync" | null>(null);
+  const state = useRepoDetail(owner, name);
+  const detail = state.status === "ok" ? state.data : null;
+  const triggerScan = useTriggerScan();
+  const setProtect = useSetProtect();
+  const resync = useResync();
+  const paywall = usePanelUi((s) => s.paywall);
 
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<DepFilter>("all");
   const [visibleCount, setVisibleCount] = useState(PAGE);
   const inventoryRef = useRef<HTMLElement | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const data = await fetchRepoDetail(owner, name);
-      setDetail(data);
-      setLoadError(null);
-      setPhase("ready");
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        setPhase("missing");
-        return;
-      }
-      setLoadError(err instanceof Error ? err.message : "Could not load the repository");
-      setPhase("error");
-    }
-  }, [owner, name, fetchRepoDetail]);
+  // ONE stream per live set, writing into the query cache: a dep frame REPLACES
+  // the matching item (the frame carries the whole contract item, not a lossier
+  // subset), a progress frame replaces the set's status + rollup, and the
+  // terminal frame invalidates so the authoritative response lands. Every frame
+  // is a snapshot, so a Last-Event-ID replay is idempotent without a seq guard.
+  useRepoDetailStream(owner, name, detail?.set?.status === "running" ? detail.set.id : null);
 
   useEffect(() => {
-    setDetail(null);
-    setPhase("loading");
     setQuery("");
     setFilter("all");
     setVisibleCount(PAGE);
-    void load();
-  }, [load]);
+  }, [owner, name]);
 
   useEffect(() => {
     setVisibleCount(PAGE);
   }, [query, filter]);
-
-  // ONE stream per live set: a dep frame REPLACES the matching item (the frame
-  // carries the whole contract item, not a lossier subset), a progress frame
-  // replaces the set's status + rollup, done triggers a full reload. Every frame
-  // is a snapshot, so a Last-Event-ID replay is idempotent without a seq guard.
-  const runningScanId = detail?.set?.status === "running" ? detail.set.id : null;
-  useEffect(() => {
-    if (runningScanId === null) return;
-    const handle = connectScanStream(scanEventsUrl(runningScanId), {
-      onMessage(frame) {
-        if (frame.type === "dep") {
-          setDetail(
-            (current) =>
-              current && {
-                ...current,
-                deps: current.deps.map((dep) =>
-                  dep.name === frame.item.name && dep.version === frame.item.version
-                    ? frame.item
-                    : dep,
-                ),
-              },
-          );
-        } else if (frame.type === "progress") {
-          setDetail((current) =>
-            current && current.set
-              ? {
-                  ...current,
-                  set: { ...current.set, status: frame.status, rollup: frame.rollup },
-                }
-              : current,
-          );
-        } else {
-          handle.close();
-          void load();
-        }
-      },
-      onError() {
-        // Degrade silently — a manual refresh or re-entry recovers.
-      },
-    });
-    return () => handle.close();
-  }, [runningScanId, load]);
 
   const deps = useMemo(() => detail?.deps ?? [], [detail]);
 
@@ -196,9 +143,9 @@ export function RepoDetail() {
     [deps],
   );
 
-  if (phase === "loading") {
+  if (state.status === "loading") {
     return (
-      <div className="page__inner">
+      <div className="page__inner" aria-busy="true">
         <div className="empty-state" role="status">
           <span className="spinner" /> Loading repository…
         </div>
@@ -206,29 +153,21 @@ export function RepoDetail() {
     );
   }
 
-  if (phase === "missing") {
+  // A repo we cannot read is a FAILED read, not an empty one — which is why this
+  // is a degraded surface and not the `empty-state` box it used to be. The
+  // distinction matters most in exactly this case: "no dependencies" and "we
+  // could not see this repository" look identical in a grey box.
+  //
+  // A 404 offers no retry (there is nothing to retry into) but does offer a way
+  // out; anything else offers the retry the query itself provides.
+  if (state.status === "failed" || detail === null) {
+    const failure =
+      state.status === "failed"
+        ? state.failure
+        : { what: `${owner}/${name}`, detail: "The repository detail could not be read." };
     return (
       <div className="page__inner">
-        <div className="empty-state">
-          <strong>Repository unavailable</strong>
-          <span>Check that the NpmGuard GitHub App still has access to this repository.</span>
-          <button type="button" className="btn" onClick={() => navigate("/dashboard")}>
-            <ArrowLeft size={14} /> Back to dashboard
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (phase === "error" || !detail) {
-    return (
-      <div className="page__inner">
-        <div className="banner banner--danger panel-banner-gap" role="alert">
-          <span>{loadError ?? "Could not load the repository"}</span>
-          <button type="button" className="btn btn--sm" onClick={() => void load()}>
-            Try again
-          </button>
-        </div>
+        <DegradedSurface failure={failure} escape={{ label: "Back to dashboard", href: "/dashboard" }} />
       </div>
     );
   }
@@ -236,7 +175,13 @@ export function RepoDetail() {
   const repo = detail.repo;
   const scan = detail.set;
   const alerts = detail.alerts;
-  const actionError = repoActionErrors[repo.id];
+  // One banner over three mutations: each holds its own error, and a cap is
+  // filtered out because the paywall dialog owns it.
+  const actionFailed =
+    actionFailure(triggerScan.error, "Starting the audit") ??
+    actionFailure(setProtect.error, "Changing protection") ??
+    actionFailure(resync.error, "Re-syncing the lockfile");
+  const busy = triggerScan.isPending || setProtect.isPending || resync.isPending;
 
   // The ONE rollup, computed server-side over THIS SET's items — the same
   // population `deps` carries, so summing deps reproduces it. The client used to
@@ -308,32 +253,14 @@ export function RepoDetail() {
     pending: rollup.pending,
   };
 
-  const runAudit = async () => {
-    setBusy("audit");
-    const scanId = await triggerScan(repo.id);
-    setBusy(null);
-    if (scanId !== null) void load();
-  };
-
-  const toggleProtect = async () => {
-    const next = !repo.protected;
-    const paywallBefore = usePanelStore.getState().paywall;
-    setBusy("protect");
-    await setProtect(repo.id, next);
-    setBusy(null);
-    const state = usePanelStore.getState();
-    if (!state.repoActionErrors[repo.id] && state.paywall === paywallBefore) {
-      setDetail(
-        (current) => current && { ...current, repo: { ...current.repo, protected: next } },
-      );
-    }
-  };
-
-  const doResync = async () => {
-    setBusy("resync");
-    const scanId = await resync(repo.id);
-    setBusy(null);
-    if (scanId !== null) void load();
+  // No hand-written reload and no local re-derivation of what succeeded: each
+  // mutation's `onSuccess` already patches or invalidates the entries it
+  // invalidated, so a successful protect flips the flag everywhere it is shown
+  // and a failed one flips nothing.
+  const dismissActionFailure = () => {
+    triggerScan.reset();
+    setProtect.reset();
+    resync.reset();
   };
 
   const reviewFlagged = () => {
@@ -367,10 +294,10 @@ export function RepoDetail() {
           <button
             type="button"
             className="btn btn--dark"
-            disabled={running || busy !== null}
-            onClick={() => void runAudit()}
+            disabled={running || busy}
+            onClick={() => triggerScan.mutate(repo.id)}
           >
-            {busy === "audit"
+            {triggerScan.isPending
               ? "Starting…"
               : running
                 ? "Scanning…"
@@ -381,8 +308,8 @@ export function RepoDetail() {
           <button
             type="button"
             className="btn"
-            disabled={busy !== null}
-            onClick={() => void toggleProtect()}
+            disabled={busy}
+            onClick={() => setProtect.mutate({ repoId: repo.id, on: !repo.protected })}
           >
             {repo.protected ? <ShieldCheck size={14} /> : <Shield size={14} />}
             {repo.protected ? "Protected" : "Protect"}
@@ -390,23 +317,23 @@ export function RepoDetail() {
           <button
             type="button"
             className="btn"
-            disabled={busy !== null || running}
+            disabled={busy || running}
             title="Re-read the lockfile from GitHub"
-            onClick={() => void doResync()}
+            onClick={() => resync.mutate(repo.id)}
           >
-            <RefreshCw size={14} /> {busy === "resync" ? "Re-syncing…" : "Re-sync"}
+            <RefreshCw size={14} /> {resync.isPending ? "Re-syncing…" : "Re-sync"}
           </button>
         </div>
       </header>
 
-      {actionError && (
+      {actionFailed && (
         <div className="banner banner--danger panel-banner-gap" role="alert">
-          <span>{actionError.message}</span>
+          <span>{`${actionFailed.what} failed — ${actionFailed.detail ?? "no detail"}`}</span>
           <button
             type="button"
             className="icon-btn"
             aria-label="Dismiss error"
-            onClick={() => clearRepoActionError(repo.id)}
+            onClick={dismissActionFailure}
           >
             <X size={13} />
           </button>

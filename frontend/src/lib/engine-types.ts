@@ -16,14 +16,47 @@
  *    NOT {capabilities, proofCount}.
  * If the engine contract changes, THIS file changes.
  *
- * MIGRATION IN PROGRESS (N-12): shapes that HAVE a zod schema are being bound to
+ * MIGRATION IN PROGRESS (N-12): shapes that HAVE a zod schema are bound to
  * `@npmguard/shared` (the same source the engine's Pydantic models are generated
  * from) instead of hand-restated here. Two hand-kept copies of one shape is a
- * reachable state where they disagree with nothing to catch it. Anything still
- * declared by hand below is a shape with no schema yet.
+ * reachable state where they disagree with nothing to catch it. The whole PANEL
+ * domain has now moved out — see the note directly below for what is left and why.
  */
 
 import type { DependencyGroups, PackageMetadata } from "@npmguard/shared";
+
+// ===========================================================================
+// The GitHub panel domain is GONE from this file — goal G1.
+// ===========================================================================
+//
+// Every panel wire shape now comes from `@npmguard/shared` (`shared/src/panel.ts`),
+// the zod the engine's Pydantic models are generated from, and the API layer
+// `safeParse`s each response against it (`lib/wire.ts`). Import panel types
+// directly from the package; there is deliberately no re-export here, because a
+// re-export is an invitation to add "just one" hand-written shape beside it.
+//
+// Deleted from here, with the shape that replaced each:
+//   SessionUser, Installation, OrgsResponse   → identical schemas in panel.ts
+//   UsageBucket, PlanLimits, AccountEntitlements, BillingResponse, CapResource
+//                                              → same, EXCEPT the hand-written
+//     `price.currency` was `string` while the schema says `string | null`. The
+//     schema is right: `repo_subscription_price` reads the field off the Stripe
+//     object with a `None` default, so a price without a currency is emissible
+//     and the hand-written type would have crashed `formatCents` on it.
+//   CapExceededBody                            → `CapExceeded` (same fields; the
+//     name now matches the contract, and it is PARSED rather than sniffed).
+//
+// The two verdict domains are still two domains, and that has not changed: the
+// audit `Verdict` below is {SAFE, DANGEROUS} because a failed audit emits an
+// `audit_error` event, while the panel's `Outcome` is {SAFE, ERROR, DANGEROUS}
+// because a failure is exactly what a rollup must count. Do not widen either to
+// match the other, and do not treat them as aliases.
+//
+// What REMAINS hand-written below is the audit-core / report side. It has schemas
+// too (`AuditReportSchema`, `AuditEventSchema`, …), so it should follow — but its
+// consumers are `components/audit/**` and `components/report/**`, and migrating
+// the flattened `AuditEvent` union is its own falsification pass over
+// `audit-fold.ts`. Deliberately not bundled into the panel rework.
 
 // ===== enums =====
 
@@ -303,114 +336,4 @@ export interface CheckoutStatus {
 export interface ResolveResponse {
   packageName: string;
   version: string;
-}
-
-// ===========================================================================
-// GitHub repo panel wire contract
-// ===========================================================================
-//
-// The panel is a SEPARATE surface from the single-package audit above, and its
-// verdict domain is a DIFFERENT domain: `Outcome` (SAFE | ERROR | DANGEROUS,
-// null until concluded) from the generated contract. Do NOT widen the audit
-// `Verdict` (SAFE|DANGEROUS) to match it and do not treat them as aliases — an
-// audit that fails emits an `audit_error` event, so ERROR is not a value the
-// audit domain can hold, but it IS one the panel must roll up.
-//
-// Two axes (design §4.4): `outcome` says what we know, `jobState` / the rollup's
-// `pending` count say how far along we are. The retired 4-state PanelVerdict
-// conflated them — `UNKNOWN` meant both "not audited yet" and "audit failed", so
-// no branch on it could be right; `SUSPECT` had no producer at all.
-export type { AuditSetRollup, JobState, Outcome } from "@npmguard/shared";
-
-// ===== auth / session =====
-
-export interface SessionUser {
-  id: number;
-  login: string;
-  name: string | null;
-  email: string | null;
-  avatarUrl: string | null;
-}
-
-export interface Installation {
-  id: number;
-  accountLogin: string;
-  accountType: string;
-  suspended: boolean;
-}
-
-export interface OrgsResponse {
-  installations: Installation[];
-  installUrl: string;
-}
-
-// ===== panel repos + audit sets =====
-// R-1 collapsed three near-identical "set of packages to audit, plus a rollup"
-// shapes into ONE, so these are now imported from the contract rather than
-// restated: AuditSet (progress + rollup, nothing about the subject), AuditSetItem
-// (the ONE dep projection, replacing four divergent ones), and the response
-// envelopes that carry them. `ScanSummary`, `DepDetail`, `PublicScan`,
-// `PublicScanDep` and the hand-written `ScanStreamMessage` are gone with them.
-export type {
-  Alert,
-  AlertsResponse,
-  AuditSet,
-  AuditSetItem,
-  AuditSetOrigin,
-  AuditSetStatus,
-  AuditSetTrigger,
-  PanelRepo,
-  PublicRepo,
-  PublicRepoScan,
-  PublicRepoScanDetailResponse,
-  PublicRepoScansResponse,
-  RepoDetailResponse,
-  ReposResponse,
-  ScanDepFrame,
-  ScanDoneFrame,
-  ScanProgressFrame,
-  ScanStreamFrame,
-} from "@npmguard/shared";
-
-// ===== quota / billing =====
-
-export interface UsageBucket {
-  used: number;
-  limit: number;
-  remaining: number | null; // null = unlimited (limit === 0)
-}
-
-export interface AccountEntitlements {
-  installationId: number;
-  accountLogin: string;
-  plan: "free" | "pro";
-  subscriptionStatus: string;
-  protectedRepos: UsageBucket;
-  publicRepoAudits: UsageBucket;
-  monthlyAudits: UsageBucket;
-}
-
-export interface PlanLimits {
-  protectedRepos: number;
-  publicRepoAudits: number;
-  monthlyAudits: number;
-}
-
-export interface BillingResponse {
-  accounts: AccountEntitlements[];
-  plans: { free: PlanLimits; pro: PlanLimits };
-  checkoutEnabled: boolean;
-  price: { amount: number | null; currency: string; interval: string | null } | null;
-}
-
-export type CapResource = "protected_repos" | "public_repo_audits" | "monthly_audits";
-
-/** HTTP 402 body on scan/protect/public-repo endpoints — carries everything
- * needed to render the paywall without a second request. */
-export interface CapExceededBody {
-  error: string;
-  cap: true;
-  resource: CapResource;
-  installationId: number;
-  entitlements: AccountEntitlements;
 }

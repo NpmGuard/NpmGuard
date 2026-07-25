@@ -1,15 +1,46 @@
 /** Unseen-alerts banner: count, the first three alerts as
- * "pkg@ver is VERDICT", and a mark-as-seen action. */
+ * "pkg@ver is VERDICT", and a mark-as-seen action.
+ *
+ * THIS is the component the degraded-state bug lived in. The old store kept the
+ * previous alerts snapshot when the fetch failed; on first load that snapshot was
+ * `[]`, `unseen.length === 0` was therefore true, and this returned `null`. A
+ * reader saw no banner and concluded *no threats* when the truth was *no
+ * knowledge* — in a security product, the product lying.
+ *
+ * The fix is not a `try`/`catch` here; it is that the failure is now a state this
+ * component can be handed. Three arms, and only one of them has alerts in scope:
+ *
+ *   loading  → nothing. A banner not yet drawn claims nothing.
+ *   failed   → a named degraded region: "Alerts unavailable", hatched, with a
+ *              retry — never silence.
+ *   ok       → the banner if anything is unseen, nothing if not. This is the ONLY
+ *              arm allowed to render silence, because here silence is true.
+ *
+ * Not a `<DataRegion>`: an alert banner has no visible empty state (the honest
+ * empty rendering is no banner), and DataRegion requires empty copy that would
+ * then be dead. The guarantee is unchanged — there is no `data` on the `failed`
+ * arm, so the silent branch is unreachable from a failure. */
 
+import type { Alert } from "@npmguard/shared";
 import { TriangleAlert } from "lucide-react";
-import { usePanelStore } from "../../stores/panelStore.ts";
-import { OutcomePill } from "./tone.tsx";
+import { OutcomePill } from "../../../components/panel/tone.tsx";
+import { DegradedRegion } from "../../../components/ui/degraded-state.tsx";
+import type { LoadState } from "../../../components/ui/load-state.ts";
+import { useMarkAlertsSeen } from "../hooks.ts";
 
-export function AlertsNotice() {
-  const alerts = usePanelStore((s) => s.alerts);
-  const markAlertsSeen = usePanelStore((s) => s.markAlertsSeen);
+export function AlertsNotice({ state }: { state: LoadState<Alert[]> }) {
+  const markSeen = useMarkAlertsSeen();
 
-  const unseen = alerts.filter((alert) => !alert.seen);
+  if (state.status === "loading") return null;
+  if (state.status === "failed") {
+    return (
+      <div className="panel-banner-gap">
+        <DegradedRegion failure={state.failure} title="Alerts" />
+      </div>
+    );
+  }
+
+  const unseen = state.data.filter((alert) => !alert.seen);
   if (unseen.length === 0) return null;
 
   // Only DANGEROUS is ever raised (the type says so), so there is no second
@@ -37,7 +68,8 @@ export function AlertsNotice() {
       <button
         type="button"
         className="btn btn--sm"
-        onClick={() => void markAlertsSeen().catch(() => undefined)}
+        disabled={markSeen.isPending}
+        onClick={() => markSeen.mutate()}
       >
         Mark as seen
       </button>

@@ -1,12 +1,18 @@
-/** Paywall dialog driven by store.paywall (the 402 cap body carries fresh
- * entitlements, so the exhausted meter renders without a second request). */
+/** Paywall dialog driven by the one cross-page UI fact in the store.
+ *
+ * The 402 cap body carries FRESH entitlements, so the exhausted meter renders
+ * from the response that opened this dialog — no second request, no stale quota.
+ * That is also why the dialog survives a failed billing read: its subject comes
+ * from the 402, and only the Pro offer beside it needs the ledger. */
 
+import type { CapResource, UsageBucket } from "@npmguard/shared";
 import { Sparkles, X } from "lucide-react";
-import type { CapResource, UsageBucket } from "../../lib/engine-types.ts";
-import { formatCents } from "../../lib/format.ts";
-import { usePanelStore } from "../../stores/panelStore.ts";
+import { PanelDialog } from "../../../components/panel/PanelDialog.tsx";
+import { DegradedRegion } from "../../../components/ui/degraded-state.tsx";
+import { formatCents } from "../../../lib/format.ts";
+import { usePanelUi } from "../../../stores/panelStore.ts";
+import { useBilling, useStartProCheckout } from "../hooks.ts";
 import { AllowanceMeter } from "./AllowanceMeter.tsx";
-import { PanelDialog } from "./PanelDialog.tsx";
 
 const RESOURCE_META: Record<
   CapResource,
@@ -37,12 +43,10 @@ function limitLabel(limit: number): string {
 }
 
 export function UpgradeDialog() {
-  const paywall = usePanelStore((s) => s.paywall);
-  const billing = usePanelStore((s) => s.billing);
-  const busyInstallationId = usePanelStore((s) => s.billingBusyInstallationId);
-  const startProCheckout = usePanelStore((s) => s.startProCheckout);
-  const closePaywall = usePanelStore((s) => s.closePaywall);
-
+  const paywall = usePanelUi((s) => s.paywall);
+  const closePaywall = usePanelUi((s) => s.closePaywall);
+  const billing = useBilling();
+  const checkout = useStartProCheckout();
   if (!paywall) return null;
 
   const meta = RESOURCE_META[paywall.resource];
@@ -53,10 +57,14 @@ export function UpgradeDialog() {
       : paywall.resource === "public_repo_audits"
         ? entitlements.publicRepoAudits
         : entitlements.monthlyAudits;
-  const pro = billing?.plans.pro ?? null;
-  const price = billing?.price ?? null;
-  const checkoutEnabled = billing?.checkoutEnabled ?? false;
-  const busy = busyInstallationId === paywall.installationId;
+  // The dialog's OWN subject — the exhausted bucket — comes from the 402 body, so
+  // it renders in full even when the billing read failed. What the billing read
+  // adds is the Pro offer beside it, and each of those is guarded on its own.
+  const catalog = billing.status === "ok" ? billing.data : null;
+  const pro = catalog?.plans.pro ?? null;
+  const price = catalog?.price ?? null;
+  const checkoutEnabled = catalog?.checkoutEnabled ?? false;
+  const busy = checkout.isPending && checkout.variables === paywall.installationId;
 
   return (
     <PanelDialog ariaLabel="Upgrade to Pro" onClose={closePaywall}>
@@ -80,7 +88,12 @@ export function UpgradeDialog() {
             <span className="pill pill--violet">Pro</span>
             {price?.amount != null && (
               <span className="subtext">
-                <strong className="panel-strong">{formatCents(price.amount, price.currency)}</strong>
+                {/* `currency` is nullable on the wire (the schema is right and the
+                    old hand-written `string` was wrong — Stripe can omit it), so
+                    the display default lives here rather than in a cast. */}
+                <strong className="panel-strong">
+                  {formatCents(price.amount, price.currency ?? undefined)}
+                </strong>
                 {price.interval ? ` / ${price.interval}` : ""}
               </span>
             )}
@@ -106,9 +119,14 @@ export function UpgradeDialog() {
             reported, never hidden.
           </p>
         </div>
-        {!checkoutEnabled && (
+        {/* "Not configured" and "we could not find out" are different facts, and
+            the button is disabled either way — so saying the first when the second
+            is true would send the reader to the wrong place. */}
+        {billing.status === "failed" ? (
+          <DegradedRegion failure={billing.failure} title="Pro plan" />
+        ) : !checkoutEnabled ? (
           <p className="microtext">Checkout is not configured on this server.</p>
-        )}
+        ) : null}
       </div>
       <div className="dialog__footer">
         <button type="button" className="btn" onClick={closePaywall}>
@@ -118,7 +136,7 @@ export function UpgradeDialog() {
           type="button"
           className="btn btn--violet"
           disabled={!checkoutEnabled || busy}
-          onClick={() => void startProCheckout(paywall.installationId)}
+          onClick={() => checkout.mutate(paywall.installationId)}
         >
           <Sparkles size={13} />
           {busy ? "Redirecting…" : "Continue to Stripe"}

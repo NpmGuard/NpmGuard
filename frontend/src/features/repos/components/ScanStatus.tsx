@@ -7,9 +7,9 @@
  * meter built from them could exceed 100%. `pending` is the one progress counter
  * and the rollup asserts the partition. */
 
-import type { AuditSet } from "../../lib/engine-types.ts";
-import { formatDate } from "../../lib/format.ts";
-import { OutcomePill } from "./tone.tsx";
+import type { AuditSet } from "@npmguard/shared";
+import { OutcomePill } from "../../../components/panel/tone.tsx";
+import { formatDate } from "../../../lib/format.ts";
 
 export function ScanStatus({ scan }: { scan: AuditSet | null }) {
   if (!scan) {

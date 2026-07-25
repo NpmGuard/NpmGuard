@@ -19,7 +19,8 @@
  * fake with no real timers or network.
  */
 
-import { AUDIT_EVENT_TYPES, type AuditEvent, type ScanStreamFrame } from "./engine-types.ts";
+import { ScanStreamFrameSchema, type ScanStreamFrame } from "@npmguard/shared";
+import { AUDIT_EVENT_TYPES, type AuditEvent } from "./engine-types.ts";
 
 /** Structural EventSource surface — deliberately wider than the DOM lib's
  * overloaded signatures so test fakes can satisfy it. */
@@ -134,13 +135,28 @@ export function connectScanStream(
 
   source.onmessage = (raw) => {
     if (closed) return;
-    let frame: ScanStreamFrame;
+    let parsed: unknown;
     try {
-      frame = JSON.parse(raw.data) as ScanStreamFrame;
+      parsed = JSON.parse(raw.data);
     } catch {
       return; // malformed frame — skip, never throw into the stream
     }
-    handlers.onMessage(frame);
+    // A frame is a wire response like any other, so it is CHECKED, not cast.
+    // These frames drive the dependency table directly: a `dep` frame whose
+    // `item` has lost a field used to overwrite a good row with a half one, and
+    // the cast made that invisible. A frame that does not match the contract is
+    // treated as a transport failure — closed, then `onError`, whose callers all
+    // recover by refetching the authoritative response. Degrading to the source
+    // of truth is the honest recovery; silently dropping the frame would leave
+    // the row frozen at a stale value with nothing said.
+    const frame = ScanStreamFrameSchema.safeParse(parsed);
+    if (!frame.success) {
+      closed = true;
+      source.close();
+      handlers.onError?.();
+      return;
+    }
+    handlers.onMessage(frame.data);
   };
   source.onerror = () => {
     if (closed) return;

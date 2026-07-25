@@ -1,6 +1,6 @@
 /** Pure quota-display logic for UsageBucket allowances. */
 
-import type { UsageBucket } from "./engine-types.ts";
+import type { UsageBucket } from "@npmguard/shared";
 
 export type QuotaState =
   | { kind: "unlimited" }

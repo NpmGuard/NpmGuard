@@ -2,10 +2,12 @@
  * URL) input, allowance-account selector, and the trust-boundary list. */
 
 import { X } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
-import { publicAuditAllowanceCopy } from "../../lib/quota.ts";
-import { usePanelStore } from "../../stores/panelStore.ts";
-import { PanelDialog } from "./PanelDialog.tsx";
+import { useState, type FormEvent } from "react";
+import { PanelDialog } from "../../../components/panel/PanelDialog.tsx";
+import { actionFailure } from "../../../lib/query-state.ts";
+import { publicAuditAllowanceCopy } from "../../billing/quota.ts";
+import { useBilling } from "../../billing/hooks.ts";
+import { useStartPublicScan } from "../hooks.ts";
 
 const BOUNDARIES = [
   ["01", "Public contents only"],
@@ -19,35 +21,38 @@ interface PublicAuditDialogProps {
 }
 
 export function PublicAuditDialog({ onClose, onStarted }: PublicAuditDialogProps) {
-  const billing = usePanelStore((s) => s.billing);
-  const busy = usePanelStore((s) => s.publicScanBusy);
-  const publicScanError = usePanelStore((s) => s.publicScanError);
-  const startPublicRepoScan = usePanelStore((s) => s.startPublicRepoScan);
-  const clearPublicScanError = usePanelStore((s) => s.clearPublicScanError);
+  const billing = useBilling();
+  const scan = useStartPublicScan();
 
-  const accounts = billing?.accounts ?? [];
+  // The allowance accounts are the ONLY thing this dialog needs from billing, and
+  // the hero that opens it is already gated on having them — so an unreadable
+  // ledger leaves an empty selector rather than a fabricated one.
+  const accounts = billing.status === "ok" ? billing.data.accounts : [];
+  const busy = scan.isPending;
+  // A cap belongs to the paywall, so it is filtered out here; anything else is
+  // this form's own error to show.
+  const failure = actionFailure(scan.error, "Starting the repository audit");
+
   const [repository, setRepository] = useState("");
   const [installationId, setInstallationId] = useState<number | null>(
     accounts[0]?.installationId ?? null,
   );
 
-  useEffect(() => {
-    clearPublicScanError();
-  }, [clearPublicScanError]);
-
   const selected = accounts.find((account) => account.installationId === installationId) ?? null;
 
-  const submit = async (event: FormEvent) => {
+  const submit = (event: FormEvent) => {
     event.preventDefault();
     const target = repository.trim();
     if (!target || installationId === null || busy) return;
-    const scanId = await startPublicRepoScan(target, installationId);
-    if (scanId !== null) onStarted(scanId);
+    scan.mutate(
+      { repository: target, installationId },
+      { onSuccess: ({ scanId }) => onStarted(scanId) },
+    );
   };
 
   return (
     <PanelDialog ariaLabel="Audit a public repository" onClose={onClose}>
-      <form onSubmit={(event) => void submit(event)}>
+      <form onSubmit={submit}>
         <div className="dialog__header">
           <div>
             <span className="eyebrow">Read-only audit</span>
@@ -93,9 +98,9 @@ export function PublicAuditDialog({ onClose, onStarted }: PublicAuditDialogProps
               </li>
             ))}
           </ol>
-          {publicScanError && (
+          {failure && (
             <p className="banner banner--danger panel-dialog-error" role="alert">
-              {publicScanError}
+              {failure.detail ?? failure.what}
             </p>
           )}
         </div>

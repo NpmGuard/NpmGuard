@@ -1,9 +1,9 @@
 import { ShieldCheck } from "lucide-react";
-import { useEffect, type MouseEvent } from "react";
+import type { MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { githubLoginUrl } from "../lib/panel-api.ts";
+import { githubLoginUrl } from "../features/session/api.ts";
+import { useLogout, useSession } from "../features/session/hooks.ts";
 import { useAuditStore } from "../stores/auditStore.ts";
-import { usePanelStore } from "../stores/panelStore.ts";
 
 const NAV = [
   { to: "/", label: "Home" },
@@ -39,20 +39,20 @@ function AuditStatusPill() {
   );
 }
 
-/** GitHub session chip. Resolves the session once on mount; renders nothing
- * until `userLoaded`, then either the signed-in identity (avatar → login →
- * sign out) or a "Sign in" link that starts the OAuth web flow. */
+/** GitHub session chip. Renders nothing until the session read settles, then
+ * either the signed-in identity (avatar → login → sign out) or a "Sign in" link
+ * that starts the OAuth web flow.
+ *
+ * The mount-time `fetchMe()` effect is gone: the query fires itself, and it is
+ * the SAME cache entry the dashboard observes, so the two of them make one
+ * request rather than two. A failed session read renders nothing here — the
+ * header is not where a person can act on it, and the dashboard names it. */
 function AuthChip() {
-  const user = usePanelStore((s) => s.user);
-  const userLoaded = usePanelStore((s) => s.userLoaded);
-  const fetchMe = usePanelStore((s) => s.fetchMe);
-  const logout = usePanelStore((s) => s.logout);
+  const session = useSession();
+  const logout = useLogout();
 
-  useEffect(() => {
-    void fetchMe();
-  }, [fetchMe]);
-
-  if (!userLoaded) return null;
+  if (session.status !== "ok") return null;
+  const user = session.data.user;
 
   if (!user) {
     return (
@@ -78,7 +78,12 @@ function AuthChip() {
         </span>
       )}
       <span className="auth-chip__login">{user.login}</span>
-      <button type="button" className="auth-chip__signout" onClick={() => void logout()}>
+      <button
+        type="button"
+        className="auth-chip__signout"
+        disabled={logout.isPending}
+        onClick={() => logout.mutate()}
+      >
         sign out
       </button>
     </div>

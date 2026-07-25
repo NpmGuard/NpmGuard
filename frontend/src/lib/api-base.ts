@@ -1,4 +1,10 @@
-import type { CapExceededBody } from "./engine-types.ts";
+import {
+  CapExceededSchema,
+  ReauthRequiredSchema,
+  ScanAlreadyRunningSchema,
+  type CapExceeded,
+  type ScanAlreadyRunning,
+} from "@npmguard/shared";
 
 /**
  * HTTP error carrying the parsed engine body. App code branches on `status`
@@ -27,27 +33,42 @@ export function errorDetail(raw: unknown, fallback: string): string {
   return fallback;
 }
 
+// ---------------------------------------------------------------------------
+// Named error bodies — each one a SCHEMA parse, not a structural sniff
+// ---------------------------------------------------------------------------
+// The three classifiers below used to hand-check one marker field each
+// (`body.cap === true`, `body.reauth === true`, `typeof body.scanId ===
+// "number"`). shared/src/panel.ts names all three bodies, and its B9 note is
+// exactly this: "a structural sniff is a missing type". Parsing the whole body
+// means a 402 that has lost its `entitlements` no longer reaches the paywall as
+// a half-populated object — it fails the parse and falls through to the generic
+// error path, which is honest, instead of rendering an empty meter.
+
 /**
- * 402 cap bodies carry full entitlements — detect them (branch on status +
- * the `cap:true` marker, never on message text) to open the paywall.
+ * 402 cap bodies carry FRESH entitlements, so the client can patch its ledger
+ * from the very response that opened the paywall (F-E3) — no second request.
  */
-export function capBody(err: unknown): CapExceededBody | null {
-  if (err instanceof ApiError && err.status === 402 && err.body && typeof err.body === "object") {
-    const body = err.body as Record<string, unknown>;
-    if (body["cap"] === true) return err.body as CapExceededBody;
-  }
-  return null;
+export function capBody(err: unknown): CapExceeded | null {
+  if (!(err instanceof ApiError) || err.status !== 402) return null;
+  const parsed = CapExceededSchema.safeParse(err.body);
+  return parsed.success ? parsed.data : null;
 }
 
-/** 401 `{reauth:true}` = the GitHub OAuth token expired → hard-redirect to login. */
+/** 401 `{reauth:true}` = the GitHub OAuth token expired → hard-redirect to login.
+ * Distinct from a plain 401 because the fix is "restart the OAuth flow", not
+ * "show an error" — and distinct from "signed out", which is a plain 401. */
 export function isReauth(err: unknown): boolean {
   return (
-    err instanceof ApiError &&
-    err.status === 401 &&
-    typeof err.body === "object" &&
-    err.body !== null &&
-    (err.body as Record<string, unknown>)["reauth"] === true
+    err instanceof ApiError && err.status === 401 && ReauthRequiredSchema.safeParse(err.body).success
   );
+}
+
+/** 409 from every scan trigger, repo and public alike. NOT a failure: a set is
+ * already live and streamable, so the caller streams `scanId` instead. */
+export function scanAlreadyRunning(err: unknown): ScanAlreadyRunning | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const parsed = ScanAlreadyRunningSchema.safeParse(err.body);
+  return parsed.success ? parsed.data : null;
 }
 
 async function parseBody(res: Response): Promise<unknown> {
