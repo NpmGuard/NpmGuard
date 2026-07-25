@@ -11,9 +11,7 @@
 #   S31 (flip) bounded shutdown: SIGTERM with an in-flight audit is GRACEFUL within grace —
 #       audits.close(deadline) finalizes the stalled session error/0031 and returns bounded,
 #       never the old unbounded await
-# Adversarial pass: W4b — "do queued-but-never-started sessions get abandoned silently?"
-#   answered by S32's per-channel replay assertions.
-# DB axis (§S36) — DELIBERATE narrowing: S20/S21/S32 run sqlite-only. Restart
+# DB axis — DELIBERATE narrowing: S20/S21/S32 run sqlite-only. Restart
 #   recovery + claim durability go through AuditSessionStore/claim_payment,
 #   whose engine divergence (MVCC vs serialized writers) is proven by the
 #   postgres-marked claim classes (test_payments.py C15-postgres, S5[postgres],
@@ -66,7 +64,7 @@ SHORT_STALL_DELAY_MS = 5_000
 # bound). The other two are the OBSERVATION window and must not be tuned down to
 # hug it — a stopwatch race is what this scenario is not about.
 #
-# What SIGTERM -> exit actually costs, measured at 67f830f (n=6 each):
+# What SIGTERM -> exit actually costs, measured (n=6 each):
 #     0.10s  uvicorn's fixed pre-drain sleep            (server.py:281)
 #   + 0.00s  connection drain — nothing left open, because _first_frame_of_type
 #            aclose()s its stream. A LEAKED stream costs the full

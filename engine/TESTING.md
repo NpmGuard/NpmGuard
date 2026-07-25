@@ -4,8 +4,7 @@ Three things get proven here, and they are not substitutes for one another:
 
 - **the logic** — blackbox units over enumerated equivalence classes (Pillar A);
 - **the wiring** — a real route against a real database with every external
-  stubbed (Pillar B). Most of this project's proof lives in this tier, and it
-  spent a long time unnamed;
+  stubbed (Pillar B). Most of this project's proof lives in this tier;
 - **the artifact** — a real uvicorn engine on an ephemeral port, throwaway DB,
   deterministic stubs behind real HTTP boundaries, replaying real captured
   production LLM traffic (Pillar C).
@@ -14,6 +13,32 @@ Three things get proven here, and they are not substitutes for one another:
 running (units + in-process replay slices, seconds). Everything needing infra
 gates on env vars or docker presence and skips with a visible reason. E2e is
 the per-change gate (minutes), opt-in via `-m e2e`.
+
+## What is NOT a test here
+
+Four shapes were deleted from this suite rather than maintained, and the reasons
+are the standing rule — a new test matching one of them is bloat, not coverage:
+
+- **A restatement of the code.** A test asserting that a generated file contains
+  the classes its generator generates, that a URL builder builds the URL its
+  source builds, or that `upsert`-then-`get` returns what was upserted, cannot
+  fail for a reason a reader would care about. It fails when the code is edited,
+  which is not the same thing.
+- **A test of the library.** Radix's keyboard model, tailwind-merge's conflict
+  groups, react-query's dedupe, pydantic's rejection of a bad type. Test the
+  decision *we* made on top of it: the role a menu item carries, the token
+  namespace we extended, the retry policy we wrote.
+- **An assertion that a past change happened.** "The retired code is gone", "the
+  deleted module is deleted", "the migration carried its rows", "these components
+  no longer wear the legacy class". True once, then permanent, then noise. The
+  *live* invariant underneath usually survives: the schema still matches the
+  migration chain, and the DB still refuses the retired verdict.
+- **A pin on an unreachable state.** The assertion fires on input the production
+  path cannot produce, so the test proves the duct-tape rather than the
+  invariant. Enforce it at the boundary that admits the value, and delete the pin.
+
+Test count is not a coverage measure, and a large one is usually a smell. What
+counts is whether each test can fail for a reason a user would feel.
 
 ## Tiers
 
@@ -91,23 +116,34 @@ The unit is every exported function/class; private helpers are covered through
 the public I/O that uses them. Blackbox: assert only inputs, outputs, and
 observable effects (DB rows, files, HTTP, events). No `provider._calls`, no
 private imports — where a boundary constant isn't injectable, tests move it
-observably through the module seam and say so.
+observably through the module seam and say so. **A test that breaks under a
+behavior-preserving refactor is a wrong test**, and that is the line between this
+tier and a restatement.
 
-**Class map:** every test file opens with the enumeration of its unit's input
-classes; every test names its class in the docstring's first line (`C3: ...`).
-Review checks the map, not the test count — a missing class is visible, a
-missing assertion is not.
+Coverage is measured in equivalence classes, not test count: partition the input
+space into regions where the unit must behave the same, then test one
+representative per class plus the boundaries. Every test names its class in the
+docstring's first line (`C3: …`), so **the test list IS the class map** — one
+test per class, enumerated where you can actually run it.
 
-**Adversarial pass:** a map is not trusted until a different session/model asks
-one question — *which dimension is missing?* — and the header records the
-answer. The pass that produced the current maps added the DB-engine axis,
-bounds that never fire (queue/session caps), launch-path parity, and the
-shutdown lifecycle; those are now scenarios S24–S37 (S36 is the DB-engine
-matrix *rule*, realized as the sqlite/postgres parametrizations and DSN-gated
-classes rather than a single test id).
+**A file header carries what the tests cannot**, and nothing they already say:
 
-E2e scenario files use the same convention with scenarios as classes; every e2e
-test docstring carries `S<id> [C<claims>]`.
+- the unit, and the **seam** — what is real, what is stubbed, and why that stub is
+  the honest one (`test_demo.py` reloads the module, because `DEMO_SPEED` is read
+  at import and moving a module attribute would prove the attribute is honoured
+  while saying nothing about the knob);
+- **input provenance** — where captured input came from, and which literals are
+  hand-authored, with the reason no capture exists;
+- the **axes** the classes are a product of;
+- **measurements**, which are the most valuable lines in this suite because
+  nothing else records them: strace 6.1 and 7.0 emit no bare `sin_addr="…"` under
+  any flag combination; 11 of the 14 published packages the old dealbreaker called
+  DANGEROUS were a `prepare` hook; frozenset iteration order varied across five
+  seeds; a p99 package is 647 files and the largest measured is 3953.
+
+A header that re-lists every class its tests already name is a **second source of
+truth**, and it rots: a check across this suite found 35 files whose header named
+classes no test carried. Those enumerations were dropped from the largest files.
 
 ## Pillar B — the wiring: route ⇄ real DB ⇄ stubbed external
 
@@ -140,9 +176,9 @@ Some files have the tier's shape without a route — a real component driving re
 SQL, with a stub (or nothing at all) where an external would be:
 `test_service_queue.py`, `test_persistence.py`, `test_payments.py`. **The real
 database is what defines the tier**, not whether HTTP is involved; a test that
-mocks the store away is a Pillar A unit no matter how many layers it calls. Every test file's class-map
-header opens by naming its seam, so `grep -n "seam" tests/*.py` is how you find
-which tier a file is in.
+mocks the store away is a Pillar A unit no matter how many layers it calls. Every
+test file's header names its seam, so `grep -n "[Ss]eam" tests/*.py` is how you
+find which tier a file is in.
 
 **What belongs here:** anything whose defect lives in the *join* rather than in a
 function — a route's auth and scoping, a wire projection, a cookie/redirect flow,
@@ -155,6 +191,15 @@ rollup computed in SQL, a constraint that only exists once `create_all` has run.
 `audit_sessions` rows after each 402) and `test_panel_alerts_routes.py` C2/C11
 (another org's unseen alert is untouched *in the DB* after an ack) are the
 pattern.
+
+**This tier is also why a unit can be deleted.** The GitHub OAuth URL builders,
+token-expiry arithmetic and base-URL resolution had fourteen unit tests;
+`tests/e2e/test_panel_auth.py` drives login → authorize → callback through the
+real routes against `GitHubStub`, so all of them fail there instead, on the path
+a user takes. What stayed a unit is the pair whose failure is SILENT: the
+inline-vs-blob size branch (a >1 MB lockfile read as empty stops dependency
+alerts with no error anywhere) and `validate_raw_url` (nothing at any other tier
+tries to make the engine fetch an attacker's host).
 
 ### What this tier cannot prove
 
@@ -191,11 +236,8 @@ tarballs, rewrites `dist.tarball` to itself), fake chain JSON-RPC (real
 ABI-encoded `AuditRequested` logs; delayed/reverted/wrong-event modes), stripe
 (via the `stripe_api_base` seam), and `GitHubStub` — a deterministic GitHub REST
 + OAuth subset that githubkit reaches through `NPMGUARD_GITHUB_API_BASE`, so no
-test can touch api.github.com. (The module's own docstring still lists only the
-first three; the class is there.) SSE assertions go through the bounded frame
-parser in `tests/support/sse.py`. httpx `ASGITransport` buffers whole bodies —
-live SSE follow needs the real uvicorn; in-process tests consume the
-`sse_events` generator directly.
+test can touch api.github.com. SSE assertions go through the bounded frame
+parser in `tests/support/sse.py`.
 
 The mock LLM (`tests/e2e/llm_mock.py`) serves `POST /v1/chat/completions` from
 committed bundles plus scripted role fallbacks, controlled over
@@ -294,8 +336,8 @@ and real npm tarballs are already committed under `tests/fixtures/registry/`.
 literal in `tests/` with `ast`, flags any containing a marker token that occurs
 only inside an external format (`sa_family=`, `<unfinished ...>`,
 `"dns.qry.name"`, …), and requires each of its lines to appear in a committed
-fixture. Docstrings and comments are prose and are not scanned — otherwise the
-class map that *records* a bad shape would fail the rule forbidding it. Marker
+fixture. Docstrings and comments are prose and are not scanned — otherwise a
+comment that *records* a bad shape would fail the rule forbidding it. Marker
 tokens are the JSON-quoted form where a bare one would collide with ordinary code
 (`http.request(` is a Node call, not tshark output). Adding a parser for a new
 external format means adding its markers (`MARKERS` in that module); a format
@@ -312,10 +354,7 @@ and asserts **both** directions: an offender outside the set fails, *and* a name
 in the set that no longer offends fails too — "delete it from `PINNED_UNFIXED`
 so the exemption cannot rot". Adding a name is how you deliberately leave a
 known offender in the tree; the second assertion takes it back out, loudly, the
-moment it stops offending. The set is empty, and its one historical entry
-(`test_evidence.py`, four hand-written strace `raw` values) was cleared by
-driving those classes through the real `parse_strace_log` over committed
-captures — not by widening anything.
+moment it stops offending. The set is empty.
 
 **The escape hatch, and its price.** A function may opt out by putting
 `NOT-A-CAPTURED-SHAPE` in its docstring. The hatch is **per-function**, not
@@ -339,8 +378,8 @@ first and work out what the correct parse *is* before looking at what the parser
 does — the other order is how the original defect got its test. And replay the
 whole committed corpus through the parser as a falsification pass: every L1 `raw`
 in the 31 runartifacts is 3900+ real syscall lines, and running them through the
-new asserts is what turned "these invariants look right" into "nothing in three
-years of captured production evidence trips them".
+new asserts is what turned "these invariants look right" into "nothing in the
+captured production evidence trips them".
 
 **A parse that silently yields nothing is the failure mode to hunt.** `addr: null`
 read as "no address available" and meant "the regex is wrong". Wherever a parser
@@ -400,24 +439,22 @@ are named constants, generous for CI, never load-bearing. Negative assertions
 are bounded and paired with a positive probe. Tests share no mutable state.
 Wall-clock waits the engine hardcodes (30s receipt wait, 15s heartbeat) are
 never burned: timing is proven at stub/seam level (delayed receipt + poll
-count; injected 0.2s heartbeat). PIN tests document current divergent behavior
-with an `UNENFORCED`/finding comment instead of silently blessing it; xfail
-pins assert the *correct* contract so they flip green when the bug is fixed —
-see the `xfail(strict=True)` section below for why strict is the load-bearing
-part.
+count; injected 0.2s heartbeat). xfail pins assert the *correct* contract so
+they flip green when the bug is fixed — see below for why strict is the
+load-bearing part.
 
 ## Failure protocol
 
 | failure | meaning | the move |
 |---|---|---|
-| unit | bug — or the class map missed a class | fix the code; if the map was wrong, add the class **first** |
+| unit | a bug — or a missing equivalence class | fix the code; if a class was missing, add its test **first** |
 | wiring | the *join* is wrong: a route, its SQL, a projection, or a stub's contract | fix the join. If the response was right and the DB was wrong, the missing assertion is the DB probe — add it |
 | slice | replay drift (prompt/contract/fixture) | `FixturePromptDrift` → re-record; contract change → re-export + lint |
-| e2e | boundary bug | fix the seam; never mock it away |
+| e2e | a boundary bug | fix the seam; never mock it away |
 
-Every bug that escapes names its missing equivalence class; the fix adds that
-class to the map before touching the code. Never weaken a test to pass — if a
-test encodes the wrong convention, change the convention's document first.
+Every bug that escapes names its missing equivalence class, and the fix adds that
+test **first**. Never weaken a test to pass — if a test encodes the wrong
+convention, change the convention's document first.
 
 ## A correct fix blocked on a cost — `xfail(strict=True)`
 
@@ -444,7 +481,7 @@ approves clearing them:**
 | blocker | cost | who decides |
 |---|---|---|
 | **fixture re-seal** — the change alters a committed fixture's canonical form (re-seal each `fixtures/llm/*/sandbox/*.runartifact.json`, update its `sha256` in the bundle manifest) | zero money, mechanical, and verifiable by replaying the bundle afterwards | still the owner's, because it edits recorded evidence — but it is a decision, not a purchase |
-| **re-record** — the change alters a prompt or the transcript shape, so bundles must be regenerated against a LIVE provider (plus docker for DANGEROUS runs) | real money on real model calls | the owner's, explicitly. Never re-record to make a test green — see the re-record runbook, step 3 |
+| **re-record** — the change alters a prompt or the transcript shape, so bundles must be regenerated against a LIVE provider (plus docker for DANGEROUS runs) | real money on real model calls | the owner's, explicitly. Never re-record to make a test green — see the runbook, step 3 |
 
 The live example is `test_evidence.py` C18: *a sealed artifact carries no field
 asserting a bound or a hash the run did not produce.* The fix is deleting
@@ -452,15 +489,14 @@ asserting a bound or a hash the run did not produce.* The fix is deleting
 a sealed field changes the canonical form and hence the `contentHash` of every
 artifact ever sealed, which the orchestrator cross-checks against an independent
 recomputation — so 31 runartifacts and three slice replays go red until they are
-re-sealed. Re-seal, not re-record: free and mechanical, owner's call anyway. The
-finding is tracked in FINDINGS and the assertion states the correct contract.
+re-sealed. Re-seal, not re-record: free and mechanical, owner's call anyway.
 
-Guessing the blocker's cost is itself a trap in both directions. The C14b
-recycled-fd / unix-peer fix was carried as blocked on a *re-record* and turned
-out to cost nothing once measured over the 31 committed artifacts — rendering a
-syscall's result splits more timeline rows than it merges, so no id set shrank
-and it landed for free. **Measure the fixture cost before pricing a pin**, and
-say in the `reason` that you did.
+Guessing the blocker's cost is a trap in both directions. The C14b recycled-fd /
+unix-peer fix was carried as blocked on a *re-record* and turned out to cost
+nothing once measured over the 31 committed artifacts — rendering a syscall's
+result splits more timeline rows than it merges, so no id set shrank and it landed
+for free. **Measure the fixture cost before pricing a pin**, and say in the
+`reason` that you did.
 
 ## Exclusions (deliberate, with reasons)
 
@@ -475,6 +511,11 @@ say in the `reason` that you did.
 - nginx SSE buffering: deploy config (no-ephemeral-facts rule).
 - Real-scale load: bounds tested shrunken via `NPMGUARD_QUEUE_SIZE`/`…_MAX_RUNNING_SESSIONS`.
 - sqlite corruption / disk-full: tests the OS, not the engine.
+- **Alembic data migrations.** The *schema*'s parity with `metadata.create_all` is
+  asserted (`test_hypothesis_agent.py` C10) and the verdict-domain CHECK is
+  asserted against the live database (`test_panel_verdict_index.py`). Whether a
+  past migration carried its rows correctly is a one-time fact about data that has
+  already moved — see "an assertion that a past change happened", above.
 
 ## FINDINGS
 
@@ -486,18 +527,12 @@ Open (report-only; tracked here, not silently fixed):
   already covers), and `Budget.maxSyscalls`/`maxBytesCapture` are read by nothing
   while the caps that exist are unrelated (`docker_exec` 10 MiB, `deps._stream_tar`
   256 MiB). Deleting them is written up at `shared/src/evidence.ts` and pinned by
-  `test_evidence.py` C18 (`xfail(strict=True)`). The blocker is not the code:
-  removing a sealed field changes the canonical form, hence the `contentHash`, of
-  every artifact ever sealed, and the orchestrator cross-checks that hash against an
-  independent recomputation — so all 31 committed runartifacts fail it and three
-  slice replays go red. The migration is free and mechanical rather than a paid
-  re-record (re-seal each `fixtures/llm/*/sandbox/*.runartifact.json`, update its
-  `sha256` in the bundle manifest), but editing recorded fixtures is an owner call.
+  `test_evidence.py` C18 (`xfail(strict=True)`); the blocker is the re-seal cost
+  described above.
 - **Committed `.timeline.txt` files are stale** relative to the current renderer:
-  all 31 differed by the `[no requiring module …]` annotation before the syscall
-  result was rendered, and now also by the result clauses. Confirmed pre-existing
-  at HEAD. `RecordedSandbox` feeds the judge the committed TEXT and takes only the
-  id SET from a live render, and `fixture_lint` checks judge citations against the
+  all 31 differ by the `[no requiring module …]` annotation and the result clauses.
+  `RecordedSandbox` feeds the judge the committed TEXT and takes only the id SET
+  from a live render, and `fixture_lint` checks judge citations against the
   *rendered* timeline, so nothing gates on their bytes — but they are no longer a
   faithful picture of what a judge would see today.
 - **`_deep_field` collapses a repeated dissected field to its first value**, so if
@@ -516,30 +551,33 @@ Open (report-only; tracked here, not silently fixed):
   one; changing the error type touches the e2e S18 contract.
 - **The pcap transfer's base64 hop is still in `sensors.stop_pcap`** — the one
   transfer that can still reach the cap, because `base64 -w0` inflates 4/3 while
-  every sensor file is bounded by the sandbox's 64 MiB `/tmp` tmpfs. It now fails
-  loud instead of prefixing (see the fixed entry below), so this is an
-  unreachable-state opportunity rather than a defect: `read_bytes_from_container`
-  (`docker.py`) is the byte-exact replacement, proven against real docker in
-  `tests/e2e/test_docker_transfer.py` S45, and switching that one call makes a
-  whole-file capture transfer incapable of hitting the cap at all.
-- **The panel's lockfile parsers are correct but untested against real input.**
-  `test_panel_lockfile.py` has a thorough C1-C20 map and an adversarial pass, and
-  every one of its inputs is hand-written — the exact provenance gap that hid the
-  sensor defect, in a parser covering eight format variants that feeds dependency
-  alerts. Falsified rather than assumed: real lockfiles generated with npm 10
-  (`package-lock.json` v3), pnpm 9.15 and yarn 1 all parse, with identical and
-  correct direct/transitive classification and ranges. So no live bug — but pnpm
-  v5/v6 and yarn berry remain unverified, and nothing stops the next regex from
-  being written against an imagined shape. Committing those three captures under
-  `tests/fixtures/lockfiles/` would close it cheaply.
+  every sensor file is bounded by the sandbox's 64 MiB `/tmp` tmpfs. It fails loud
+  instead of prefixing, so this is an unreachable-state opportunity rather than a
+  defect: `read_bytes_from_container` (`docker.py`) is the byte-exact replacement,
+  proven against real docker in `tests/e2e/test_docker_transfer.py` S45, and
+  switching that one call makes a whole-file capture transfer incapable of hitting
+  the cap at all.
+- **The panel's lockfile parsers are correct but untested against real input** —
+  every input in `test_panel_lockfile.py` is hand-written, which is the exact
+  provenance gap that hid the sensor defect, in a parser covering eight format
+  variants that feeds dependency alerts. Falsified rather than assumed: real
+  lockfiles generated with npm 10 (`package-lock.json` v3), pnpm 9.15 and yarn 1
+  all parse, with identical and correct direct/transitive classification and
+  ranges. So no live bug — but pnpm v5/v6 and yarn berry are unverified, and
+  nothing stops the next regex from being written against an imagined shape.
+  Committing those three captures under `tests/fixtures/lockfiles/` would close it
+  cheaply, and is the highest-value test *addition* outstanding.
 - **strace escapes are not unescaped.** `_quoted` returns strace's own C escaping,
   so a committed artifact renders `require(\"/pkg/…\")` and a non-ASCII path would
   reach the judge as `\303\251`. Faithful but noisy. Not fixed here because execve
   `argv` IS rendered, so unescaping shifts timeline text. Its fixture cost has
   **not been measured** — the C14b unix-socket fix was expected to need a
-  re-record and turned out to cost nothing, so assume neither; measure before
-  pricing it (see the `xfail(strict=True)` section).
-
+  re-record and turned out to cost nothing, so assume neither; measure first.
+- **No orchestrator class covers CONFIRMED-with-an-error.** A CONFIRMED judgement
+  is read BEFORE the error kind, so a coverage gap can only remove REFUTED from the
+  table. That routing is `orchestrator.py`'s behaviour over its own dataclass, and
+  pinning it from `test_observation_gaps.py` turned that file into a compatibility
+  shim when `ExperimentResult`'s fields moved. It belongs in an orchestrator test.
 - **CLI exit-0-on-CLOSED hazard** (`cli/` scope, out of engine): `es.onerror`
   resolves verdict UNKNOWN / exit 0 when EventSource reaches readyState CLOSED
   (e.g. a 404 events URL) — a missing audit session exits 0. Untested: no
@@ -554,148 +592,10 @@ Open (report-only; tracked here, not silently fixed):
   unreachable — the slice pins this as a finding
   (`test_replay_slices.py::test_is_number_stale_artifacts_defer_under_current_rule`).
 
-Config note — **`NPMGUARD_MAX_RUNNING_SESSIONS` is now a hard concurrency cap.**
-Since the single-owner rework it sizes the worker pool: the maximum number of
-audits (hence Docker sandboxes) executing at once, not a soft session-row cap.
-The default is **4** (`config.py:47`) — set it to the number of concurrent
-full-oracle sandboxes the deployment's RAM allows.
-
-Fixed since first tracked (regression-enforced, no longer open):
-
-- **`docker_exec` truncated a stream at 10 MiB and callers hashed the prefix as the
-  whole capture.** Measured on a real run before the fix: the container held
-  13,002,771 pcap bytes, `base64 -w0` inflated them past the slice, `b64decode`
-  accepted the 10 MiB prefix without complaint (10 MiB is a multiple of 4), and the
-  sha256 of the resulting 7,864,320 bytes was sealed as `pcapHash` with
-  `error: null` — an artifact eligible to REFUTE, attesting a packet capture that
-  was 60% of one, with zero signal anywhere. The slice also protected nothing:
-  `communicate()` had already buffered the entire stream, so the "cap" only
-  shortened the copy. The seam now bounds the read as it happens, kills the
-  producer past the cap and RAISES (`DockerOutputTooLargeError`) — so
-  `ExecResult.stdout` is the process's complete output, or `timed_out` marks it —
-  and every retrieval gap becomes `RunError(kind="SensorError")` plus a
-  `truncated` timeline row, which bars REFUTED without barring CONFIRMED.
-  Enforced: `test_docker_exec.py` C1-C11, `test_observation_gaps.py` C1-C8,
-  `tests/e2e/test_docker_transfer.py` S45-S47 (a real container, a real >3 MiB
-  capture). Fixture cost zero, proven: the 31 committed runartifacts are replayed,
-  not re-transferred, and `tools.fixture_lint` plus `tests/slice` are green.
-
-- **The timeline manufactured canary citations, and hid the one that mattered.** Two
-  defects of opposite sign in the same renderer. (1) Bait was every planted env value
-  of 8+ characters, matched as a plaintext substring of `url + body` — so the recorded
-  corpus's own `HOME=/home/node` and `MYAPP_DB_HOST=localhost` made a benign crash
-  reporter "carry planted env HOME" and a **bodyless GET** "carry planted env
-  MYAPP_DB_HOST" (`localhost` occurs in its own URL). One CONFIRM is DANGEROUS and
-  DANGEROUS blocks an install, so that is the most expensive error the renderer can
-  make. Bait is now a token the engine MINTS (`evidence.mint_canary`, 128 bits behind
-  a recognisable prefix) and only that token is matched, so a coincidental citation is
-  structurally impossible rather than merely unlikely — the discriminator is
-  provenance, not length. (2) `_describe` rendered no syscall RESULT, so
-  `connect … = 0` and `connect … = -1 ECONNREFUSED` were the same row and `_collapse`
-  merged them, while `-1 EINPROGRESS` — a non-blocking connect that **succeeded** —
-  was indistinguishable from a refusal. The result now renders into the collapse key,
-  `recvfrom`'s peer and a named AF_UNIX peer render at all, and a connect no longer
-  inherits a FILE from a recycled fd (that fix was pinned as blocked on a re-record;
-  rendering the result splits more rows than it merges, so measured over all 31
-  committed artifacts no id set shrinks and it landed for free). Enforced:
-  `test_evidence.py` C13/C13b (both directions of the canary clause),
-  C14-C14e (peer, recycled fd, the three connect outcomes, recvfrom, the legacy
-  errno-less `-1`), `test_instrumentation_l4.py` C6 (real node + real instrument,
-  with a planted-but-unminted `CI` as the control). Fixture cost proven zero: the
-  31 artifacts re-render with a strictly larger id set (+11 minimum, 4140→4606
-  total), `tools.fixture_lint` green, `tests/slice` green.
-- **`test_evidence.py` hand-built four strace `raw` values** (two real forms with the
-  errno stripped, one with no `sa_family=` at all, one plausible and unverified).
-  They now come from committed captures — the new
-  `tests/fixtures/sensors/strace-connect-results.log` plus lines already in
-  `strace-node.log` — through the real `parse_strace_log`, so the sensor→renderer
-  seam is closed end to end and `PINNED_UNFIXED` is empty.
-- **Parsers tested against imagined formats.** One root cause, five silent evidence
-  losses, none of which a green suite could see, all found by capturing the real
-  producer first: strace `<unfinished ...>`/`<... resumed>` halves were both
-  dropped, so a syscall split by a thread interleave vanished entirely (a real
-  `execve("/bin/echo", …)` process spawn disappeared from a 165-line capture); the
-  errno beside a `-1` was discarded, making a connect that succeeds asynchronously
-  (`-1 EINPROGRESS`) identical to a refusal; `recvfrom`'s peer sockaddr was never
-  read, discarding 221 real peers in the committed corpus; `parse_tshark_json`
-  looked its fields up under hardcoded layer names, so 6 of 13 packets tshark's own
-  filter selected produced zero events (`mdns`, `llmnr`, and `ssdp` all carry
-  `dns.qry.name`/`http.request`); and the fs snapshot's `path\tsize\tmtime`
-  newline-delimited format silently skipped any filename containing a tab or a
-  newline, which is a free evasion. Also: `tar c` of a missing directory exits 2
-  while writing a valid EMPTY archive, and the unchecked exit code turned that into
-  `installed=True, package_count=0`; a UTF-8 BOM in `package.json` (which npm
-  strips) made a package's dependencies read as absent; and `resolve_package`'s
-  `except Exception` missed `CancelledError`, leaking the whole extracted tree on
-  the phase timeout or shutdown. Enforced: `test_sensors.py` (C1-C10, driven by
-  committed captures), `test_deps.py`, `test_resolve.py` C9-C11,
-  `test_parser_fixture_lint.py`. Fixture cost zero, proven rather than assumed: the
-  31 committed runartifacts render byte-identically with and without the change,
-  because artifacts store parsed events and are never re-parsed.
-
-- **Launch-lifecycle cluster → single execution owner.** Paid audits bypassing
-  the session cap, `enqueue` check-then-act, `close()` orphaning the queued
-  item, the unbounded shutdown await, and `/audit/stream` bypassing the queue
-  were all instances of one root cause: five session-creation paths with no
-  execution owner, so `status='running'` promised nothing. Fixed by funnelling
-  every path through `AuditService.submit`/`admit`: `status` splits
-  `queued`/`running` (running ⟺ an owned worker will finalize it); a bounded
-  wait queue feeds a fixed `max_concurrent` worker pool; paid audits QUEUE and
-  are refused (503, before the payment is claimed) only when the queue is full;
-  `reserve`-then-create removes the check-then-act; `close(deadline)` resolves
-  every future and leaves no `running` row; restart re-enqueues durable
-  `queued` rows so a claimed paid audit is never dropped. The adversarial pass
-  additionally closed a graceful-shutdown drop (a clean restart used to error
-  queued paid audits while a crash resumed them) and a concurrent-retry
-  spurious 500. Enforced: `test_service_queue.py` (queued / admission /
-  idempotent-submit / recovery / bounded-close classes), `test_persistence.py`,
-  and e2e `test_lifecycle.py` (S31/S32), `test_bounds_inputs.py` (S24/S25),
-  `test_stream.py`, `test_payments_flow.py`.
-- **Terminal event precedes durable persistence** → fixed: `finalize` is a
-  guarded `running→terminal` transition committed in one transaction with the
-  terminal SSE event, after the report is saved — so a terminal frame implies a
-  durable report. Enforced: the `test_persistence.py` / `test_service_queue.py`
-  durability classes; the S29 flake is gone at the source (the `waits.py`
-  helpers are now instant).
-- **`resolve` mutated the committed fixture tree** → fixed: resolve returns a
-  private disposable workdir (fixtures copied into a tmpdir; escaping symlinks
-  rejected as for tarballs, closing a live-malware host-escape). Enforced:
-  `test_resolve.py`.
-- **`extract_intent` fabricated on terminal errors** → fixed: `BudgetExhausted`
-  and bugs propagate (a fallback intent is marked degraded); `run_hypothesize`
-  asserts every flag is armed rather than dropping Nones. Enforced:
-  `test_hypothesis_generation.py`.
-- **Unarmed hypothesis aborted the whole run** → fixed: enforced at graph
-  admission (`build_graph`), not dispatch, so one unarmed hypothesis no longer
-  strands its siblings. Enforced: `test_hypothesis_agent.py` / `test_graph.py`.
-- **pcap start race** → fixed: `start_pcap` waits for tcpdump's capture-ready
-  marker (raises `SensorError` → DEFER on failure, never a silent empty
-  capture), and the traced-syscall map is total (no fabricated `openat`).
-  Enforced: `test_sensors.py` + the dns-exfil live-docker e2e still captures the
-  DNS burst.
-- **Docker container leak on worker-cancel** → investigated + hardened: it does
-  NOT reproduce — `docker run`/`rm` run as CLI subprocesses the daemon completes
-  independent of the coroutine, so the `finally`'s `rm -f` finishes removing the
-  container even when the `await` is cancelled (verified with real docker across
-  single-cancel, double-cancel-during-cleanup, and cancel-during-start: zero
-  leaks). The one structural gap — container start sat outside the try/finally —
-  is closed with an explicit `CancelledError` cleanup in `observation.py`. The
-  docker e2e tier leaves zero `npmguard-run-*` containers.
-- **Stripe 15.x verify crash**: stripe 15.x `StripeObject` is not a dict, so
-  `metadata.get(...)` raised for every metadata-bearing session → all
-  Stripe-success flows 402. Fixed: `payments.py` reads metadata via a
-  dict-or-getattr `_field()` (same pattern as the webhook path). Enforced:
-  `test_payments.py` C18/C19/C23 (paid/unpaid/missing-metadata semantics) +
-  the stripe e2e legs in the C5 row, now plain green.
-- **Alembic drift** (`kit_llm/capture.py` vs shipped migrations): fixed by
-  migration `0004_widen_llm_attempt_columns` (six `llm_attempts` columns →
-  Text/BigInteger, batch-alter so sqlite recreates and postgres ALTERs).
-  Enforced: `test_hypothesis_agent.py` C10 asserts an empty autogenerate diff
-  on BOTH the migrated and created schemas.
-- **Exact-filename load unguarded** (`report_store.py`): a corrupt
-  `<version>.json` no longer raises — the exact hit is a fast path that falls
-  through to the embedded-version scan (also closing the exists→read TOCTOU).
-  Enforced: `test_report_store.py` C12 covers all three load paths.
+Config note — **`NPMGUARD_MAX_RUNNING_SESSIONS` is a hard concurrency cap.** Since
+the single-owner rework it sizes the worker pool: the maximum number of audits
+(hence Docker sandboxes) executing at once, not a soft session-row cap. Set it to
+the number of concurrent full-oracle sandboxes the deployment's RAM allows.
 
 ## The gate
 

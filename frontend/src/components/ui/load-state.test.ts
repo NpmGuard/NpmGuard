@@ -35,13 +35,6 @@ import {
 } from "./load-state.ts";
 
 describe("constructors", () => {
-  it("C1: loaded carries the data and a success token", () => {
-    const state = loaded([1, 2, 3]);
-    expect(state.status).toBe("ok");
-    if (state.status !== "ok") throw new Error("unreachable");
-    expect(state.data).toStrictEqual([1, 2, 3]);
-    expect(state.read).toBeDefined();
-  });
 
   it("C1: failed carries a named failure and nothing that looks like data", () => {
     const state = failed<number[]>({ what: "Alerts feed", detail: "GET /panel/alerts failed (502)" });
@@ -53,9 +46,6 @@ describe("constructors", () => {
     expect("data" in state).toBe(false);
   });
 
-  it("C1: loading is neither", () => {
-    expect(LOADING.status).toBe("loading");
-  });
 });
 
 describe("the success token", () => {
@@ -67,11 +57,6 @@ describe("the success token", () => {
     expect(forged).toBeDefined();
   });
 
-  it("C2: cannot be forged from a truthy value", () => {
-    // @ts-expect-error same, for the "just pass true" workaround.
-    const forged: ReadSucceeded = true;
-    expect(forged).toBeDefined();
-  });
 });
 
 describe("failure and success are not interchangeable", () => {

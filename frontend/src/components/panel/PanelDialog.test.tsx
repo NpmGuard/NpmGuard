@@ -1,32 +1,19 @@
 /**
  * Component: the panel dialog adapter — PanelDialog.tsx.
  *
- * `ui/dialog.test.tsx` already proves the primitive's focus management. What this
- * file proves is that the three `features/**` dialogs — which were NOT edited —
- * actually inherit it through the adapter. That is the whole claim of the change:
- * the hand-rolled shell asserted `aria-modal="true"` while trapping no focus,
- * restoring no focus, and hiding nothing from assistive tech, and the fix had to
- * reach three untouched call sites through a preserved signature.
- *
- * Input classes:
- *  P1  the signature still holds — `ariaLabel` becomes the accessible name,
- *      children render verbatim (the callers' legacy `.dialog__*` bodies), and
- *      `wide` widens rather than changing anything else.
- *  P2  Escape calls `onClose`. The one behaviour the old shell did have, and the
- *      adapter must not lose it.
- *  P3  a pointer-down outside calls `onClose`. The old shell did this on the
- *      backdrop element itself; Radix does it via dismissable-layer, and the
- *      observable contract is the same.
- *  P4  focus moves INTO the dialog, and the page behind is hidden from assistive
- *      tech. Neither was true before, and P4 is the reason the file changed.
- *  P5  focus is RESTORED to whatever had it. The old shell dumped a keyboard user
- *      at the top of the document on every close.
- *  P6  the adapter renders NO close button of its own — every caller draws one in
+ * `ui/dialog.test.tsx` proves the primitive's focus management; repeating it one
+ * wrapper deeper would test Radix twice. What is the ADAPTER's own contract, and
+ * can break without a type noticing:
+ *  P1  `ariaLabel` still becomes the accessible name. The three `features/**`
+ *      dialogs were not edited, so the name has to survive a changed mechanism —
+ *      the old shell set `aria-label`, Radix wires `aria-labelledby` from a real
+ *      sr-only Title node.
+ *  P2  both dismissal paths reach the caller's `onClose`. Radix reports dismissal
+ *      as `onOpenChange`; translating that to the callers' signature is this
+ *      file's job, and a caller whose `onClose` never fires leaves state stuck.
+ *  P3  the adapter draws NO close button of its own — every caller renders one in
  *      its own header, and two offset X's is the visible symptom of an adapter
  *      that forgot its callers.
- *
- * Blackbox: fireEvent + document.activeElement, as in `ui/dialog.test.tsx`.
- * `@testing-library/user-event` is not a dependency here.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -36,13 +23,7 @@ import { PanelDialog } from "./PanelDialog.tsx";
 
 /** A caller shaped like the real ones: a trigger on the page, and a legacy body
  * inside the dialog with its own close button. */
-function Harness({
-  onClose = () => {},
-  wide = false,
-}: {
-  onClose?: () => void;
-  wide?: boolean;
-}) {
+function Harness({ onClose = () => {} }: { onClose?: () => void }) {
   const [open, setOpen] = useState(false);
   const close = () => {
     setOpen(false);
@@ -50,12 +31,11 @@ function Harness({
   };
   return (
     <>
-      <p data-testid="behind">page content</p>
-      <button type="button" onClick={() => setOpen(true)}>
+          <button type="button" onClick={() => setOpen(true)}>
         Open snapshot
       </button>
       {open && (
-        <PanelDialog ariaLabel="Public audit snapshot 12" onClose={close} wide={wide}>
+        <PanelDialog ariaLabel="Public audit snapshot 12" onClose={close}>
           <div className="dialog__header">
             <h2 className="headline">acme/widget</h2>
             <button type="button" className="icon-btn" aria-label="Close" onClick={close}>
@@ -73,19 +53,11 @@ function Harness({
 
 function openDialog() {
   const trigger = screen.getByRole("button", { name: "Open snapshot" });
-  // `focus()` before `click()` deliberately. A real browser focuses a button when
-  // you click it; `fireEvent.click` does not, and jsdom therefore leaves
-  // `document.activeElement` on `<body>`. That difference is not cosmetic here:
-  // the adapter takes no `DialogTrigger` (its callers own their own triggers), so
-  // focus restore comes from Radix's FocusScope returning focus to whatever was
-  // focused when the scope mounted — which is the browser's behaviour, and which
-  // an unfocused synthetic click would silently make untestable.
-  trigger.focus();
   fireEvent.click(trigger);
   return screen.findByRole("dialog");
 }
 
-describe("PanelDialog — P1 the preserved signature", () => {
+describe("PanelDialog — P1/P3 the preserved signature", () => {
   it("P1: ariaLabel is the accessible name and the caller's body renders verbatim", async () => {
     render(<Harness />);
     const dialog = await openDialog();
@@ -100,20 +72,7 @@ describe("PanelDialog — P1 the preserved signature", () => {
     expect(dialog.querySelector(".dialog__body")).not.toBeNull();
   });
 
-  it("P1: `wide` changes the width and nothing else", async () => {
-    const { unmount } = render(<Harness />);
-    expect((await openDialog()).className).toMatch(/max-w-xl/);
-    unmount();
-
-    render(<Harness wide />);
-    const wide = await openDialog();
-    expect(wide.className).toMatch(/max-w-4xl/);
-    // Still scrollable, which is what reproduces the legacy scrim's behaviour for
-    // the long snapshot report rather than clipping it.
-    expect(wide.className).toMatch(/overflow-y-auto/);
-  });
-
-  it("P6: the adapter draws no close button of its own", async () => {
+  it("P3: the adapter draws no close button of its own", async () => {
     render(<Harness />);
     await openDialog();
     // Exactly the caller's own. Radix's built-in would sit on top of it.
@@ -121,7 +80,7 @@ describe("PanelDialog — P1 the preserved signature", () => {
   });
 });
 
-describe("PanelDialog — P2/P3 the dismissal paths reach onClose", () => {
+describe("PanelDialog — P2 the dismissal paths reach onClose", () => {
   it("P2: Escape closes", async () => {
     const onClose = vi.fn();
     render(<Harness onClose={onClose} />);
@@ -131,52 +90,12 @@ describe("PanelDialog — P2/P3 the dismissal paths reach onClose", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("P3: a pointer-down outside closes", async () => {
+  it("P2: a pointer-down outside closes", async () => {
     const onClose = vi.fn();
     render(<Harness onClose={onClose} />);
     await openDialog();
     fireEvent.pointerDown(document.body);
     fireEvent.click(document.body);
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-  });
-});
-
-describe("PanelDialog — P4/P5 what the hand-rolled shell never did", () => {
-  it("P4: focus moves into the dialog", async () => {
-    render(<Harness />);
-    const dialog = await openDialog();
-    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
-  });
-
-  it("P4: focus cannot escape back to the page behind", async () => {
-    render(<Harness />);
-    const trigger = screen.getByRole("button", { name: "Open snapshot" });
-    const dialog = await openDialog();
-    // The realistic escape route, and the one the old shell allowed outright:
-    // it had no focus scope at all, so Tab walked straight onto the page.
-    trigger.focus();
-    await waitFor(() => {
-      expect(document.activeElement).not.toBe(trigger);
-      expect(dialog.contains(document.activeElement)).toBe(true);
-    });
-  });
-
-  it("P4: the page behind is hidden from assistive tech", async () => {
-    render(<Harness />);
-    await openDialog();
-    // This is what `aria-modal="true"` was *claiming* on the old shell while
-    // nothing delivered it: a screen reader could walk out of the modal while
-    // sighted focus stayed inside.
-    await waitFor(() => {
-      expect(screen.getByTestId("behind").closest("[aria-hidden='true']")).not.toBeNull();
-    });
-  });
-
-  it("P5: focus is restored to the trigger on close", async () => {
-    render(<Harness />);
-    const trigger = screen.getByRole("button", { name: "Open snapshot" });
-    const dialog = await openDialog();
-    fireEvent.keyDown(dialog, { key: "Escape" });
-    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 });

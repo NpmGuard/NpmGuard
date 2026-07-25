@@ -19,9 +19,8 @@
 #       aes-256-gcm, [iv,tag,ct] base64-joined) decrypts to the exact plaintext,
 #       proving the byte-for-byte format match across implementations
 #   C11 no plaintext leak: TokenCryptoError messages never contain the plaintext
-# Adversarial pass — "which dimension is missing?": the key axis was split into
-#   correct / wrong / MISSING (C9) and confidentiality (C3) was added so a broken
-#   no-op "encrypt" that returned base64(plaintext) with a valid shape can't pass.
+# C3 is what stops a no-op "encrypt" that returns base64(plaintext) with a valid
+#   shape from passing the whole file.
 import base64
 import types
 

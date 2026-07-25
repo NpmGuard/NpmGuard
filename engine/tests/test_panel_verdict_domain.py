@@ -35,11 +35,9 @@
 # N-7: C1-C5 were each checked against their reverted production hunk in an isolated
 # worktree and all five go red. C6 does not, by construction, and says so.
 #
-# Adversarial pass: the question that changed this file was "which reader is not
-# covered?" — the audit named `/packages` only, and enumerating callers of
-# `report_store` found `/package/{name}/report` leaking the whole report body too.
-# That is why C5 asserts the property of the STORE rather than of two routes: a
-# per-route filter is what left the second one open in the first place.
+# C5 asserts the property of the STORE rather than of its two routes: a per-route
+# filter is what left `/package/{name}/report` leaking a whole out-of-domain report
+# body while `/packages` was filtered.
 import json
 import subprocess
 import sys

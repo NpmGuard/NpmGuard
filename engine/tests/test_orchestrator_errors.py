@@ -11,9 +11,6 @@
 #   C3 per-hypothesis timeout → DEFERRED as incomplete observation
 # Success/judge/budget classes (design map 3.2 C1–C12) are the slice tier's:
 # they replay recorded runartifacts + real judge traffic (tests/slice/).
-# Adversarial pass: 2026-07-23/W6 — Mock() collaborators replaced with real
-# ArtifactStore/AuditLog + a sentinel llm so an error path that unexpectedly
-# touches them fails loud instead of vanishing into a Mock.
 from typing import Any, cast
 
 from npmguard import orchestrator

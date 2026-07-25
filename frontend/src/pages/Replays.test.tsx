@@ -26,7 +26,7 @@ import type { ReplayEntry } from "@npmguard/shared";
 import { configure, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import {
   clearAbsoluteApiBase,
   renderWithClient,
@@ -63,63 +63,51 @@ function replay(over: Partial<ReplayEntry> = {}): ReplayEntry {
 const serve = (replays: ReplayEntry[]) =>
   server.use(http.get("/api/replays", () => HttpResponse.json({ replays })));
 
-describe("Replays — R1 the permalink is the audit id", () => {
-  it("R1: a row links to /audit/{auditId}, never to the package-keyed report", async () => {
-    const entry = replay();
-    serve([entry]);
-    renderWithClient(<Replays />);
+it("R1: a row links to /audit/{auditId}, never to the package-keyed report", async () => {
+  const entry = replay();
+  serve([entry]);
+  renderWithClient(<Replays />);
 
-    const link = await screen.findByRole("link", { name: /replay the audit of chalk/i });
-    expect(link).toHaveAttribute("href", `/audit/${entry.auditId}`);
-    // Stated as a negative too: /package/chalk resolves to whichever audit of
-    // chalk was stored LAST, which is a different run than the one on this row.
-    expect(link.getAttribute("href")).not.toContain("/package/");
-  });
+  const link = await screen.findByRole("link", { name: /replay the audit of chalk/i });
+  expect(link).toHaveAttribute("href", `/audit/${entry.auditId}`);
+  expect(link.getAttribute("href")).not.toContain("/package/");
 });
 
-describe("Replays — R2 a failed read is not an empty gallery", () => {
-  it("R2: the failure is named, and 'no audits have finished' is never rendered", async () => {
-    server.use(http.get("/api/replays", () => HttpResponse.json({ error: "upstream" }, { status: 502 })));
-    renderWithClient(<Replays />);
+it("R2: the failure is named, and 'no audits have finished' is never rendered", async () => {
+  server.use(http.get("/api/replays", () => HttpResponse.json({ error: "upstream" }, { status: 502 })));
+  renderWithClient(<Replays />);
 
-    const degraded = await screen.findByText(/Replays/i, {
-      selector: '[data-state="degraded"] *',
-    });
-    expect(degraded).toBeInTheDocument();
-    expect(screen.queryByText(/No audits have finished/i)).toBeNull();
-    expect(document.querySelector('[data-state="empty"]')).toBeNull();
+  const degraded = await screen.findByText(/Replays/i, {
+    selector: '[data-state="degraded"] *',
   });
+  expect(degraded).toBeInTheDocument();
+  expect(screen.queryByText(/No audits have finished/i)).toBeNull();
+  expect(document.querySelector('[data-state="empty"]')).toBeNull();
 });
 
-describe("Replays — R3 an empty gallery offers a way out", () => {
-  it("R3: zero audits renders the empty state with an audit launcher", async () => {
-    serve([]);
-    renderWithClient(<Replays />);
+it("R3: zero audits renders the empty state with an audit launcher", async () => {
+  serve([]);
+  renderWithClient(<Replays />);
 
-    const message = await screen.findByText(/No audits have finished on this engine yet/i);
-    expect(message.closest('[data-state="empty"]')).not.toBeNull();
-    expect(screen.getByRole("link", { name: /audit a package/i })).toHaveAttribute(
-      "href",
-      "/packages",
-    );
-  });
+  const message = await screen.findByText(/No audits have finished on this engine yet/i);
+  expect(message.closest('[data-state="empty"]')).not.toBeNull();
+  expect(screen.getByRole("link", { name: /audit a package/i })).toHaveAttribute(
+    "href",
+    "/packages",
+  );
 });
 
-describe("Replays — R4 an unresolved version says so", () => {
-  it("R4: a null version renders as 'unversioned', not as a blank cell", async () => {
-    serve([replay({ version: null })]);
-    renderWithClient(<Replays />);
+it("R4: a null version renders as 'unversioned', not as a blank cell", async () => {
+  serve([replay({ version: null })]);
+  renderWithClient(<Replays />);
 
-    expect(await screen.findByText("unversioned")).toBeInTheDocument();
-  });
+  expect(await screen.findByText("unversioned")).toBeInTheDocument();
 });
 
-describe("Replays — R5 the verdict survives without colour", () => {
-  it("R5: the verdict is a word in the tree, not only a hue", async () => {
-    serve([replay({ auditId: "safe-one" }), replay({ auditId: "bad-one", verdict: "DANGEROUS" })]);
-    renderWithClient(<Replays />);
+it("R5: the verdict is a word in the tree, not only a hue", async () => {
+  serve([replay({ auditId: "safe-one" }), replay({ auditId: "bad-one", verdict: "DANGEROUS" })]);
+  renderWithClient(<Replays />);
 
-    expect(await screen.findByText("DANGEROUS")).toBeInTheDocument();
-    expect(screen.getByText("SAFE")).toBeInTheDocument();
-  });
+  expect(await screen.findByText("DANGEROUS")).toBeInTheDocument();
+  expect(screen.getByText("SAFE")).toBeInTheDocument();
 });
