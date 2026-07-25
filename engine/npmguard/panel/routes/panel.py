@@ -2,8 +2,11 @@
 
 A port of the TS engine's ``routes/panel.ts`` orgs/repos handlers. Both are
 session-gated and scoped to the GitHub App installations the user can access
-(the org-shared view). The ``user_installations`` cache is (re)built on
-``/panel/orgs`` and read by ``/panel/repos``.
+(the org-shared view). BOTH routes (re)build the ``user_installations`` cache
+from GitHub via ``_sync_user_installations`` — neither reads what the other
+wrote, because the dashboard calls them concurrently and a read that depends on
+another route's side effect answers with a fabricated empty when it wins the
+race.
 
 Two load-bearing error behaviours (the frontend branches on the *field*, never
 the message):
@@ -128,6 +131,32 @@ def _auditability_is_fresh(checked_at: str | None, now: datetime) -> bool:
     return (now - parsed).total_seconds() < AUDITABILITY_CACHE_SECONDS
 
 
+async def _sync_user_installations(
+    runtime: Any, octo: Any, user_id: int
+) -> list[dict[str, Any]]:
+    """Read the user's installations from GitHub and mirror them; returns the
+    wire summaries.
+
+    Shared by ``/panel/orgs`` and ``/panel/repos`` because a route's answer must
+    not depend on another route having been called first. It did: ``/panel/repos``
+    used to read the ``user_installations`` mirror, which only ``/panel/orgs``
+    ever wrote. The dashboard fires both queries CONCURRENTLY, so on a first sign-
+    in ``/panel/repos`` raced ahead of the mirror, found no installations, and
+    answered ``{"repos": []}`` — indistinguishable on the wire from "you have no
+    auditable repositories", which is exactly the confident-empty lie N-3 forbids,
+    and it healed on reload so it read as a UI glitch. Found by the browser tier;
+    the Python tier could not see it because an HTTP client calls the two routes
+    in sequence.
+    """
+    data = (
+        await octo.arequest("GET", "/user/installations", params={"per_page": 100})
+    ).json()
+    raw = data.get("installations", []) if isinstance(data, dict) else []
+    summaries = [_installation_summary(inst) for inst in raw]
+    await runtime.panel_installations.replace_user_installations(user_id, summaries)
+    return summaries
+
+
 @router.get("/panel/orgs")
 async def panel_orgs(request: Request) -> Response:
     runtime = runtime_of(request)
@@ -145,16 +174,7 @@ async def panel_orgs(request: Request) -> Response:
 
     try:
         octo = runtime.gh_client.user_octokit(token)
-        data = (
-            await octo.arequest(
-                "GET", "/user/installations", params={"per_page": 100}
-            )
-        ).json()
-        raw = data.get("installations", []) if isinstance(data, dict) else []
-        summaries = [_installation_summary(inst) for inst in raw]
-        await runtime.panel_installations.replace_user_installations(
-            user["id"], summaries
-        )
+        summaries = await _sync_user_installations(runtime, octo, user["id"])
         install_url = await runtime.gh_client.install_url()
     except Exception:
         log.exception("panel orgs fetch failed")
@@ -223,9 +243,20 @@ async def panel_repos(request: Request) -> Response:
 
     octo = runtime.gh_client.user_octokit(token)
     now = datetime.now(UTC)
-    installation_ids = await runtime.panel_installations.list_installation_ids(
-        user["id"]
-    )
+    # From GitHub, not from the mirror `/panel/orgs` writes — see
+    # `_sync_user_installations`. A failure here is a 502, never an empty list:
+    # "we could not ask GitHub" and "you have no repositories" are different
+    # facts, and the client renders them differently only if the engine keeps
+    # them apart.
+    try:
+        installation_ids = [
+            summary["id"] for summary in await _sync_user_installations(runtime, octo, user["id"])
+        ]
+    except Exception:
+        log.exception("panel repos installation sync failed")
+        return JSONResponse(
+            {"error": "Failed to list GitHub installations"}, status_code=502
+        )
 
     repos: list[dict[str, Any]] = []
     for installation_id in installation_ids:
