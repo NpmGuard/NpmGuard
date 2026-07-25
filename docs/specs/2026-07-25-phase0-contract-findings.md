@@ -325,6 +325,104 @@ a tidiness exercise.
 
 ---
 
+## C2. The target shape — `AuditSet` (authored now, per D-5)
+
+The generalized entity R-1 migrates the tables to. Authored in the contract
+first so Phase 1 and R-1 have a fixed target.
+
+### The key move: the set is uniformly *progress*; its subject lives outside it
+
+The obvious generalization is a discriminated union on `origin`, so a
+`repo_scan` set carries a repo and a `bench_run` set carries a corpus. That's
+worse: it makes every consumer of progress destructure a union to read a counter.
+
+Instead — **an `AuditSet` is only ever "a set of `(name, version)` being audited,
+and how far along it is". What the set is *about* belongs to the enclosing
+response.** Repo detail returns `{repo, set, deps, alerts}`; a public scan returns
+`{repo, set, deps}`; a bench run returns `{corpus, set, items}`. No union, one
+uniform progress/rollup type, and adding `dep_tree` adds no wire complexity at
+all.
+
+```ts
+AuditSetOrigin  = "repo_scan" | "public_repo_scan" | "dep_tree" | "bench_run" | "watchlist"
+AuditSetTrigger = "manual" | "push" | "reconcile" | "publish"
+AuditSetStatus  = "running" | "done" | "failed"   // `failed` gains a producer (B3)
+Outcome         = "SAFE" | "ERROR" | "DANGEROUS"  // §4.4; null until concluded
+```
+
+### One counters object, with a stated invariant
+
+Today a scan carries `{total, cached, audited, failed}` **and** a separate
+`Rollup` carries `{verdict, dangerous, suspect, unknown, safe}`. Two objects
+counting the same items, and neither sums to anything checkable — which is how
+`unknown` came to mean three different things.
+
+```ts
+AuditSetRollup = {
+  outcome:   Outcome | null,   // max severity over CONCLUDED items; null if none concluded
+  total:     number,
+  safe:      number,
+  dangerous: number,
+  error:     number,           // audits that could not conclude
+  pending:   number,           // not yet concluded (unaudited | queued | running)
+  cached:    number,           // resolved from an existing report (subset of concluded)
+}
+```
+
+**INVARIANT: `safe + dangerous + error + pending == total`.** That is the whole
+point — it is checkable, it is assertable server-side, and it makes the old
+`unknown` bucket impossible to reintroduce because every item is in exactly one
+of four states. `cached` is deliberately orthogonal (a subset of the concluded
+three), so it is excluded from the sum.
+
+Severity for `outcome`: `DANGEROUS > ERROR > SAFE`, computed over concluded items
+only. `pending` never contributes to the outcome — a half-finished set is not
+"unknown", it is "SAFE so far, N pending", and the UI can say exactly that.
+
+### The set itself
+
+```ts
+AuditSet = {
+  id:         number,
+  origin:     AuditSetOrigin,
+  trigger:    AuditSetTrigger,
+  status:     AuditSetStatus,
+  rollup:     AuditSetRollup,
+  commitSha:  string | null,   // populated for repo origins (fixes B2)
+  error:      string | null,   // populated when status === "failed" (B2/B3)
+  startedAt:  string,
+  finishedAt: string | null,   // non-null iff status !== "running"
+}
+```
+
+`status` vs `rollup.outcome` are the §4.4 two axes at set level: `status` is
+progress (did the *set* finish), `outcome` is the verdict over its items.
+
+### One dep shape, the richer of the two
+
+Per B5, unify on the repo-detail names — `verdictReason` and `jobState` — and
+delete the lossy public variant (`reason`, `active`):
+
+```ts
+AuditSetItem = {
+  name: string, version: string,
+  direct: boolean, range: string | null,
+  outcome: Outcome | null,          // SAFE | DANGEROUS today; ERROR when B3 lands
+  verdictReason: string | null,
+  evidenceCount: number,
+  auditedAt: string | null,
+  jobState: "queued" | "running" | "failed" | null,
+  cached: boolean,
+}
+```
+
+### Error bodies get names (B9)
+
+`ApiError {error}`, `ReauthRequired {error, reauth: true}`,
+`CapExceeded {error, cap: true, resource, installationId, entitlements}`,
+`ScanAlreadyRunning {error, scanId}`, `AppNotConfigured {error}`. Naming the 409
+is what forces `triggerScan` to stop treating a live scan as a red error (B10).
+
 ## D. Authoring order
 
 1. **Audit-core shared fixes** (A1, A2, A4-add, A5) + the keyed dependencies
