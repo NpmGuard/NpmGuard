@@ -17,6 +17,11 @@ const PackageLookup = lazy(() =>
 const CliInstall = lazy(() =>
   import("./pages/CliInstall.tsx").then((m) => ({ default: m.CliInstall })),
 );
+// GSAP + three plugins is the heaviest thing on any static surface; it stays
+// out of the boot chunk and loads only when someone asks how this works.
+const HowItWorks = lazy(() =>
+  import("./pages/HowItWorks.tsx").then((m) => ({ default: m.HowItWorks })),
+);
 const PayPage = lazy(() => import("./pages/PayPage.tsx").then((m) => ({ default: m.PayPage })));
 const Dashboard = lazy(() =>
   import("./pages/Dashboard.tsx").then((m) => ({ default: m.Dashboard })),
@@ -132,6 +137,7 @@ export function App() {
             <Route path="/packages" element={<Registry />} />
             <Route path="/package/*" element={<PackageLookup />} />
             <Route path="/cli" element={<CliInstall />} />
+            <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/pay" element={<PayPage />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/repo/:owner/:name" element={<RepoDetail />} />

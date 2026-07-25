@@ -10,6 +10,7 @@ const NAV = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/packages", label: "Packages" },
   { to: "/replays", label: "Replays" },
+  { to: "/how-it-works", label: "How it works" },
   { to: "/cli", label: "CLI" },
 ];
 
