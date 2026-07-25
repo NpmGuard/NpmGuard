@@ -209,7 +209,7 @@ async def _run_env_exfil_orchestrator(tmp_path: Path):
     sandbox = RecordedSandbox(bundle)
     orchestrator_module.run_experiment = sandbox.run_experiment  # one-shot process
 
-    log = AuditLog(bundle.package)
+    log = AuditLog(bundle.package, f"replay-{bundle.package}")
     store = ArtifactStore(log.run_dir)
     emitter = _CapturingEmitter()
     try:

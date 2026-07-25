@@ -95,9 +95,15 @@
 #       ends) → no dealbreaker, one `critical` `install-coverage-gap` quoting hook
 #       and command. C21b is the pairing: a fully resolved hook leaves none
 #   C22 the legitimate non-node case that must not be condemned: `sh
-#       ./scripts/postinstall.sh` WITH the file shipped is clean and its reference
-#       is recorded — and the residue is stated, because FLAG reads js/ts only, so
-#       a shipped `.sh` is resolved but never analysed. Paired with a `.js` target
+#       ./scripts/postinstall.sh` WITH the file shipped is clean, its reference is
+#       recorded, AND it is now coverage — `shell` joined SOURCE_FILE_TYPES, so
+#       flag_source_files puts the .sh in front of a model. Asserted through that
+#       function, not through a missing flag: absence would also pass if the file had
+#       simply stopped being noticed. Paired with a `.js` target
+#   C22b the pairing that keeps the second gap KIND reachable: `python
+#       scripts/postinstall.py` resolves and ships, `.py` maps to no type, so the gap
+#       stands with the file named. Widening SOURCE_FILE_TYPES converts gaps into
+#       coverage one type at a time; it must not retire the branch reporting the rest
 #   C23 targets resolve the way the LOADER resolves them: `node scripts/postinstall`
 #       is `scripts/postinstall.js`, `node lib` is `lib/index.js` — node's rule,
 #       not a general one, so `sh scripts/postinstall` still misses
@@ -109,6 +115,39 @@
 #   C27 degenerate values (unbalanced quote, `$VAR` path, no operand, a bare
 #       operator, whitespace, a bare name that is a PATH lookup, a path into a
 #       SKIP_DIRS dir we never inventoried) → a gap, never a crash, never clean
+# FILE CLASSIFICATION — a shebang is a declaration too
+#   C28 an extensionless file is classified by its `#!` line, because that is what
+#       the kernel obeys: `#!/usr/bin/env node` (and `-S node --flag`, `bun`, an
+#       absolute path) → js, `#!/bin/sh` / `env bash` → shell. 13 of 94 real `bin`
+#       targets ship extensionless (typescript's bin/tsc, rollup, esbuild, acorn,
+#       uuid), so a DECLARED executable entry point was `unknown`, read by no model,
+#       and missed by `executable-outside-bin` too because it sits under `bin/`.
+#       The negative rows are the same class: an unmapped interpreter
+#       (`env python3`) and no shebang at all stay `unknown`, which is what keeps
+#       such a target a REPORTED gap instead of silently clean
+#   C28b the mapping is ONE-WAY. The name wins where there is one, so a `.json`
+#       whose first line reads like a shebang is still json and an ELF is still
+#       binary — otherwise this could demote a file that is read today, or hand FLAG
+#       a binary blob as source
+# REFUSING SAFE WHILE A COVERAGE GAP IS OPEN (NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP)
+#   Why a refusal and not a flag: the verdict vocabulary is {SAFE, DANGEROUS}, so
+#   "we could not check what runs at install time" HAS no verdict — the same position
+#   a DEFERRED hypothesis is in, refused the same way and with the same code.
+#   C29 knob ON: an unresolvable install hook cannot reach SAFE → NPMGUARD-0031,
+#       stage inventory, retryable, no report, and no verdict_reached frame. The FLAG
+#       answer is scripted clean, so nothing but the gap can end that audit
+#   C29b knob OFF (the DEFAULT, and therefore the subject): the same package ships
+#       SAFE with the `critical` flag in the inventory PhaseLog — exactly the
+#       behaviour that shipped before the refusal existed. Without this pairing C29
+#       would also pass on an incidental crash, and the default would be unpinned
+#   C30 ordering 1 — a DEALBREAKER still wins. A manifest tripping both ships
+#       DANGEROUS from the early return, at zero model calls (trace == [resolve,
+#       inventory]). Reversing it would trade a correct verdict for an error
+#   C31 ordering 2 — a CONFIRMED hypothesis still wins, and the gap is still
+#       reported. 47b8c15's rule for retrieval gaps applied here: the gap is raised
+#       AFTER the run, so it can displace an absent verdict but never a proven one.
+#       Reversing it would discard confirmed malware because a sibling `node-gyp
+#       rebuild` was unreadable — strictly worse than the SAFE this prevents
 # THE SCRIPTS BLOCK — boundaries
 #   C12 `"scripts": {}` -> no dealbreaker, no lifecycle flag
 #   C13 no `scripts` key at all -> same, and entryPoints.install == []
@@ -169,11 +208,19 @@ from kit_stream import StreamService
 from npmguard import pipeline as pipeline_module
 from npmguard import report_store
 from npmguard.config import Settings
+from npmguard.contract.models import Claim, EvidenceRef, FocusRange, Hypothesis, ToolCall
 from npmguard.errors import AuditIncompleteError
 from npmguard.events import AuditEmitter, sse_events
-from npmguard.inventory import BUILD_TIME_HOOKS, INSTALL_TIME_HOOKS, analyze_inventory
+from npmguard.inventory import (
+    BUILD_TIME_HOOKS,
+    INSTALL_COVERAGE_GAP,
+    INSTALL_TIME_HOOKS,
+    analyze_inventory,
+)
 from npmguard.llm_runtime import build_npmguard_llm
+from npmguard.orchestrator import OrchestratorSummary
 from npmguard.persistence import AuditSessionStore
+from npmguard.phases import flag_source_files
 from npmguard.pipeline import AuditPipeline
 from npmguard.resolve import ResolvedPackage
 
@@ -604,16 +651,15 @@ async def test_a_fully_resolved_install_hook_leaves_no_coverage_gap(tmp_path) ->
     assert {flag.check for flag in inventory.flags} == {"lifecycle-scripts"}
 
 
-async def test_a_shipped_shell_install_target_is_not_condemned_but_is_not_coverage(
-    tmp_path,
-) -> None:
-    """C22: the legitimate case the widened check must not break. `sh
-    ./scripts/postinstall.sh` WITH the file shipped is not a dealbreaker and the
-    reference is recorded — otherwise the fix would be a false-positive machine.
-    But `resolved` is a narrower claim than `analysed`: FLAG reads
-    SOURCE_FILE_TYPES only, so a `.sh` file reaches no model, and that residue is
-    named as a coverage gap pointing AT the file rather than counted as coverage.
-    Paired with the same hook over a `.js` target, which is real coverage."""
+async def test_a_shipped_shell_install_target_is_analysed(tmp_path) -> None:
+    """C22: the legitimate case the widened check must not break, and the half of it
+    that used to be a residue. `sh ./scripts/postinstall.sh` WITH the file shipped is
+    not a dealbreaker and the reference is recorded — otherwise the fix would be a
+    false-positive machine. It is now also COVERAGE rather than a named gap: `shell`
+    is in SOURCE_FILE_TYPES, so `flag_source_files` puts the .sh in front of a model,
+    which is what "resolved" was previously read as claiming and did not deliver.
+    Asserted through flag_source_files itself, not through the absence of a flag —
+    absence alone would also pass if the file had simply stopped being noticed."""
     shell = await analyze_inventory(
         _write(
             tmp_path / "shell",
@@ -626,9 +672,8 @@ async def test_a_shipped_shell_install_target_is_not_condemned_but_is_not_covera
     )
     assert shell.dealbreaker is None
     assert shell.entryPoints.install == ["scripts/postinstall.sh"]
-    gap = next(flag for flag in shell.flags if flag.check == "install-coverage-gap")
-    assert gap.file == "scripts/postinstall.sh"
-    assert "shell" in gap.detail
+    assert INSTALL_COVERAGE_GAP not in {flag.check for flag in shell.flags}
+    assert "scripts/postinstall.sh" in {file.path for file in flag_source_files(shell)}
 
     analysed = await analyze_inventory(
         _write(
@@ -640,7 +685,98 @@ async def test_a_shipped_shell_install_target_is_not_condemned_but_is_not_covera
             },
         )
     )
-    assert "install-coverage-gap" not in {flag.check for flag in analysed.flags}
+    assert INSTALL_COVERAGE_GAP not in {flag.check for flag in analysed.flags}
+
+
+async def test_a_shipped_target_no_model_reads_is_still_a_coverage_gap(tmp_path) -> None:
+    """C22b: the pairing that keeps C22 from making the second gap KIND unreachable.
+    `python scripts/postinstall.py` resolves — python is in SCRIPT_INTERPRETERS and
+    the file ships — but no extension mapping exists for `.py`, so it classifies
+    `unknown`, no model reads it, and the gap stands with the file named. Widening
+    SOURCE_FILE_TYPES converts gaps into coverage one type at a time; it must not
+    quietly retire the branch that reports the types still left out."""
+    inventory = await analyze_inventory(
+        _write(
+            tmp_path,
+            {
+                "package.json": _manifest(scripts={"install": "python scripts/postinstall.py"}),
+                "index.js": SETUP_SOURCE,
+                "scripts/postinstall.py": "print('installing')\n",
+            },
+        )
+    )
+    assert inventory.dealbreaker is None
+    assert inventory.entryPoints.install == ["scripts/postinstall.py"]
+    gap = next(flag for flag in inventory.flags if flag.check == INSTALL_COVERAGE_GAP)
+    assert gap.file == "scripts/postinstall.py"
+    assert gap.severity == "critical"
+    assert "unknown" in gap.detail
+    assert "scripts/postinstall.py" not in {file.path for file in flag_source_files(inventory)}
+
+
+SHEBANGS = {
+    "env-node": ("#!/usr/bin/env node\nconsole.log(1)\n", "js"),
+    "absolute-node": ("#!/usr/local/bin/node\nconsole.log(1)\n", "js"),
+    "env-dash-s-node": ("#!/usr/bin/env -S node --enable-source-maps\nconsole.log(1)\n", "js"),
+    "bun": ("#!/usr/bin/env bun\nconsole.log(1)\n", "js"),
+    "posix-sh": ("#!/bin/sh\necho hi\n", "shell"),
+    "env-bash": ("#!/usr/bin/env bash\necho hi\n", "shell"),
+    # Resolves to an interpreter no FLAG prompt has been validated on, so it stays
+    # `unknown` — which is what keeps it a REPORTED gap instead of silently clean.
+    "python": ("#!/usr/bin/env python3\nprint(1)\n", "unknown"),
+    "no-shebang": ("MIT License\n\nCopyright…\n", "unknown"),
+    "hash-but-not-bang": ("# not a shebang\n", "unknown"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SHEBANGS))
+async def test_an_extensionless_file_is_classified_by_its_shebang(tmp_path, name: str) -> None:
+    """C28: a `#!` line is the file's own declaration of its language and it is what
+    the kernel obeys, so an extensionless file carrying one is classified by it. 13 of
+    94 real `bin` targets ship extensionless (typescript's bin/tsc, rollup, esbuild,
+    acorn, uuid): each was `unknown`, read by no model, and NOT caught by
+    `executable-outside-bin` either because it sits under `bin/`. So a DECLARED
+    executable entry point reached nothing. The negative rows matter as much: an
+    unmapped interpreter and a file with no shebang at all stay `unknown`."""
+    content, expected = SHEBANGS[name]
+    inventory = await analyze_inventory(
+        _write(
+            tmp_path,
+            {
+                "package.json": _manifest(bin={"tool": "bin/tool"}),
+                "index.js": SETUP_SOURCE,
+                "bin/tool": content,
+            },
+        )
+    )
+    record = next(file for file in inventory.files if file.path == "bin/tool")
+    assert record.fileType == expected, content
+    assert record.isBinary is False
+    reads = {file.path for file in flag_source_files(inventory)}
+    assert ("bin/tool" in reads) is (expected in ("js", "shell"))
+
+
+async def test_a_shebang_never_overrides_a_name_or_a_magic_number(tmp_path) -> None:
+    """C28b: the mapping is one-way. An extension IS a declaration and the vast
+    majority of files carry a true one, so the name wins where there is one — a
+    `.json` whose first line happens to read like a shebang is still `json`, and an
+    ELF is still `binary`. Without this the change could DEMOTE a file that is read
+    today, or hand FLAG a binary blob as if it were source."""
+    inventory = await analyze_inventory(
+        _write(
+            tmp_path,
+            {
+                "package.json": _manifest(),
+                "index.js": SETUP_SOURCE,
+                "weird.json": '#!/usr/bin/env node\n{"a": 1}\n',
+                "payload": ELF_MAGIC,
+            },
+        )
+    )
+    types = {file.path: file.fileType for file in inventory.files}
+    assert types["weird.json"] == "json"
+    assert types["payload"] == "binary"
+    assert next(file for file in inventory.files if file.path == "payload").isBinary is True
 
 
 async def test_a_target_is_resolved_the_way_node_resolves_it(tmp_path) -> None:
@@ -1016,3 +1152,189 @@ async def test_package_without_a_dealbreaker_proceeds_to_the_normal_pipeline(aud
         "flag",
     ]
     assert "intent_extracted" in _frame_types(result.frames)
+
+
+# --------------------------------------------------------------------------- #
+# The coverage-gap refusal — NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP
+# --------------------------------------------------------------------------- #
+
+# A published install hook whose executed code is nowhere in the tarball
+# (keytar@7.9.0), so `analyze_inventory` leaves a `critical` gap and NO dealbreaker.
+GAP_PACKAGE = {
+    "package.json": _manifest(scripts={"install": PUBLISHED_HOOKS["prebuilt-binary"]}),
+    "index.js": SETUP_SOURCE,
+}
+
+
+def _clean_flag_provider() -> ScriptedLlm:
+    """intent + a zero-flag FLAG answer: the shortest route to a report, and the one
+    that reaches `_report` through the `not flagged.flags` return."""
+    return ScriptedLlm(
+        {
+            "intent": [
+                json.dumps(
+                    {
+                        "statedPurpose": "a fixture package",
+                        "expectedCapabilities": [],
+                        "rationale": "from the manifest",
+                    }
+                )
+            ],
+            "flag": [json.dumps({"summary": "nothing of note", "capabilities": [], "flags": []})],
+        }
+    )
+
+
+async def test_an_unresolvable_install_hook_cannot_reach_safe(audit, monkeypatch) -> None:
+    """C29: the half of the split that was missing. With the knob on, a package whose
+    install-time hook runs code this engine could not locate does NOT get a verdict:
+    the vocabulary is {SAFE, DANGEROUS} and "we could not check" is neither, so it is
+    refused exactly as a DEFERRED hypothesis is — NPMGUARD-0031, stage inventory,
+    retryable, and no report for anyone to read as clean. Before this the gap reached
+    only the PhaseLog and the audit log (never `inventory_meta`), so it shipped SAFE.
+    The FLAG answer is scripted clean, so nothing but the gap can end this audit."""
+    monkeypatch.setenv("NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP", "true")
+    with pytest.raises(AuditIncompleteError) as excinfo:
+        await audit(GAP_PACKAGE, provider=_clean_flag_provider())
+    assert excinfo.value.stage == "inventory"
+    assert excinfo.value.code == "NPMGUARD-0031"
+    assert excinfo.value.retryable is True
+    assert PUBLISHED_HOOKS["prebuilt-binary"] in str(excinfo.value)
+    assert "verdict_reached" not in _frame_types(audit.frames)
+
+
+async def test_the_same_gap_ships_safe_while_the_knob_is_off(audit) -> None:
+    """C29b: the pairing, and the statement of what the default does. OFF is exactly
+    the behaviour that shipped before the refusal existed — a `critical` flag in the
+    inventory PhaseLog beside `verdict: "SAFE"` — so C29 is proving the knob and not
+    an incidental crash, and enabling it is a visible decision rather than a silent
+    change of what the product asserts. The knob is NOT set here: the default is the
+    subject."""
+    result = await audit(GAP_PACKAGE, provider=_clean_flag_provider())
+    assert result.report.verdict == "SAFE"
+    assert result.report.dealbreaker is None
+    inventory_phase = next(
+        phase for phase in result.report.trace if phase.phase == "inventory"
+    )
+    assert any(
+        INSTALL_COVERAGE_GAP in flag for flag in inventory_phase.output["flags"]
+    ), inventory_phase.output["flags"]
+
+
+async def test_a_dealbreaker_still_wins_over_a_coverage_gap(audit, monkeypatch) -> None:
+    """C30: the first load-bearing ordering. This manifest trips BOTH — a
+    `missing-install-script` dealbreaker on its `preinstall` and an unresolvable
+    `install` — and the dealbreaker's early return happens first, so the audit ships
+    a free, correct DANGEROUS verdict instead of refusing on the gap. Structural
+    rather than positional: the dealbreaker path builds its report inline and never
+    calls the function that owns the refusal. Reversing the two would trade a
+    correct verdict for an error on a package we had already judged."""
+    monkeypatch.setenv("NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP", "true")
+    result = await audit(
+        {
+            "package.json": _manifest(
+                scripts={
+                    "preinstall": BENIGN_HOOK,  # setup.js is NOT shipped below
+                    "install": PUBLISHED_HOOKS["native-rebuild"],
+                }
+            ),
+            "index.js": SETUP_SOURCE,
+        }
+    )
+    assert result.report.verdict == "DANGEROUS"
+    assert result.report.dealbreaker is not None
+    assert result.report.dealbreaker.check == "missing-install-script"
+    # The provider has no script for any role, so no phase after inventory ran: the
+    # DANGEROUS verdict cost zero model calls, which is what "free" means here.
+    assert [phase.phase for phase in result.report.trace] == ["resolve", "inventory"]
+
+
+async def test_a_confirmed_hypothesis_still_wins_over_a_coverage_gap(
+    audit, monkeypatch
+) -> None:
+    """C31: the second load-bearing ordering, and the one that decides whether this
+    refusal can ever cost a true positive. The same unresolvable install hook, but
+    the orchestrator confirms a hypothesis with cited evidence — and the report is
+    DANGEROUS, not 0031. This is the rule 47b8c15 established for retrieval gaps
+    applied here: a gap is raised AFTER the run and never instead of it, so it can
+    displace an absent verdict but never a proven one. Reversing it (refusing
+    whenever a gap exists) would discard confirmed malware because a sibling
+    `node-gyp rebuild` was unreadable — strictly worse than the SAFE this change
+    exists to prevent.
+
+    The graph is driven through the pipeline's own named module attributes
+    (`run_hypothesize`, `run_orchestrator`) rather than through a real sandbox: the
+    subject is the ORDERING of the gap check against CONFIRMED, and a docker run
+    would add ~14 sandbox experiments to prove a branch."""
+    monkeypatch.setenv("NPMGUARD_REFUSE_INSTALL_COVERAGE_GAP", "true")
+
+    armed = Hypothesis(
+        hypId="hyp-0001",
+        description="setup.js posts process.env to a remote host",
+        claim=Claim(kind="env_exfil", gating=None),
+        focusFiles=["index.js"],
+        focusLines=[FocusRange(file="index.js", range="1-1")],
+        experiment=[
+            ToolCall(
+                tool="trigger",
+                args={"kind": "entrypoint", "target": "index.js", "argv": [], "stdin": None},
+            )
+        ],
+        severity="critical",
+        parentHypId=None,
+        childHypIds=[],
+        state="OPEN",
+        createdBy="hypothesize",
+        evidenceRefs=[],
+        createdAt="2026-07-25T00:00:00Z",
+        resolvedAt=None,
+        resolution=None,
+    )
+
+    async def _hypothesize(*args, **kwargs):
+        return [armed]
+
+    async def _orchestrate(graph, **kwargs):
+        graph.transition(
+            "hyp-0001",
+            "CONFIRMED",
+            by="judge",
+            reason="the run exfiltrated the canary",
+            evidence_refs=[EvidenceRef(kind="run", id="run-1", hash="deadbeef")],
+        )
+        return OrchestratorSummary(dispatched=1, confirmed=1)
+
+    monkeypatch.setattr(pipeline_module, "run_hypothesize", _hypothesize)
+    monkeypatch.setattr(pipeline_module, "run_orchestrator", _orchestrate)
+
+    provider = ScriptedLlm(
+        {
+            "intent": [
+                json.dumps(
+                    {
+                        "statedPurpose": "a fixture package",
+                        "expectedCapabilities": [],
+                        "rationale": "from the manifest",
+                    }
+                )
+            ],
+            "flag": [
+                json.dumps(
+                    {
+                        "summary": "posts environment variables out",
+                        "capabilities": ["ENV_VARS", "NETWORK"],
+                        "flags": [{"lines": ["1-1"], "why": "reads process.env and POSTs it"}],
+                    }
+                )
+            ],
+        }
+    )
+    result = await audit(GAP_PACKAGE, provider=provider)
+    assert result.report.verdict == "DANGEROUS"
+    assert result.report.confirmedHypIds == ["hyp-0001"]
+    assert result.report.counts.confirmed == 1
+    # The gap is still REPORTED — it was skipped, not deemed absent.
+    inventory_phase = next(
+        phase for phase in result.report.trace if phase.phase == "inventory"
+    )
+    assert any(INSTALL_COVERAGE_GAP in flag for flag in inventory_phase.output["flags"])

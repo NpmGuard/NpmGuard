@@ -57,7 +57,7 @@ async def _run_with_failing_experiment(monkeypatch, tmp_path, exc):
         graph,
         package_path=tmp_path,
         artifact_store=ArtifactStore(tmp_path / "artifacts"),
-        log=AuditLog("test-orchestrator-errors"),
+        log=AuditLog("test-orchestrator-errors", "audit-1"),
         emitter=None,
         stated_purpose="test",
         global_budget_ms=60_000,

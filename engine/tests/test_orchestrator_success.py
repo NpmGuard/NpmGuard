@@ -183,7 +183,7 @@ async def rig_factory(tmp_path, monkeypatch):
         llm = build_npmguard_llm(
             factory, Settings(_env_file=None), provider=ScriptedLlm({"judge": judge_steps})
         )
-        log = AuditLog("orchestrator-unit")
+        log = AuditLog("orchestrator-unit", f"orch-unit-{len(rigs)}")
         rig = Rig(llm, engine, ArtifactStore(log.run_dir), StreamService(factory, PollingNotifier()), log)
         rigs.append(rig)
         return rig

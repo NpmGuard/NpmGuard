@@ -17,6 +17,13 @@ from .contract.models import (
 )
 from .errors import AuditIncompleteError
 
+# The ONE check name for every install-time coverage gap, shared with the consumer
+# that has to refuse SAFE while one exists (pipeline.py). A named constant rather
+# than a literal in three places because the two modules now agree on it: a typo on
+# either side would not fail — it would silently produce a report that ships SAFE
+# with the gap still open, which is the exact failure this fact exists to prevent.
+INSTALL_COVERAGE_GAP = "install-coverage-gap"
+
 # The three hooks npm runs when a PUBLISHED TARBALL is installed as a dependency —
 # which is the only artifact an audit ever resolves (resolve.py fetches a registry
 # tarball), so this is the only execution the engine can be asked about.
@@ -58,6 +65,28 @@ MAGIC_BYTES = (
     ("MachO", b"\xce\xfa\xed\xfe"),
     ("PE", b"MZ"),
 )
+# Enough for the longest real shebang line and for every magic number above. Read
+# once per file, so `#!` recognition costs no extra open and no extra syscall.
+HEAD_BYTES = 256
+# A shebang is the file's own declaration of the language it is written in, and it
+# outranks the file NAME because it is what the kernel obeys. Only interpreters whose
+# language some model in this engine actually reads are mapped: 13 of 94 real `bin`
+# targets ship extensionless (`typescript`'s bin/tsc, rollup, esbuild, acorn, uuid),
+# so a DECLARED executable entry point was classified `unknown` and read by nobody —
+# and `executable-outside-bin` does not fire on it either, because it sits under
+# `bin/`. Anything else with a shebang (`#!/usr/bin/env python3`) stays `unknown` on
+# purpose: `unknown` is what keeps it a coverage gap instead of silently clean.
+SHEBANG_TYPE_MAP = {
+    "node": "js",
+    "nodejs": "js",
+    "bun": "js",
+    "deno": "js",
+    "sh": "shell",
+    "bash": "shell",
+    "dash": "shell",
+    "zsh": "shell",
+    "ksh": "shell",
+}
 SHELL_PIPE_PATTERNS = (
     re.compile(r"curl\s.*\|\s*sh\b", re.I),
     re.compile(r"curl\s.*\|\s*bash\b", re.I),
@@ -328,14 +357,42 @@ def parse_package_json(
     return metadata, scripts, entry_points, dependencies
 
 
-def _binary(path: Path) -> tuple[bool, str | None]:
+def _shebang_type(head: bytes) -> str | None:
+    """The language a `#!` line declares, or None if there is no usable one.
+
+    The interpreter is the first word that names one, so `#!/usr/bin/env node` and
+    `#!/usr/bin/env -S node --enable-source-maps` both resolve to node without this
+    having to model `env`'s option grammar. Undecodable bytes are not a shebang: this
+    only ever runs on a file the magic-number check already declined to call binary.
+    """
+    if not head.startswith(b"#!"):
+        return None
+    line = head.split(b"\n", 1)[0].decode("utf-8", "replace")
+    for word in re.split(r"[\s/]+", line[2:].strip()):
+        mapped = SHEBANG_TYPE_MAP.get(word.split("=", 1)[0])
+        if mapped is not None:
+            return mapped
+    return None
+
+
+def _classify_head(path: Path) -> tuple[bool, str | None, str | None]:
+    """(is_binary, binary_type, shebang_type) from one bounded read of the head.
+
+    Bounded on purpose. This used to be `path.read_bytes()[:4]`, which pulls the
+    WHOLE file into memory to look at four bytes of it — on a package whose tarball
+    ships a 200 MB prebuilt `.node`, that is 200 MB of untrusted input resident to
+    answer "does it start with \\x7fELF". The slice was applied to the finished copy,
+    so the four-byte look never bounded anything.
+    """
     try:
-        prefix = path.read_bytes()[:4]
+        with path.open("rb") as handle:
+            head = handle.read(HEAD_BYTES)
     except OSError:
-        return False, None
-    return next(
-        ((True, name) for name, magic in MAGIC_BYTES if prefix.startswith(magic)), (False, None)
-    )
+        return False, None, None
+    for name, magic in MAGIC_BYTES:
+        if head.startswith(magic):
+            return True, name, None
+    return False, None, _shebang_type(head)
 
 
 def classify_files(package_path: Path) -> list[FileRecord]:
@@ -349,11 +406,20 @@ def classify_files(package_path: Path) -> list[FileRecord]:
             info = path.stat()
         except OSError:
             continue
-        is_binary, binary_type = _binary(path)
+        is_binary, binary_type, shebang = _classify_head(path)
+        # Name first, shebang second, and only where the name says nothing: an
+        # extension IS a declaration and the overwhelming majority of files carry a
+        # true one, while a shebang is the fallback for the files that carry none.
+        # The order also keeps the mapping one-way — a `#!` line can only ever turn
+        # `unknown` into a type some model reads, never reclassify a `.json` or
+        # demote a `.js`, so no file that is read today stops being read.
+        file_type = "binary" if is_binary else EXTENSION_TYPE_MAP.get(path.suffix, "unknown")
+        if file_type == "unknown" and shebang is not None:
+            file_type = shebang
         records.append(
             FileRecord(
                 path=path.relative_to(package_path).as_posix(),
-                fileType="binary" if is_binary else EXTENSION_TYPE_MAP.get(path.suffix, "unknown"),
+                fileType=file_type,
                 sizeBytes=info.st_size,
                 permissions=format(stat.S_IMODE(info.st_mode), "o"),
                 isBinary=is_binary,
@@ -431,7 +497,7 @@ def run_inventory_checks(
         flags.append(
             InventoryFlag(
                 severity="critical",
-                check="install-coverage-gap",
+                check=INSTALL_COVERAGE_GAP,
                 detail=(
                     f"Install-time hook '{gap.hook}' runs code this audit cannot locate "
                     f"({gap.reason}): {gap.command}"
@@ -442,17 +508,21 @@ def run_inventory_checks(
     for target, path in resolved:
         # A target that ships is only analysable if some phase actually READS it,
         # and FLAG reads SOURCE_FILE_TYPES only (config.py, via
-        # phases.flag_source_files). A shipped `postinstall.sh` is classified
-        # `shell` and reaches no model, so calling it "resolved" would be exactly
-        # the defect this function was audited for: a recogniser narrower than the
-        # claim it is read as. One check name for both gap kinds, so a consumer
-        # deciding "can this audit still reach SAFE" branches on one closed fact
-        # instead of a list that grows every time a new gap is found.
+        # phases.flag_source_files). `shell` is now in that set, so a shipped
+        # `postinstall.sh` IS coverage; what remains here are the types no model
+        # reads — a `.py`/`.rb`/`.pl` target (SCRIPT_INTERPRETERS accepts those
+        # interpreters, and no extension mapping exists for their files, so they
+        # classify `unknown`), and any extensionless target whose shebang names an
+        # interpreter SHEBANG_TYPE_MAP does not map. Calling one of those "resolved"
+        # would be exactly the defect this function was audited for: a recogniser
+        # narrower than the claim it is read as. One check name for both gap kinds,
+        # so a consumer deciding "can this audit still reach SAFE" branches on one
+        # closed fact instead of a list that grows every time a new gap is found.
         if file_types[path] not in SOURCE_FILE_TYPES:
             flags.append(
                 InventoryFlag(
                     severity="critical",
-                    check="install-coverage-gap",
+                    check=INSTALL_COVERAGE_GAP,
                     detail=(
                         f"Install-time hook '{target.hook}' runs '{target.reference}', which "
                         f"ships as '{path}' ({file_types[path]}) — not a file type this audit "

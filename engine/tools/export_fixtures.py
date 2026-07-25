@@ -390,6 +390,21 @@ def export_bundle(
 
 
 def _resolve_audit_log_dir(mapping_path: Path | None, audit_ids: list[str], logs_root: Path | None):
+    """The run directory that produced one of `audit_ids`, or None.
+
+    A run directory now NAMES its audit_id (`<stamp>_<package>_<audit_id>`,
+    audit_log.py), so the id alone locates it — `--map` is only needed for corpora
+    recorded under the old `<stamp>_<package>` naming, which is why the
+    hand-maintained mapping stays as a fallback rather than being deleted. Newest
+    first: a re-submitted audit_id ("a recoverable 'error' replay",
+    persistence.reset_to_queued) has more than one run directory, and the last
+    execution is the one whose artifacts the report cites.
+    """
+    if logs_root is not None:
+        for audit_id in audit_ids:
+            matches = sorted(logs_root.glob(f"*_{audit_id}"), reverse=True)
+            if matches:
+                return matches[0]
     if mapping_path is None or logs_root is None:
         return None
     mapping = json.loads(mapping_path.read_text())
