@@ -1,6 +1,11 @@
 # NpmGuard contracts
 
-Solidity contracts for on-chain audit payments on Base.
+Two contracts, deployable to Base and to 0G Chain:
+
+| Contract | Purpose |
+|---|---|
+| `NpmGuardAuditRequest.sol` | on-chain payment for one audit — `requestAudit(pkg, version)` emits `AuditRequested`, which the engine verifies from the receipt |
+| `NpmGuardAttestations.sol` | append-only registry of human-attested npm releases (World ID Identity Check). See [Attestations](#attestations) |
 
 ## Stack
 
@@ -47,7 +52,8 @@ Outputs `out/NpmGuardAuditRequest.sol/NpmGuardAuditRequest.json` (ABI + bytecode
 forge test -vvv
 ```
 
-Runs 7 unit tests + 1 fuzz test (256 runs). Expected: `8 passed; 0 failed`.
+Expected: `18 tests passed` — 8 for `NpmGuardAuditRequest` (7 unit + 1 fuzz)
+and 10 for `NpmGuardAttestations` (8 unit + 2 fuzz), each fuzz case 256 runs.
 
 Gas snapshot:
 
@@ -119,6 +125,51 @@ Copy the deployed address into:
 
 - `engine/.env` → `NPMGUARD_BASE_SEPOLIA_CONTRACT=0x...`
 - `cli/src/contract.ts` → `AUDIT_REQUEST_ADDRESS` constant
+
+## Deploy to 0G Chain
+
+0G Galileo testnet is **chain id 16602** — verified against the live RPC
+(`eth_chainId` → `0x40da`). Most third-party sources still report a stale 16601.
+0G Aristotle mainnet is 16661.
+
+```bash
+# fund the deployer first: https://faucet.0g.ai
+./deploy.sh 0g-testnet audit           # NpmGuardAuditRequest
+./deploy.sh 0g-testnet attestations    # NpmGuardAttestations
+```
+
+`--verify` is skipped for 0G: chainscan is not an Etherscan-compatible
+verification API, and passing the flag fails the whole broadcast. Verify
+manually at https://chainscan-galileo.0g.ai afterwards.
+
+Then wire the addresses into `engine/.env`:
+
+```
+NPMGUARD_ZEROG_TESTNET_CONTRACT=0x...        # audit payments
+NPMGUARD_ZEROG_ATTESTATIONS_CONTRACT=0x...   # attestation registry
+```
+
+A chain is only offered to clients once its contract address is set, so an
+unset address means the chain is simply absent rather than half-configured.
+
+## Attestations
+
+`NpmGuardAttestations` records that a verified human consented to one exact
+npm tarball. The World ID proof itself cannot be checked on-chain, so an
+allowlisted **verifier** (the engine relayer) writes the row, along with the
+0G Storage root of the evidence envelope so anyone can re-check it.
+
+```bash
+./deploy.sh 0g-testnet attestations
+# optional: set ATTESTATION_VERIFIER=0x... in contracts/.env to allowlist the
+# engine relayer at deploy time (the deployer is always a verifier)
+```
+
+**The registry is append-only by design.** There is no revoke and no overwrite:
+if history could be rewritten, an attacker who reached the verifier key could
+retroactively manufacture a clean publisher streak, and the continuity signal
+the whole feature rests on would mean nothing. A mistaken attestation is
+answered on the audit-verdict axis instead.
 
 ## Deploy to Base mainnet (later)
 

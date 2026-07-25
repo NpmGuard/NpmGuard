@@ -12,6 +12,9 @@ evm_version = "cancun"
 [rpc_endpoints]
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
 base = "${BASE_RPC_URL}"
+# 0G Galileo testnet is chain id 16602 (eth_chainId → 0x40da); mainnet is 16661.
+zerog_testnet = "${ZEROG_TESTNET_RPC_URL}"
+zerog = "${ZEROG_RPC_URL}"
 
 [etherscan]
 base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api" }
