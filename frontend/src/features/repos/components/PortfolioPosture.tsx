@@ -2,22 +2,16 @@
  * (attention / scanning / safe / unknown) with its counts. One repo lands in
  * exactly one segment, so the rail is a true proportion.
  *
- * ── PRESENTATION: what the recomposition changed ────────────────────────────
+ * ── PRESENTATION ────────────────────────────────────────────────────────────
  *
- * Nothing about the four buckets, the denominator, or which repo lands where.
- * Two things about what the rail SAYS, and both are the §2.2/§2.4 corrections the
- * repo-detail rail got in the same pass:
- *
- * 1. **`scanning` was BLUE.** A hue on the progress axis, which §2.2 rule 2 makes
- *    achromatic precisely so an in-flight scan cannot read as a verdict — and
- *    danger-red against progress-blue is the pair §2.3's colourblind check
- *    failed. It is neutral ink on the progress track now.
- * 2. **`unknown` was a grey FILL, and the legend was coloured dots.** A repo that
- *    has never been audited is the definition of "no signal here", so it wears the
- *    one texture that means that (§3.4 rule 3, `HATCH_NEUTRAL`). And a dot encodes
- *    state in colour alone; §2.4 requires the word too, so every segment now
- *    carries its own count and label and the dot legend is gone. That retires this
- *    file's use of `toneDotClass`.
+ * 1. **`scanning` is neutral ink, never blue.** §2.2 rule 2 keeps the progress
+ *    axis achromatic precisely so an in-flight scan cannot read as a verdict, and
+ *    danger-red against progress-blue is the pair §2.3's colourblind check fails.
+ * 2. **`unknown` is a HATCH, not a grey fill, and there is no dot legend.** A repo
+ *    that has never been audited is the definition of "no signal here", so it
+ *    wears the one texture that means that (§3.4 rule 3, `HATCH_NEUTRAL`). A dot
+ *    encodes state in colour alone; §2.4 requires the word too, so every segment
+ *    carries its own count and label.
  *
  * ── WHY NOT `SeverityRibbon` ────────────────────────────────────────────────
  *

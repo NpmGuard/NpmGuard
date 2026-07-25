@@ -100,7 +100,7 @@ describe("isEmpty", () => {
   });
 
   it("C4: a FAILED read is never empty", () => {
-    // The discriminating case, and the one the old code got wrong: a failed fetch
+    // The discriminating case, and the one that is easy to get wrong: a failed fetch
     // whose collection was left at `[]` answered "yes, empty" and rendered "no
     // results". Here the predicate is not even consulted.
     const state: LoadState<number[]> = failed({ what: "Dependency list" });

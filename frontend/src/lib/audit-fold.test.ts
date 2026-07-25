@@ -97,12 +97,11 @@ describe("foldAuditEvent — C2 unknown / dead types tolerated", () => {
     expect(s1.pipelineLog).toHaveLength(0);
   });
 
-  it("C2: the 7 RETIRED agent_*/verify_*/finding_discovered types are inert, not handled", () => {
-    // These had zero emit sites in the engine, so their schemas, their fold arms,
-    // and the state they wrote (agentSteps/agentThinking/findings) were deleted.
-    // They are no longer members of AuditEventUnion — hence the cast — and must now
-    // fall through to `default` exactly like any unknown type. Asserting they are
-    // INERT (not merely non-throwing) is what stops an arm being reintroduced.
+  it("C2: agent_*/verify_*/finding_discovered types are inert, not handled", () => {
+    // No emit site in the engine, so no schema, no fold arm, and no state written.
+    // They are not members of AuditEventUnion — hence the cast — and must fall
+    // through to `default` exactly like any unknown type. Asserting they are INERT
+    // (not merely non-throwing) is what stops an arm being reintroduced.
     const retired = [
       { type: "agent_thinking", step: 0 },
       { type: "agent_tool_call", tool: "readFile", args: { path: "x.js" }, step: 1 },
@@ -192,9 +191,9 @@ describe("foldAuditEvent — C3 lifecycle transitions", () => {
         type: "inventory_meta",
         scripts: { postinstall: "node evil.js" },
         // The engine's REAL group keys (inventory.py) — prod/dev/optional/peer.
-        // This test previously fed {dependencies, devDependencies}, a shape the
-        // engine never emits, so it agreed with the fold's bug instead of
-        // catching it.
+        // Feeding {dependencies, devDependencies} instead is a shape the engine
+        // never emits, so the test would agree with a fold bug rather than catch
+        // it.
         dependencies: { prod: { chalk: "^5" }, dev: { vitest: "^4" }, optional: {}, peer: {} },
         entryPoints: { install: [], runtime: ["index.js"], bin: [] },
         metadata: {
@@ -348,12 +347,11 @@ describe("foldAuditEvent — C3 lifecycle transitions", () => {
   });
 
   it("C3: audit_error carries the engine's message verbatim — nothing is substituted", () => {
-    // This test used to feed {error:null, code:null, retryable:null} and assert a
-    // generic "The audit failed" fallback. That frame is not emissible: all three
-    // fields are required and non-null on the contract, every emit site supplies
-    // them (service.py:184, :246, :338), and the generated Pydantic model types
-    // them str/str/bool. So the fallback was unreachable and the assertion pinned
-    // the fold's behaviour on traffic the engine cannot produce — it agreed with a
+    // A frame of {error:null, code:null, retryable:null} is not emissible: all
+    // three fields are required and non-null on the contract, every emit site in
+    // service.py supplies them, and the generated Pydantic model types them
+    // str/str/bool. Asserting a generic "The audit failed" fallback would pin the
+    // fold's behaviour on traffic the engine cannot produce — agreeing with a
     // hand-written type rather than with the engine. The null-bearing frame is now
     // refused at the boundary instead (sse.test.ts C9, contract-audit.test.ts C4),
     // which is where a contract break belongs.

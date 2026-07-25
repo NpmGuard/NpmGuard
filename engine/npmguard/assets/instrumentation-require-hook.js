@@ -8,11 +8,11 @@
 // inspector — is already resolved before the hook exists. The first `require`
 // event in the trace is therefore the package's own.
 //
-// Installing it first (as the instrument used to) put `fs`, `http`, `https`,
-// `child_process`, `crypto`, `inspector`, `module` at the head of EVERY timeline
-// attributed to the package under audit. That is not cosmetic: a judge weights
-// `child_process` and `crypto` as capabilities, so the timeline claimed the
-// package reached for tools it never touched.
+// Installing it FIRST instead puts `fs`, `http`, `https`, `child_process`,
+// `crypto`, `inspector`, `module` at the head of every timeline, attributed to
+// the package under audit. That is not cosmetic: a judge weights `child_process`
+// and `crypto` as capabilities, so the timeline would claim the package reached
+// for tools it never touched.
 //
 // Engine-side counterpart: evidence.parse_l4_trace asserts that no `require`
 // event's `from` is the instrument, so re-ordering this fragment fails loud

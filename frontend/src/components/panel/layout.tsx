@@ -3,9 +3,8 @@
  * `PanelPage` is also where the migration marker lives. `.ng-root` is the opt-in
  * class described at the bottom of `base.css`: it carries v3 typography, the v3
  * focus ring and the v3 scrollbars for its own subtree, beating the legacy `body`
- * and `:focus-visible` rules while the legacy substrate still exists for the
- * pages that have not been recomposed. It is temporary — when the legacy block in
- * `base.css` dies, tier 1 makes it redundant and this class can go. Wearing it in
+ * and `:focus-visible` rules that the not-yet-recomposed pages still need. When
+ * the legacy block in `base.css` dies, tier 1 makes it redundant. Wearing it in
  * exactly one place is what makes that a one-line removal. */
 
 import { useId, type ComponentProps, type ReactNode } from "react";
@@ -64,10 +63,10 @@ export function SectionLabel({
 /** A titled page section. §2.8's rhythm: 48px between page sections in the app,
  * 16 within the section's own header.
  *
- * `label` is a real heading, not a styled span. The pages previously rendered
- * `.section-title` as a `<div>` of spans, so the dashboard had one `<h1>` and then
- * no headings at all — which makes a screen reader's heading list useless for
- * navigating exactly the surface that has the most sections. */
+ * `label` is a real heading, not a styled span: a `<div>` of styled spans leaves
+ * the dashboard with one `<h1>` and no other headings, which makes a screen
+ * reader's heading list useless for navigating the surface that has the most
+ * sections. */
 export function PanelSection({
   label,
   tone,
