@@ -721,3 +721,92 @@ async def test_completed_audit_without_a_version_is_not_discarded(rig, tmp_path,
     logged = capsys.readouterr().out  # structlog writes the event to stdout
     assert "report file skipped: no concrete version" in logged
     assert result.audit_id in logged  # loud AND located: the skip names its audit
+
+
+# ── 0G report mirror ──────────────────────────────────────────────────────────
+# MIRROR1 a mirror failure never fails the audit (verdict + row + file survive)
+# MIRROR2 the mirror runs AFTER the terminal frame — a storage network is never
+#         between a computed verdict and its delivery
+# MIRROR3 no mirror configured → no storage call at all
+
+
+class SpyMirror:
+    """Stands in for ZeroGStorage: records calls, optionally explodes."""
+
+    def __init__(self, *, enabled: bool = True, explode: bool = False) -> None:
+        self.enabled = enabled
+        self._explode = explode
+        self.calls: list[tuple[str, dict]] = []
+        self.seen_events_at_call: list[str] = []
+
+    async def try_put_json(self, payload, *, filename: str = "object.json"):
+        self.calls.append((filename, payload))
+        if self._explode:
+            # try_put_json is contractually non-raising; a mirror that DOES raise
+            # is the adversarial case this test exists for
+            raise RuntimeError("0G indexer unreachable")
+        return SimpleNamespace(root_hash="0xroot", tx_hash="0xtx")
+
+
+async def _run_one(rig, package: str = "left-pad") -> str:
+    await rig.service.start()
+    submitted = await rig.service.admit(package, "1.0.0")
+    async with asyncio.timeout(WAIT_SECONDS):
+        await submitted.future
+    return submitted.audit_id
+
+
+async def test_a_failing_mirror_never_fails_the_audit(rig) -> None:
+    """MIRROR1: the filesystem store is the source of truth. A 0G outage must
+    leave the audit indistinguishable from one where 0G was never configured."""
+    rig.service.mirror = SpyMirror(explode=True)
+    audit_id = await _run_one(rig)
+
+    session = await rig.sessions.get(audit_id)
+    assert session.status == "done"
+    assert session.report is not None
+    assert session.error is None
+    events = await rig.stream.read_after(audit_channel(audit_id), -1)
+    types = [event["type"] for event in events]
+    assert "verdict_reached" in types
+    assert "audit_error" not in types
+
+
+async def test_the_mirror_runs_after_the_terminal_frame(rig) -> None:
+    """MIRROR2: ordering is the point. If the mirror ran first, every client
+    would wait on a storage network to learn a verdict that already exists.
+    Recorded in memory — doing DB reads from inside the audit worker is exactly
+    the kind of thing this ordering exists to keep off the hot path."""
+    order: list[str] = []
+    mirror = SpyMirror()
+    original_finish = rig.service._finish
+
+    async def recording_finish(*args, **kwargs):
+        result = await original_finish(*args, **kwargs)
+        order.append(f"finish:{kwargs.get('event_type')}")
+        return result
+
+    async def recording_put(payload, *, filename="object.json"):
+        order.append("mirror")
+        mirror.calls.append((filename, payload))
+        return SimpleNamespace(root_hash="0xroot", tx_hash=None)
+
+    rig.service._finish = recording_finish
+    mirror.try_put_json = recording_put
+    rig.service.mirror = mirror
+
+    await rig.service.start()
+    submitted = await rig.service.admit("left-pad", "1.0.0")
+    async with asyncio.timeout(WAIT_SECONDS):
+        await submitted.future
+
+    assert order == ["finish:verdict_reached", "mirror"], order
+    assert mirror.calls[0][0] == "left-pad@1.0.0.json"
+
+
+async def test_a_disabled_mirror_is_never_called(rig) -> None:
+    """MIRROR3: the default engine touches no storage network."""
+    mirror = SpyMirror(enabled=False)
+    rig.service.mirror = mirror
+    await _run_one(rig)
+    assert mirror.calls == []

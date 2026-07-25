@@ -13,6 +13,7 @@ from .events import AuditEmitter, audit_channel
 from .persistence import AuditSession, AuditSessionStore
 from .pipeline import AuditPipeline
 from .report_store import UnversionedReportError, save_report
+from .zerog import ZeroGStorage
 
 log = structlog.get_logger("npmguard.audit")
 
@@ -48,10 +49,14 @@ class AuditService:
         *,
         queue_size: int = 50,
         max_concurrent: int | None = None,
+        mirror: ZeroGStorage | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.sessions = sessions
         self.stream = stream
+        # Optional 0G Storage mirror for finished reports. Strictly downstream of
+        # the terminal frame and strictly best-effort — see _execute.
+        self.mirror = mirror
         self.queue_size = queue_size
         self.max_concurrent = max_concurrent or 1
         # UNBOUNDED: the real admission bound is reserve()/queued_count() (DB), run
@@ -270,6 +275,42 @@ class AuditService:
             await self.sessions.finalize(audit_id, report, error, session=db)
             await self.stream.append(audit_channel(audit_id), event_type, payload, session=db)
 
+    async def _mirror_report(self, session: AuditSession, report: dict[str, Any]) -> None:
+        """Best-effort publish of a finished report to 0G Storage.
+
+        The filesystem store stays the source of truth; this is a public copy
+        addressed by its own content, so a third party can check that the verdict
+        we serve is the verdict we published. Inert when unconfigured.
+
+        NOTHING escapes this method. It runs after the row is already terminal,
+        so an exception here would reach ``_execute``'s outer handler and try to
+        finalize a 'done' row a second time — turning a completed audit into a
+        lifecycle assertion. ``try_put_json`` is already contractually
+        non-raising; this does not rely on that.
+        """
+        if self.mirror is None or not self.mirror.enabled:
+            return
+        version = session.requested_version or "latest"
+        try:
+            stored = await self.mirror.try_put_json(
+                report, filename=f"{session.package_name}@{version}.json"
+            )
+        except Exception:
+            log.warning(
+                "0G report mirror failed",
+                audit_id=session.audit_id,
+                package_name=session.package_name,
+                exc_info=True,
+            )
+            return
+        if stored is not None:
+            log.info(
+                "report mirrored to 0G Storage",
+                audit_id=session.audit_id,
+                package_name=session.package_name,
+                root_hash=stored.root_hash,
+            )
+
     async def _execute(self, session: AuditSession) -> dict[str, Any]:
         emitter = AuditEmitter(session.audit_id, self.stream)
         try:
@@ -323,6 +364,12 @@ class AuditService:
                         "confirmedCount": result.report.counts.confirmed,
                     },
                 )
+                # AFTER the terminal frame, deliberately. The 0G mirror is a
+                # public, tamper-evident copy — useful, but never on the path a
+                # client waits on, and never able to fail an audit: try_put_json
+                # swallows every error. Ordering it before _finish would put a
+                # storage network between a computed verdict and its delivery.
+                await self._mirror_report(session, report)
             finally:
                 # unconditional: a save/finalize failure must not leak the workspace
                 result.cleanup()

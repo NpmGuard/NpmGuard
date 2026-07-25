@@ -33,6 +33,9 @@ from kit_spine import (
 from kit_spine.db import metadata
 from kit_stream import StreamService
 
+from .attest_routes import router as attest_router
+from .attest_store import AttestStore
+from .attestations import WorldVerifier
 from .bench import list_benchmark_runs
 from .config import REPO_ROOT, Settings, get_settings
 from .demo import DemoService
@@ -62,8 +65,10 @@ from .panel.tables import repos as repo_table
 from .panel.verdict_index import SavedReport, VerdictIndex
 from .panel.watch import Reconciler, RegistryWatcher, sync_watched_packages
 from .payments import (
+    CHAINS,
     ChainVerificationError,
     chain_contract,
+    configured_chains,
     construct_webhook_event,
     create_checkout_session,
     handle_subscription_event,
@@ -84,6 +89,7 @@ from .validation import (
     valid_package_name,
     valid_semver,
 )
+from .zerog import ZeroGStorage
 
 log = structlog.get_logger("npmguard.api")
 
@@ -120,6 +126,12 @@ class Runtime:
     # awaited on shutdown BEFORE audits.close().
     panel_watch_task: asyncio.Task[None] | None = None
     panel_reconcile_task: asyncio.Task[None] | None = None
+    # World ID publisher attestation. All three are None unless
+    # settings.world_enabled, in which case every /attest route returns 503 and
+    # the engine behaves exactly as it does without the feature.
+    attest: AttestStore | None = None
+    world: WorldVerifier | None = None
+    zerog: ZeroGStorage | None = None
 
 
 def _runtime(request: Request) -> Runtime:
@@ -556,24 +568,33 @@ async def public_config(request: Request) -> JSONResponse:
         "stripeEnabled": bool(settings.stripe_secret_key),
         "priceCents": settings.audit_price_cents,
     }
-    if not is_chain_configured(settings, "base-sepolia"):
-        return JSONResponse({**base, "crypto": None})
-    try:
-        fee = await read_audit_fee(settings, "base-sepolia")
-        return JSONResponse(
+    chains = []
+    for name in configured_chains(settings):
+        # One unreachable RPC must not hide every other chain, so the fee read is
+        # per-chain and a failure drops that chain rather than the whole block.
+        try:
+            fee = await read_audit_fee(settings, name)
+        except Exception:
+            log.warning("failed to read audit fee", chain=name)
+            continue
+        chains.append(
             {
-                **base,
-                "crypto": {
-                    "chain": "base-sepolia",
-                    "chainId": 84532,
-                    "contract": chain_contract(settings, "base-sepolia"),
-                    "auditFeeWei": str(fee) if fee is not None else None,
-                },
+                "chain": name,
+                "chainId": CHAINS[name].chain_id,
+                "contract": chain_contract(settings, name),
+                "auditFeeWei": str(fee) if fee is not None else None,
             }
         )
-    except Exception:
-        log.warning("failed to read audit fee")
-        return JSONResponse({**base, "crypto": None})
+    return JSONResponse(
+        {
+            **base,
+            "chains": chains,
+            # `crypto` is the pre-multichain shape the shipped CLI and web app
+            # still read: the first configured chain. Keep it until both move to
+            # `chains`, or every released CLI loses the pay-by-wallet option.
+            "crypto": chains[0] if chains else None,
+        }
+    )
 
 
 @router.get("/demo/packages")
@@ -674,6 +695,13 @@ async def lifespan(app: FastAPI):
         stream,
         queue_size=settings.queue_size,
         max_concurrent=settings.max_running_sessions,
+        # Opt-in public mirror of finished reports. Off unless both a relayer key
+        # and the flag are set, so the default engine touches no storage network.
+        mirror=(
+            ZeroGStorage(settings)
+            if settings.zerog_mirror_reports and settings.zerog_storage_enabled
+            else None
+        ),
     )
     await audits.start()
     # Panel wiring: build the GitHub App client + panel stores only when the App
@@ -851,6 +879,12 @@ async def lifespan(app: FastAPI):
         panel_workers=panel_workers,
         panel_watch_task=panel_watch_task,
         panel_reconcile_task=panel_reconcile_task,
+        # World ID attestation. Gated on world_enabled exactly like the panel is
+        # gated on github_app_enabled: unset leaves these None and every
+        # /attest route returns 503.
+        attest=AttestStore(sessions_factory) if settings.world_enabled else None,
+        world=WorldVerifier(settings) if settings.world_enabled else None,
+        zerog=ZeroGStorage(settings) if settings.zerog_storage_enabled else None,
     )
     try:
         yield
@@ -897,6 +931,8 @@ def create_app() -> FastAPI:
     app.include_router(panel_webhooks_router, prefix="/api")
     app.include_router(panel_public_repos_router)
     app.include_router(panel_public_repos_router, prefix="/api")
+    app.include_router(attest_router)
+    app.include_router(attest_router, prefix="/api")
     app.include_router(panel_billing_router)
     app.include_router(panel_billing_router, prefix="/api")
 

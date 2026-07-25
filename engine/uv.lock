@@ -7,6 +7,22 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "0g-storage-sdk"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "eth-account" },
+    { name = "pycryptodome" },
+    { name = "requests" },
+    { name = "web3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/64/56834c6c27452410cb5f275ab33ef6153c1c5b6e47fdcbc14230ca06e73f/0g_storage_sdk-0.4.0.tar.gz", hash = "sha256:c3b73eed383d6439af037683431f637b9c5d15c45ae0d9627d3189b8b124907b", size = 75821, upload-time = "2026-05-18T18:56:18.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/2f/237a02b0c8aea83beeb9611024be823c2c9fd33c638410f4a25f5552063a/0g_storage_sdk-0.4.0-py3-none-any.whl", hash = "sha256:342e753b221d7dddf3f1856d7f8240a4f4d8a34d7e44e0fb3b4fa7158abef416", size = 74154, upload-time = "2026-05-18T18:56:16.628Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1607,6 +1623,7 @@ name = "npmguard-engine"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "0g-storage-sdk" },
     { name = "aiosmtplib" },
     { name = "aiosqlite" },
     { name = "alembic" },
@@ -1641,6 +1658,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "0g-storage-sdk", specifier = ">=0.4.0" },
     { name = "aiosmtplib", specifier = ">=3.0" },
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "alembic", specifier = ">=1.13" },
