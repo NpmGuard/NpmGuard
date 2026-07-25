@@ -7,6 +7,7 @@ import posixpath
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from .config import Settings
@@ -47,14 +48,18 @@ SANDBOX_WORKDIR = "/pkg"
 # side-effect-free container start this many times before deferring the audit.
 _CONTAINER_START_ATTEMPTS = 3
 
-DEFAULT_OBSERVE = {
+DEFAULT_OBSERVE: dict[str, Any] = {
     "kernel": False,
     "network": False,
     "fsDiff": False,
     "node": True,
     "inspector": False,
 }
-DEFAULT_BUDGET = {"wallMs": 60_000, "maxSyscalls": None, "maxBytesCapture": 1_000_000}
+DEFAULT_BUDGET: dict[str, Any] = {
+    "wallMs": 60_000,
+    "maxSyscalls": None,
+    "maxBytesCapture": 1_000_000,
+}
 
 
 class RunUnderObservationError(RuntimeError):

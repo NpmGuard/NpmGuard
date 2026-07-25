@@ -7,7 +7,13 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import * as shared from "./index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const outDir = join(here, "..", "contract");
+// `--out <dir>` renders somewhere other than the committed artifact. Its only
+// caller is the codegen-freshness test, which renders to a tmpdir and diffs:
+// a test that wrote to `contract/` would silently REPAIR the drift it exists to
+// catch, and then pass.
+const outFlag = process.argv.indexOf("--out");
+const outDir = outFlag === -1 ? join(here, "..", "contract") : process.argv[outFlag + 1];
+if (!outDir) throw new Error("contract-export: --out needs a directory");
 mkdirSync(outDir, { recursive: true });
 
 const definitions: Record<string, z.ZodTypeAny> = {};

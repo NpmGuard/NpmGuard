@@ -37,6 +37,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from kit_spine import make_engine, make_session_factory, now_iso
@@ -312,7 +313,14 @@ def test_no_bench_route_can_enqueue_work(client) -> None:
     """C10: ingestion is not an HTTP write. Structural, not a policy — the router
     declares GETs only, so there is no auth story to get wrong and no way for a
     bench run to bypass the capacity owner."""
-    methods = {method for route in bench_routes.router.routes for method in route.methods}
+    # `routes` is typed as BaseRoute; every bench route is an APIRoute, which is
+    # what carries `methods` — and what this asserts about.
+    methods = {
+        method
+        for route in bench_routes.router.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods or ()
+    }
     assert methods == {"GET"}
     test_client, run_id, _ = client
     assert test_client.post("/bench/runs").status_code == 405

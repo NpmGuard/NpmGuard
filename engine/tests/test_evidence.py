@@ -40,6 +40,7 @@ from pathlib import Path
 
 import pytest
 
+from npmguard.contract.kinds import EventKind
 from npmguard.contract.models import EvidenceEvent, RunArtifact
 from npmguard.evidence import (
     _BUFFER_RENDER_CHARS,
@@ -58,6 +59,7 @@ from npmguard.evidence import (
     synthetic_event,
 )
 from npmguard.sensors import parse_strace_log
+from tests.support.optional import present
 
 SENSOR_FIXTURES = Path(__file__).parent / "fixtures" / "sensors"
 # One second before the first line of each capture, so relative stamps stay positive.
@@ -150,7 +152,7 @@ def _artifact_draft(events: list[EvidenceEvent], **changes):
     return draft
 
 
-def _l4(kind: str, normalized: dict, timestamp: int = 0) -> EvidenceEvent:
+def _l4(kind: EventKind, normalized: dict, timestamp: int = 0) -> EvidenceEvent:
     return EvidenceEvent(
         stream="L4:monkey", timestamp=timestamp, pid=0, kind=kind, raw={}, normalized=normalized
     )
@@ -197,7 +199,7 @@ def test_l4_parser_uses_last_complete_trace_and_normalizes_events() -> None:
     events = parse_l4_trace(stdout)
     assert events is not None
     assert [event.kind for event in events] == ["env_access", "network"]
-    assert events[1].normalized["url"] == "https://evil.test/x"
+    assert present(events[1].normalized)["url"] == "https://evil.test/x"
 
 
 def test_seal_run_artifact_hash_is_self_consistent_and_deterministic() -> None:

@@ -1,8 +1,11 @@
 """Panel core routes: the user's orgs (installations) and repos.
 
-The orgs/repos handlers. Both are session-gated and scoped to the GitHub App installations the user can access
-(the org-shared view). The ``user_installations`` cache is (re)built on
-``/panel/orgs`` and read by ``/panel/repos``.
+The orgs/repos handlers. Both are session-gated and scoped to the GitHub App
+installations the user can access (the org-shared view). BOTH routes (re)build
+the ``user_installations`` cache from GitHub via ``_sync_user_installations`` —
+neither reads what the other wrote, because the dashboard calls them
+concurrently and a read that depends on another route's side effect answers with
+a fabricated empty when it wins the race.
 
 Two load-bearing error behaviours (the frontend branches on the *field*, never
 the message):
@@ -43,7 +46,8 @@ from npmguard.panel.github.content import find_root_lockfile
 from npmguard.panel.lockfile import UnsupportedLockfileError
 from npmguard.panel.routes._common import (
     current_user,
-    require_enabled,
+    panel_disabled_response,
+    require_panel,
     runtime_of,
 )
 from npmguard.panel.scan.repo_scan import LockfileNotFoundError
@@ -127,11 +131,37 @@ def _auditability_is_fresh(checked_at: str | None, now: datetime) -> bool:
     return (now - parsed).total_seconds() < AUDITABILITY_CACHE_SECONDS
 
 
+async def _sync_user_installations(
+    runtime: Any, octo: Any, user_id: int
+) -> list[dict[str, Any]]:
+    """Read the user's installations from GitHub and mirror them; returns the
+    wire summaries.
+
+    Shared by ``/panel/orgs`` and ``/panel/repos`` because a route's answer must
+    not depend on another route having been called first. It did: ``/panel/repos``
+    used to read the ``user_installations`` mirror, which only ``/panel/orgs``
+    ever wrote. The dashboard fires both queries CONCURRENTLY, so on a first sign-
+    in ``/panel/repos`` raced ahead of the mirror, found no installations, and
+    answered ``{"repos": []}`` — indistinguishable on the wire from "you have no
+    auditable repositories", which is exactly the confident-empty lie N-3 forbids,
+    and it healed on reload so it read as a UI glitch. Found by the browser tier;
+    the Python tier could not see it because an HTTP client calls the two routes
+    in sequence.
+    """
+    data = (
+        await octo.arequest("GET", "/user/installations", params={"per_page": 100})
+    ).json()
+    raw = data.get("installations", []) if isinstance(data, dict) else []
+    summaries = [_installation_summary(inst) for inst in raw]
+    await runtime.panel_installations.replace_user_installations(user_id, summaries)
+    return summaries
+
+
 @router.get("/panel/orgs")
 async def panel_orgs(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -144,16 +174,7 @@ async def panel_orgs(request: Request) -> Response:
 
     try:
         octo = runtime.gh_client.user_octokit(token)
-        data = (
-            await octo.arequest(
-                "GET", "/user/installations", params={"per_page": 100}
-            )
-        ).json()
-        raw = data.get("installations", []) if isinstance(data, dict) else []
-        summaries = [_installation_summary(inst) for inst in raw]
-        await runtime.panel_installations.replace_user_installations(
-            user["id"], summaries
-        )
+        summaries = await _sync_user_installations(runtime, octo, user["id"])
         install_url = await runtime.gh_client.install_url()
     except Exception:
         log.exception("panel orgs fetch failed")
@@ -207,9 +228,9 @@ async def _refresh_auditability(
 
 @router.get("/panel/repos")
 async def panel_repos(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -222,9 +243,20 @@ async def panel_repos(request: Request) -> Response:
 
     octo = runtime.gh_client.user_octokit(token)
     now = datetime.now(UTC)
-    installation_ids = await runtime.panel_installations.list_installation_ids(
-        user["id"]
-    )
+    # From GitHub, not from the mirror `/panel/orgs` writes — see
+    # `_sync_user_installations`. A failure here is a 502, never an empty list:
+    # "we could not ask GitHub" and "you have no repositories" are different
+    # facts, and the client renders them differently only if the engine keeps
+    # them apart.
+    try:
+        installation_ids = [
+            summary["id"] for summary in await _sync_user_installations(runtime, octo, user["id"])
+        ]
+    except Exception:
+        log.exception("panel repos installation sync failed")
+        return JSONResponse(
+            {"error": "Failed to list GitHub installations"}, status_code=502
+        )
 
     repos: list[dict[str, Any]] = []
     for installation_id in installation_ids:
@@ -410,9 +442,9 @@ async def _live_set_id(runtime: Any, repo_id: int) -> int | None:
 
 @router.post("/panel/repo/{repo_id}/scan")
 async def panel_repo_scan(repo_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -477,9 +509,9 @@ async def _initial_protect_scan(runtime: Any, repo: dict[str, Any]) -> None:
 
 @router.post("/panel/repo/{repo_id}/protect")
 async def panel_repo_protect(repo_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -504,9 +536,9 @@ async def panel_repo_protect(repo_id: int, request: Request) -> Response:
 
 @router.delete("/panel/repo/{repo_id}/protect")
 async def panel_repo_unprotect(repo_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -521,9 +553,9 @@ async def panel_repo_unprotect(repo_id: int, request: Request) -> Response:
 
 @router.post("/panel/repo/{repo_id}/resync")
 async def panel_repo_resync(repo_id: int, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -545,9 +577,9 @@ async def panel_repo_resync(repo_id: int, request: Request) -> Response:
 
 @router.get("/panel/repo/{owner}/{name}")
 async def panel_repo_detail(owner: str, name: str, request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -618,17 +650,18 @@ async def _may_read_set(runtime: Any, user_id: int, set_id: int) -> bool:
 
     One stream serves every origin, so the authorization has to be per-origin here
     rather than per-route. A ``repo_scan`` set is readable by anyone who can access
-    its repo's installation; a ``public_repo_scan`` set by anyone who can access
-    the installation that paid for it. Every other origin is unreadable until it
-    has an access story of its own — an origin nobody can read is a 404, never an
-    open default.
+    its repo's installation; a ``public_repo_scan`` set by the user who asked for
+    it. Every other origin is unreadable until it has an access story of its own —
+    an origin nobody can read is a 404, never an open default.
     """
     async with runtime.sessionmaker() as session:
         row = (
             (
                 await session.execute(
                     sa.select(
-                        audit_sets.c.origin, audit_sets.c.origin_ref, audit_sets.c.billed_to
+                        audit_sets.c.origin,
+                        audit_sets.c.origin_ref,
+                        audit_sets.c.requested_by,
                     ).where(audit_sets.c.id == set_id)
                 )
             )
@@ -639,9 +672,12 @@ async def _may_read_set(runtime: Any, user_id: int, set_id: int) -> bool:
         return False
     if row["origin"] == ORIGIN_REPO_SCAN:
         return await _authorized_repo(runtime, user_id, row["origin_ref"]) is not None
-    if row["origin"] == ORIGIN_PUBLIC_REPO_SCAN and row["billed_to"] is not None:
-        async with runtime.sessionmaker() as session:
-            return await _user_has_installation(session, user_id, row["billed_to"])
+    if row["origin"] == ORIGIN_PUBLIC_REPO_SCAN:
+        # `requested_by` is NOT NULL for this origin (the invariant in
+        # `AuditSetStore.create`), so there is no "unowned public set" arm to
+        # write — a NULL here would be a bug upstream, and comparing it to a user
+        # id is False anyway rather than an open default.
+        return row["requested_by"] == user_id
     return False
 
 
@@ -654,9 +690,9 @@ async def panel_scan_events(scan_id: int, request: Request) -> Response:
     per-connection "what did I already send" dict is gone, and so is the public
     scan's client-side polling loop, because a public set streams here too.
     """
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -699,9 +735,9 @@ ALERTS_FEED_LIMIT = 50
 
 @router.get("/panel/alerts")
 async def panel_alerts(request: Request) -> Response:
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()
@@ -733,9 +769,9 @@ async def panel_alerts_seen(request: Request) -> Response:
     banner. Idempotent — a second call matches nothing and still returns ok, so
     a double-click cannot 500.
     """
-    runtime = runtime_of(request)
-    if (disabled := require_enabled(runtime)) is not None:
-        return disabled
+    runtime = require_panel(runtime_of(request))
+    if runtime is None:
+        return panel_disabled_response()
     user = await current_user(request, runtime)
     if user is None:
         return _not_signed_in()

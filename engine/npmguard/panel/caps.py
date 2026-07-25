@@ -12,6 +12,14 @@ and the cap assertions never fire. A positive limit is a hard ceiling.
 
 Limits come from ``Settings`` (``free_*`` / ``pro_*`` fields), so a deployment
 retunes quotas without a code change.
+
+What is NOT here: the public-repo scan. It used to carry a third bucket
+(``publicRepoAudits``, counted per installation), and D-1 removed the only thing
+that made it an installation's business — a public scan now needs a GitHub
+sign-in and nothing else, so it has a requester and no payer, and no installation
+is charged for one. Its ceiling is cost, not entitlement, it is scoped per user,
+and it lives in ``panel/public_limits.py``. A bucket kept here would have had no
+producer and would have reported ``used: 0`` forever.
 """
 
 from __future__ import annotations
@@ -26,18 +34,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from ..config import Settings
 from .tables import (
     account_usage,
-    audit_sets,
     billing_accounts,
     installations,
     repos,
 )
 
-# The origin whose sets the public-repo-audit cap counts. Spelled here rather than
-# imported from `audit_set` to keep the import edge one-way (audit_set uses caps).
-_PUBLIC_REPO_SCAN = "public_repo_scan"
-
 AccountPlan = Literal["free", "pro"]
-CapResource = Literal["protected_repos", "public_repo_audits", "monthly_audits"]
+CapResource = Literal["protected_repos", "monthly_audits"]
 
 # Only these subscription statuses grant the Pro plan; everything else is free.
 _ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
@@ -46,7 +49,6 @@ _ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
 @dataclass(frozen=True)
 class PlanLimits:
     protected_repos: int
-    public_repo_audits: int
     monthly_audits: int
 
 
@@ -91,12 +93,10 @@ class CapsStore:
         if plan == "pro":
             return PlanLimits(
                 protected_repos=s.pro_max_protected_repos,
-                public_repo_audits=s.pro_max_public_repo_audits,
                 monthly_audits=s.pro_max_audits_month,
             )
         return PlanLimits(
             protected_repos=s.free_max_protected_repos,
-            public_repo_audits=s.free_max_public_repo_audits,
             monthly_audits=s.free_max_audits_month,
         )
 
@@ -104,7 +104,6 @@ class CapsStore:
         def _shape(limits: PlanLimits) -> dict[str, int]:
             return {
                 "protectedRepos": limits.protected_repos,
-                "publicRepoAudits": limits.public_repo_audits,
                 "monthlyAudits": limits.monthly_audits,
             }
 
@@ -116,7 +115,6 @@ class CapsStore:
             account_login = await self._installation_account(session, installation_id)
             subscription_status = await self._subscription_status(session, installation_id)
             protected = await self._protected_repo_count(session, installation_id)
-            public = await self._public_repo_audit_count(session, installation_id)
             monthly = await self._audits_used_this_month(session, installation_id)
 
         plan: AccountPlan = (
@@ -132,11 +130,6 @@ class CapsStore:
                 "used": protected,
                 "limit": limits.protected_repos,
                 "remaining": _remaining(limits.protected_repos, protected),
-            },
-            "publicRepoAudits": {
-                "used": public,
-                "limit": limits.public_repo_audits,
-                "remaining": _remaining(limits.public_repo_audits, public),
             },
             "monthlyAudits": {
                 "used": monthly,
@@ -155,42 +148,6 @@ class CapsStore:
                 f"{entitlements['plan'].upper()} protected repositories",
                 installation_id,
                 "protected_repos",
-                entitlements,
-            )
-
-    async def assert_public_repo_audit_cap(
-        self, installation_id: int, github_repo_id: int
-    ) -> None:
-        # Re-auditing a repo already scanned by this installation is always free —
-        # the cap counts DISTINCT github_repo_id, so a repeat never consumes a slot.
-        # The id lives on the SET as `origin_ref`, which is what makes this a
-        # question about audit sets rather than about a snapshot table.
-        async with self._sessions() as session:
-            already = (
-                await session.execute(
-                    sa.select(sa.literal(1))
-                    .select_from(audit_sets)
-                    .where(
-                        audit_sets.c.origin == _PUBLIC_REPO_SCAN,
-                        audit_sets.c.billed_to == installation_id,
-                        audit_sets.c.origin_ref == github_repo_id,
-                    )
-                    .limit(1)
-                )
-            ).first()
-        if already is not None:
-            return
-
-        entitlements = await self.entitlements(installation_id)
-        bucket = entitlements["publicRepoAudits"]
-        used, limit = bucket["used"], bucket["limit"]
-        if limit > 0 and used >= limit:
-            raise CapExceededError(
-                f"{entitlements['accountLogin']} has used all {limit} "
-                f"{entitlements['plan'].upper()} public repository audits. "
-                "Re-auditing an existing repository remains free.",
-                installation_id,
-                "public_repo_audits",
                 entitlements,
             )
 
@@ -269,18 +226,6 @@ class CapsStore:
                 .where(
                     repos.c.installation_id == installation_id,
                     repos.c.protected_at.is_not(None),
-                )
-            )
-        ).scalar_one()
-
-    async def _public_repo_audit_count(self, session, installation_id: int) -> int:
-        return (
-            await session.execute(
-                sa.select(sa.func.count(sa.distinct(audit_sets.c.origin_ref)))
-                .select_from(audit_sets)
-                .where(
-                    audit_sets.c.origin == _PUBLIC_REPO_SCAN,
-                    audit_sets.c.billed_to == installation_id,
                 )
             )
         ).scalar_one()

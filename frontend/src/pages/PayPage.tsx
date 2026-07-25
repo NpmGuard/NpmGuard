@@ -41,7 +41,7 @@ import { useLocation, useNavigate } from "react-router";
 import type { Address } from "viem";
 import { fetchPublicConfig } from "../lib/api.ts";
 import { ApiError } from "../lib/api-base.ts";
-import type { PublicConfig } from "../lib/engine-types.ts";
+import type { PublicConfig } from "@npmguard/shared";
 import { formatCents, formatWeiAsEth, truncateMiddle } from "../lib/format.ts";
 import { hasInjectedWallet, payWithInjected, WalletRejectedError } from "../lib/wallet.ts";
 import { useAuditStore } from "../stores/auditStore.ts";
@@ -181,7 +181,7 @@ export function PayPage() {
         crypto.contract as Address,
         packageName,
         payVersion,
-        BigInt(crypto.auditFeeWei ?? "0"),
+        BigInt(crypto.auditFeeWei),
       );
       // Signed & broadcast — now the ENGINE verifies the receipt on-chain.
       setCryptoPhase("verifying");
@@ -433,6 +433,10 @@ interface CryptoPaneProps {
 function CryptoPane(props: CryptoPaneProps) {
   const { crypto, packageName, version, walletPresent, cryptoPhase, cryptoBusy, walletNotice } =
     props;
+  // No "fee unknown" case: the contract offers a `crypto` block only when the
+  // engine could read the fee, and retracts the whole method otherwise. The
+  // em-dash branch this file used to carry is now unreachable by construction.
+  const feeLabel = formatWeiAsEth(crypto.auditFeeWei);
   const cliTarget = version ? `${packageName}@${version}` : packageName;
 
   return (
@@ -442,15 +446,7 @@ function CryptoPane(props: CryptoPaneProps) {
           <Badge>Base Sepolia</Badge>
         </MetaRow>
         <MetaRow label="Audit fee">
-          {crypto.auditFeeWei ? (
-            <span className="font-mono tabular-nums">{formatWeiAsEth(crypto.auditFeeWei)}</span>
-          ) : (
-            // An em-dash, never a fabricated 0 — the fee is unknown, and a `0`
-            // here would read as "this audit is free" (§3.4, the `field` rule).
-            <span aria-label="audit fee unavailable" className="font-mono text-text-3">
-              —
-            </span>
-          )}
+          <span className="font-mono tabular-nums">{feeLabel}</span>
         </MetaRow>
         <MetaRow label="Contract">
           <span className="font-mono" title={crypto.contract}>
@@ -459,11 +455,6 @@ function CryptoPane(props: CryptoPaneProps) {
         </MetaRow>
       </MetaRows>
 
-      {crypto.auditFeeWei ? null : (
-        <p className="text-2xs text-text-3">
-          The audit fee could not be read from the contract right now.
-        </p>
-      )}
 
       {walletPresent ? (
         <>

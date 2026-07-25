@@ -17,6 +17,11 @@ const PackageLookup = lazy(() =>
 const CliInstall = lazy(() =>
   import("./pages/CliInstall.tsx").then((m) => ({ default: m.CliInstall })),
 );
+// GSAP + three plugins is the heaviest thing on any static surface; it stays
+// out of the boot chunk and loads only when someone asks how this works.
+const HowItWorks = lazy(() =>
+  import("./pages/HowItWorks.tsx").then((m) => ({ default: m.HowItWorks })),
+);
 const PayPage = lazy(() => import("./pages/PayPage.tsx").then((m) => ({ default: m.PayPage })));
 const Dashboard = lazy(() =>
   import("./pages/Dashboard.tsx").then((m) => ({ default: m.Dashboard })),
@@ -24,9 +29,10 @@ const Dashboard = lazy(() =>
 const RepoDetail = lazy(() =>
   import("./pages/RepoDetail.tsx").then((m) => ({ default: m.RepoDetail })),
 );
+const Scan = lazy(() => import("./pages/Scan.tsx").then((m) => ({ default: m.Scan })));
 
 // Back/forward off these routes resets the audit store.
-const KEEP_STATE_RE = /^\/(audit|replays|packages|package|cli|pay|dashboard|repo)(\/|$)/;
+const KEEP_STATE_RE = /^\/(audit|replays|packages|package|cli|pay|dashboard|repo|scan)(\/|$)/;
 
 function HomeOrAudit() {
   const hasStarted = useAuditStore((s) => s.hasStarted);
@@ -132,7 +138,9 @@ export function App() {
             <Route path="/packages" element={<Registry />} />
             <Route path="/package/*" element={<PackageLookup />} />
             <Route path="/cli" element={<CliInstall />} />
+            <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/pay" element={<PayPage />} />
+            <Route path="/scan" element={<Scan />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/repo/:owner/:name" element={<RepoDetail />} />
             <Route path="/audit/:auditId" element={<AuditRoute />} />

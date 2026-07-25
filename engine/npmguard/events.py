@@ -1,6 +1,6 @@
 import json
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncGenerator
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
@@ -29,6 +29,18 @@ def audit_channel(audit_id: str) -> str:
     # Kit notifiers require a Postgres-safe identifier. UUIDs are normalized
     # so the same durable channel works for SQLite polling and LISTEN/NOTIFY.
     return f"audit_{audit_id.replace('-', '')}"
+
+
+class Emitting(Protocol):
+    """The one method the pipeline uses from an emitter.
+
+    Structural, so a caller that only wants the frames — the demo recorder, the
+    replay slices — can pass a recorder instead of standing up a StreamService.
+    """
+
+    async def emit(
+        self, event_type: str, payload: dict[str, Any] | None = None
+    ) -> object: ...  # pragma: no cover
 
 
 class AuditEmitter:
@@ -93,7 +105,7 @@ async def sse_events(
     after: int = -1,
     follow: bool,
     heartbeat: float = 15,
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str]:
     channel = audit_channel(audit_id)
     if not follow:
         cursor = after

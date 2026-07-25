@@ -18,7 +18,12 @@
   (`llm_budget_usd_24h` is deployment-wide). It defaults to `0` = off because the
   refusal it enables lands *after* the payment claim — see the ledger comment on
   the field before turning it on.
-- Run `uv run pytest` and `uv run ruff check .` after engine changes.
+- Run `uv run pytest`, `uv run ruff check .` and `uv run ty check` after engine
+  changes. `ty` (Astral's type checker) is clean across `npmguard/`, `tests/`,
+  `scripts/` and `tools/`, and the gate enforces it. It excludes only what ruff
+  excludes — vendored `kit_*` and the generated `contract/models.py`; the named
+  aliases for that file's inline enums live in `contract/kinds.py`, which asserts
+  at import that it has not drifted from the generator.
 - `npmguard/contract/models.py` is generated from `shared`; never hand-edit it.
 - Reports remain at `data/reports/<pkg>/<real-version>.json`. The real tarball
   version is authoritative; never persist a `latest.json` alias. When no concrete

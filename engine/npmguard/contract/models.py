@@ -25,6 +25,14 @@ class AppNotConfigured(BaseModel):
     error: str
 
 
+class AuditAcceptedResponse(BaseModel):
+    status: Literal['accepted']
+    auditId: str
+    packageName: str
+    version: str | None
+    queuePosition: Annotated[int, Field(ge=0)]
+
+
 class AuditEnqueuedEvent(BaseModel):
     auditId: str
     timestamp: str
@@ -97,6 +105,25 @@ class Budget(BaseModel):
     maxBytesCapture: MaxBytesCapture | None = None
 
 
+class CheckoutResponse(BaseModel):
+    url: str
+    sessionId: str
+
+
+class CheckoutStatus(BaseModel):
+    paid: bool
+    packageName: str
+    version: str
+    auditId: str | None
+
+
+class CryptoConfig(BaseModel):
+    chain: Literal['base-sepolia']
+    chainId: Literal[84532]
+    contract: str
+    auditFeeWei: str
+
+
 class CryptoOp(BaseModel):
     method: str
     algo: str
@@ -105,6 +132,10 @@ class CryptoOp(BaseModel):
 class DealBreaker(BaseModel):
     check: str
     detail: str
+
+
+class DemoPackagesResponse(BaseModel):
+    packages: list[str]
 
 
 class DependencyGroups(BaseModel):
@@ -258,7 +289,6 @@ class PhaseLog(BaseModel):
 
 class PlanLimits(BaseModel):
     protectedRepos: Annotated[int, Field(ge=0)]
-    publicRepoAudits: Annotated[int, Field(ge=0)]
     monthlyAudits: Annotated[int, Field(ge=0)]
 
 
@@ -272,9 +302,16 @@ class ProcessSpawn(BaseModel):
     args: list[str] | None = []
 
 
+class PublicConfig(BaseModel):
+    paymentRequired: bool
+    paymentEnabled: bool
+    stripeEnabled: bool
+    priceCents: int
+    crypto: CryptoConfig | None
+
+
 class PublicRepoScanRequest(BaseModel):
     repository: str
-    installationId: int | None = None
 
 
 class PublicRepo(BaseModel):
@@ -286,11 +323,17 @@ class PublicRepo(BaseModel):
     defaultBranch: str
     lockfilePath: str
     lockfileSha: str
+    lockfileDepCount: Annotated[int, Field(ge=0)]
 
 
 class ReauthRequired(BaseModel):
     error: str
     reauth: Literal[True]
+
+
+class ResolveResponse(BaseModel):
+    packageName: str
+    version: str
 
 
 class ResolvedPackage(BaseModel):
@@ -328,6 +371,11 @@ class SessionUser(BaseModel):
     avatarUrl: str | None
 
 
+class StartAuditResponse(BaseModel):
+    auditId: str
+    packageName: str
+
+
 class StubUrlRef(BaseModel):
     pattern: str
     responseHash: str | None
@@ -343,6 +391,11 @@ class TimerRecord(BaseModel):
     type: str
     ms: float
     source: str | None = ''
+
+
+class TooManyLiveScans(BaseModel):
+    error: str
+    limit: Annotated[int, Field(gt=0)]
 
 
 class ToolCall(BaseModel):
@@ -402,7 +455,6 @@ class AccountEntitlements(BaseModel):
     plan: Annotated[Literal['free', 'pro'], Field(title='AccountPlan')]
     subscriptionStatus: str
     protectedRepos: UsageBucket
-    publicRepoAudits: UsageBucket
     monthlyAudits: UsageBucket
 
 
@@ -642,8 +694,7 @@ class CapExceeded(BaseModel):
     error: str
     cap: Literal[True]
     resource: Annotated[
-        Literal['protected_repos', 'public_repo_audits', 'monthly_audits'],
-        Field(title='CapResource'),
+        Literal['protected_repos', 'monthly_audits'], Field(title='CapResource')
     ]
     installationId: int
     entitlements: AccountEntitlements
@@ -912,6 +963,13 @@ class InventoryReport(BaseModel):
     dealbreaker: DealBreaker | None = None
 
 
+class PackageSummary(BaseModel):
+    packageName: str
+    version: str
+    verdict: Annotated[Literal['SAFE', 'DANGEROUS'], Field(title='Verdict')]
+    auditedAt: str
+
+
 class PanelRepo(BaseModel):
     id: int
     installationId: int
@@ -951,8 +1009,6 @@ class PublicRepoScan(BaseModel):
     repo: PublicRepo
     set: AuditSet
     requestedBy: int
-    installationId: int | None
-    accountLogin: str | None
 
 
 class PublicRepoScansResponse(BaseModel):
@@ -1133,6 +1189,16 @@ class HypothesisGraphSnapshot(BaseModel):
     nodes: list[Hypothesis]
     createdAt: str
     updatedAt: str
+
+
+class PackageIndexResponse(BaseModel):
+    packages: list[PackageSummary]
+
+
+class PackageReportResponse(BaseModel):
+    report: AuditReport
+    version: str
+    packageName: str
 
 
 class PublicRepoScanDetailResponse(BaseModel):

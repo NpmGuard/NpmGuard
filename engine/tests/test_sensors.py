@@ -24,9 +24,9 @@
 #    combination (-y, -yy, -v, -e abbrev=none) emits a bare sin_addr="…" — -y/-yy
 #    annotate the file DESCRIPTOR and leave the sockaddr untouched.
 #  - Every packet the -Y filter admitted must yield an event. Six of thirteen real
-#    packets used to yield none, silently — indistinguishable from no traffic —
-#    because the fields were looked up under hardcoded layer names and mdns, llmnr
-#    and ssdp all carry them too. The filter and the extraction now share one list.
+#    packets yield none, silently and indistinguishably from no traffic, when the
+#    fields are looked up under hardcoded layer names — mdns, llmnr and ssdp all
+#    carry them too. The filter and the extraction share one list.
 #  - Unreadable tshark stdout RAISES, because tshark prints "[]" for zero packets: a
 #    capture we cannot parse is missing evidence, not absent traffic.
 #  - An over-cap transfer of a WHOLE capture is UNREPRESENTABLE, not merely loud.
@@ -47,6 +47,7 @@ from pathlib import Path
 import pytest
 
 from npmguard import sensors
+from npmguard.contract.models import EvidenceEvent
 from npmguard.docker import MAX_EXEC_OUTPUT_BYTES, TMPFS_TMP, ExecResult
 from npmguard.sensors import (
     PCAP_FIELDS,
@@ -60,6 +61,7 @@ from npmguard.sensors import (
     parse_tshark_json,
     wrap_with_strace,
 )
+from tests.support.optional import present
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sensors"
 # The run start used throughout: one second before the container capture's first
@@ -71,13 +73,13 @@ def _strace_log() -> str:
     return FIXTURES.joinpath("strace-node.log").read_text(errors="surrogateescape")
 
 
-def _events_by_raw(log: str | None = None) -> dict[str, object]:
+def _events_by_raw(log: str | None = None) -> dict[str, EvidenceEvent]:
     """Parsed events keyed by the leading `syscall(firstarg` of their raw line, so
     a test can name the captured line it is asserting about."""
-    return {event.raw: event for event in parse_strace_log(log or _strace_log(), RUN_START)}
+    return {str(event.raw): event for event in parse_strace_log(log or _strace_log(), RUN_START)}
 
 
-def _find(events, *needles):
+def _find(events: dict[str, EvidenceEvent], *needles: str) -> EvidenceEvent:
     """The single parsed event whose raw contains every needle."""
     hits = [event for raw, event in events.items() if all(part in raw for part in needles)]
     assert len(hits) == 1, f"{needles} matched {len(hits)} captured lines, expected 1"
@@ -127,19 +129,19 @@ def test_captured_log_normalizes_security_relevant_fields() -> None:
         "path": "/etc/ld.so.cache",
     }
     imds = _find(events, "sin_addr=inet_addr(\"169.254.169.254\")")
-    assert imds.normalized["addr"] == "169.254.169.254"
-    assert imds.normalized["port"] == 80
-    assert imds.normalized["fd"] == 18
+    assert present(imds.normalized)["addr"] == "169.254.169.254"
+    assert present(imds.normalized)["port"] == 80
+    assert present(imds.normalized)["fd"] == 18
     v6 = _find(events, "AF_INET6")
-    assert (v6.normalized["addr"], v6.normalized["port"]) == ("::1", 9)
+    assert (present(v6.normalized)["addr"], present(v6.normalized)["port"]) == ("::1", 9)
     boot = _find(events, 'execve("/usr/local/bin/node"')
-    assert boot.normalized["path"] == "/usr/local/bin/node"
-    assert boot.normalized["argv"] == ["node", "/cprobe.js"]
-    assert _find(events, 'write(22, "hello-from-client"').normalized["fd"] == 22
+    assert present(boot.normalized)["path"] == "/usr/local/bin/node"
+    assert present(boot.normalized)["argv"] == ["node", "/cprobe.js"]
+    assert present(_find(events, 'write(22, "hello-from-client"').normalized)["fd"] == 22
     # A DNS response's peer sockaddr: 221 recvfrom events in the committed corpus
     # carry one, and every one of them used to be discarded.
     resolver = _find(events, "recvfrom(21, \"T\\0")
-    assert (resolver.normalized["addr"], resolver.normalized["port"]) == ("127.0.0.53", 53)
+    assert (present(resolver.normalized)["addr"], present(resolver.normalized)["port"]) == ("127.0.0.53", 53)
 
 
 def test_syscall_split_across_two_lines_is_reassembled_not_dropped() -> None:
@@ -154,15 +156,15 @@ def test_syscall_split_across_two_lines_is_reassembled_not_dropped() -> None:
     events = _events_by_raw(log)
     spawn = _find(events, 'execve("/bin/echo"')
     assert spawn.kind == "execve"
-    assert spawn.normalized["argv"] == [
+    assert present(spawn.normalized)["argv"] == [
         "/bin/echo",
         "arg with space",
         'has\\"quote',
         "back\\\\slash",
         "tab\\there",
     ]
-    assert spawn.raw.endswith(") = 0")
-    assert "<unfinished" not in spawn.raw
+    assert str(spawn.raw).endswith(") = 0")
+    assert "<unfinished" not in str(spawn.raw)
     blocking = _find(events, "read(33")
     assert blocking.normalized == {"ret": "0", "fd": 33}
     assert blocking.raw == 'read(33, "", 4) = 0'
@@ -200,10 +202,10 @@ def test_syscall_in_flight_when_the_trace_ends_still_becomes_an_event() -> None:
     )
     events = parse_strace_log(dangling, RUN_START)
     assert len(events) == 1
-    assert events[0].normalized["addr"] == "127.0.0.1"
-    assert events[0].normalized["port"] == 9999
-    assert events[0].normalized["ret"] == "?"
-    assert "unfinished at end of trace" in events[0].raw
+    assert present(events[0].normalized)["addr"] == "127.0.0.1"
+    assert present(events[0].normalized)["port"] == 9999
+    assert present(events[0].normalized)["ret"] == "?"
+    assert "unfinished at end of trace" in str(events[0].raw)
 
 
 def test_errno_survives_so_a_successful_async_connect_is_not_a_failure() -> None:
@@ -213,16 +215,16 @@ def test_errno_survives_so_a_successful_async_connect_is_not_a_failure() -> None
     refused one. `raw` is now the real line minus its prefix, verbatim."""
     events = _events_by_raw()
     established = _find(events, 'sin_addr=inet_addr("127.0.0.1")}, 16) = -1')
-    assert established.normalized["ret"] == "-1"
-    assert established.normalized["error"] == "EINPROGRESS"
-    assert established.raw.endswith("= -1 EINPROGRESS (Operation now in progress)")
+    assert present(established.normalized)["ret"] == "-1"
+    assert present(established.normalized)["error"] == "EINPROGRESS"
+    assert str(established.raw).endswith("= -1 EINPROGRESS (Operation now in progress)")
     missing = _find(events, "/proc/version_signature")
-    assert missing.normalized["error"] == "ENOENT"
+    assert present(missing.normalized)["error"] == "ENOENT"
     again = _find(events, "recvfrom(21, 0x")
-    assert again.normalized["error"] == "EAGAIN"
+    assert present(again.normalized)["error"] == "EAGAIN"
     # A success carries no error key at all — present-and-None would be one more
     # ambiguous state.
-    assert "error" not in _find(events, 'sin_addr=inet_addr("198.51.100.53")').normalized
+    assert "error" not in present(_find(events, 'sin_addr=inet_addr("198.51.100.53")').normalized)
 
 
 def test_absent_peer_address_names_which_kind_of_absence() -> None:
@@ -232,17 +234,17 @@ def test_absent_peer_address_names_which_kind_of_absence() -> None:
     detectable at all."""
     events = _events_by_raw()
     unix = _find(events, "AF_UNIX", "nscd")
-    assert unix.normalized["family"] == "AF_UNIX"
-    assert unix.normalized["path"] == "/var/run/nscd/socket"
-    assert unix.normalized["addr"] is None  # a path is not an addr:port
+    assert present(unix.normalized)["family"] == "AF_UNIX"
+    assert present(unix.normalized)["path"] == "/var/run/nscd/socket"
+    assert present(unix.normalized)["addr"] is None  # a path is not an addr:port
     netlink = _find(events, "RTM_GETLINK")
-    assert netlink.normalized["family"] == "AF_NETLINK"
-    assert netlink.normalized["addr"] is None
+    assert present(netlink.normalized)["family"] == "AF_NETLINK"
+    assert present(netlink.normalized)["addr"] is None
     # NULL sockaddr — real and correct: accept4(fd, NULL, NULL, …) and sendto on a
     # connected socket have no peer argument to read.
     accepted = _find(events, "accept4(21, NULL, NULL")
-    assert accepted.normalized["family"] is None
-    assert _find(events, 'sendto(19, "{').normalized["family"] is None
+    assert present(accepted.normalized)["family"] is None
+    assert present(_find(events, 'sendto(19, "{').normalized)["family"] is None
 
 
 def test_inet_sockaddr_without_an_extractable_peer_is_a_parser_defect() -> None:
@@ -283,15 +285,15 @@ def test_unnamed_unix_peer_has_a_null_path_legitimately() -> None:
     last nine lines interleave three unfinished/resumed pairs across two pids."""
     events = _events_by_raw()
     unnamed = _find(events, "accept4(", "{sa_family=AF_UNIX}")
-    assert unnamed.normalized["family"] == "AF_UNIX"
-    assert unnamed.normalized["path"] is None
-    assert unnamed.normalized["ret"] == "5"
+    assert present(unnamed.normalized)["family"] == "AF_UNIX"
+    assert present(unnamed.normalized)["path"] is None
+    assert present(unnamed.normalized)["ret"] == "5"
     named = _find(events, 'connect(4, {sa_family=AF_UNIX, sun_path="/tmp/tmpqjqtguta')
-    assert named.normalized["path"] == "/tmp/tmpqjqtguta/s.sock"
+    assert present(named.normalized)["path"] == "/tmp/tmpqjqtguta/s.sock"
     # Both halves of all three interleaved pairs were reassembled, and neither pid
     # took the other's result.
-    assert _find(events, 'recvfrom(5, "hi"').normalized["fd"] == 5
-    assert _find(events, 'sendto(4, "hi"').normalized["fd"] == 4
+    assert present(_find(events, 'recvfrom(5, "hi"').normalized)["fd"] == 5
+    assert present(_find(events, 'sendto(4, "hi"').normalized)["fd"] == 4
 
 
 def test_payload_that_begins_with_a_brace_is_not_read_as_the_peer() -> None:
@@ -301,7 +303,7 @@ def test_payload_that_begins_with_a_brace_is_not_read_as_the_peer() -> None:
     attacker-controlled bytes."""
     events = _events_by_raw()
     payload = _find(events, 'sendto(19, "{')
-    assert payload.raw.startswith('sendto(19, "{\\335')
+    assert str(payload.raw).startswith('sendto(19, "{\\335')
     assert payload.normalized == {"ret": "47", "fd": 19, "family": None, "addr": None, "port": None}
 
 
@@ -355,12 +357,12 @@ def test_parse_tshark_json_over_the_real_capture_finds_every_layer() -> None:
         "method": "GET",
         "path": "/latest/meta-data/",
     }
-    assert http[1].normalized["method"] == "POST"
-    assert http[1].normalized["path"] == "/exfil?tok=SYNTH-CANARY-aaaaaaaa"
-    hosts = {event.normalized["host"] for event in events if event.kind == "dns_query"}
+    assert present(http[1].normalized)["method"] == "POST"
+    assert present(http[1].normalized)["path"] == "/exfil?tok=SYNTH-CANARY-aaaaaaaa"
+    hosts = {present(event.normalized)["host"] for event in events if event.kind == "dns_query"}
     assert "7b22656e76223a7b.s0.localhost" in hosts
     assert {"probe-host", "probe-host.local"} <= hosts  # the mdns/llmnr names
-    assert [event.normalized["host"] for event in events if event.kind == "tls_sni"] == [
+    assert [present(event.normalized)["host"] for event in events if event.kind == "tls_sni"] == [
         "api.github.com"
     ]
     # frame.time_relative is a nanosecond-precision string in real output.
@@ -433,7 +435,8 @@ def test_syscall_kind_is_total_and_inbound_network_maps_to_honest_kinds() -> Non
     assert _find(events, "accept4(21, NULL, NULL").kind == "connect"
     assert _find(events, "RTM_GETADDR").kind == "sendto"
     assert all(
-        event.raw.startswith(event.raw.split("(")[0] + "(") for event in events.values()
+        str(event.raw).startswith(str(event.raw).split("(")[0] + "(")
+        for event in events.values()
     )
 
 

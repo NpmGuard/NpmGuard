@@ -41,6 +41,7 @@ import os
 
 import pytest
 import stripe
+from sqlalchemy.ext.asyncio import AsyncEngine
 from web3 import Web3
 
 from kit_spine import make_engine, make_session_factory
@@ -114,7 +115,7 @@ def _chain_settings(chain) -> Settings:
     )
 
 
-async def _sqlite_store(path) -> tuple[AuditSessionStore, object]:
+async def _sqlite_store(path) -> tuple[AuditSessionStore, AsyncEngine]:
     engine = make_engine(f"sqlite+aiosqlite:///{path}")
     async with engine.begin() as connection:
         await connection.run_sync(metadata.create_all)
