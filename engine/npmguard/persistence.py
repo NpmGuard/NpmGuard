@@ -205,6 +205,19 @@ def _not_demo() -> sa.ColumnElement[bool]:
     )
 
 
+def dedupe_key(package_name: str, version: str | None) -> str:
+    """The sharing key for one ``(package, version)``.
+
+    One spelling, in one place, because the whole guarantee rests on two enqueues
+    for the same pair producing byte-identical strings — a second spelling
+    elsewhere would silently mean "never shares", and the symptom is a duplicate
+    audit rather than an error. ``None`` is distinct from every concrete version:
+    "whatever is latest" is not the same request as a pin, and resolving it may
+    land anywhere.
+    """
+    return f"{package_name}@{version if version is not None else ''}"
+
+
 @dataclass(frozen=True)
 class EnqueueSpec:
     """One row to create, for a caller enqueueing a BATCH.

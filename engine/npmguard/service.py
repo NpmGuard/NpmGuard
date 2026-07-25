@@ -198,6 +198,25 @@ class AuditService:
         # out claim_poll_seconds; also set by close so shutdown never pays a poll.
         self._wake = asyncio.Event()
 
+    def bind_settle_hook(self, hook: SettleHook) -> None:
+        """Attach the settle consumer, at boot, before ``start``.
+
+        A setter rather than a constructor argument because the dependency is a
+        genuine cycle: the panel's stores need the service to enqueue into, and
+        the service needs their hook to announce settles to. Something has to be
+        wired second.
+
+        Both asserts guard a silent failure rather than a crash. Binding twice
+        would mean one consumer's aftermath is dropped; binding after ``start``
+        would let a worker settle a recovered row — a panel dependency whose audit
+        was interrupted by the restart — with no hook attached yet, so its verdict
+        would never reach the index and the set covering it would wait forever on
+        an item that is already finished.
+        """
+        assert self._on_settled is None, "settle hook already bound"
+        assert not self._workers, "bind the settle hook before start()"
+        self._on_settled = hook
+
     async def start(self) -> None:
         self._stop.clear()
         self._halt.clear()
