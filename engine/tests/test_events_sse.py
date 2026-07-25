@@ -5,8 +5,14 @@
 #  C4/C5a/C16 use TestClient over a completed NPMGUARD_MOCK_LLM audit.)
 # Wire:   C1  frame = id:/event:/data: lines; payload FLATTENED into the envelope;
 #             auditId/timestamp/seq present in data
-#         C2  payload key collision (type/seq) → PINNED precedence: payload wins inside
-#             data JSON; the SSE id:/event: lines keep the envelope's seq/type
+#         C2a payload key collision at the PRODUCER (type/seq/auditId/timestamp) →
+#             AssertionError naming the key, and NOTHING is appended: an event whose
+#             payload could shadow the envelope is an impossible state, not a
+#             precedence question. (Was a PIN documenting payload-wins.)
+#         C2b the same collision reaching the READER from a writer that bypasses
+#             AuditEmitter (service._finish appends the terminal frame directly) or
+#             from a row an older engine wrote → caught on the read side instead of
+#             handing the consumer a `type` other than the one it was announced as
 #         C2b payload normalization: BaseModel / nested dict-of-model / tuple values
 #             serialize to plain JSON on the wire (_json_value seam)
 # Cursor: C3  no cursor → full replay
@@ -109,17 +115,28 @@ async def test_wire_format_flattens_payload_into_envelope(rig) -> None:
     assert data["phase"] == "resolve"  # payload key sits beside envelope keys
 
 
-async def test_payload_collision_precedence_pinned(rig) -> None:
-    """C2 — PINNED precedence: payload keys named type/seq overwrite the envelope
-    copy inside the data JSON, while the SSE id:/event: lines keep the envelope's
-    real seq and type."""
+@pytest.mark.parametrize("key", ["type", "auditId", "timestamp", "seq"])
+async def test_envelope_shadowing_payload_is_refused_at_emit(rig, key: str) -> None:
+    """C2a: emitting a payload that carries an envelope field name fails loud at
+    the emit site and appends nothing. `type` is the SSE union discriminator, so a
+    payload that overwrites it does not duplicate a field — it changes which event
+    shape the consumer parses. None of the 17 declared event payloads uses these
+    names, so no legitimate emit can reach this."""
     stream, emitter = rig
-    await emitter.emit("real_event", {"type": "spoofed", "seq": 999})
-    frame = (await _drain(sse_events(AUDIT_ID, stream, follow=False)))[0]
-    assert frame["id"] == 0  # envelope wins on the wire framing
-    assert frame["event"] == "real_event"
-    assert frame["data"]["type"] == "spoofed"  # payload wins inside data
-    assert frame["data"]["seq"] == 999
+    with pytest.raises(AssertionError, match=key):
+        await emitter.emit("real_event", {key: "spoofed", "phase": "resolve"})
+    assert await stream.read_after(audit_channel(AUDIT_ID), -1) == []  # log stays clean
+
+
+async def test_envelope_shadowing_row_is_refused_at_read(rig) -> None:
+    """C2b: the read side re-checks, because rows also arrive from writers that
+    never pass through AuditEmitter (service._finish appends the terminal frame
+    straight to the stream) and from whatever an older engine wrote. Failing here
+    is louder than serving a frame whose data.type contradicts its event: line."""
+    stream, _ = rig
+    await stream.append(audit_channel(AUDIT_ID), "real_event", {"type": "spoofed", "seq": 999})
+    with pytest.raises(AssertionError, match="seq"):
+        await _drain(sse_events(AUDIT_ID, stream, follow=False))
 
 
 async def test_payload_normalizes_models_and_tuples(rig) -> None:

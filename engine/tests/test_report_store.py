@@ -6,10 +6,15 @@
 #   C1  inventory version present → saved as <real>.json (CLAUDE.md: real version authoritative)
 #   C2  real ≠ requested → the stale requested-version alias file is deleted
 #   C3  no inventory version, requested present → <requested>.json
-#   C4  NEITHER version → ValueError, nothing persisted (a latest.json alias must never exist)
+#   C4  NEITHER version → UnversionedReportError (a ValueError subclass), nothing
+#       persisted (a latest.json alias must never exist). NAMED because one caller
+#       recovers from it: AuditService keeps a completed audit rather than throwing
+#       the verdict away over a filing key — see test_service_queue C18.
 #   C5  requested=="latest" with real present → <real>.json only, no stray "latest" handling
 #   C6  concurrent saves of same pkg/ver → readers never observe torn JSON (atomic replace)
-#   C7  path escape ('../evil') → ValueError on save AND load
+#   C7  path escape ('../evil') → ValueError on save AND load — and NOT an
+#       UnversionedReportError: the two refusals must stay distinguishable, or
+#       C18's recovery would swallow a path-traversal refusal too
 #   C8  scoped @org/pkg → nested dir round-trip; list_reports reassembles the scoped name
 #   C9  load exact version → filename hit
 #   C10 load version with renamed file → found via embedded-version scan
@@ -32,6 +37,7 @@ from typing import Any
 import pytest
 
 from npmguard.report_store import (
+    UnversionedReportError,
     extract_report_version,
     list_reports,
     load_report,
@@ -79,9 +85,13 @@ def test_requested_version_used_when_inventory_silent(data_dir) -> None:
 
 def test_no_version_anywhere_is_an_error_not_latest_json(data_dir) -> None:
     """C4: neither the report nor the request carries a concrete version →
-    ValueError and nothing persisted. Honors CLAUDE.md: never a latest.json alias."""
-    with pytest.raises(ValueError, match="latest.json alias must never be persisted"):
+    UnversionedReportError and nothing persisted. Honors CLAUDE.md: never a
+    latest.json alias. The type is part of the contract: the exception is caught
+    by name in AuditService, so a bare ValueError here would either discard a
+    completed audit or (if caught broadly) swallow the C7 path-escape refusal."""
+    with pytest.raises(UnversionedReportError, match="latest.json alias must never be persisted"):
         save_report("left-pad", "latest", _report(None))
+    assert isinstance(UnversionedReportError("x"), ValueError)  # callers may still catch broadly
     assert not (data_dir / "left-pad").exists()
 
 
@@ -125,10 +135,15 @@ def test_concurrent_rewrites_never_expose_torn_json(data_dir) -> None:
 def test_path_escape_rejected_on_save_and_load(data_dir) -> None:
     """C7: a package name that resolves outside the data dir is refused by both
     save and load — the report store is not a path-traversal primitive."""
-    with pytest.raises(ValueError, match="escapes data directory"):
-        save_report("../evil", "1.0.0", _report("1.0.0"))
-    with pytest.raises(ValueError, match="escapes data directory"):
-        load_report("../evil")
+    for call in (
+        lambda: save_report("../evil", "1.0.0", _report("1.0.0")),
+        lambda: load_report("../evil"),
+    ):
+        with pytest.raises(ValueError, match="escapes data directory") as excinfo:
+            call()
+        # NOT the recoverable refusal: a security check must never be absorbed by
+        # the "no concrete version" recovery path in AuditService.
+        assert not isinstance(excinfo.value, UnversionedReportError)
     assert not (data_dir.parent / "evil").exists()
 
 

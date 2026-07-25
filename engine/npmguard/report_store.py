@@ -9,6 +9,18 @@ from .config import REPO_ROOT
 DATA_DIR = (Path(os.environ.get("NPMGUARD_DATA_DIR") or REPO_ROOT / "data") / "reports").resolve()
 
 
+class UnversionedReportError(ValueError):
+    """No concrete version, so this store has no honest key for the report.
+
+    A `ValueError` subclass because that is what this refusal has always raised,
+    but a NAMED one: `save_report` refusing to invent a `latest.json` alias and
+    `_under_data_dir` refusing a path escape are opposite kinds of refusal, and
+    the one caller that must treat them differently (`AuditService._execute`,
+    which recovers from the first and must never swallow the second) cannot tell
+    them apart from a bare `ValueError`.
+    """
+
+
 def _under_data_dir(target: Path) -> Path:
     resolved = target.resolve()
     if not resolved.is_relative_to(DATA_DIR):
@@ -46,7 +58,7 @@ def save_report(package_name: str, requested_version: str, report: Any) -> str:
     value = _as_dict(report)
     real_version = extract_report_version(value) or requested_version
     if not real_version or real_version == "latest":
-        raise ValueError(
+        raise UnversionedReportError(
             f"Cannot save report for {package_name}: no concrete version in report or request"
             " — a latest.json alias must never be persisted"
         )

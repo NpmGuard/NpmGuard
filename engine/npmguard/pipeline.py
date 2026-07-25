@@ -32,6 +32,7 @@ from .phases import (
     HypothesisGenerator,
     KitHypothesisGenerator,
     extract_intent,
+    flag_source_files,
     run_flag,
     run_hypothesize,
 )
@@ -39,6 +40,16 @@ from .resolve import ResolvedPackage, cleanup_package, resolve_package
 
 EMPTY_COUNTS = HypothesisCounts(total=0, open=0, inProgress=0, confirmed=0, refuted=0, deferred=0)
 SEVERITY_SCORE = {"low": 3, "medium": 6, "high": 8, "critical": 10}
+# Phase budgets in milliseconds. The last three are multiplied by `timeout_scale`,
+# which grows with the FLAG file set (phases.flag_source_files) — named rather
+# than inline so the scaling is testable at a boundary a test can move, instead of
+# only after ten real minutes.
+RESOLVE_TIMEOUT_MS = 240_000
+INVENTORY_TIMEOUT_MS = 60_000
+INTENT_TIMEOUT_MS = 120_000
+FLAG_TIMEOUT_MS = 600_000
+HYPOTHESIZE_TIMEOUT_MS = 1_200_000
+ORCHESTRATOR_BUDGET_MS = 2_400_000
 
 
 @dataclass(frozen=True)
@@ -160,25 +171,39 @@ class AuditPipeline:
         trace: list[PhaseLog] = []
         if emitter:
             await emitter.emit("audit_started", {"packageName": package_name})
-        resolved, phase = await _timed_phase(
-            "resolve",
-            lambda: resolve_package(package_name, version),
-            240_000,
-            {"packageName": package_name, "version": version},
-            lambda value: {"path": str(value.path), "version": value.version},
-            emitter,
-        )
-        trace.append(phase)
-        log.write(
-            "resolve.json",
-            {
-                "path": str(resolved.path),
-                "workdir": str(resolved.workdir),
-                "version": resolved.version,
-            },
-        )
-        await self.sessions.set_package_path(audit_id, str(resolved.path))
+        # The workdir has exactly one owner from the instant resolve_package
+        # returns it: `acquired` is assigned inside the phase operation, so the
+        # cleanup handler below covers every step after acquisition — including
+        # the ones that used to sit OUTSIDE the try (the resolve PhaseLog write
+        # and set_package_path, whose disk/DB errors left an extracted package in
+        # /tmp/npmguard-* with no owner) and including the phase wrapper's own
+        # phase_completed emit.
+        acquired: ResolvedPackage | None = None
+
+        async def acquire() -> ResolvedPackage:
+            nonlocal acquired
+            acquired = await resolve_package(package_name, version)
+            return acquired
+
         try:
+            resolved, phase = await _timed_phase(
+                "resolve",
+                acquire,
+                RESOLVE_TIMEOUT_MS,
+                {"packageName": package_name, "version": version},
+                lambda value: {"path": str(value.path), "version": value.version},
+                emitter,
+            )
+            trace.append(phase)
+            log.write(
+                "resolve.json",
+                {
+                    "path": str(resolved.path),
+                    "workdir": str(resolved.workdir),
+                    "version": resolved.version,
+                },
+            )
+            await self.sessions.set_package_path(audit_id, str(resolved.path))
             deps = await provision_dependencies(resolved.path, self.settings)
             log.write(
                 "dependencies.json",
@@ -203,7 +228,7 @@ class AuditPipeline:
             inventory, phase = await _timed_phase(
                 "inventory",
                 lambda: analyze_inventory(resolved.path),
-                60_000,
+                INVENTORY_TIMEOUT_MS,
                 {"packagePath": str(resolved.path)},
                 lambda value: {
                     "fileCount": len(value.files),
@@ -235,11 +260,12 @@ class AuditPipeline:
                     },
                 )
 
-            sources = [
-                file
-                for file in inventory.files
-                if file.fileType in SOURCE_FILE_TYPES and not file.isBinary
-            ]
+            # The budgets below are scaled over the files FLAG will actually read
+            # — the same list run_flag fans out over, from the one function that
+            # defines it (phases.flag_source_files). A local copy of the filter
+            # used to omit the noise rule, so a test-heavy package was budgeted
+            # for files nobody opens.
+            sources = flag_source_files(inventory)
             source_kb = sum(file.sizeBytes for file in sources) / 1024
             timeout_scale = max(
                 min(4, 1 + max(0, len(sources) - 20) * 0.025),
@@ -264,7 +290,7 @@ class AuditPipeline:
             intent, phase = await _timed_phase(
                 "intent-extraction",
                 lambda: extract_intent(resolved.path, inventory, self.llm, audit_id),
-                120_000,
+                INTENT_TIMEOUT_MS,
                 {
                     "packageName": inventory.metadata.name,
                     "description": inventory.metadata.description,
@@ -286,7 +312,7 @@ class AuditPipeline:
             flagged, phase = await _timed_phase(
                 "flag",
                 lambda: run_flag(resolved.path, inventory, intent, self.llm, audit_id, emitter),
-                600_000 * timeout_scale,
+                FLAG_TIMEOUT_MS * timeout_scale,
                 {
                     "sourceFiles": [
                         {"path": file.path, "sizeBytes": file.sizeBytes} for file in sources
@@ -317,7 +343,7 @@ class AuditPipeline:
                     audit_id=audit_id,
                     emitter=emitter,
                 ),
-                1_200_000 * timeout_scale,
+                HYPOTHESIZE_TIMEOUT_MS * timeout_scale,
                 {"flagCount": len(flagged.flags)},
                 lambda values: {
                     "hypothesisCount": len(values),
@@ -369,7 +395,7 @@ class AuditPipeline:
                 log=log,
                 emitter=emitter,
                 stated_purpose=intent.statedPurpose,
-                global_budget_ms=2_400_000 * timeout_scale,
+                global_budget_ms=ORCHESTRATOR_BUDGET_MS * timeout_scale,
                 settings=self.settings,
                 llm=self.llm,
             )
@@ -409,6 +435,15 @@ class AuditPipeline:
             )
             log.write("report.json", report)
             return AuditResult(report, resolved.path, resolved)
-        except Exception:
-            cleanup_package(resolved)
+        except BaseException:
+            # INVARIANT: this pipeline never leaves an extracted package behind.
+            # `acquired is None` means resolve_package never returned, and it
+            # removes its own workdir on internal failure. BaseException, not
+            # Exception: a worker cancelled mid-audit (engine shutdown) is the
+            # most likely way out of here, and CancelledError is not an Exception
+            # — the success path's cleanup (AuditService._execute) does not run
+            # for it either. rmtree is synchronous, so it completes even while the
+            # cancellation is propagating.
+            if acquired is not None:
+                cleanup_package(acquired)
             raise

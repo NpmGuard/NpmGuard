@@ -48,6 +48,11 @@
 #                is on disk and the row is 'done' (report → row+event, one transaction)
 #            C17 terminal coherence (failure) — a save_report failure lands running->error +
 #                audit_error (never done->error) and workspace cleanup still runs
+#            C18 a COMPLETED audit whose (name, version) key cannot be formed (no
+#                version in the report, none requested) still reaches verdict_reached
+#                with a durable row report; only the filesystem file is skipped. It
+#                is NOT discarded as a non-retryable 9999 — the verdict outranks the
+#                filing key, and C17 proves a REAL save failure still errors.
 # Single-owner rework: 2026 — launch()/enqueue()/_work_queue() deleted; every path funnels
 #   through submit()/admit(); status is {queued,running,done,error}; the running-count
 #   session cap (SessionLimitError) is retired in favor of the wait-queue bound + worker pool.
@@ -687,3 +692,32 @@ async def test_save_failure_lands_as_error_and_still_cleans_up(rig, monkeypatch)
     assert "verdict_reached" not in kinds  # save failed BEFORE the terminal txn
     assert kinds.count("audit_error") == 1
     assert pipeline.results["pkg-savefail"].cleaned  # finally: no workspace leak
+
+
+async def test_completed_audit_without_a_version_is_not_discarded(rig, tmp_path, capsys) -> None:
+    """C18 — INVARIANT: a completed audit is never thrown away because the
+    (name, version)-keyed report FILE has no honest key. A package published with
+    no version, audited with no requested version, produces a finished report; it
+    lands in audit_sessions.report (what GET /audit/{id}/report serves) and the
+    verdict_reached frame. The file under data/reports/ is skipped — never faked as
+    latest.json — and the skip is logged. Before this, the bare ValueError became
+    NPMGUARD-9999, retryable=False, HTTP 500 on a verdict that was already
+    computed, the graph resolved and the evidence sealed."""
+    service, sessions, stream = rig.service, rig.sessions, rig.stream
+    await service.start()
+    result = await service.admit("pkg-unversioned", None)  # no requested version either
+    async with asyncio.timeout(WAIT_SECONDS):
+        report = await result.future
+    assert report["verdict"] == "SAFE"
+    restored = await sessions.get(result.audit_id)
+    assert restored.status == "done"
+    assert restored.report is not None and restored.report["verdict"] == "SAFE"
+    events = await stream.read_after(audit_channel(result.audit_id), -1)
+    kinds = [event["type"] for event in events]
+    assert kinds == ["audit_enqueued", "verdict_reached"]  # no audit_error
+    assert not (tmp_path / "reports" / "pkg-unversioned").exists()  # skipped, not faked
+    assert not list((tmp_path / "reports").glob("**/latest.json"))
+    assert rig.pipeline.results["pkg-unversioned"].cleaned  # workspace still released
+    logged = capsys.readouterr().out  # structlog writes the event to stdout
+    assert "report file skipped: no concrete version" in logged
+    assert result.audit_id in logged  # loud AND located: the skip names its audit
