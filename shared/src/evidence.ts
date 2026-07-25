@@ -172,6 +172,28 @@ export const ObserveFlags = z.object({
 export const ObserveFlagsSchema = ObserveFlags;
 export type ObserveFlags = z.infer<typeof ObserveFlags>;
 
+// FALSE EVIDENCE, PINNED FOR DELETION (test_evidence.py C18, xfail(strict)).
+// `wallMs` is real: it is the `docker exec` timeout, and a breach seals a
+// TimeoutError plus a synthetic `truncated` event.
+//
+// `maxSyscalls` and `maxBytesCapture` are read by NOTHING (grep, whole engine), and
+// the caps that do exist are unrelated to them — `docker_exec` truncates stdout at
+// 10 MiB, `deps._stream_tar` at 256 MiB. So every artifact sealing
+// `maxBytesCapture: 1000000` asserts a capture bound the run never applied: the same
+// class of defect as a `responseHash` for a response no stub served, and the reason
+// to delete them rather than start enforcing them (an honest capture bound is a loud
+// failure, not a silent cap — see engine/TESTING.md's `docker_exec` finding).
+//
+// Not deleted here because REMOVING a sealed field changes the canonical form, hence
+// the contentHash, of every artifact ever sealed — the mirror of the reason
+// StubUrlRef could only be widened, not extended. Concretely: the orchestrator
+// cross-checks `artifact.contentHash` against an independent recomputation
+// (orchestrator.py step D), so all 31 committed runartifacts fail that check the
+// moment this field set changes, and three slice replays go red. The migration is
+// free and mechanical, not a paid re-record — re-seal each
+// tests/fixtures/llm/*/sandbox/*.runartifact.json under the new schema and update its
+// `sha256` in the bundle manifest — but it is a fixture edit, which is the owner's
+// call.
 export const Budget = z.object({
   wallMs: z.number().positive(),
   maxSyscalls: z.number().positive().nullable().default(null),
@@ -228,6 +250,14 @@ export const RunArtifact = z.object({
   fsDiffHash: z.string().nullable().default(null),
   pcapHash: z.string().nullable().default(null),
   straceLogHash: z.string().nullable().default(null),
+  // FALSE EVIDENCE, PINNED FOR DELETION (test_evidence.py C18, xfail(strict)).
+  // `null` in every artifact ever sealed, and structurally unfillable: the inspector's
+  // events are written into the same delimited stdout blob as the monkey log by
+  // instrumentation-flush.js, so the bytes it would hash are already covered by
+  // `stdoutHash`. A field that can only ever be null states "this sensor produced no
+  // raw output" about a sensor that runs on every full-oracle run and does produce
+  // output. Same deletion blocker as Budget above (the contentHash of all 31 recorded
+  // artifacts), same free migration.
   inspectorLogHash: z.string().nullable().default(null),
   eventSummary: EventSummary,
   error: RunError.nullable().default(null),

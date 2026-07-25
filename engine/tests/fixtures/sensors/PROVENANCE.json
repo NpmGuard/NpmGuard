@@ -2,8 +2,14 @@
   "_why": [
     "Every file here is output captured from the REAL producer the sensor parses,",
     "committed so a test can never assert a format we merely imagined. The rule is",
-    "in TESTING.md ('Parsers of external formats'); tools/fixture_lint.py enforces",
-    "that each file listed here exists and that each file here is listed."
+    "in TESTING.md ('Parsers of external formats'), and what enforces it mechanically",
+    "is tools/parser_fixture_lint.py: a test string literal carrying an external-format",
+    "marker must appear in a committed fixture. NOT enforced yet, contrary to what this",
+    "note used to claim: that every file here has an entry and every entry a file.",
+    "tools/fixture_lint.py has no sensors check at all (grep: no 'PROVENANCE' reader",
+    "anywhere in tools/). An unlisted capture is therefore a provenance claim nobody",
+    "verifies — the gap to close is six lines in test_sensors.py comparing this key set",
+    "to os.listdir."
   ],
   "fixtures": {
     "strace-node.log": {
@@ -121,6 +127,39 @@
         "a path containing a literal tab",
         "a path containing a literal newline",
         "a path containing a double quote"
+      ],
+      "redactions": {}
+    },
+    "strace-connect-results.log": {
+      "producer": "strace 7.0 (host)",
+      "command": "strace -f -ttt -s 4096 -o <log> -e trace=connect python3 <connect probe>   # lines 1-3;  strace -f -ttt -s 4096 -o <log> -e trace=openat,connect python3 <fd-recycle probe>   # lines 4-5",
+      "captured": "2026-07-25",
+      "note": [
+        "5 lines, each copied VERBATIM from one of two captures, kept for the",
+        "RENDERER (evidence.py) rather than the parser: what a timeline must say",
+        "about a syscall's result and about a socket peer.",
+        "Lines 1-3 are one probe dialling the SAME peer (127.0.0.1:9999) three",
+        "times: a blocking connect to a listening socket (= 0), a non-blocking",
+        "connect to it (= -1 EINPROGRESS, which SUCCEEDED), and a blocking connect",
+        "after the listener closed (= -1 ECONNREFUSED). Same peer on purpose — the",
+        "peer is the whole collapse key without the result, so these three rows",
+        "used to merge into one 'connect 127.0.0.1:9999  [x3]'.",
+        "Lines 4-5 are a descriptor RECYCLED from a file to a unix socket: python",
+        "opens /etc/localtime as fd 3, closes it, and the AF_UNIX socket it then",
+        "creates is handed fd 3 back, so an fd table that ignores whether the",
+        "descriptor is a socket renders 'connect /etc/localtime'. Both probes are",
+        "benign python one-liners against loopback only; no bench-dd fixture was",
+        "executed and no credential appears.",
+        "Python rather than node for the blocking connects: node's sockets are",
+        "always non-blocking, so node can only produce the EINPROGRESS form. The",
+        "producer being parsed is strace either way."
+      ],
+      "shapes": [
+        "connect AF_INET success (= 0)",
+        "connect AF_INET -> -1 EINPROGRESS (a SUCCESSFUL async connect) to the same peer",
+        "connect AF_INET -> -1 ECONNREFUSED (a refusal) to the same peer",
+        "openat success returning a low fd, immediately followed by a connect that recycles it",
+        "connect AF_UNIX with sun_path -> -1 ENOENT"
       ],
       "redactions": {}
     }

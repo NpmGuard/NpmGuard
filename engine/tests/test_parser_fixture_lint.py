@@ -18,17 +18,13 @@ from tools.parser_fixture_lint import ESCAPE, lint_file, lint_tests
 
 TESTS_ROOT = Path(__file__).parent
 
-# FINDING (report-only; owned by the evidence/instrumentation work, not this
-# sweep): test_evidence.py builds EvidenceEvent.raw values by hand. Two are real
-# strace shapes with the errno tail stripped — a form parse_strace_log no longer
-# emits, since `raw` is now the verbatim line minus its prefix; one
-# (`connect(7, {sin_port=htons(443)}) = 0`) has no sa_family at all and strace
-# cannot emit it; one (`openat(AT_FDCWD, "/etc/localtime", O_RDONLY) = 17`) is
-# entirely plausible and still unverified, which is exactly the trap the rule
-# exists for. The tests pass either way, so this is fidelity of the fixture, not a
-# live defect. Pinned by FILE so that fixing them turns this red and the exemption
-# gets deleted rather than rotting.
-PINNED_UNFIXED = {"test_evidence.py"}
+# Empty, and the assertion below keeps it that way: an entry that stops offending
+# must be DELETED, so an exemption cannot rot into a permanent licence. The one entry
+# this set ever held (`test_evidence.py`, whose four strace `raw` values were written
+# by hand) was cleared by driving those classes through the real `parse_strace_log`
+# over committed captures — `tests/fixtures/sensors/strace-connect-results.log`, plus
+# lines already committed in `strace-node.log` — rather than by widening anything.
+PINNED_UNFIXED: set[str] = set()
 
 
 def test_no_hand_authored_external_format_input_outside_the_pinned_files() -> None:

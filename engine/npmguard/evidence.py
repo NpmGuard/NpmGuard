@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,13 +32,60 @@ TRACE_NO_PARENT = "<root>"
 # (instrument-capped) stays in the sealed artifact, and the canary match is computed
 # over that prefix rather than this truncation, so a value past the cut is still named.
 _BODY_RENDER_CHARS = 200
-# A planted value shorter than this appears in a payload by coincidence about as often
-# as by exfiltration (`CI=1`, `TZ=UTC`), and naming it as a canary match would hand the
-# judge a citation that proves nothing.
-_MIN_BAIT_CHARS = 8
+# ── The canary contract ──────────────────────────────────────────────────────────
+# A canary is bait the ENGINE MINTED. `render_timeline` names a planted env var as
+# "carried" by a request only when the request contains that minted token, and two
+# properties make a coincidental citation IMPOSSIBLE rather than improbable:
+#
+#   * the token carries 128 bits from `secrets.token_hex`, drawn per plant, so no
+#     preimage of it exists anywhere the package can reach — not in its own source,
+#     not in a hostname, path, port, timestamp or hard-coded string. Inside the
+#     container the ONLY place those bytes exist is the env var the engine planted,
+#     so the token appearing in an outbound request IS the statement "this value was
+#     read out of the environment and put on the wire";
+#   * membership in the bait set is decided by the minted FORMAT, so a value the
+#     engine did not mint cannot enter the bait set at all.
+#
+# What this replaces: a LENGTH floor (`len(value) >= 8`) applied to whatever the
+# model happened to plant. Under it the recorded corpus's own `HOME=/home/node` and
+# `MYAPP_DB_HOST=localhost` were bait, so a benign crash reporter POSTing a stack
+# trace containing `/home/node` rendered `· carries planted env HOME`, and a GET
+# with no body at all rendered `· carries planted env MYAPP_DB_HOST` because
+# `localhost` occurs in its own URL. That clause is written to be cited, one
+# CONFIRM carries the whole verdict (§18), and DANGEROUS blocks an install behind a
+# GitHub check — a manufactured citation is the most expensive error this renderer
+# can make. Length is not a discriminator. Provenance is.
+CANARY_PREFIX = "npmguard-canary-"
+_CANARY_HEX_CHARS = 32
+CANARY_PATTERN = re.compile(re.escape(CANARY_PREFIX) + f"[0-9a-f]{{{_CANARY_HEX_CHARS}}}")
 SYSCALL_KINDS = frozenset(
     {"openat", "read", "write", "connect", "sendto", "execve", "clone", "unlink", "rename", "link"}
 )
+
+
+def mint_canary() -> str:
+    """A fresh, unguessable bait token for ONE planted env var.
+
+    Minting and matching live in this module together on purpose: they are one fact
+    stated once, so the format the setup plants and the format the renderer cites
+    cannot drift apart into a silent loss of correlation.
+
+    Bait is synthetic by construction and never a real secret, so it stays plaintext
+    in the sealed artifact — which is what makes correlating a captured request body
+    with it possible at all (planted FILE contents are recorded as hashes only, so a
+    file canary is unmatchable from an artifact; see §24.8).
+
+    A caller may embed the token inside a realistic-looking value —
+    ``"npm_" + mint_canary()`` — when the package's exfil branch depends on the
+    SHAPE of what it reads. The renderer matches the token alone, so the wrapper is
+    free, and the wrapper is where the realism belongs: appending a canary to a
+    value the program uses as CONFIGURATION (`HOME`, `CI`, a hostname) changes which
+    branch it takes, which is a worse failure than no canary at all.
+
+    Not a secret-management primitive: the token is disposable per run and never
+    grants access to anything.
+    """
+    return CANARY_PREFIX + secrets.token_hex(_CANARY_HEX_CHARS // 2)
 
 
 def _plain(value: Any) -> Any:
@@ -280,14 +328,20 @@ class RenderedTimeline:
 
 def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
     home = (artifact.setupApplied.env or {}).get("HOME", "/home/node")
-    # The bait the experiment planted, in plaintext, so a captured request body can
-    # be correlated with it. Only `setupApplied.env` qualifies: planted FILE contents
-    # are recorded as hashes only (shared/src/evidence.ts PlantedFileRef), so a file
-    # canary inside a payload is not matchable from the artifact at all.
+    # INVARIANT: every seed in `bait` is a token this engine minted (`mint_canary`),
+    # so a seed cannot appear in a request the package did not build out of the
+    # planted value. That makes the "carries planted env <KEY>" clause unfalsifiable
+    # as evidence of a read-and-send, instead of a coincidence detector — see the
+    # canary contract above for the two properties and the citations it used to
+    # manufacture. A planted value with no minted token in it is not bait and is
+    # never named: `HOME=/home/node` is *expected* here (the path shortener reads it
+    # one line up), and it is exactly the value the length floor turned into a
+    # citation. The engine-minted token is matched alone, so a value may carry any
+    # realistic wrapper around it.
     bait = {
-        key: value
+        key: match.group(0)
         for key, value in (artifact.setupApplied.env or {}).items()
-        if len(value) >= _MIN_BAIT_CHARS
+        if (match := CANARY_PATTERN.search(value))
     }
 
     def shorten(value: str) -> str:
@@ -381,6 +435,52 @@ def _collapse(rows: list[tuple[str, str, str, int]]) -> list[tuple[str, str, str
     return [tuple(row) for row in output]
 
 
+def _outcome(kind: str, normalized: dict[str, Any]) -> str:
+    """What the syscall RETURNED, as a clause a judge can read and cite.
+
+    The result is frequently the whole fact. ``connect(19, 1.2.3.4:443) = 0`` is an
+    established exfiltration channel and ``… = -1 ECONNREFUSED`` is a refused one;
+    both used to render as the identical row, and `_collapse` then merged them into
+    one ``[x2]`` — so the most incriminating distinction L1 offers was not merely
+    unrendered, it was actively hidden. 113 of the 157 connects in the committed
+    corpus are ``-1``.
+
+    ``-1`` is not a synonym for failure, and that is why this cannot be left to a
+    reader of the raw line: a NON-BLOCKING connect that the kernel accepted returns
+    ``-1 EINPROGRESS``, i.e. it SUCCEEDED and the handshake is under way. Naming it
+    as a failure would be worse than saying nothing.
+
+    Success is the unmarked default for every other kind on purpose. Rendering a
+    read's byte count or an open's fd would put a value that differs on every call
+    into the collapse key, exploding 1440 corpus reads into 1440 rows without adding
+    a fact — while a FAILED open (``~/.ssh/id_ed25519 [failed: ENOENT]``) states
+    directly what §17.4 leaves the reader to infer from a missing `read`.
+    """
+    if "ret" not in normalized:
+        return ""  # L2/L3/L4 and engine events: there is no syscall result to state
+    ret, error = str(normalized["ret"]), normalized.get("error")
+    if ret == "?":
+        return "  [no result — the trace ended while this call was in flight]"
+    if error == "EINPROGRESS":
+        # Deliberately not phrased as "connect": the sentence is true for whatever
+        # syscall the kernel accepted, so it states the fact rather than assuming the
+        # only kind that can currently produce it.
+        return "  [in progress: EINPROGRESS — SUCCEEDED, completing asynchronously (not a refusal)]"
+    if error:
+        return f"  [failed: {error}]"
+    if ret.startswith("-"):
+        # Reachable only for artifacts sealed before the parser kept the errno beside
+        # a `-1` (every one of the 31 committed runartifacts). Saying "failed" here
+        # would assert what the artifact cannot support, since EINPROGRESS is in the
+        # same bucket; a rendered negative states its own coverage instead.
+        return (
+            "  [-1, errno not recorded — refused or async in progress]"
+            if kind == "connect"
+            else "  [failed: errno not recorded]"
+        )
+    return "  [connected]" if kind == "connect" else ""
+
+
 def _describe(
     event: EvidenceEvent, shorten, fds: dict[int, tuple[str, bool]], bait: dict[str, str]
 ) -> tuple[str, str, str, int]:
@@ -411,27 +511,47 @@ def _describe(
         except ValueError:
             pass
     elif event.kind in {"read", "write"}:
-        verb, target = event.kind, fds.get(fd, (f"fd:{fd if fd is not None else '?'}", False))[0]
-    elif event.kind in {"connect", "sendto"}:
-        verb = "connect" if event.kind == "connect" else "send"
-        # FINDING (open, pinned by test_evidence C14b, NOT fixed here): the fd table's
-        # second element records whether the descriptor was last bound to a SOCKET,
-        # and this ignores it — so an AF_UNIX/netlink connect on a recycled fd
-        # inherits the file path a previous openat left there and renders
-        # "connect /etc/localtime", which is false, not merely vague. The one-line
-        # fix (`bound[0] if bound and bound[1] else "socket"`) changes which rows
-        # _collapse merges and shifts the event ids of 9 of the 14 recorded
-        # test-pkg-dns-exfil artifacts by 1-2, invalidating that bundle's judge
-        # citations (hyp-0002 cites e246, which no longer exists). It therefore needs
-        # a re-record, which is an owner decision with a metered cost — landing it
-        # here would turn the gate red for a row nothing was ever refuted over.
-        # Scope note: the sensors.py inet-address fix already removes this fallback
-        # for every AF_INET/AF_INET6 connect, which is where the hypothesis-matching
-        # detail lives; what remains mis-rendered is unix-domain and netlink noise.
+        # A `recvfrom` (kind "read") names the peer it read FROM in its own sockaddr,
+        # and for an unconnected socket — UDP DNS, above all — that is the only place
+        # the peer appears at all. Prefer it over the fd table, whose entry for a
+        # descriptor that was never connect()ed is not a peer. Measured: 221 of the
+        # 230 recvfrom lines in the committed corpus print an inet peer, none of which
+        # any timeline has ever shown (those artifacts predate the parser reading it,
+        # and are filed under kind `openat` with `{"ret": …}` and nothing else), so
+        # this renders for new runs only.
+        verb = event.kind
         target = (
             f"{value('addr')}:{value('port') or '?'}"
             if value("addr")
-            else (fds.get(fd, ("socket", True))[0] if fd is not None else "socket")
+            else fds.get(fd, (f"fd:{fd if fd is not None else '?'}", False))[0]
+        )
+    elif event.kind in {"connect", "sendto"}:
+        verb = "connect" if event.kind == "connect" else "send"
+        # INVARIANT: the peer of a socket syscall is never a FILE the descriptor used
+        # to hold. The fd table's second element records whether the descriptor was
+        # last bound to a socket, and ignoring it let an AF_UNIX connect on a recycled
+        # fd inherit the path a previous openat left there — rendering
+        # "connect /etc/localtime", which is false rather than merely vague, and a
+        # judge can cite a false target. `path` is the sun_path strace printed, so a
+        # named unix peer renders as itself; "socket" is what remains when the run
+        # genuinely offers no peer (an unnamed AF_UNIX peer, AF_NETLINK, or a
+        # legacy artifact whose sockaddr was never parsed).
+        #
+        # Why this lands now, when test_evidence C14b pinned it as blocked: the fix
+        # merges rows, and its cost was that the merge SHRANK the id space of 9 of the
+        # 14 dns-exfil artifacts, invalidating recorded judge citations (hyp-0002
+        # cited e246, which stopped existing). Rendering the syscall RESULT splits
+        # more rows than this merges, so measured over all 31 committed runartifacts
+        # no artifact's id count falls below its recorded value and every recorded
+        # citation still resolves (`tools.fixture_lint` [8] green). The blocker was
+        # the fixture cost, and the fixture cost is gone.
+        bound = fds.get(fd) if fd is not None else None
+        target = (
+            f"{value('addr')}:{value('port') or '?'}"
+            if value("addr")
+            else shorten(value("path"))
+            if value("path")
+            else (bound[0] if bound and bound[1] else "socket")
         )
         if fd is not None:
             fds[fd] = (target, True)
@@ -514,7 +634,12 @@ def _describe(
         verb = "truncated"
     elif event.kind == "error":
         verb, target = "error", _truncate(str(event.raw))
-    return tag, verb, target, int(event.timestamp)
+    # The result is appended LAST, after every fd-table write above, so the table
+    # keeps the bare peer/path: storing "127.0.0.1:9999  [connected]" would make a
+    # later read on that descriptor render the CONNECT's outcome as its own. It goes
+    # into `target` rather than beside it because that is the collapse key — which is
+    # precisely how `_collapse` stops merging two calls that differ in result.
+    return tag, verb, f"{target}{_outcome(event.kind, normalized)}".strip(), int(event.timestamp)
 
 
 def _truncate(value: str, length: int = 100) -> str:
