@@ -23,5 +23,9 @@
 
     "types": ["vite/client", "node"]
   },
+  // The wire contract lives in @npmguard/shared as zod schemas; a project
+  // reference means `tsc -b` rebuilds it before typechecking us, so the
+  // frontend can never compile against a stale copy of the contract.
+  "references": [{ "path": "../shared" }],
   "include": ["src"]
 }
