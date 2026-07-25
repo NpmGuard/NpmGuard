@@ -129,8 +129,12 @@ export function App() {
             <Route path="/package/*" element={<PackageLookup />} />
             <Route path="/cli" element={<CliInstall />} />
             <Route path="/pay" element={<PayPage />} />
-            {/* Before /attest/:sessionId — "enrol" is not a session id. */}
+            {/* Before /attest/:sessionId — neither spelling is a session id.
+                Both are registered because the alternative is that a typo falls
+                through to the session route and reports "Unknown attestation
+                session", which points at the wrong problem entirely. */}
             <Route path="/attest/enrol" element={<Enrol />} />
+            <Route path="/attest/enroll" element={<Enrol />} />
             <Route path="/attest/:sessionId" element={<Attest />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/repo/:owner/:name" element={<RepoDetail />} />
