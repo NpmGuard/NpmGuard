@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import os
 import socket
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any
 from uuid import uuid4
@@ -15,7 +16,8 @@ from kit_stream import StreamService
 
 from .errors import AuditIncompleteError, NpmGuardError, QueueFullError
 from .events import AuditEmitter, audit_channel
-from .persistence import AuditSession, AuditSessionStore
+from .lanes import DEFAULT_LANE, lane
+from .persistence import AuditSession, AuditSessionStore, EnqueueSpec
 from .pipeline import AuditPipeline
 from .report_store import UnversionedReportError, save_report
 
@@ -96,6 +98,14 @@ def _claimant_is_locally_dead(claimed_by: str) -> bool:
     return False
 
 
+# Fired once per audit that reaches a terminal state, with the settled row. The
+# panel binds it to "index the verdict, alert on DANGEROUS, nudge the sets that
+# cover this pair" — the work its own worker pool used to do after awaiting an
+# admit future. Injected rather than imported so service.py stays unaware of the
+# panel, and so a batch caller has a way to learn about work it never awaited.
+SettleHook = Callable[[AuditSession], Awaitable[None]]
+
+
 @dataclass(frozen=True)
 class SubmitResult:
     audit_id: str
@@ -157,6 +167,7 @@ class AuditService:
         claim_poll_seconds: float = CLAIM_POLL_SECONDS,
         reclaim_sweep_seconds: float = RECLAIM_SWEEP_SECONDS,
         instance_id: str | None = None,
+        on_settled: SettleHook | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.sessions = sessions
@@ -168,6 +179,7 @@ class AuditService:
         self.claim_poll_seconds = claim_poll_seconds
         self.reclaim_sweep_seconds = reclaim_sweep_seconds
         self.instance_id = instance_id or _instance_id()
+        self._on_settled = on_settled
         # NOT an ownership map — see the class docstring. Local result-waiters
         # only: audit_id -> the future a caller in THIS process awaits.
         self._waiters: dict[str, asyncio.Future[dict[str, Any]]] = {}
@@ -201,19 +213,69 @@ class AuditService:
             asyncio.create_task(self._reclaim_loop(), name="npmguard-audit-reclaim-sweep"),
         ]
 
-    async def reserve(self) -> None:
+    async def reserve(self, lane_name: str = DEFAULT_LANE) -> None:
         """Capacity gate — no side effects. Every admission path calls this
         BEFORE create/claim, so a refusal never leaves a row or consumes a
-        payment proof."""
-        if await self.sessions.queued_count() >= self.queue_size:
+        payment proof.
+
+        The bound is PER LANE, and only on lanes with somebody waiting on a
+        result. ``queue_size`` answers "is there room for a caller who is holding
+        a connection open" — a payer at /audit/stream, a signed-in user watching a
+        public scan. The scan lanes have no such caller: a repo scan enqueues
+        every cache-missing dependency at once and reads progress from the verdict
+        index afterwards, so the durable queue IS its buffer, which is exactly the
+        job ``panel_jobs`` did as the unbounded outer queue. Counting those rows
+        against a payer's bound would refuse the payer on a background scan's
+        behalf; bounding the scan lane would refuse 250 of a 300-dep repo's own
+        dependencies.
+
+        Execution stays ONE global gate (``max_concurrent``, the docker cap).
+        Adding a lane must never add a docker budget.
+        """
+        if not lane(lane_name).bounded:
+            return
+        if await self.sessions.queued_count(lane_name) >= self.queue_size:
             raise QueueFullError()
 
-    async def admit(self, package_name: str, version: str | None = None) -> SubmitResult:
+    async def admit(
+        self,
+        package_name: str,
+        version: str | None = None,
+        *,
+        lane_name: str = DEFAULT_LANE,
+        org: str | None = None,
+        origin: str | None = None,
+        dedupe_key: str | None = None,
+    ) -> SubmitResult:
         """FREE/CRE/dev entry: reserve -> create(queued) -> submit. A refusal
         (QueueFull) creates no row."""
-        await self.reserve()
-        session = await self.sessions.create(package_name, version)
+        await self.reserve(lane_name)
+        session = await self.sessions.create(
+            package_name,
+            version,
+            lane=lane_name,
+            org=org,
+            origin=origin,
+            dedupe_key=dedupe_key,
+        )
         return await self.submit(session)
+
+    async def enqueue_many(self, specs: list[EnqueueSpec]) -> list[AuditSession]:
+        """Enqueue a BATCH, sharing work that is already in flight.
+
+        Returns the rows actually created — deduped against active work, so the
+        count is the budget to charge. This is ``PanelJobQueue.enqueue_many``'s
+        contract, now served by the one queue: no second table, no second worker
+        pool, and no second hop through ``admit`` to reach an executor.
+
+        No future is registered for these. A batch caller does not await 300
+        results; it reads the verdict index as the audits settle, and the settle
+        hook is what tells it to look.
+        """
+        created = await self.sessions.create_deduped(specs)
+        if created:
+            self._wake.set()  # parked workers claim now rather than at the next poll
+        return created
 
     async def submit(self, session: AuditSession) -> SubmitResult:
         """The single owner entry every path reaches. Idempotent, audit_id-keyed.
@@ -289,9 +351,57 @@ class AuditService:
             # one line earlier costs a round trip and proves nothing.
             result = await self._execute(replace(claimed, status="running"))
         except Exception as exc:
+            # ★ NO AWAIT between _finish's commit (inside _execute) and this
+            # resolution. See `finalize`'s comment: one suspension point here is
+            # what makes "a completed audit whose caller is told it was
+            # interrupted" reachable. The settle hook runs strictly AFTER.
             self._settle(aid, exception=exc)
+            await self._announce_settled(aid)
         else:
+            if result is None:
+                return  # requeued for another attempt: nothing settled, waiter kept
             self._settle(aid, result=result)
+            await self._announce_settled(aid)
+
+    async def _announce_settled(self, audit_id: str) -> None:
+        """Tell the consumer that owns the aftermath of this audit, if any.
+
+        This is where the panel's post-audit work lives now — index the verdict,
+        raise an alert on DANGEROUS, nudge every set covering the pair — and it
+        replaces a whole worker pool whose only remaining job, once the queue was
+        durable, was to await an admit future it had itself created.
+
+        Deliberately AFTER ``_settle`` and outside the terminal transaction: this
+        is downstream bookkeeping, not part of the audit's atomic ending. A hook
+        that raises must not take the worker down with it, and must not make an
+        audit look unfinished — the row and its terminal event are already
+        committed by the time we get here, so the loudest correct response is a
+        log line.
+        """
+        if self._on_settled is None:
+            return
+        settled = await self.sessions.get(audit_id)
+        if settled is None:
+            return
+        try:
+            await self._on_settled(settled)
+        except Exception:  # noqa: BLE001 — a consumer must not kill the pool
+            log.exception("settle hook failed", audit_id=audit_id, lane=settled.lane)
+
+    async def _requeue_for_retry(self, session: AuditSession, error: str) -> bool:
+        """Give this row another attempt if its LANE has one left.
+
+        The budget is the lane's and the count is the row's (``npmguard/lanes.py``
+        says why it is per-lane). A paid audit has exactly one attempt: its failure
+        is a fact the payer must see, marked retryable, replayed only by the caller
+        who paid — silently re-running it would spend a second audit's docker and
+        model budget against one payment. A scan dependency has three, because a
+        flaky registry fetch that permanently marks a dep ERROR in a rollup is a
+        worse answer than trying again.
+        """
+        if session.attempts + 1 >= lane(session.lane).max_attempts:
+            return False
+        return await self.sessions.retry(session.audit_id, self.instance_id, error)
 
     def _settle(
         self,
@@ -616,7 +726,10 @@ class AuditService:
             await self.sessions.finalize(audit_id, report, error, session=db)
             await self.stream.append(audit_channel(audit_id), event_type, payload, session=db)
 
-    async def _execute(self, session: AuditSession) -> dict[str, Any]:
+    async def _execute(self, session: AuditSession) -> dict[str, Any] | None:
+        """Run one attempt. The report on success; ``None`` when the attempt
+        failed and the row went BACK to the queue for another one (so the caller
+        must neither settle it nor treat it as finished)."""
         emitter = AuditEmitter(session.audit_id, self.stream)
         try:
             result = await self.pipeline.run(
@@ -682,6 +795,23 @@ class AuditService:
             message = str(exc) or type(exc).__name__
             code = exc.code if isinstance(exc, NpmGuardError) else "NPMGUARD-9999"
             retryable = exc.retryable if isinstance(exc, NpmGuardError) else False
+            if await self._requeue_for_retry(session, message):
+                # Back to the queue, NOT to a terminal state, and deliberately
+                # with nothing appended to the event stream: `audit_error` is a
+                # terminal frame and every reader stops at the first one, so
+                # emitting it for an attempt that will be followed by another
+                # would strand every follower on a live audit.
+                log.warning(
+                    "audit failed, requeued for another attempt",
+                    audit_id=session.audit_id,
+                    package_name=session.package_name,
+                    lane=session.lane,
+                    attempt=session.attempts + 1,
+                    max_attempts=lane(session.lane).max_attempts,
+                    code=code,
+                    error=message,
+                )
+                return None
             await self._finish(
                 session.audit_id,
                 error=message,
