@@ -2,6 +2,12 @@
  * CountsRail — a proportion bar over the hypothesis outcome counts.
  * Confirmed / refuted / deferred / in-progress / open render as tone segments.
  * Honest empty: when nothing was raised, we say so — never a row of zeros.
+ *
+ * Only `confirmed` is red and only `refuted` is green, because those are the two
+ * buckets that carry a CONCLUSION. `deferred` — we could not decide — is neutral
+ * grey rather than amber: amber reads as a weak finding, and a hypothesis we
+ * failed to resolve is not a weak finding, it is no finding. Same rule as the
+ * hypothesis cards (`report-helpers.ts`).
  */
 
 import type { HypothesisCounts } from "@npmguard/shared";
@@ -20,7 +26,7 @@ type Bucket = {
 const BUCKETS: readonly Bucket[] = [
   { key: "confirmed", label: "Confirmed", seg: "danger" },
   { key: "refuted", label: "Refuted", seg: "safe" },
-  { key: "deferred", label: "Deferred", seg: "suspect" },
+  { key: "deferred", label: "Deferred", seg: "unknown" },
   { key: "inProgress", label: "In progress", seg: "running" },
   { key: "open", label: "Open", seg: "unknown" },
 ];

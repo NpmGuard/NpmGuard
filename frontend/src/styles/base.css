@@ -357,6 +357,9 @@ kbd {
 .dot--safe    { background: var(--safe);    box-shadow: 0 0 0 3px rgba(66, 132, 104, 0.14); }
 .dot--danger  { background: var(--danger);  box-shadow: 0 0 0 3px rgba(194, 69, 45, 0.14); }
 .dot--suspect { background: var(--suspect); box-shadow: 0 0 0 3px rgba(213, 148, 44, 0.14); }
+/* Named alias of the neutral dot: "we could not decide" is a real state and must
+   be spellable, not a modifier that silently falls through to the base class. */
+.dot--unknown { background: #7f7c73; box-shadow: 0 0 0 3px rgba(127, 124, 115, 0.12); }
 .dot--error   { background: var(--error);   box-shadow: 0 0 0 3px rgba(213, 148, 44, 0.14); }
 .dot--running { background: var(--running); box-shadow: 0 0 0 3px rgba(78, 155, 208, 0.14); animation: dot-pulse 1.6s var(--ease) infinite; }
 .dot--violet  { background: var(--violet);  box-shadow: 0 0 0 3px rgba(112, 88, 217, 0.14); }

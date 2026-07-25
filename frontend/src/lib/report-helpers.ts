@@ -47,6 +47,61 @@ export function verdictTone(verdict: VerdictEnum): "safe" | "danger" {
   return verdict === "DANGEROUS" ? "danger" : "safe";
 }
 
+/* ── hypothesis colour: STATE decides, severity only modulates ──────────────
+ *
+ * A hypothesis severity is the severity of a CLAIM — "if this were true, it
+ * would be critical". It is authored before anything is tested. Colouring the
+ * row by severity alone therefore painted a REFUTED critical hypothesis in full
+ * danger red, with a red CRITICAL tag: the investigation's own conclusion was
+ * "this did not happen", and the UI shouted the opposite. On a package with 1
+ * confirmed and 13 refuted hypotheses, that is thirteen red rows around the one
+ * that matters.
+ *
+ * Red is reserved for a claim NpmGuard is MAKING about the package, so severity
+ * gets to carry a hue only where the claim stands (CONFIRMED). Everywhere else
+ * the severity tag is neutral — not hidden, because "we tested a critical claim"
+ * is worth knowing, just not worth alarming about.
+ *
+ *   CONFIRMED  → the threat is real: critical/high red, medium amber, low neutral
+ *   REFUTED    → tested, did not happen: neutral row, GREEN state pill
+ *   DEFERRED   → could not be decided: neutral everywhere (ambiguous is grey,
+ *                never amber — amber reads as a weak finding, and there is no
+ *                finding)
+ *   OPEN / IN_PROGRESS → the progress axis, which is never a verdict
+ */
+
+/** The `--accent` var for a hypothesis card's severity rule. */
+export function hypothesisAccentVar(state: HypothesisState, severity: string): string {
+  if (state !== "CONFIRMED") return "var(--tone-paper-accent)";
+  if (severity === "critical" || severity === "high") return "var(--danger)";
+  if (severity === "medium") return "var(--suspect)";
+  return "var(--tone-paper-accent)";
+}
+
+/** The severity tag's class. Neutral unless the hypothesis it qualifies stands. */
+export function hypothesisSeverityTagClass(state: HypothesisState, severity: string): string {
+  if (state !== "CONFIRMED") return "tag";
+  if (severity === "critical" || severity === "high") return "tag tag--danger";
+  if (severity === "medium") return "tag tag--suspect";
+  return "tag";
+}
+
+/** The resolution pill's class. This is the one element that says what we now
+ * KNOW, so it is the one element allowed a hue on a refuted row. */
+export function hypothesisStatePillClass(state: HypothesisState): string {
+  switch (state) {
+    case "CONFIRMED":
+      return "pill pill--danger";
+    case "REFUTED":
+      return "pill pill--safe";
+    case "OPEN":
+    case "IN_PROGRESS":
+      return "pill pill--running";
+    case "DEFERRED":
+      return "pill";
+  }
+}
+
 export function bySeverityDesc<T extends { severity: string }>(items: readonly T[]): T[] {
   return [...items].sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
 }
