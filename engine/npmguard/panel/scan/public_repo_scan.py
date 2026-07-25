@@ -18,9 +18,9 @@ Two boundaries are load-bearing:
   free** — a rename can't make a repo cost a second Free slot.
 
 Progress + rollup mirror ``repo_scan``: counters come from ``public_repo_scan_items
-⋈ package_verdicts`` + active ``panel_jobs``, and :func:`compute_rollup` (reused
-from ``repo_scan``) keeps the 4-key wire shape while dev only ever produces
-``SAFE``/``DANGEROUS``/``None``.
+⋈ package_verdicts`` + active ``panel_jobs``, lifted through ``item_outcome`` and
+counted by :func:`compute_rollup` (both reused from ``repo_scan``), so a snapshot
+and a repo scan cannot classify the same item differently.
 
 Fan-out (the dev decision, differing from TS): public deps enqueue ``panel_jobs``
 with ``scan_id=None`` **and** ``org=None`` — a public snapshot owns no scan and
@@ -51,7 +51,7 @@ from ..tables import (
     public_repo_scans,
 )
 from ..verdict_index import VerdictIndex
-from .repo_scan import Rollup, compute_rollup
+from .repo_scan import Rollup, compute_rollup, rollup_items
 
 # GitHub identity grammar (mirrors the TS OWNER_PATTERN / REPO_PATTERN).
 _OWNER_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -280,24 +280,19 @@ class PublicRepoScanEngine:
             if row is None or row["status"] != "running":
                 return
 
-            items = await self._public_item_states(session, scan_id)
-            total = len(items)
-            cached = sum(1 for i in items if i["cached"])
-            # audited = resolved during this scan (no verdict at creation).
-            audited = sum(
-                1 for i in items if i["verdict"] is not None and not i["cached"]
-            )
-            active = sum(1 for i in items if i["active"])
-            # unresolved with no active job = failed (audit gave up after retries).
-            failed = sum(1 for i in items if i["verdict"] is None and not i["active"])
-
+            # One rollup, same derivation as the repo path: the four persisted
+            # counters are projections of it, so they cannot disagree with the
+            # outcome the wire reports. `failed` IS the ERROR bucket.
+            rollup = await compute_public_scan_rollup(session, scan_id)
             values: dict[str, object] = {
-                "total": total,
-                "cached": cached,
-                "audited": audited,
-                "failed": failed,
+                "total": rollup.total,
+                "cached": rollup.cached,
+                "audited": rollup.safe + rollup.dangerous - rollup.cached,
+                "failed": rollup.error,
             }
-            if active == 0:
+            # INVARIANT: pending == 0 ⟺ no item has a live attempt (the set is
+            # finished), the one progress counter.
+            if rollup.pending == 0:
                 values["status"] = "done"
                 values["finished_at"] = now_iso()
             await session.execute(
@@ -332,61 +327,31 @@ class PublicRepoScanEngine:
         for scan_id in scan_ids:
             await self.refresh_public_scan_progress(scan_id)
 
-    async def _public_item_states(
-        self, session: object, scan_id: int
-    ) -> list[dict[str, object]]:
-        active_exists = (
-            sa.select(sa.literal(1))
-            .select_from(panel_jobs)
-            .where(
-                panel_jobs.c.package_name == public_repo_scan_items.c.name,
-                panel_jobs.c.version == public_repo_scan_items.c.version,
-                panel_jobs.c.state.in_(("queued", "running")),
-            )
-            .exists()
-        )
-        rows = (
-            (
-                await session.execute(  # type: ignore[attr-defined]
-                    sa.select(
-                        public_repo_scan_items.c.cached,
-                        package_verdicts.c.verdict,
-                        active_exists.label("active"),
-                    )
-                    .select_from(
-                        public_repo_scan_items.outerjoin(
-                            package_verdicts,
-                            sa.and_(
-                                package_verdicts.c.name
-                                == public_repo_scan_items.c.name,
-                                package_verdicts.c.version
-                                == public_repo_scan_items.c.version,
-                            ),
-                        )
-                    )
-                    .where(public_repo_scan_items.c.scan_id == scan_id)
-                )
-            )
-            .mappings()
-            .all()
-        )
-        return [
-            {
-                "cached": bool(row["cached"]),
-                "verdict": row["verdict"],
-                "active": bool(row["active"]),
-            }
-            for row in rows
-        ]
 
-
-async def public_scan_item_verdicts(session: object, scan_id: int) -> list[str | None]:
-    """The per-dep verdicts (``SAFE``/``DANGEROUS``/``None``) covering a scan,
-    for :func:`compute_rollup`. Shared by the route's serializer."""
-    return list(
+async def public_item_states(session: object, scan_id: int) -> list[dict[str, object]]:
+    """``public_repo_scan_items ⋈ package_verdicts`` + "has a live job", for one
+    snapshot — the rows :func:`rollup_items` lifts into outcomes. Module-level so
+    the progress projection and the route's serializer read the SAME rows: two
+    queries over one item set is how a scan came to have two different answers
+    for what it concluded."""
+    active_exists = (
+        sa.select(sa.literal(1))
+        .select_from(panel_jobs)
+        .where(
+            panel_jobs.c.package_name == public_repo_scan_items.c.name,
+            panel_jobs.c.version == public_repo_scan_items.c.version,
+            panel_jobs.c.state.in_(("queued", "running")),
+        )
+        .exists()
+    )
+    rows = (
         (
             await session.execute(  # type: ignore[attr-defined]
-                sa.select(package_verdicts.c.verdict)
+                sa.select(
+                    public_repo_scan_items.c.cached,
+                    package_verdicts.c.verdict,
+                    active_exists.label("active"),
+                )
                 .select_from(
                     public_repo_scan_items.outerjoin(
                         package_verdicts,
@@ -400,14 +365,22 @@ async def public_scan_item_verdicts(session: object, scan_id: int) -> list[str |
                 .where(public_repo_scan_items.c.scan_id == scan_id)
             )
         )
-        .scalars()
+        .mappings()
         .all()
     )
+    return [
+        {
+            "cached": bool(row["cached"]),
+            "verdict": row["verdict"],
+            "active": bool(row["active"]),
+        }
+        for row in rows
+    ]
 
 
 async def compute_public_scan_rollup(session: object, scan_id: int) -> Rollup:
-    """Worst-dep-wins rollup over a public snapshot (reuses :func:`compute_rollup`)."""
-    return compute_rollup(await public_scan_item_verdicts(session, scan_id))
+    """The snapshot's rollup over its own items (design §4.4 counters)."""
+    return compute_rollup(rollup_items(await public_item_states(session, scan_id)))
 
 
 __all__ = [
@@ -417,5 +390,5 @@ __all__ = [
     "PublicRepoScanEngine",
     "compute_public_scan_rollup",
     "parse_public_repo_reference",
-    "public_scan_item_verdicts",
+    "public_item_states",
 ]

@@ -1,11 +1,11 @@
 """GitHub check runs for the repo panel (port of TS ``github/checks.ts``).
 
-A protected repo's push triggers a delta scan; the scan's verdict is surfaced
-to GitHub as a **check run** on the head commit. The trust contract (spec
-§5.10): a check **fails only on DANGEROUS**. A SAFE rollup is a success; a
-still-pending rollup (no verdict yet, or an ``UNKNOWN``/``SUSPECT`` bucket that
-dev never actually produces) leaves the check ``in_progress`` — it is never
-concluded prematurely.
+A protected repo's push triggers a delta scan; the scan's outcome is surfaced to
+GitHub as a **check run** on the head commit. The trust contract (spec §5.10): a
+check **fails only on DANGEROUS**. A SAFE rollup is a success, an ERROR rollup is
+``neutral`` (visible, never blocking, and never claiming safe), and a set with
+nothing concluded yet leaves the check ``in_progress`` — it is never concluded
+prematurely.
 
 Every GitHub call here is best-effort: the App may have been registered without
 the ``Checks:write`` permission, in which case create/conclude fail. We log and
@@ -22,36 +22,50 @@ from typing import Any
 
 import structlog
 
+from ..verdict_index import OUTCOMES
+
 log = structlog.get_logger("npmguard.panel.checks")
 
 CHECK_NAME = "NpmGuard"
 
 
-def check_conclusion(verdict: str | None) -> str:
-    """Map a rollup verdict to a GitHub check state.
+# The one outcome -> check-state mapping (design §4.4). Total over the outcome
+# domain, so a value it does not cover is a domain violation rather than a
+# silent "in progress" — which is what the old catch-all arm hid.
+_CONCLUSION = {"DANGEROUS": "failure", "ERROR": "neutral", "SAFE": "success"}
 
-    - ``DANGEROUS`` → ``"failure"`` — the ONLY blocking verdict (trust contract).
+
+def check_conclusion(outcome: str | None) -> str:
+    """Map a set's rollup outcome to a GitHub check state.
+
+    - ``DANGEROUS`` → ``"failure"`` — the ONLY blocking outcome (trust contract).
     - ``SAFE`` → ``"success"``.
-    - anything else (``None`` pending, ``UNKNOWN``, or the reserved-but-unused
-      ``SUSPECT``) → ``"in_progress"``: the scan has not resolved to a
-      pass/fail, so the check must not be concluded yet.
+    - ``ERROR`` → ``"neutral"``: the audit could not conclude. It does not block
+      the push, and it must not report success either — "we tried and failed" is
+      a fact GitHub gets to see.
+    - ``None`` (nothing concluded yet) → ``"in_progress"``: the only non-terminal
+      state, and it is PROGRESS, not an outcome.
 
     Pure — the single source of truth for the fail-only-on-DANGEROUS policy.
     """
-    if verdict == "DANGEROUS":
-        return "failure"
-    if verdict == "SAFE":
-        return "success"
-    return "in_progress"
+    if outcome is None:
+        return "in_progress"
+    # INVARIANT: a non-null outcome is a panel outcome, so the mapping is total.
+    assert outcome in OUTCOMES, f"{outcome!r} is not a panel outcome"
+    return _CONCLUSION[outcome]
 
 
-def check_summary(verdict: str | None, rollup: dict[str, Any] | None = None) -> str:
+def check_summary(outcome: str | None, rollup: dict[str, Any] | None = None) -> str:
     """A short human summary for the check output panel."""
-    if verdict == "DANGEROUS":
+    if outcome == "DANGEROUS":
         count = (rollup or {}).get("dangerous")
         detail = f" ({count} dangerous)" if count else ""
         return f"NpmGuard found a DANGEROUS dependency{detail}."
-    if verdict == "SAFE":
+    if outcome == "ERROR":
+        count = (rollup or {}).get("error")
+        detail = f" ({count} could not be audited)" if count else ""
+        return f"NpmGuard could not complete this audit{detail} — no clean bill of health."
+    if outcome == "SAFE":
         return "NpmGuard found no dangerous dependencies."
     return "NpmGuard audit in progress."
 

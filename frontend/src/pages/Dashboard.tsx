@@ -26,11 +26,14 @@ const FILTERS: { key: RepoFilter; label: string }[] = [
   { key: "attention", label: "Attention" },
 ];
 
+/** Attention = a human has to do something: the scan itself failed, a dep is
+ * DANGEROUS, or audits could not conclude (ERROR). A scan still running, or one
+ * with pending deps, is NOT attention — it resolves itself. */
 function needsAttention(repo: PanelRepo): boolean {
   const scan = repo.lastScan;
   return (
     scan !== null &&
-    (scan.status === "failed" || scan.verdict === "DANGEROUS" || scan.verdict === "SUSPECT")
+    (scan.status === "failed" || scan.outcome === "DANGEROUS" || scan.outcome === "ERROR")
   );
 }
 

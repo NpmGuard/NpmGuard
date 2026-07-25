@@ -697,14 +697,15 @@ async def lifespan(app: FastAPI):
         panel_queue = PanelJobQueue(sessions_factory)
 
         # Conclude a push-scan's GitHub check-run once the scan finalizes. The
-        # fail-only-on-DANGEROUS mapping is check_conclusion; an unresolved
-        # rollup (None/UNKNOWN) leaves the check open (never concluded early).
+        # outcome -> check-state mapping is check_conclusion (fail only on
+        # DANGEROUS, neutral on ERROR); only a set with NOTHING concluded
+        # (outcome None) leaves the check open.
         async def finalize_check(
-            repo: Any, check_run_id: int, verdict: str | None
+            repo: Any, check_run_id: int, outcome: str | None
         ) -> None:
-            conclusion = check_conclusion(verdict)
+            conclusion = check_conclusion(outcome)
             if conclusion == "in_progress":
-                return  # not a pass/fail yet — leave the check running
+                return  # nothing concluded yet — leave the check running
             octo = gh_client.installation_octokit(repo["installation_id"])
             await conclude_check_run(
                 octo,
@@ -712,7 +713,7 @@ async def lifespan(app: FastAPI):
                 repo["name"],
                 check_run_id,
                 conclusion,
-                check_summary(verdict),
+                check_summary(outcome),
             )
 
         panel_scan = RepoScanEngine(

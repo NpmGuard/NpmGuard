@@ -52,6 +52,7 @@ from npmguard.panel.tables import (
     public_repo_scans,
     user_installations,
 )
+from npmguard.panel.verdict_index import item_outcome
 
 log = structlog.get_logger("npmguard.panel.public_repos")
 
@@ -217,14 +218,6 @@ async def get_public_repo(scan_id: int, request: Request) -> Response:
         ):
             return JSONResponse({"error": "Public audit not found"}, status_code=404)
 
-        # Severity-DESC (DANGEROUS>SUSPECT>UNKNOWN/null>SAFE) then direct then name.
-        severity = sa.case(
-            (package_verdicts.c.verdict == "DANGEROUS", 4),
-            (package_verdicts.c.verdict == "SUSPECT", 3),
-            (package_verdicts.c.verdict == "UNKNOWN", 2),
-            (package_verdicts.c.verdict == "SAFE", 1),
-            else_=2,
-        )
         active_exists = (
             sa.select(sa.literal(1))
             .select_from(panel_jobs)
@@ -234,6 +227,18 @@ async def get_public_repo(scan_id: int, request: Request) -> Response:
                 panel_jobs.c.state.in_(("queued", "running")),
             )
             .exists()
+        )
+        # Sort order = the outcome domain, DESC. INVARIANT: the stored verdict is
+        # SAFE or DANGEROUS (verdict_index), so the arms are exhaustive — the two
+        # extra arms this CASE used to carry (SUSPECT, UNKNOWN) could not match
+        # any row. A dep with no verdict ranks by whether an attempt is still
+        # live: ERROR outranks pending, which matters because this list is capped
+        # at MAX_DETAIL_DEPS and the truncated tail must be the least urgent.
+        severity = sa.case(
+            (package_verdicts.c.verdict == "DANGEROUS", 3),
+            (package_verdicts.c.verdict == "SAFE", 0),
+            (active_exists, 1),
+            else_=2,
         )
         dep_rows = (
             (
@@ -282,7 +287,7 @@ async def get_public_repo(scan_id: int, request: Request) -> Response:
             "direct": bool(dep["direct"]),
             "range": dep["range"],
             "cached": bool(dep["cached"]),
-            "verdict": dep["verdict"],
+            "outcome": item_outcome(dep["verdict"], pending=bool(dep["active"])),
             "reason": dep["reason"],
             "evidenceCount": dep["evidence_count"] or 0,
             "auditedAt": dep["audited_at"],

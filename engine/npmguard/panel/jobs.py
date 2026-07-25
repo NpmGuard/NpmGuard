@@ -352,6 +352,18 @@ class PanelScanWorker:
             if verdict == "DANGEROUS" and self._on_dangerous is not None:
                 source = "watch" if job.scan_id is None else "scan"
                 await self._on_dangerous(job.package_name, job.version, source)
+        else:
+            # The audit settled without a landable verdict, so NO verdict row is
+            # written and the job still completes. That leaves the pair with no
+            # outcome and no live attempt, which `item_outcome` reads as ERROR —
+            # a visible coverage gap rather than a silent one. Logged because the
+            # only way here is a corrupt or foreign report.
+            log.warning(
+                "panel audit produced no landable verdict",
+                package=job.package_name,
+                version=job.version,
+                verdict=verdict,
+            )
         await self._queue.complete(job.id)
         await self._notify(job)
 

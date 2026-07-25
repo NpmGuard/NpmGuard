@@ -4,8 +4,9 @@
  * paywall AND patch the matching billing account with fresh entitlements.
  *
  * Kept SEPARATE from auditStore — the panel is its own surface with its own
- * lifecycle. Verdicts here are PanelVerdict (4-state wire), not the audit
- * Verdict (2-state).
+ * lifecycle. The verdict domain here is the panel `Outcome`
+ * (SAFE | ERROR | DANGEROUS, null until concluded), NOT the audit-core Verdict
+ * (SAFE | DANGEROUS) — see the note on the two domains in engine-types.ts.
  */
 
 import { create } from "zustand";

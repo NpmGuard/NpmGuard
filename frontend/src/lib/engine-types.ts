@@ -23,7 +23,13 @@
  * declared by hand below is a shape with no schema yet.
  */
 
-import type { DependencyGroups, PackageMetadata } from "@npmguard/shared";
+import type {
+  AuditSetRollup,
+  DependencyGroups,
+  JobState,
+  Outcome,
+  PackageMetadata,
+} from "@npmguard/shared";
 
 // ===== enums =====
 
@@ -309,20 +315,18 @@ export interface ResolveResponse {
 // GitHub repo panel wire contract
 // ===========================================================================
 //
-// The panel is a SEPARATE surface from the single-package audit above and it
-// keeps the ORIGINAL 4-state verdict on the wire. Do NOT widen the audit
-// `Verdict` (SAFE|DANGEROUS) — panel per-dep / rollup / scan shapes use
-// `PanelVerdict` instead.
+// The panel is a SEPARATE surface from the single-package audit above, and its
+// verdict domain is a DIFFERENT domain: `Outcome` (SAFE | ERROR | DANGEROUS,
+// null until concluded) from the generated contract. Do NOT widen the audit
+// `Verdict` (SAFE|DANGEROUS) to match it and do not treat them as aliases — an
+// audit that fails emits an `audit_error` event, so ERROR is not a value the
+// audit domain can hold, but it IS one the panel must roll up.
 //
-// 4→2-state reconciliation (see dashboard-port-plan §5): the wire stays
-// 4-state for forward-compat, but the dev engine NEVER emits SUSPECT and only
-// emits UNKNOWN as the pending/unaudited ROLLUP bucket. A per-dep verdict is
-// therefore always one of SAFE | DANGEROUS | null (null = pending/queued/failed,
-// carried by `jobState`). SUSPECT tone/UI paths are reserved-but-never-triggered.
-
-/** Panel verdict enum — 4-state on the wire; dev emits only SAFE|DANGEROUS on
- * deps and UNKNOWN only as the pending rollup bucket. */
-export type PanelVerdict = "SAFE" | "SUSPECT" | "DANGEROUS" | "UNKNOWN";
+// Two axes (design §4.4): `outcome` says what we know, `jobState` / the rollup's
+// `pending` count say how far along we are. The retired 4-state PanelVerdict
+// conflated them — `UNKNOWN` meant both "not audited yet" and "audit failed", so
+// no branch on it could be right; `SUSPECT` had no producer at all.
+export type { AuditSetRollup, JobState, Outcome } from "@npmguard/shared";
 
 // ===== auth / session =====
 
@@ -358,7 +362,8 @@ export interface ScanSummary {
   failed: number;
   startedAt: string;
   finishedAt: string | null;
-  verdict: PanelVerdict | null; // null while running
+  // The rollup over the scan's OWN items; null until the scan is done.
+  outcome: Outcome | null;
 }
 
 export interface PanelRepo {
@@ -373,24 +378,22 @@ export interface PanelRepo {
   lastScan: ScanSummary | null;
 }
 
-export interface Rollup {
-  verdict: PanelVerdict | null;
-  dangerous: number;
-  suspect: number; // always 0 on dev (SUSPECT reserved/unused)
-  unknown: number; // NULL/unaudited deps
-  safe: number;
-}
-
 export interface DepDetail {
   name: string;
   version: string;
   direct: boolean;
   range: string | null;
-  verdict: PanelVerdict | null; // null = pending/queued/failed, distinct from UNKNOWN
+  // null ⟺ not concluded (a job is queued/running). A failed audit is ERROR, not
+  // null — so a null here always resolves itself, and the UI can show a spinner
+  // for null and a retry for ERROR.
+  outcome: Outcome | null;
   verdictReason: string | null;
   evidenceCount: number;
   auditedAt: string | null;
-  jobState: "queued" | "running" | "failed" | null;
+  // A fact about the ATTEMPT, never the result: `failed` means a terminal failed
+  // job exists, which is NOT the same as outcome ERROR (an item can be ERROR
+  // with jobState null when its job row was never written).
+  jobState: JobState | null;
 }
 
 export interface Alert {
@@ -399,7 +402,11 @@ export interface Alert {
   repoId: number | null;
   packageName: string;
   version: string;
-  verdict: string;
+  // Only DANGEROUS is ever raised (notify.py is the single writer and inserts
+  // that literal). Narrowed from a bare `string`, which is what forced the tone
+  // map to accept any string. The contract renames this to `outcome` alongside
+  // `kind` → `origin`; both land together in R-1.
+  verdict: "DANGEROUS";
   kind: "scan" | "watch";
   message: string;
   seen: boolean;
@@ -409,7 +416,10 @@ export interface Alert {
 export interface RepoDetailResponse {
   repo: PanelRepo;
   deps: DepDetail[];
-  rollup: Rollup;
+  // The repo's posture over its CURRENT dep index, computed server-side. The
+  // client consumes it — it must not recompute a second (divergent) answer from
+  // `deps`, which is what it used to do while never reading this field.
+  rollup: AuditSetRollup;
   scan: ScanSummary | null;
   alerts: Alert[];
 }
@@ -420,10 +430,10 @@ export type ScanStreamMessage =
       type: "dep";
       name: string;
       version: string;
-      verdict: PanelVerdict | null;
+      outcome: Outcome | null;
       verdictReason: string | null;
       evidenceCount: number;
-      jobState: "queued" | "running" | "failed" | null;
+      jobState: JobState | null;
     }
   | { type: "progress"; status: string; total: number; cached: number; audited: number; failed: number }
   | { type: "done" };
@@ -452,7 +462,7 @@ export interface PublicScan {
   error: string | null;
   startedAt: string;
   finishedAt: string | null;
-  rollup: Rollup;
+  rollup: AuditSetRollup;
 }
 
 export interface PublicScanDep {
@@ -461,7 +471,7 @@ export interface PublicScanDep {
   direct: boolean;
   range: string | null;
   cached: boolean;
-  verdict: PanelVerdict | null;
+  outcome: Outcome | null;
   reason: string | null;
   evidenceCount: number;
   auditedAt: string | null;

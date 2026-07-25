@@ -3,7 +3,7 @@
 
 import type { PublicScan } from "../../lib/engine-types.ts";
 import { formatDate } from "../../lib/format.ts";
-import { VerdictPill } from "./tone.tsx";
+import { OutcomePill } from "./tone.tsx";
 
 interface PublicAuditHistoryProps {
   scans: PublicScan[];
@@ -66,8 +66,8 @@ export function PublicAuditHistory({ scans, onOpen }: PublicAuditHistoryProps) {
                   </>
                 ) : (
                   <span className="panel-history__statusrow">
-                    {scan.rollup.verdict ? (
-                      <VerdictPill verdict={scan.rollup.verdict} />
+                    {scan.rollup.outcome ? (
+                      <OutcomePill outcome={scan.rollup.outcome} />
                     ) : (
                       <span className="pill">Done</span>
                     )}
