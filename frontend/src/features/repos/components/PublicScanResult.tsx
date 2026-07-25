@@ -28,7 +28,8 @@
  * here", and the packages that were covered carry real signal. */
 
 import type { AuditSetItem, PublicRepoScanDetailResponse } from "@npmguard/shared";
-import { OutcomePill, ProgressPill, depTone, toneSeverity } from "../../../components/panel/tone.tsx";
+import { depTone, toneSeverity } from "../../../components/panel/tone.tsx";
+import { ProgressStamp, VerdictStamp } from "../../../components/ui/verdict-stamp.tsx";
 import { Badge } from "../../../components/ui/badge.tsx";
 import { DegradedRegion } from "../../../components/ui/degraded-state.tsx";
 import { EmptyState } from "../../../components/ui/empty-state.tsx";
@@ -198,9 +199,9 @@ export function PublicScanResult({
                       </TableCell>
                       <TableCell>
                         {dep.outcome ? (
-                          <OutcomePill outcome={dep.outcome} />
+                          <VerdictStamp outcome={dep.outcome} />
                         ) : (
-                          <ProgressPill state="queued">Queued</ProgressPill>
+                          <ProgressStamp state="queued">Queued</ProgressStamp>
                         )}
                       </TableCell>
                       <TableCell className="max-w-80 text-text-2">{depReason(dep)}</TableCell>

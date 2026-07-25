@@ -1,718 +1,42 @@
-/* ============================================================
-   npmguard design system — keyline language
-   Tokens + base + shared primitives. Page clusters add their own
-   stylesheet (audit.css / report.css / panel.css / pages.css) and
-   MUST compose these primitives instead of re-inventing them.
-   ============================================================ */
-
-/* The DM Sans / DM Mono @import that used to sit here now lives at the top of
-   src/index.css — a nested `@import url(…)` is dropped once this file is inlined
-   after Tailwind's layers, because @import is only legal before any other rule.
-   Moving it was the whole change; the request itself is unchanged. */
-
-:root {
-  color-scheme: light;
-
-  /* type */
-  --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "DM Mono", ui-monospace, "SF Mono", monospace;
-
-  /* ink (text hierarchy) */
-  --ink: #25241f;
-  --ink-soft: #646158;
-  --ink-faint: #908d84;
-
-  /* surfaces */
-  --canvas: #f7f6f2;                       /* page background (warm paper) */
-  --surface: rgba(255, 255, 252, 0.94);    /* floating panels (pair with backdrop blur) */
-  --surface-strong: #fffefa;               /* cards, modals, hover fills */
-  --surface-hover: #f1efe9;                /* list-row / nav hover */
-  --surface-hover-2: #efede7;              /* icon-button hover */
-  --surface-inset: #f4f2ed;                /* kbd bg, code strips */
-
-  /* keylines */
-  --line: #dedbd2;
-  --line-strong: #c8c4ba;
-  --line-faint: #ebe8e0;                   /* row separators */
-  --line-panel: rgba(207, 203, 193, 0.95); /* floating panel border */
-  /* `--line-modal` deleted with `.dialog`, its only consumer. */
-
-  /* interactive accent */
-  --violet: #7058d9;
-  --violet-dark: #4a3999;
-  --violet-soft: #ede9ff;
-  --focus-ring: rgba(112, 88, 217, 0.3);
-  --selection-halo: rgba(112, 88, 217, 0.15);
-
-  /* tone quads: bg / border / ink / accent — keyline recipe */
-  --tone-paper-bg: #fffefa;  --tone-paper-border: #d5d2c9;  --tone-paper-ink: #2d2b27;  --tone-paper-accent: #c9c5ba;
-  --tone-violet-bg: #ede9ff; --tone-violet-border: #a997ed; --tone-violet-ink: #332663; --tone-violet-accent: #765ed8;
-  --tone-blue-bg: #e3f3ff;   --tone-blue-border: #8fc4e7;   --tone-blue-ink: #1d415b;   --tone-blue-accent: #4e9bd0;
-  --tone-amber-bg: #fff0cf;  --tone-amber-border: #e1b86f;  --tone-amber-ink: #553b13;  --tone-amber-accent: #d5942c;
-  --tone-red-bg: #ffe9e2;    --tone-red-border: #e08a70;    --tone-red-ink: #5c2415;    --tone-red-accent: #c2452d;
-  --tone-green-bg: #e6f2ec;  --tone-green-border: #8cc3aa;  --tone-green-ink: #1d4a36;  --tone-green-accent: #428468;
-
-  /* semantic verdict mapping (single source; components use these) */
-  --safe: var(--tone-green-accent);        --safe-bg: var(--tone-green-bg);
-  --safe-border: var(--tone-green-border); --safe-ink: var(--tone-green-ink);
-  --danger: var(--tone-red-accent);        --danger-bg: var(--tone-red-bg);
-  --danger-border: var(--tone-red-border); --danger-ink: var(--tone-red-ink);
-  --suspect: var(--tone-amber-accent);     --suspect-bg: var(--tone-amber-bg);
-  --suspect-border: var(--tone-amber-border); --suspect-ink: var(--tone-amber-ink);
-  /* the panel's ERROR outcome ("we tried and failed"): the amber tone, under its
-     own name because it is a different domain from the audit cluster's
-     `suspect` (a DEFERRED hypothesis) and the two must be renameable apart */
-  --error: var(--tone-amber-accent);       --error-bg: var(--tone-amber-bg);
-  --error-border: var(--tone-amber-border); --error-ink: var(--tone-amber-ink);
-  --unknown: var(--ink-faint);             --unknown-bg: var(--tone-paper-bg);
-  --unknown-border: var(--tone-paper-border); --unknown-ink: var(--tone-paper-ink);
-  --running: var(--tone-blue-accent);      --running-bg: var(--tone-blue-bg);
-  --running-border: var(--tone-blue-border); --running-ink: var(--tone-blue-ink);
-
-  /* dark (primary) button + brand block */
-  --dark-btn: #302f2a;
-  --dark-btn-hover: #171713;
-
-  /* neutral graphics */
-  --edge-stroke: #858177;
-  --grid-dot: rgba(95, 91, 80, 0.23);
-
-  /* shadows — warm-tinted, 2-layer, low alpha */
-  --shadow-panel: 0 10px 35px rgba(50, 45, 32, 0.09), 0 2px 8px rgba(50, 45, 32, 0.06);
-  --shadow-card: 0 5px 14px rgba(50, 45, 32, 0.08), 0 1px 2px rgba(50, 45, 32, 0.05);
-  --shadow-card-hover: 0 8px 22px rgba(50, 45, 32, 0.11), 0 1px 2px rgba(50, 45, 32, 0.06);
-  --shadow-selected: 0 0 0 3px rgba(112, 88, 217, 0.15), 0 9px 24px rgba(57, 45, 105, 0.13);
-  --shadow-modal: 0 30px 80px rgba(37, 33, 23, 0.22), 0 5px 18px rgba(37, 33, 23, 0.1);
-  --shadow-dark-btn: 0 2px 4px rgba(20, 19, 16, 0.12);
-  --shadow-hint: 0 3px 10px rgba(49, 44, 32, 0.08);
-
-  /* `--scrim` deleted with `.scrim`, its only consumer. The v3 scrim is
-     `--ng-scrim` in tokens.css, reached as `bg-scrim`, and it carries a per-theme
-     alpha (§2.6) that this single light-only value could not. */
-
-  /* radii: bigger container ⇒ bigger radius */
-  --r-xs: 5px;   /* kbd */
-  --r-sm: 7px;   /* icon buttons, chips, tags */
-  --r-md: 9px;   /* buttons, list rows */
-  --r-pill: 10px;/* status pills, bottom bars */
-  --r-lg: 12px;  /* cards */
-  --r-xl: 13px;  /* side panels */
-  --r-2xl: 16px; /* modals */
-
-  /* control heights */
-  --h-btn: 38px;
-  --h-btn-sm: 30px;
-  --h-icon-btn: 36px;
-  --h-row: 43px;
-  --h-topbar: 64px;
-
-  /* motion */
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --t-press: 100ms;
-  --t-fast: 140ms;
-  --t-base: 160ms;
-  --t-enter: 200ms;
-}
-
-/* ---------- base ---------- */
-
-*, *::before, *::after { box-sizing: border-box; }
-
-html, body, #root { height: 100%; }
-
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--ink);
-  background: var(--canvas);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-
-#root { isolation: isolate; display: flex; flex-direction: column; }
-
-h1, h2, h3, h4, p, dl, dd, figure { margin: 0; }
-ul, ol { margin: 0; padding: 0; list-style: none; }
-a { color: inherit; text-decoration: none; }
-code, pre, kbd, samp { font-family: var(--font-mono); }
-
-button, input, textarea, select { font: inherit; color: inherit; }
-button { cursor: pointer; background: none; border: 0; padding: 0; }
-button:disabled { cursor: not-allowed; opacity: 0.38; }
-
-:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-::selection { background: var(--violet-soft); color: var(--violet-dark); }
-
-.sr-only {
-  position: absolute; width: 1px; height: 1px;
-  padding: 0; margin: -1px; overflow: hidden;
-  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-}
-
-/* ---------- typography helpers ---------- */
-
-/* mono uppercase micro-label — the keyline metadata voice */
-.eyebrow {
-  color: var(--violet);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.eyebrow--faint { color: var(--ink-faint); }
-.eyebrow--danger { color: var(--danger); }
-
-.headline {
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.035em;
-  line-height: 1.2;
-  color: var(--ink);
-}
-.headline--lg { font-size: 32px; letter-spacing: -0.04em; }
-.headline--sm { font-size: 18px; letter-spacing: -0.02em; }
-
-.subtext { color: var(--ink-soft); font-size: 13px; }
-.microtext { color: var(--ink-faint); font-size: 11px; }
-.mono { font-family: var(--font-mono); }
-
-/* ---------- kbd — signature keycap chip ---------- */
-
-kbd {
-  min-width: 20px; height: 20px;
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 0 5px;
-  border: 1px solid #d9d6cc; border-bottom-color: #c4c0b5;
-  border-radius: var(--r-xs);
-  color: #6d695f; background: var(--surface-inset);
-  box-shadow: 0 1px 0 #fff inset, 0 1px 0 rgba(63, 58, 45, 0.1);
-  font-size: 10px; font-weight: 500;
-  line-height: 1; text-transform: uppercase; white-space: nowrap;
-}
-
-/* ---------- buttons ---------- */
-
-.btn {
-  min-height: var(--h-btn);
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  padding: 0 13px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  color: var(--ink-soft);
-  background: rgba(255, 255, 252, 0.72);
-  font-size: 12px; font-weight: 600;
-  white-space: nowrap;
-  transition: background var(--t-base) ease, border-color var(--t-base) ease,
-    color var(--t-base) ease, transform var(--t-press) ease;
-}
-.btn:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-strong); color: var(--ink); }
-.btn:active:not(:disabled) { transform: scale(0.97); }
-
-.btn--dark {
-  border-color: var(--dark-btn);
-  color: #fff;
-  background: var(--dark-btn);
-  box-shadow: var(--shadow-dark-btn);
-}
-.btn--dark:hover:not(:disabled) { border-color: var(--dark-btn-hover); background: var(--dark-btn-hover); color: #fff; }
-
-.btn--violet {
-  border-color: var(--violet);
-  color: #fff;
-  background: var(--violet);
-  box-shadow: var(--shadow-dark-btn);
-}
-.btn--violet:hover:not(:disabled) { border-color: var(--violet-dark); background: var(--violet-dark); color: #fff; }
-
-.btn--danger {
-  border-color: var(--danger-border);
-  color: var(--danger);
-  background: var(--danger-bg);
-}
-.btn--danger:hover:not(:disabled) { border-color: var(--danger); background: var(--danger-bg); color: var(--danger-ink); }
-
-.btn--sm { min-height: var(--h-btn-sm); padding: 0 10px; border-radius: var(--r-sm); font-size: 11px; }
-
-/* `.btn--bare` deleted: `pages/RepoDetail.tsx`'s back link was its only consumer
-   and is now `<Button asChild variant="ghost">`. The v3 equivalent is that ghost
-   variant. */
-
-.icon-btn {
-  width: var(--h-icon-btn); height: var(--h-icon-btn);
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: var(--r-sm);
-  color: var(--ink-soft);
-  transition: background var(--t-fast) ease, color var(--t-fast) ease, transform var(--t-press) ease;
-}
-.icon-btn:hover:not(:disabled) { background: var(--surface-hover-2); color: var(--ink); }
-.icon-btn:active:not(:disabled) { transform: scale(0.97); }
-
-/* nav item — active state is a violet-soft pill, never a filled primary */
-.nav-item {
-  min-height: 32px;
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 0 11px;
-  border-radius: var(--r-md);
-  color: #666259;
-  font-size: 12px; font-weight: 600;
-  transition: background var(--t-fast) ease, color var(--t-fast) ease;
-}
-.nav-item:hover { color: var(--ink); background: var(--surface-hover); }
-.nav-item.active { color: #44358a; background: var(--violet-soft); }
-
-/* ---------- surfaces ---------- */
-
-.floating-panel {
-  border: 1px solid var(--line-panel);
-  background: var(--surface);
-  box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(16px) saturate(1.2);
-  border-radius: var(--r-xl);
-}
-
-.card {
-  border: 1px solid var(--line);
-  background: var(--surface-strong);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
-}
-
-/* card with the 3px left accent bar (keyline node signature).
-   Set `--accent` on the element (defaults to paper tone). */
-.card--accent { position: relative; --accent: var(--tone-paper-accent); }
-.card--accent::before {
-  content: "";
-  position: absolute; left: -1px; top: 16px; bottom: 16px;
-  width: 3px; border-radius: 0 3px 3px 0;
-  background: var(--accent);
-}
-
-.dot-grid {
-  background-color: var(--canvas);
-  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.2px);
-  background-size: 24px 24px;
-}
-
-.divider-h { height: 1px; background: var(--line); border: 0; margin: 6px 0; }
-.divider-v { width: 1px; height: 22px; background: var(--line); }
-
-/* ---------- pills, badges, dots ---------- */
-
-/* verdict/status pill: set tone with a modifier */
-.pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  min-height: 22px;
-  padding: 1px 9px;
-  border: 1px solid var(--tone-paper-border);
-  border-radius: 999px;
-  color: var(--tone-paper-ink);
-  background: var(--tone-paper-bg);
-  font-family: var(--font-mono);
-  font-size: 10px; font-weight: 500;
-  letter-spacing: 0.06em; text-transform: uppercase;
-  white-space: nowrap;
-}
-.pill--safe    { border-color: var(--safe-border);    background: var(--safe-bg);    color: var(--safe-ink); }
-.pill--danger  { border-color: var(--danger-border);  background: var(--danger-bg);  color: var(--danger-ink); }
-.pill--suspect { border-color: var(--suspect-border); background: var(--suspect-bg); color: var(--suspect-ink); }
-.pill--error   { border-color: var(--error-border);   background: var(--error-bg);   color: var(--error-ink); }
-.pill--unknown { border-color: var(--unknown-border); background: var(--unknown-bg); color: var(--ink-soft); }
-.pill--running { border-color: var(--running-border); background: var(--running-bg); color: var(--running-ink); }
-.pill--violet  { border-color: var(--tone-violet-border); background: var(--tone-violet-bg); color: var(--tone-violet-ink); }
-
-/* small square tag (capabilities, file badges) */
-.tag {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-xs);
-  color: var(--ink-soft);
-  background: var(--surface-inset);
-  font-family: var(--font-mono);
-  font-size: 9px; font-weight: 500;
-  letter-spacing: 0.05em; text-transform: uppercase;
-  white-space: nowrap;
-}
-.tag--danger  { border-color: var(--danger-border);  background: var(--danger-bg);  color: var(--danger-ink); }
-.tag--suspect { border-color: var(--suspect-border); background: var(--suspect-bg); color: var(--suspect-ink); }
-.tag--safe    { border-color: var(--safe-border);    background: var(--safe-bg);    color: var(--safe-ink); }
-.tag--violet  { border-color: var(--tone-violet-border); background: var(--tone-violet-bg); color: var(--tone-violet-ink); }
-.tag--blue    { border-color: var(--running-border); background: var(--running-bg); color: var(--running-ink); }
-
-/* 7px status dot with soft halo (keyline mode-indicator signature) */
-.dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: #7f7c73;
-  box-shadow: 0 0 0 3px rgba(127, 124, 115, 0.12);
-  flex: none;
-}
-.dot--safe    { background: var(--safe);    box-shadow: 0 0 0 3px rgba(66, 132, 104, 0.14); }
-.dot--danger  { background: var(--danger);  box-shadow: 0 0 0 3px rgba(194, 69, 45, 0.14); }
-.dot--suspect { background: var(--suspect); box-shadow: 0 0 0 3px rgba(213, 148, 44, 0.14); }
-/* Named alias of the neutral dot: "we could not decide" is a real state and must
-   be spellable, not a modifier that silently falls through to the base class. */
-.dot--unknown { background: #7f7c73; box-shadow: 0 0 0 3px rgba(127, 124, 115, 0.12); }
-.dot--error   { background: var(--error);   box-shadow: 0 0 0 3px rgba(213, 148, 44, 0.14); }
-.dot--running { background: var(--running); box-shadow: 0 0 0 3px rgba(78, 155, 208, 0.14); animation: dot-pulse 1.6s var(--ease) infinite; }
-.dot--violet  { background: var(--violet);  box-shadow: 0 0 0 3px rgba(112, 88, 217, 0.14); }
-
-@keyframes dot-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-
-/* bottom-center status pill (keyline mode indicator) */
-.status-pill {
-  display: inline-flex; align-items: center; gap: 9px;
-  min-height: 37px;
-  padding: 0 13px;
-  border: 1px solid rgba(211, 207, 197, 0.82);
-  border-radius: var(--r-pill);
-  background: rgba(248, 247, 243, 0.9);
-  backdrop-filter: blur(14px);
-  font-size: 10px; color: var(--ink-faint);
-}
-.status-pill strong { font-size: 11px; color: var(--ink); font-weight: 600; }
-
-/* ---------- inputs ---------- */
-
-.input {
-  min-height: var(--h-btn);
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  color: var(--ink);
-  background: var(--surface-strong);
-  font-size: 13px;
-  transition: border-color var(--t-base) ease, box-shadow var(--t-base) ease;
-}
-.input::placeholder { color: var(--ink-faint); font-weight: 500; }
-.input:hover { border-color: var(--line-strong); }
-.input:focus { outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px var(--focus-ring); }
-.input--mono { font-family: var(--font-mono); font-size: 12px; }
-
-.select {
-  min-height: var(--h-btn-sm);
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  color: var(--ink-soft);
-  background: var(--surface-strong);
-  font-size: 12px; font-weight: 600;
-}
-
-/* ---------- dialogs ---------- */
-
-/* `.scrim`, `.dialog` and `.dialog--wide` were DELETED here, not moved. They were
-   the panel's hand-rolled modal shell and `components/panel/PanelDialog.tsx` had
-   the only references to all three; it is now an adapter over the Radix-backed
-   `components/ui/dialog.tsx`, which supplies the overlay, the box, the elevation
-   and — unlike this shell — a real focus trap, focus restore, and the aria-hidden
-   treatment that makes the modality claim true.
-
-   The three `.dialog__*` rules below survive because the three feature dialogs
-   (features/billing/UpgradeDialog, features/repos/PublicAuditDialog,
-   features/repos/PublicAuditReportDialog) still render legacy bodies inside the
-   new shell. They die when those are recomposed onto DialogHeader/Body/Footer. */
-
-.dialog__header {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-  padding: 20px 24px 0;
-}
-.dialog__body { padding: 16px 24px 24px; }
-.dialog__footer {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  padding: 14px 24px;
-  border-top: 1px solid var(--line-faint);
-  background: var(--surface-inset);
-}
-
-/* ---------- tables & rows ---------- */
-
-.table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.table th {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--line);
-  color: var(--ink-faint);
-  font-family: var(--font-mono);
-  font-size: 9px; font-weight: 500;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  text-align: left; white-space: nowrap;
-}
-.table td {
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--line-faint);
-  color: var(--ink-soft);
-  vertical-align: middle;
-}
-.table tr.clickable { cursor: pointer; transition: background var(--t-fast) ease; }
-.table tr.clickable:hover { background: var(--surface-hover); }
-
-.row {
-  display: flex; align-items: center; gap: 10px;
-  min-height: 38px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--line-faint);
-  font-size: 11px; color: var(--ink-soft);
-}
-
-/* ---------- meters & rails ---------- */
-
-.meter {
-  height: 6px; border-radius: 999px;
-  background: var(--line-faint);
-  overflow: hidden;
-}
-.meter__fill {
-  height: 100%; border-radius: 999px;
-  background: var(--violet);
-  transition: width 300ms var(--ease);
-}
-.meter__fill--safe { background: var(--safe); }
-.meter__fill--danger { background: var(--danger); }
-.meter__fill--suspect { background: var(--suspect); }
-
-/* stacked proportion rail: children are .rail__seg with flex-grow + tone bg */
-.rail {
-  display: flex; height: 8px; border-radius: 999px; overflow: hidden;
-  background: var(--line-faint); gap: 2px;
-}
-.rail__seg { min-width: 4px; }
-.rail__seg--safe { background: var(--safe); }
-.rail__seg--danger { background: var(--danger); }
-.rail__seg--suspect { background: var(--suspect); }
-.rail__seg--error { background: var(--error); }
-.rail__seg--unknown { background: var(--line-strong); }
-.rail__seg--running { background: var(--running); }
-
-/* ---------- feedback ---------- */
-
-.banner {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-strong);
-  font-size: 12px; color: var(--ink-soft);
-}
-.banner--danger { border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger-ink); }
-.banner--suspect { border-color: var(--suspect-border); background: var(--suspect-bg); color: var(--suspect-ink); }
-/* `.banner--safe` deleted: `pages/Dashboard.tsx`'s "payment confirmed" notice was
-   its only consumer, and spending the SAFE hue on a billing receipt is what makes
-   green stop meaning "no confirmed threat" (§0 rule 1). That notice is on the
-   accent slot now. `.banner--running` is likewise unreferenced but predates the
-   panel and is left for whoever owns the audit sheets. */
-.banner--running { border-color: var(--running-border); background: var(--running-bg); color: var(--running-ink); }
-
-.spinner {
-  width: 13px; height: 13px; flex: none;
-  border: 2px solid var(--line);
-  border-top-color: var(--violet);
-  border-radius: 50%;
-  animation: spin 700ms linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.thinking-dots { display: inline-flex; gap: 4px; align-items: center; }
-.thinking-dots i {
-  width: 4px; height: 4px; border-radius: 50%;
-  background: var(--ink-faint);
-  animation: thinking 1.2s ease-in-out infinite;
-}
-.thinking-dots i:nth-child(2) { animation-delay: 0.15s; }
-.thinking-dots i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes thinking {
-  0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-2px); }
-}
-
-/* ---------- topbar shell ---------- */
-
-.topbar {
-  position: sticky; top: 0; z-index: 30;
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
-  align-items: center;
-  height: var(--h-topbar);
-  padding: 0 18px;
-  border-bottom: 1px solid rgba(190, 186, 175, 0.72);
-  background: rgba(250, 249, 246, 0.88);
-  backdrop-filter: blur(18px) saturate(1.2);
-}
-.topbar__left { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.topbar__center { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
-.topbar__right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
-
-/* Below the tablet breakpoint the three `minmax(180px, 1fr)` tracks are wider
-   than a phone, so the side columns and the centred nav overlap — the brand
-   renders on top of the first nav item. Drop the side reservations and let the
-   nav scroll rather than collide. Desktop is untouched. */
-@media (max-width: 767px) {
-  .topbar {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    padding-inline: 12px;
-    gap: 10px;
-  }
-  .topbar__center {
-    justify-content: flex-start;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .topbar__center::-webkit-scrollbar { display: none; }
-  .topbar__center > * { flex: none; }
-}
-
-.brand {
-  display: inline-flex; align-items: center; gap: 9px;
-  user-select: none;
-}
-.brand__mark {
-  width: 30px; height: 30px;
-  display: grid; place-items: center;
-  border-radius: 8px;
-  background: var(--ink);
-  color: #fffefa;
-}
-.brand__name {
-  font-size: 16px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink);
-}
-.brand__name em { font-style: normal; color: var(--violet); }
-
-/* auth chip (topbar) */
-.auth-chip {
-  display: inline-flex; align-items: center; gap: 8px;
-  min-height: 32px;
-  padding: 0 4px 0 5px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(255, 255, 252, 0.72);
-  font-size: 12px; font-weight: 600; color: var(--ink-soft);
-}
-.auth-chip__avatar {
-  width: 24px; height: 24px; border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid var(--line);
-  background: var(--violet-soft);
-}
-.auth-chip__avatar--letter {
-  display: inline-grid; place-items: center;
-  color: var(--violet-dark);
-  font-size: 11px; font-weight: 700;
-}
-.auth-chip__login { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.auth-chip__signout {
-  padding: 3px 8px;
-  border-radius: 999px;
-  color: var(--ink-faint);
-  font-size: 10px; font-weight: 600;
-  transition: background var(--t-fast) ease, color var(--t-fast) ease;
-}
-.auth-chip__signout:hover { background: var(--surface-hover); color: var(--ink); }
-
-/* ---------- layout helpers ---------- */
-
-.page {
-  flex: 1; min-height: 0;
-  width: 100%;
-  overflow-y: auto;
-}
-.page__inner {
-  max-width: 1160px;
-  margin: 0 auto;
-  padding: 32px 18px 64px;
-}
-
-.section-title {
-  display: flex; align-items: baseline; gap: 10px;
-  margin: 0 0 14px;
-}
-
-.empty-state {
-  display: grid; place-items: center; gap: 10px;
-  padding: 48px 18px;
-  text-align: center;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-.empty-state__icon {
-  width: 44px; height: 44px;
-  display: grid; place-items: center;
-  border-radius: var(--r-lg);
-  background: var(--violet-soft);
-  color: var(--violet);
-}
-
-/* ---------- motion & a11y ---------- */
-
-.fade-up { animation: fade-up var(--t-enter) var(--ease) both; }
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* ---------- scrollbars (subtle, warm) ---------- */
-
-* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   v3 BASE LAYER — everything above this line is the LEGACY substrate.
-
-   Two substrates share one <body> during R-6. The rule that keeps them from
-   fighting is the CSS cascade's layer order, not discipline:
-
-     unlayered  (every rule above, and every rule in the 7 page sheets)
-       beats
-     @layer utilities  (Tailwind's `bg-surface`, `p-4`, …)
-       beats
-     @layer base       (Tailwind's preflight, and this section's global tier)
-       beats
-     @layer theme      (the token declarations)
-
-   So the legacy sheets cannot be broken by anything Tailwind emits: wherever a
-   legacy rule sets a property, it wins outright. Preflight only reaches what
-   legacy left to UA defaults — and legacy classes every heading, input, select,
-   table and img it renders, which is why preflight is imported whole rather
-   than cherry-picked. The corollary is the reason this section has two tiers:
-
-   TIER 1 — `:where(html)` / `:where(body)` / `@layer base`. Zero-specificity or
-   layered, so a legacy rule setting the same property still wins TODAY. These
-   are the v3 defaults; they switch themselves on when the legacy block above is
-   deleted, with no other edit anywhere. Do not "fix" them by raising their
-   specificity — that would repaint the eight legacy pages mid-migration.
-
-   TIER 2 — `.ng-root`. The opt-in marker a recomposed surface wears. Class
-   specificity, unlayered, so it beats the legacy `body` and `:focus-visible`
-   rules for its own subtree. This is how a v3 page gets v3 typography and the
-   v3 focus ring while legacy pages still exist. It is one class and it is
-   temporary: when the legacy block dies, tier 1 makes it redundant.
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* =============================================================================
+   base — the app's own base layer, on the v3 token layer.
+
+   This file used to be 798 lines: a complete second design system (`.btn`,
+   `.card`, `.pill`, `.rail`, `.meter`, `.tag`, `.empty-state`, `.dot`, a
+   webfont, a focus ring) that the eight page sheets composed against. All eight
+   sheets are gone and every one of those primitives now lives in
+   `components/ui/`, so what remains here is only what a STYLESHEET has to own
+   and a component cannot: element defaults, the page plane, and the one focus
+   ring.
+
+   The two-tier structure below is also gone with the migration it existed for.
+   Tier 1 was written at zero specificity so a legacy rule would still beat it;
+   tier 2 (`.ng-root`) was the opt-in marker a recomposed surface wore to escape
+   the legacy `body` rules for its own subtree. There is no longer anything to
+   escape from, so the rules simply apply — but `.ng-root` is KEPT as a selector
+   alongside `body` rather than deleted, because Radix portals dialogs, popovers
+   and dropdowns OUTSIDE the app root, and those subtrees need the same
+   typography and focus ring. It has stopped being a migration marker and become
+   what it should have been: the class that says "v3 styling applies here".
+   ============================================================================= */
 
 /* §2.7 — the page plane. Root font-size is deliberately NOT set here: §2.7 fixes
    the root at 16px and puts the app's 14px on the body, and every rem token in
-   tokens.css is computed against a 16px root. */
-:where(html) {
+   tokens.css is computed against a 16px root.
+
+   `:where()` is dropped now that nothing needs to lose to a legacy rule. */
+html,
+#root {
+  height: 100%;
+}
+
+html {
   background-color: var(--ng-canvas);
 }
 
-:where(body),
+body,
 .ng-root {
+  margin: 0;
   font-family: var(--ng-font-sans);
   font-size: var(--text-base); /* 14px — the app is dense */
   line-height: 1.55; /* = --text-base--line-height */
@@ -723,12 +47,32 @@ kbd {
   -webkit-font-smoothing: antialiased;
 }
 
+#root {
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Element defaults. These are the only bare-element rules left, and unlike the
+   sheet they came from they are LAYERED — an unlayered `button { border: 0 }`
+   beats every Tailwind utility regardless of specificity, which is exactly the
+   bug that left the design system's `Button` rendering as unstyled text. */
+@layer base {
+  h1, h2, h3, h4, p, dl, dd, figure { margin: 0; }
+  ul, ol { margin: 0; padding: 0; list-style: none; }
+  a { color: inherit; text-decoration: none; }
+  code, pre, kbd, samp { font-family: var(--ng-font-mono); }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: 0; padding: 0; }
+  button:disabled { cursor: not-allowed; }
+}
+
 /* §2.8 — one ring, everywhere, no exceptions. `:focus-visible` only, so mouse
    users don't see it and keyboard users always do; never `outline: none` without
    this replacing it.
    A component that carries its own shadow must COMPOSE rather than let this win
    silently: `box-shadow: var(--ng-focus-ring), var(--ng-shadow-card)`. */
-:where(:focus-visible),
+:focus-visible,
 .ng-root :focus-visible {
   outline: none;
   box-shadow: var(--ng-focus-ring);
@@ -739,8 +83,9 @@ kbd {
    the user's first interaction with the product visibly breaks the layout. Kept
    in the base layer so no component has to remember it. */
 @media (width < 48rem) {
-  :where(input, select, textarea),
-  .ng-root :is(input, select, textarea) {
+  input,
+  select,
+  textarea {
     font-size: var(--text-md);
   }
 }
@@ -751,14 +96,10 @@ kbd {
   scrollbar-color: var(--ng-border-strong) transparent;
 }
 
-@layer base {
-  ::selection {
-    background-color: var(--ng-accent-wash);
-    color: var(--ng-accent-text);
-  }
-}
-
-.ng-root ::selection {
+::selection {
   background-color: var(--ng-accent-wash);
   color: var(--ng-accent-text);
 }
+
+/* The `sr-only` utility Tailwind already ships is used everywhere in
+   `components/ui/`; nothing else from the old 798 lines survives. */
