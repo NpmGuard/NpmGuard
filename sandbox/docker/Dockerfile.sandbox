@@ -7,6 +7,12 @@
 #   - Sprint 4 will add: strace, tcpdump.
 #   - Sprint 5 will add: V8 Inspector socket expectations (runtime flag).
 #
+# `iptables` is how the stubUrl primitive intercepts: the engine adds nat OUTPUT
+# REDIRECT rules through `docker exec --privileged`, so the stub catches every
+# client — core http/https, fetch/undici, userland libraries, and child processes.
+# Shipping the binary is not a capability grant: the container keeps cap_drop=ALL,
+# so the package under audit cannot even read the nat table, let alone change it.
+#
 # Build:   docker build -t npmguard-sandbox:v1 -f sandbox/docker/Dockerfile.sandbox .
 # Config:  set NPMGUARD_SANDBOX_IMAGE=npmguard-sandbox:v1
 
@@ -21,6 +27,7 @@ RUN echo "wireshark-common wireshark-common/install-setuid boolean false" | debc
       tcpdump \
       tshark \
       procps \
+      iptables \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s "$(find /usr/lib -name 'libfaketime.so.1' | head -n1)" /usr/lib/libfaketime.so.1
 

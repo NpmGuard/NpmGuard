@@ -24,6 +24,9 @@
 #      the fix needs a fixture re-record; see the marker's reason)
 #  C15 parse_l4_trace refuses a trace attributing an INSTRUMENT require to the
 #      package; a parentless (node-bootstrap) require is named, never dropped
+#  C16 a stub whose responseHash is null (nothing served) is named in the setup
+#      header; a stub that served changes nothing about the header
+#  C17 a setup_bypass event renders WHY the manipulation did not hold
 # Adversarial pass: 2026-07-23/W6 — added the artifact-integrity and timeline
 # axes (previously only the pure canonicalization half of the module was mapped).
 # Evidence-fidelity pass: C13-C15 close the rendering-loss classes that made real
@@ -45,6 +48,7 @@ from npmguard.evidence import (
     render_timeline,
     seal_run_artifact,
     sha256_hex,
+    synthetic_event,
 )
 
 
@@ -355,3 +359,52 @@ def test_compute_event_summary_buckets_normalized_events() -> None:
     assert summary.dnsQueries == ["exfil.evil.test"]
     assert summary.filesWritten == ["/pkg/dropped.sh"]
     assert summary.uniqueSyscalls == ["connect"]
+
+
+def test_a_stub_that_served_nothing_is_named_in_the_setup_header() -> None:
+    """C16: a null responseHash means the proxy never answered that pattern, and the
+    timeline says so. Without it a timeline is silent about whether the experiment's
+    central manipulation ever fired, which is how a stub that no-opped could still
+    read as a clean, complete run."""
+    served = _artifact_draft(
+        [],
+        setupApplied={
+            "env": {},
+            "stubUrls": [
+                {"pattern": "http://localhost:9999/exfil", "responseHash": "deadbeef"},
+                {"pattern": "https://evil.example/collect", "responseHash": None},
+            ],
+        },
+    )
+    text = render_timeline(seal_run_artifact(served)).text
+    assert "stubs never served: https://evil.example/collect" in text
+    # the stub that DID answer is not listed as unserved
+    assert "localhost:9999" not in text
+
+
+def test_a_stub_that_served_leaves_the_setup_header_untouched() -> None:
+    """C16: every committed artifact predates the ledger and carries a non-null
+    (plan) hash, so this branch is the one they take — and it must add nothing, or
+    every recorded judge prompt would drift."""
+    text = render_timeline(
+        seal_run_artifact(
+            _artifact_draft(
+                [],
+                setupApplied={
+                    "env": {"NPM_TOKEN": "CANARY"},
+                    "stubUrls": [{"pattern": "http://localhost:9999/exfil", "responseHash": "ab"}],
+                },
+            )
+        )
+    ).text
+    assert "stubs" not in text
+    assert text.splitlines()[1] == "# setup: env NPM_TOKEN"
+
+
+def test_a_setup_bypass_event_renders_its_reason() -> None:
+    """C17: a bypass row's whole content is WHY the setup did not hold. Rendering a
+    bare "bypass" told the judge that something in the manipulation failed without
+    saying what, which is worse than saying nothing at all."""
+    events = [synthetic_event("setup_bypass", "stubUrl pattern 'https://x/y' cannot be intercepted")]
+    text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
+    assert "bypass   stubUrl pattern 'https://x/y' cannot be intercepted" in text

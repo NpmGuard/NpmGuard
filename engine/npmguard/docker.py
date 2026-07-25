@@ -73,6 +73,11 @@ class ContainerSpec:
     preload: str | None = None
     ld_preload: str | None = None
     hostname: str | None = None
+    # "<name>:<ip>" pins written into the container's /etc/hosts at create time. The
+    # file is a root-owned bind mount, so the package (uid 1000) cannot rewrite what
+    # a name resolves to — which is why a stubbed endpoint is pinned here and not by
+    # editing /etc/hosts from inside.
+    extra_hosts: list[str] = field(default_factory=list)
     workdir: str = "/pkg"
 
 
@@ -117,6 +122,8 @@ def spec_to_docker_args(spec: ContainerSpec, container_name: str) -> list[str]:
         args.extend(["-e", f"LD_PRELOAD={spec.ld_preload}"])
     if spec.hostname:
         args.extend(["--hostname", spec.hostname])
+    for host in spec.extra_hosts:
+        args.extend(["--add-host", host])
     for volume in spec.volumes:
         args.extend(
             ["-v", f"{volume.host_path}:{volume.container_path}{':ro' if volume.read_only else ''}"]
