@@ -31,6 +31,19 @@
   --surface-inset: #f4f2ed;                /* kbd bg, code strips */
 
   /* keylines */
+  /* Spacing ladder, 4px base. attest.css referenced var(--space-N) in 33 places
+     but the scale was never defined anywhere in the repo, so every one resolved
+     to nothing and collapsed to zero — which is why the attest and enrol pages
+     rendered with no padding or gaps at all. Values chosen to match the rhythm
+     the rest of the sheets set in raw px. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
   --line: #dedbd2;
   --line-strong: #c8c4ba;
   --line-faint: #ebe8e0;                   /* row separators */

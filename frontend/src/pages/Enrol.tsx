@@ -125,9 +125,8 @@ export function Enrol() {
         <p className="eyebrow">Identity check</p>
         <h1 className="headline">Enrol as a verified publisher</h1>
         <p className="muted pg-attest__lede">
-          Prove once that you are a document-verified adult. Every release you attest
-          afterwards carries that assurance — without you scanning anything again, and
-          without us ever learning who you are.
+          A one-time check that adds <strong>document-verified adult</strong> to your
+          publisher identity. Every release still needs its own live proof.
         </p>
 
         {config && !config.isProduction && (
@@ -158,9 +157,8 @@ export function Enrol() {
               </div>
             </dl>
             <p className="muted pg-attest__privacy">
-              We stored a pseudonymous identifier and yes/no assertions — never your name,
-              document number or nationality. This does not authorize any release on its
-              own: each publish still needs its own proof.
+              Stored as a pseudonymous identifier and yes/no answers. Each publish still
+              needs its own proof.
             </p>
             <p>
               <Link to="/packages">Back to packages</Link>
@@ -168,16 +166,31 @@ export function Enrol() {
           </div>
         ) : (
           <>
-            <section className="pg-attest-step">
-              <div>
-                <h2 className="pg-attest-step__title">What we ask World for</h2>
-                <p className="muted">
-                  {config
-                    ? config.attributes.map((a) => `${a.type} ≥ ${a.value}`).join(", ")
-                    : "Loading…"}
-                  {" — and nothing else."} We never request your name, document number or
-                  nationality. World answers yes or no; we store the answer, not the value.
-                </p>
+            <section className="pg-enrol-ask">
+              <h2 className="pg-enrol-ask__title">What World is asked</h2>
+              <div className="pg-enrol-ask__cols">
+                <div className="pg-enrol-ask__col pg-enrol-ask__col--yes">
+                  <p className="pg-enrol-ask__head">Asked</p>
+                  <ul>
+                    {config ? (
+                      config.attributes.map((a) => (
+                        <li key={a.type}>
+                          {a.type.replace(/_/g, " ")} ≥ {a.value}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="pg-enrol-ask__wait">Loading…</li>
+                    )}
+                  </ul>
+                </div>
+                <div className="pg-enrol-ask__col pg-enrol-ask__col--no">
+                  <p className="pg-enrol-ask__head">Never asked</p>
+                  <ul>
+                    <li>Your name</li>
+                    <li>Document number</li>
+                    <li>Nationality</li>
+                  </ul>
+                </div>
               </div>
             </section>
 

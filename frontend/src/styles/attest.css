@@ -40,6 +40,14 @@
   align-items: start;
 }
 
+/* An explanatory panel, NOT a numbered step. `.pg-attest-step` is a two-column
+   grid (marker + content); given a single child the text lands in the 2rem
+   marker column and wraps one word per line. */
+.pg-attest-note {
+  border-left: 2px solid var(--line);
+  padding-left: var(--space-3);
+}
+
 .pg-attest-step__title {
   font-size: 1rem;
   margin: 0 0 var(--space-1);
@@ -180,4 +188,86 @@
   background: var(--surface-sunken, #fafafa);
   font-family: var(--font-mono, ui-monospace, monospace);
   line-height: 1.5;
+}
+
+/* ── enrolment: the data-minimisation panel ────────────────────────────────
+   The privacy claim is the point of this page, so it is drawn as two facing
+   columns rather than buried in a sentence: what World is asked, and what is
+   never asked. Uses the shared tone tokens so it stays on the keyline palette. */
+.pg-enrol-ask {
+  margin-top: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  padding: var(--space-5);
+}
+
+.pg-enrol-ask__title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 var(--space-4);
+}
+
+.pg-enrol-ask__cols {
+  display: grid;
+  gap: var(--space-5);
+}
+
+@media (min-width: 620px) {
+  .pg-enrol-ask__cols { grid-template-columns: 1fr 1fr; }
+}
+
+.pg-enrol-ask__col { min-width: 0; }
+
+.pg-enrol-ask__head {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.pg-enrol-ask__col--yes .pg-enrol-ask__head { color: var(--tone-green-accent); }
+.pg-enrol-ask__col--no  .pg-enrol-ask__head { color: var(--ink-faint); }
+
+.pg-enrol-ask ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.pg-enrol-ask li {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.pg-enrol-ask li::before {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.pg-enrol-ask__col--yes li::before { content: "✓"; color: var(--tone-green-accent); }
+.pg-enrol-ask__col--no  li::before { content: "✗"; color: var(--ink-faint); }
+.pg-enrol-ask__col--no  li { color: var(--ink-soft); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+
+.pg-enrol-ask__wait { color: var(--ink-faint); }
+.pg-enrol-ask__col--yes .pg-enrol-ask__wait::before { content: "…"; }
+
+.pg-enrol-ask__note {
+  margin: var(--space-3) 0 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--ink-faint);
 }
