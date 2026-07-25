@@ -106,29 +106,42 @@ class Runtime:
     llm: LlmClient
     audits: AuditService
     demos: DemoService
-    # Panel state — populated only when settings.github_app_enabled; otherwise
-    # None and every panel route returns 503, so the engine behaves identically.
-    sessionmaker: async_sessionmaker | None = None
-    gh_client: GitHubAppClient | None = None
-    panel_sessions: PanelSessionStore | None = None
-    gh_users: GhUserStore | None = None
-    panel_installations: InstallationStore | None = None
-    panel_repos: RepoStore | None = None
-    panel_caps: CapsStore | None = None
-    panel_verdicts: VerdictIndex | None = None
-    panel_queue: PanelJobQueue | None = None
-    # The ONE audit-set entity (R-1): creation, progress, rollup, and the SSE
-    # stream every origin shares.
-    panel_sets: AuditSetStore | None = None
-    panel_scan: RepoScanEngine | None = None
-    panel_public_scan: PublicRepoScanEngine | None = None
-    panel_billing: BillingStore | None = None
-    panel_workers: PanelWorkerPool | None = None
+    # Populated whether or not the GitHub App is on — bench read surfaces use it.
+    sessionmaker: async_sessionmaker
     # Registry-watch + reconcile background loops (asyncio tasks, not
     # setInterval). Started in lifespan when the App is enabled, cancelled +
     # awaited on shutdown BEFORE audits.close().
     panel_watch_task: asyncio.Task[None] | None = None
     panel_reconcile_task: asyncio.Task[None] | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class PanelRuntime(Runtime):
+    """The runtime of an engine whose GitHub App **is** configured.
+
+    The panel components exist together or not at all, so they live on a
+    distinct type rather than as fourteen independently-``None`` fields: the
+    engine builds a ``PanelRuntime`` exactly when ``settings.github_app_enabled``
+    and a plain ``Runtime`` otherwise. Panel routes narrow to it via
+    ``require_panel``, which is also the 503 gate — so "the App is configured"
+    is checked once, structurally, instead of re-asserted at every access.
+    """
+
+    gh_client: GitHubAppClient
+    panel_sessions: PanelSessionStore
+    gh_users: GhUserStore
+    panel_installations: InstallationStore
+    panel_repos: RepoStore
+    panel_caps: CapsStore
+    panel_verdicts: VerdictIndex
+    panel_queue: PanelJobQueue
+    # The ONE audit-set entity (R-1): creation, progress, rollup, and the SSE
+    # stream every origin shares.
+    panel_sets: AuditSetStore
+    panel_scan: RepoScanEngine
+    panel_public_scan: PublicRepoScanEngine
+    panel_billing: BillingStore
+    panel_workers: PanelWorkerPool
 
 
 def _runtime(request: Request) -> Runtime:
@@ -575,7 +588,7 @@ async def stripe_webhook(request: Request) -> JSONResponse:
     # above: handle_subscription_event only acts on subscription-kind checkout
     # sessions + customer.subscription.* events (returns None otherwise), so the
     # one-off flow is untouched. Only runs when the panel is configured.
-    if runtime.panel_billing is not None:
+    if isinstance(runtime, PanelRuntime):
         try:
             await handle_subscription_event(
                 runtime.settings, event, runtime.panel_billing
@@ -770,23 +783,18 @@ async def lifespan(app: FastAPI):
     )
     await audits.start()
     # Panel wiring: build the GitHub App client + panel stores only when the App
-    # is configured. Without it every panel route 503s and these stay None, so
-    # the engine boots and behaves exactly as it does without the panel.
-    gh_client: GitHubAppClient | None = None
-    panel_sessions: PanelSessionStore | None = None
-    gh_users: GhUserStore | None = None
-    panel_installations: InstallationStore | None = None
-    panel_repos: RepoStore | None = None
-    panel_caps: CapsStore | None = None
-    panel_verdicts: VerdictIndex | None = None
-    panel_queue: PanelJobQueue | None = None
-    panel_sets: AuditSetStore | None = None
-    panel_scan: RepoScanEngine | None = None
-    panel_public_scan: PublicRepoScanEngine | None = None
-    panel_billing: BillingStore | None = None
-    panel_workers: PanelWorkerPool | None = None
-    panel_watch_task: asyncio.Task[None] | None = None
-    panel_reconcile_task: asyncio.Task[None] | None = None
+    # is configured. Without it every panel route 503s and none of this exists,
+    # so the engine boots and behaves exactly as it does without the panel.
+    runtime: Runtime = Runtime(
+        settings,
+        engine,
+        sessions,
+        stream,
+        llm,
+        audits,
+        DemoService(sessions, stream),
+        sessionmaker=sessions_factory,
+    )
     if settings.github_app_enabled:
         gh_client = GitHubAppClient(settings)
         panel_sessions = PanelSessionStore(sessions_factory)
@@ -920,45 +928,47 @@ async def lifespan(app: FastAPI):
             scan_concurrency=settings.scan_concurrency,
             watch_interval_min=settings.watch_interval_min,
         )
-    app.state.runtime = Runtime(
-        settings,
-        engine,
-        sessions,
-        stream,
-        llm,
-        audits,
-        DemoService(sessions, stream),
-        sessionmaker=sessions_factory,
-        gh_client=gh_client,
-        panel_sessions=panel_sessions,
-        gh_users=gh_users,
-        panel_installations=panel_installations,
-        panel_repos=panel_repos,
-        panel_caps=panel_caps,
-        panel_verdicts=panel_verdicts,
-        panel_queue=panel_queue,
-        panel_sets=panel_sets,
-        panel_scan=panel_scan,
-        panel_public_scan=panel_public_scan,
-        panel_billing=panel_billing,
-        panel_workers=panel_workers,
-        panel_watch_task=panel_watch_task,
-        panel_reconcile_task=panel_reconcile_task,
-    )
+        runtime = PanelRuntime(
+            settings,
+            engine,
+            sessions,
+            stream,
+            llm,
+            audits,
+            runtime.demos,
+            sessionmaker=sessions_factory,
+            gh_client=gh_client,
+            panel_sessions=panel_sessions,
+            gh_users=gh_users,
+            panel_installations=panel_installations,
+            panel_repos=panel_repos,
+            panel_caps=panel_caps,
+            panel_verdicts=panel_verdicts,
+            panel_queue=panel_queue,
+            panel_sets=panel_sets,
+            panel_scan=panel_scan,
+            panel_public_scan=panel_public_scan,
+            panel_billing=panel_billing,
+            panel_workers=panel_workers,
+            panel_watch_task=panel_watch_task,
+            panel_reconcile_task=panel_reconcile_task,
+        )
+    app.state.runtime = runtime
     try:
         yield
     finally:
         # Stop the background loops + worker pool BEFORE the executor closes, so
         # nothing tries to admit/enqueue against a shutting-down AuditService.
-        for task in (panel_watch_task, panel_reconcile_task):
+        tasks = (runtime.panel_watch_task, runtime.panel_reconcile_task)
+        for task in tasks:
             if task is not None:
                 task.cancel()
-        for task in (panel_watch_task, panel_reconcile_task):
+        for task in tasks:
             if task is not None:
                 with suppress(asyncio.CancelledError):
                     await task
-        if panel_workers is not None:
-            await panel_workers.close()
+        if isinstance(runtime, PanelRuntime):
+            await runtime.panel_workers.close()
         await audits.close(settings.shutdown_deadline_seconds)
         await llm.aclose()
         await notifier.close()

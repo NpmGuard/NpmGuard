@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from npmguard.panel.sessions import SESSION_COOKIE
 
 if TYPE_CHECKING:
-    from npmguard.api import Runtime
+    from npmguard.api import PanelRuntime, Runtime
 
 PANEL_DISABLED_BODY = {"error": "GitHub App is not configured on this server"}
 
@@ -33,11 +33,16 @@ def panel_disabled_response() -> JSONResponse:
     return JSONResponse(PANEL_DISABLED_BODY, status_code=503)
 
 
-def require_enabled(runtime: Runtime) -> JSONResponse | None:
-    """503 when the App is not configured, else ``None`` (proceed)."""
-    if not runtime.settings.github_app_enabled:
-        return panel_disabled_response()
-    return None
+def require_panel(runtime: Runtime) -> PanelRuntime | None:
+    """The panel runtime, or ``None`` when the App is not configured (503).
+
+    This is both the gate and the narrowing: a ``PanelRuntime`` exists exactly
+    when the App is configured, so a handler that gets one past this point can
+    reach every panel store without re-checking any of them for ``None``.
+    """
+    from npmguard.api import PanelRuntime
+
+    return runtime if isinstance(runtime, PanelRuntime) else None
 
 
 def secure_cookies(runtime: Runtime) -> bool:
@@ -45,7 +50,7 @@ def secure_cookies(runtime: Runtime) -> bool:
     return runtime.settings.panel_base_url.startswith("https")
 
 
-async def current_user(request: Request, runtime: Runtime) -> dict[str, Any] | None:
+async def current_user(request: Request, runtime: PanelRuntime) -> dict[str, Any] | None:
     """Resolve the ``ng_session`` cookie to the ``SessionUser`` projection, or
     ``None`` when there is no valid session."""
     token = request.cookies.get(SESSION_COOKIE)

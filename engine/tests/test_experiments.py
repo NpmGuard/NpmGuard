@@ -39,6 +39,7 @@ from npmguard.experiments import (
     merge_container_spec,
     stub_intercept_target,
 )
+from tests.support.optional import present
 
 
 def call(tool: str, **args) -> ToolCall:
@@ -81,8 +82,8 @@ def test_setup_compiles_and_composes_into_a_sealed_description() -> None:
     setup = compose(compiled.setup)
     assert compiled.trigger.target == "index.js"
     assert setup.envs["NPM_TOKEN"] == "canary"
-    assert setup.applied.plantFiles[0].path == "/home/node/.npmrc"
-    assert setup.applied.plantFiles[0].contentHash
+    assert present(setup.applied.plantFiles)[0].path == "/home/node/.npmrc"
+    assert present(setup.applied.plantFiles)[0].contentHash
 
 
 @pytest.mark.parametrize(
@@ -252,7 +253,7 @@ def test_compiled_stub_asserts_nothing_about_responses() -> None:
         ]
     )
     setup = compose(compiled.setup)
-    assert [(ref.pattern, ref.responseHash) for ref in setup.applied.stubUrls] == [
+    assert [(ref.pattern, ref.responseHash) for ref in present(setup.applied.stubUrls)] == [
         ("http://localhost:9999/exfil", None)
     ]
     assert len(setup.observers) == 1  # the ledger read-back is armed
@@ -272,7 +273,7 @@ def test_two_stub_calls_fold_into_one_manipulation() -> None:
         ]
     )
     setup = compose(compiled.setup)
-    assert [ref.pattern for ref in setup.applied.stubUrls] == [
+    assert [ref.pattern for ref in present(setup.applied.stubUrls)] == [
         "http://a.example/1",
         "http://b.example/2",
     ]

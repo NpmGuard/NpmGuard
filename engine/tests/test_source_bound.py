@@ -39,10 +39,12 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-from kit_llm import ScriptedLlm
+from kit_llm import LlmClient, ScriptedLlm
 from kit_spine import make_engine, make_session_factory
 from kit_spine.db import metadata
 from npmguard import pipeline as pipeline_module
@@ -56,7 +58,7 @@ from npmguard.pipeline import AuditPipeline
 from npmguard.resolve import ResolvedPackage
 
 PACKAGE_NAME = "pkg-under-bound"
-MANIFEST = {"name": PACKAGE_NAME, "version": "1.0.0", "main": "index.js"}
+MANIFEST: dict[str, Any] = {"name": PACKAGE_NAME, "version": "1.0.0", "main": "index.js"}
 CLEAN_SOURCE = "module.exports = 1;\n"
 PHASE_DEADLINE_SECONDS = 60  # generous outer bound; a lost bound would hang forever
 
@@ -116,7 +118,7 @@ def _provider() -> _CountingProvider:
 async def build(tmp_path, monkeypatch):
     """Build a pipeline over a package in a private tmp workdir, with the bound set
     through its environment variable BEFORE Settings is constructed."""
-    opened: list[tuple[object, object]] = []
+    opened: list[tuple[AsyncEngine, LlmClient]] = []
 
     async def _build(
         files: dict[str, str], *, bound: int | None = None, provider=None
@@ -167,7 +169,7 @@ def _sources(count: int, *, scripts: dict[str, str] | None = None) -> dict[str, 
     """A package with exactly `count` FLAG-eligible source files. Every name is a
     plain `.js` under `lib/`, so none is dropped by the noise filter — asserted per
     class through flag_source_files rather than assumed."""
-    manifest = dict(MANIFEST)
+    manifest: dict[str, Any] = dict(MANIFEST)
     if scripts:
         manifest["scripts"] = scripts
     files = {"package.json": json.dumps(manifest)}

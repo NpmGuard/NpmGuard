@@ -41,6 +41,7 @@ from npmguard.hypothesis_agent import (
 )
 from npmguard.llm_runtime import build_npmguard_llm
 from npmguard.phases import Flag, PackageIntent
+from tests.support.optional import present
 
 _INTENT = PackageIntent(statedPurpose="fixture", expectedCapabilities=[], rationale="manifest")
 _FLAG = Flag(file="index.js", lines=["2-2"], why="reads a sensitive npm token")
@@ -103,8 +104,8 @@ async def test_two_phase_arms_via_validated_tool_loop(tmp_path) -> None:
     )
     assert isinstance(result, Hypothesis)
     assert result.claim.kind == "env_exfil"
-    assert [call.tool for call in result.experiment] == ["setEnv", "trigger"]
-    assert result.experiment[-1].args["target"] == "index.js"
+    assert [call.tool for call in present(result.experiment)] == ["setEnv", "trigger"]
+    assert present(present(result.experiment)[-1].args)["target"] == "index.js"
     await llm.aclose()
     await engine.dispose()
 
@@ -141,7 +142,7 @@ async def test_two_phase_oracle_rejects_bad_target_then_recovers(tmp_path) -> No
         created_at="2026-07-22T00:00:00Z",
         audit_id="audit-agent",
     )
-    assert [call.tool for call in result.experiment] == ["trigger"]
+    assert [call.tool for call in present(result.experiment)] == ["trigger"]
     await llm.aclose()
     await engine.dispose()
 
@@ -176,7 +177,7 @@ async def test_two_phase_dry_run_load_failure_is_repaired_in_loop(tmp_path, monk
         hypothesis_id="hyp-0001", created_at="t", audit_id="a",
     )
     assert calls["n"] == 2  # the gate ran twice: rejected, then accepted
-    assert result.experiment[-1].tool == "trigger"
+    assert present(result.experiment)[-1].tool == "trigger"
     await llm.aclose()
     await engine.dispose()
 
@@ -249,8 +250,8 @@ async def test_agent_nudge_recovers_a_stopped_model(tmp_path) -> None:
         _FLAG, package_path=_package(tmp_path), intent=_INTENT, entry_points=_ENTRY,
         hypothesis_id="hyp-0001", created_at="t", audit_id="a",
     )
-    assert [call.tool for call in result.experiment] == ["setEnv", "trigger"]
-    assert result.experiment[-1].args["target"] == "index.js"
+    assert [call.tool for call in present(result.experiment)] == ["setEnv", "trigger"]
+    assert present(present(result.experiment)[-1].args)["target"] == "index.js"
     await llm.aclose()
     await engine.dispose()
 
