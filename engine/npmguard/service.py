@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import structlog
 
+from kit_spine import now_iso
 from kit_stream import StreamService
 
 from .errors import AuditIncompleteError, NpmGuardError, QueueFullError
@@ -44,6 +45,11 @@ CLAIM_POLL_SECONDS = 1.0
 # (when its claim lapses) plus one of these, which is what lets startup recovery
 # key on the CLAIM instead of on `status` alone — see `_recover`.
 RECLAIM_SWEEP_SECONDS = 30.0
+# How long close() lets the background loops notice `_halt` and exit at a
+# no-resources boundary before cancelling them. They only ever wait on an event or
+# run one short statement, so this is generous; it exists so the cancel is a
+# backstop rather than the mechanism (N-10).
+BACKGROUND_HALT_SECONDS = 2.0
 
 
 def _instance_id() -> str:
@@ -55,6 +61,39 @@ def _instance_id() -> str:
     predecessor — so it would decline to recover the very rows it must recover.
     """
     return f"{socket.gethostname()[:24]}:{os.getpid()}:{uuid4().hex[:8]}"
+
+
+def _claimant_is_locally_dead(claimed_by: str) -> bool:
+    """True when the claim names a process ON THIS HOST that no longer exists.
+
+    The lease answers "is this claim stale?" everywhere, but slowly — it cannot
+    say anything until the TTL elapses. On the machine that minted the claim the
+    same question has an immediate and exact answer, because the id carries the
+    pid: ask the kernel. That is what lets boot recovery repair a SIGKILLed
+    predecessor's audits the instant the engine comes back, instead of leaving a
+    paid audit ``running`` (and its SSE client waiting) for a further TTL.
+
+    Answers False for every claim it cannot decide — a different host, an
+    unparseable id, or a pid that still exists. The fallback is always the lease,
+    so the cost of an undecidable claim is latency, never a wrong reclaim.
+
+    PID REUSE cuts the safe way here. If an unrelated process has taken the dead
+    engine's pid we answer "alive" and defer to the lease, which is a slow repair
+    of a row that needed repairing. The dangerous inverse — calling a LIVE engine
+    dead — needs its pid to have vanished while it is still executing, which is
+    not a state a running process can be in.
+    """
+    host, _, rest = claimed_by.partition(":")
+    pid_text, _, _ = rest.partition(":")
+    if host != socket.gethostname()[:24] or not pid_text.isdigit():
+        return False  # not ours to judge — the lease decides
+    try:
+        os.kill(int(pid_text), 0)
+    except ProcessLookupError:
+        return True  # the claimant is gone
+    except PermissionError:
+        return False  # exists, owned by another user
+    return False
 
 
 @dataclass(frozen=True)
@@ -100,8 +139,9 @@ class AuditService:
     STILL ONE NODE. Shared report storage, a node registry and work stealing are
     out of scope. What is in scope is that the *interface* is now the durable
     one, because retrofitting ownership out of a process-local dict later is a
-    rewrite. ``reclaim_expired`` is built and tested but deliberately not driven
-    by a background task — its docstring says why.
+    rewrite — and that every path which decides an audit is abandoned now decides
+    it from the claim (``_claim_is_dead``), so adding a second node changes the
+    deployment, not this class.
     """
 
     def __init__(
@@ -136,13 +176,19 @@ class AuditService:
         # step at shutdown (close step 3 explains why), so they are tracked apart
         # from the workers rather than alongside them.
         self._background: list[asyncio.Task[None]] = []
+        # Two stop signals, one per phase of close(). `_stop` retires the pool and
+        # the orphan sweep at step 1; `_halt` retires the heartbeat at step 3,
+        # after in-flight work has finished, so a claim keeps being renewed for as
+        # long as somebody here is still finalizing it.
         self._stop = asyncio.Event()
+        self._halt = asyncio.Event()
         # Set by submit so a parked worker claims immediately instead of waiting
         # out claim_poll_seconds; also set by close so shutdown never pays a poll.
         self._wake = asyncio.Event()
 
     async def start(self) -> None:
         self._stop.clear()
+        self._halt.clear()
         await self._recover()
         self._workers = [
             asyncio.create_task(self._worker(), name=f"npmguard-audit-worker-{index}")
@@ -279,16 +325,26 @@ class AuditService:
         self._wake.clear()
 
     async def _heartbeat_loop(self) -> None:
-        """Renew every claim this instance holds, until close() cancels us.
+        """Renew every claim this instance holds, until close() asks us to halt.
 
         One task and one statement for the whole pool: the set of claims we hold
         is a QUERY (``claimed_by == instance_id``), not a list we maintain, so the
         heartbeat cannot drift out of agreement with what we actually own.
+
+        Waits on ``_halt`` and NOT on ``_stop``, and that is the whole reason the
+        two events exist separately. ``_stop`` is set at the top of ``close()``,
+        when the pool is asked to wind down but real work is still executing for
+        up to the shutdown deadline — a heartbeat that exited there would stop
+        renewing the claim on an audit this process is still finalizing, which
+        under a shortened TTL or a lengthened close deadline is how a peer comes
+        to reclaim live work. (The draft cancelled this task at close step 3 and
+        its comment said exactly that; the loop it cancelled had already returned
+        at step 1, so the reasoning was right and the code did not implement it.)
         """
-        while not self._stop.is_set():
+        while not self._halt.is_set():
             with contextlib.suppress(TimeoutError):
                 async with asyncio.timeout(self.heartbeat_seconds):
-                    await self._stop.wait()
+                    await self._halt.wait()
                     return
             renewed = await self.sessions.renew_leases(
                 self.instance_id, ttl_seconds=self.lease_ttl_seconds
@@ -376,12 +432,25 @@ class AuditService:
         a durable fact; a recovery path that ignores the fact would leave the
         durable interface true only as long as nobody used it.
 
-        The cost of recovering on the claim is that a row whose owner crashed one
-        second ago stays ``running`` until its lease lapses instead of being
-        repaired the instant we boot. That is bounded, not indefinite, because the
-        same sweep also runs on a timer (``_reclaim_loop``) — repair latency is at
-        most ``lease_ttl_seconds``, where the draft's objection assumed "until the
-        next restart".
+        The draft's objection to recovering on the claim was that a row whose
+        owner crashed one second ago would stay ``running`` until its lease
+        lapsed, and it is a real cost — measured, not hypothetical: with a
+        lease-only rule, ``test_lifecycle`` S31/S32 hang, because a SIGKILLed
+        engine's audit keeps a live claim across the restart and the client that
+        is watching its SSE stream waits out the whole TTL for a 0031 that used to
+        arrive at boot. Two things pay for it, and neither is a weakening of the
+        claim:
+
+        * ON THIS HOST the claim is decidable NOW — it carries the pid, so a
+          predecessor that no longer exists is recognised immediately
+          (``_claimant_is_locally_dead``). This covers every single-node restart,
+          which is every restart today.
+        * EVERYWHERE ELSE the lease still decides, and ``_reclaim_loop`` sweeps on
+          a timer, so the worst case is one TTL rather than "until the next
+          restart".
+
+        What is deliberately NOT recovered is a claim that is live and not ours:
+        another engine is executing that audit right now.
 
         Durable ``queued`` rows need NO action: being ``queued`` IS being
         enqueued now, so a worker claims them as soon as the pool spins up. That
@@ -390,7 +459,44 @@ class AuditService:
         Demo replays are excluded throughout (``persistence._not_demo``, the
         ``package_path`` tag).
         """
-        await self.reclaim_expired()
+        message = "Audit interrupted by engine restart"
+        for session in await self.sessions.running():
+            if not self._claim_is_dead(session):
+                continue  # somebody else is executing this right now
+            await self._finish(
+                session.audit_id,
+                error=message,
+                event_type="audit_error",
+                payload={"error": message, "code": "NPMGUARD-0031", "retryable": True},
+            )
+
+    def _claim_is_dead(self, session: AuditSession) -> bool:
+        """Nobody owes this ``running`` row a terminal state any more.
+
+        Three ways to be dead, checked in order of certainty:
+
+        * NO CLAIM AT ALL. A row that reached ``running`` was claimed by whoever
+          started it, and ``finalize`` clears the claim only by making the row
+          terminal — so ``running`` with no claim means the claim was dropped by
+          something that then died, or the row predates the claim columns
+          entirely (every pre-0008 row reads this way, which is exactly right).
+        * THE LEASE HAS LAPSED. The universal rule, and the only one available
+          across hosts.
+        * THE CLAIMANT IS A DEAD PROCESS ON THIS HOST. Immediate and exact where
+          it applies; see ``_claimant_is_locally_dead``.
+
+        A claim held by THIS incarnation is never dead: at boot that is
+        impossible (the id is freshly minted), and anywhere else it means a
+        worker of ours is on the row.
+        """
+        if session.claimed_by is None or session.lease_expires_at is None:
+            return True
+        if session.claimed_by == self.instance_id:
+            return False
+        return (
+            session.lease_expires_at < now_iso()
+            or _claimant_is_locally_dead(session.claimed_by)
+        )
 
     async def close(self, deadline: float = CLOSE_DEADLINE_SECONDS) -> None:
         """Bounded shutdown.
@@ -425,16 +531,21 @@ class AuditService:
         if self._workers:
             await asyncio.wait(self._workers, timeout=deadline)
 
-        # 3. Cancel the stragglers, AND the background loops.
+        # 3. Retire the background loops, THEN cancel whatever is left.
         #
-        # The heartbeat is cancelled HERE and not in step 1: during step 2 real
-        # work is in flight and its claim must keep being renewed, or a long audit
-        # under a long deadline would lose its own claim mid-flight. After this
-        # point nothing is executing, so a heartbeat that outlived the pool would
-        # keep advertising a claim over work nobody is doing — the precise
-        # inversion that makes a reclaimer wait forever. The sweep rides along for
-        # the mirror-image reason: it must not be the last thing running, deciding
-        # about rows while step 4 is disposing of them.
+        # The heartbeat halts HERE and not in step 1: during step 2 real work is in
+        # flight and its claim must keep being renewed, or a long audit under a
+        # long deadline would lose its own claim mid-flight. After this point
+        # nothing is executing, so a heartbeat that outlived the pool would keep
+        # advertising a claim over work nobody is doing — the precise inversion
+        # that makes a reclaimer wait forever.
+        #
+        # ASKED before cancelled, for the same reason the pool is: `renew_leases`
+        # and the sweep both run inside a DB session, and a task cancelled in one
+        # dies holding a pooled connection dispose() can never reclaim.
+        self._halt.set()
+        if self._background:
+            await asyncio.wait(self._background, timeout=BACKGROUND_HALT_SECONDS)
         for task in (*self._workers, *self._background):
             task.cancel()
         await asyncio.gather(*self._workers, *self._background, return_exceptions=True)
