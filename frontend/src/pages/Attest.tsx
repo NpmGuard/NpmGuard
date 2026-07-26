@@ -178,8 +178,7 @@ export function Attest() {
           <div className="pg-attest__staging" role="status">
             <TriangleAlert size={16} aria-hidden />
             <span>
-              <strong>Staging</strong> — this is a World ID test environment. Proofs made
-              here are not real-world credentials.
+              <strong>Staging proof</strong> · test credential only
             </span>
           </div>
         )}
