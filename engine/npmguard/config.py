@@ -147,15 +147,18 @@ class Settings(KitSettings):
     max_running_sessions: int = Field(default=4, ge=1)
     shutdown_deadline_seconds: float = Field(default=10, gt=0)
 
-    # These defaults are the pair the RECORDED CORPUS shows actually serving —
-    # `engine/tests/fixtures/llm/*/manifest.json`, whose `models` block stores what
-    # answered rather than what someone intended. Three sources used to disagree and
-    # only that one was evidence: these fields read `claude-haiku-4-5`/`claude-sonnet-4-6`
-    # (never run), `.env.template` shipped `deepseek-v3.2`/`z-ai/glm-5` (never validated,
-    # and it is what a deploy copies), and the corpus showed deepseek-v4-flash on both
-    # roles. Keep all three in step when the model changes, and take the corpus as the
-    # tie-breaker. `llm_runtime` appends the cross-provider fallback tail after this
-    # primary, so a run's observed models are legitimately plural (bench B-11).
+    # INVARIANT: this is the ONLY declaration of the model pair in the repo, and it is
+    # the pair the RECORDED CORPUS shows actually serving — `tests/fixtures/llm/*/
+    # manifest.json`, whose `models` block stores what answered rather than what someone
+    # intended. Enforced by `tests/test_model_config_agreement.py`: C2 requires the
+    # shipped model to appear in the corpus (so changing it forces a re-record), C3
+    # fails on any second declaration anywhere in the repo — including one that AGREES,
+    # because a copy that can drift is the state being forbidden, not the drift itself.
+    # `.env.template` used to declare it too, and shipped `deepseek-v3.2`/`z-ai/glm-5`
+    # — never validated, and it is what a deploy copies — while these fields read
+    # `claude-haiku-4-5`/`claude-sonnet-4-6`, which never ran. Three sources, one
+    # answer between them. `llm_runtime` appends the cross-provider fallback tail after
+    # this primary, so a run's observed models are legitimately plural (bench B-11).
     # `min_length=1`: an explicitly-empty value must fail at boot naming its VARIABLE,
     # not later as `ModelSpec`'s "model slug must be a non-empty string" — roles are
     # built before the mock short-circuit, so even a mock engine constructs these.
