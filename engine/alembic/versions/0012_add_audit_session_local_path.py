@@ -8,6 +8,7 @@ audit belongs on a surface that describes published npm packages.
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "npmguard_audit_local_path_0012"
