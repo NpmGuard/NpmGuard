@@ -41,7 +41,13 @@ export function ReplayControls() {
   const playing = useAuditStore((s) => s.playing);
   const speed = useAuditStore((s) => s.speed);
   const running = useAuditStore((s) => s.running);
+  const replaying = useAuditStore((s) => s.replaying);
   const unseen = useAuditStore(unseenCount);
+  // "Resume live" is a LIVE concept: it means "frames arrived while you were
+  // reading". On a recorded replay every frame is already in hand and the
+  // distance to the end is just where the scrubber is — offering to "catch up"
+  // to a tape you are deliberately watching is an offer to skip the film.
+  const live = running && !replaying;
   const setPlaying = useAuditStore((s) => s.setPlaying);
   const setSpeed = useAuditStore((s) => s.setSpeed);
   const seekTo = useAuditStore((s) => s.seekTo);
@@ -54,7 +60,7 @@ export function ReplayControls() {
   const duration = elapsedMs(frames, total, speed);
 
   useReplayClock();
-  const countdown = useAutoResume(running && !playing && unseen > 0);
+  const countdown = useAutoResume(live && !playing && unseen > 0);
 
   return (
     <div
@@ -140,7 +146,7 @@ export function ReplayControls() {
         ))}
       </div>
 
-      {unseen > 0 ? <ResumeLive unseen={unseen} countdown={countdown} /> : null}
+      {live && unseen > 0 ? <ResumeLive unseen={unseen} countdown={countdown} /> : null}
     </div>
   );
 }

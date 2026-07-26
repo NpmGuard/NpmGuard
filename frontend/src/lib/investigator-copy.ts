@@ -37,12 +37,31 @@ export interface TranscriptEntry {
 }
 
 /**
+ * The claim vocabulary in two registers: a NOUN PHRASE for labels, and a clause
+ * for prose. Both are fixed templates — no model writes either.
+ *
  * What each claim kind means, in one clause a non-specialist can read.
  *
  * Deliberately phrased as behaviour rather than as a category name: "reads
  * credential-shaped environment variables" tells a reader what to look for in the
  * highlighted lines, where "env_exfil" only tells them the audit has a taxonomy.
  */
+export const CLAIM_LABEL: Record<ClaimKind, string> = {
+  env_exfil: "environment exfiltration",
+  cred_theft: "credential theft",
+  binary_drop: "binary drop",
+  obfuscation: "obfuscation",
+  persistence: "persistence",
+  destructive: "destructive writes",
+  propagation: "propagation",
+  dos_loop: "denial of service",
+  clipboard_hijack: "clipboard hijack",
+  dom_inject: "DOM injection",
+  telemetry: "telemetry",
+  dns_exfil: "DNS exfiltration",
+  build_plugin_exfil: "build-plugin exfiltration",
+};
+
 const CLAIM_PHRASE: Record<ClaimKind, string> = {
   env_exfil: "reads credential-shaped environment variables and may send them out",
   cred_theft: "reads credential files from the home directory",

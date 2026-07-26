@@ -76,6 +76,15 @@ interface AuditStoreState extends AuditFoldState {
   cameraFollows: boolean;
   /** auto-resume is off for this inspection because the viewer said so */
   stayPaused: boolean;
+  /**
+   * How the playhead last moved.
+   *
+   * "release" is one frame from the clock (or one live arrival) — the only case
+   * where a new node should ANIMATE in. A "seek" reconstructs the projection
+   * from frame zero, and animating every node it produces is what makes a scrub
+   * look like a crash rather than a jump.
+   */
+  lastMove: "release" | "seek";
 
   /** hydrated from GET /audit/:id/report after verdict_reached (schemaVersion 2) */
   report: AuditReport | null;
@@ -134,6 +143,7 @@ function baseState() {
     inspecting: null as Inspection | null,
     cameraFollows: true,
     stayPaused: false,
+    lastMove: "release" as "release" | "seek",
     report: null as AuditReport | null,
     selectedFile: null as string | null,
     source: LOADING as LoadState<string>,
@@ -160,12 +170,23 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
           const tape = appendFrame(before.tape, event);
           if (tape === before.tape) return;
 
-          // A live viewer sits at the head of the tape unless they deliberately
-          // moved away from it. `wasAtHead` is measured BEFORE the append, so a
+          // ONE tape, TWO release policies — the whole distinction between
+          // watching an audit and replaying one.
+          //
+          //   live      — the playhead follows the tape's head, so a frame that
+          //               arrives is on screen. There is nothing to pace: the
+          //               engine's own tempo IS the audit's tempo.
+          //   recorded  — the tape arrives whole and instantly (the engine seeds
+          //               a recording with no sleeps), so following the head
+          //               would show the verdict before the first hypothesis.
+          //               The replay clock releases frames instead.
+          //
+          // `wasAtHead` is measured BEFORE the append, so on either policy a
           // frame arriving never drags a paused viewer forward.
           const wasAtHead = before.playhead === before.tape.frames.length;
-          const playhead = wasAtHead && before.playing ? tape.frames.length : before.playhead;
-          set({ ...visible(tape, playhead), tape, playhead });
+          const follows = wasAtHead && before.playing && !before.replaying;
+          const playhead = follows ? tape.frames.length : before.playhead;
+          set({ ...visible(tape, playhead), tape, playhead, lastMove: "release" });
 
           // Terminal: hydrate the durable schemaVersion-2 report for the reveal.
           if (event.type === "verdict_reached") {
@@ -203,7 +224,17 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
           });
         },
       },
-      { isDone: () => !get().running },
+      {
+        // Read off the TAPE, not off the visible projection. `running` describes
+        // what the viewer has been shown, and a replay paused at frame 3 of 110
+        // is still "running" to a viewer while the stream itself ended long ago —
+        // which had the client reconnecting to a finished audit for the whole
+        // length of every replay.
+        isDone: () =>
+          get().tape.frames.some(
+            (frame) => frame.type === "verdict_reached" || frame.type === "audit_error",
+          ),
+      },
     );
   }
 
@@ -343,7 +374,7 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
       // A seek rebuilds the projection from frame zero. There is no reverse
       // transition to get wrong, so scrubbing backwards is exactly as correct as
       // scrubbing forwards.
-      set({ ...visible(tape, bounded), tape, playhead: bounded, playing: false });
+      set({ ...visible(tape, bounded), tape, playhead: bounded, playing: false, lastMove: "seek" });
     },
 
     stepBackward() {
@@ -356,7 +387,7 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
 
     restart() {
       const { tape } = get();
-      set({ ...visible(tape, 0), tape, playhead: 0, playing: true, inspecting: null });
+      set({ ...visible(tape, 0), tape, playhead: 0, playing: true, inspecting: null, lastMove: "seek" });
     },
 
     /** Release exactly one more frame. The React layer owns the timer. */
@@ -364,7 +395,7 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
       const { tape, playhead } = get();
       if (playhead >= tape.frames.length) return;
       const next = playhead + 1;
-      set({ ...visible(tape, next), tape, playhead: next });
+      set({ ...visible(tape, next), tape, playhead: next, lastMove: "release" });
     },
 
     resumeLive() {
@@ -377,6 +408,7 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
         inspecting: null,
         cameraFollows: true,
         stayPaused: false,
+        lastMove: "seek",
       });
     },
 

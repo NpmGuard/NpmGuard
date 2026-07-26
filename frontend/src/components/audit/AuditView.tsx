@@ -25,16 +25,20 @@
  */
 
 import { useMemo } from "react";
+import { motion } from "motion/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useAuditStore, unseenCount } from "../../stores/auditStore.ts";
 import { isRichReplay } from "../../lib/audit-fold.ts";
 import { projectEvidenceGraph } from "../../lib/evidence-graph.ts";
 import { PHASE_LABELS } from "../../lib/types.ts";
+import { cn } from "../../lib/cn.ts";
+import { animationScale } from "../../lib/replay-clock.ts";
 import { DegradedSurface } from "../ui/degraded-state.tsx";
 import { ProgressStamp, VerdictStamp } from "../ui/verdict-stamp.tsx";
 import { Button } from "../ui/button.tsx";
 import { Sheet, SheetContent } from "../ui/sheet.tsx";
 import { EvidenceGraphCanvas } from "./EvidenceGraph.tsx";
+import { FileScanView } from "./FileScanView.tsx";
 import { EvidenceInspector } from "./EvidenceInspector.tsx";
 import { InvestigationTranscript } from "./InvestigationTranscript.tsx";
 import { MobileEvidenceSpine } from "./MobileEvidenceSpine.tsx";
@@ -56,6 +60,8 @@ export function AuditView() {
   const inspecting = useAuditStore((s) => s.inspecting);
   const inspect = useAuditStore((s) => s.inspect);
   const cameraFollows = useAuditStore((s) => s.cameraFollows);
+  const lastMove = useAuditStore((s) => s.lastMove);
+  const speed = useAuditStore((s) => s.speed);
   const setCameraFollows = useAuditStore((s) => s.setCameraFollows);
   const unseen = useAuditStore(unseenCount);
 
@@ -64,6 +70,11 @@ export function AuditView() {
   const state = useAuditStore();
   const graph = useMemo(() => projectEvidenceGraph(state), [state]);
   const rich = isRichReplay(state);
+  // The scan holds the canvas until there is a suspicion to draw. `graph_built`
+  // is the engine's own boundary between "reading" and "investigating", and the
+  // first hypothesis node is the first thing the graph could show that the scan
+  // could not.
+  const scanning = graph.nodes.every((node) => node.kind !== "hypothesis") && !verdict && !error;
 
   useReplayKeyboard();
 
@@ -84,7 +95,7 @@ export function AuditView() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-canvas">
+    <div className="flex min-h-0 flex-1 flex-col bg-canvas">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2">
         <div className="flex min-w-0 items-baseline gap-2">
           {/* A replay is byte-identical to the run it replays, which is exactly
@@ -122,11 +133,28 @@ export function AuditView() {
       </header>
 
       {rich ? (
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-          <div className="relative min-h-0 flex-1">
-            {/* Desktop: the canvas. Mobile: the same model as a vertical spine —
-                never a miniature of the canvas. */}
-            <div className="hidden h-full lg:block">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+          <div className="relative min-h-0 min-w-0 flex-1 bg-sunken">
+            {/* THE TWO ACTS.
+                
+                The audit opens on the scan — every file in the package, read one
+                by one, settling into cleared or flagged. Then it becomes the
+                graph, whose roots ARE the files that turned red. Opening on an
+                empty canvas asked a viewer to believe the package had been read;
+                this shows it, and the transform is a continuation rather than a
+                scene change. */}
+            {scanning ? (
+              <motion.div
+                key="scan"
+                className="h-full"
+                initial={false}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                <FileScanView />
+              </motion.div>
+            ) : null}
+            <div className={cn("hidden h-full lg:block", scanning && "hidden lg:hidden")}>
               <ReactFlowProvider>
                 <EvidenceGraphCanvas
                   graph={graph}
@@ -134,10 +162,12 @@ export function AuditView() {
                   onSelect={inspect}
                   cameraFollows={cameraFollows}
                   onUserTookCamera={() => setCameraFollows(false)}
+                  animateEntrance={lastMove === "release"}
+                  motionScale={animationScale(speed)}
                 />
               </ReactFlowProvider>
             </div>
-            <div className="h-full overflow-y-auto lg:hidden">
+            <div className={cn("h-full overflow-y-auto lg:hidden", scanning && "hidden")}>
               <MobileEvidenceSpine
                 graph={graph}
                 selectedId={inspecting?.nodeId ?? null}
@@ -158,9 +188,9 @@ export function AuditView() {
             {selected ? (
               <EvidenceInspector node={selected} onClose={() => inspect(null)} />
             ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <InvestigationTranscript />
-              </div>
+              // No wrapper scroll: the transcript owns its own, so it can pin the
+              // live-activity line to its foot.
+              <InvestigationTranscript />
             )}
           </aside>
 
@@ -177,11 +207,12 @@ export function AuditView() {
         <UnsupportedReplay packageName={packageName} />
       )}
 
-      {/* Stable bottom regions, present from the first frame. */}
+      {/* Stable bottom regions, present from the first frame, and BOUNDED.
+          The graph is the surface; a dock that grows takes it. */}
       <ReplayControls />
       <section
         aria-label="Verdict"
-        className="border-t border-border bg-surface px-4 py-2"
+        className="max-h-[32vh] shrink-0 overflow-y-auto border-t border-border bg-surface px-4 py-2.5"
         data-unseen={unseen}
       >
         {verdict || error ? (
