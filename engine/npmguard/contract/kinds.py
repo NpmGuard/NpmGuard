@@ -65,6 +65,16 @@ EventKind = Literal[
     "error",
 ]
 
+# shared/src/evidence.ts :: StreamKind — which sensor produced an event.
+StreamKind = Literal[
+    "L1:seccomp",
+    "L2:pcap",
+    "L3:fsDiff",
+    "L4:monkey",
+    "L4:v8inspector",
+    "engine",
+]
+
 # shared/src/panel.ts :: the audit-set vocabularies.
 PackageOutcome = Literal["SAFE", "ERROR", "DANGEROUS"]
 JobState = Literal["queued", "running", "failed"]
@@ -84,6 +94,25 @@ AUDIT_EVENT_TYPES: frozenset[str] = frozenset(
     for member in get_args(AuditEvent.model_fields["root"].annotation)
 )
 
+# shared/src/events.ts :: HYPOTHESIS_EVENT_ORDER — the frames one dispatched
+# hypothesis emits, in order. An ORDER is not a type, so codegen cannot carry it;
+# it is restated here and checked against the union so a name that stops existing
+# fails at import rather than in a recording nobody re-reads.
+#
+# A hypothesis deferred before dispatch (analysis budget exhausted) emits only the
+# last of these. Everything that reaches the sandbox emits all six.
+HYPOTHESIS_EVENT_ORDER: tuple[str, ...] = (
+    "hypothesis_emitted",
+    "experiment_started",
+    "sandbox_started",
+    "sandbox_completed",
+    "judgment_started",
+    "hypothesis_resolved",
+)
+assert set(HYPOTHESIS_EVENT_ORDER) <= AUDIT_EVENT_TYPES, sorted(
+    set(HYPOTHESIS_EVENT_ORDER) - AUDIT_EVENT_TYPES
+)
+
 
 def _field_literals(model: type[BaseModel], field: str) -> frozenset[str]:
     """The string members of a generated field's annotation, ``None`` dropped."""
@@ -96,6 +125,7 @@ def _field_literals(model: type[BaseModel], field: str) -> frozenset[str]:
 
 for _alias, _model, _field in (
     (EventKind, EvidenceEvent, "kind"),
+    (StreamKind, EvidenceEvent, "stream"),
     (PackageOutcome, AuditSetItem, "outcome"),
     (JobState, AuditSetItem, "jobState"),
     (SetStatus, ScanProgressFrame, "status"),

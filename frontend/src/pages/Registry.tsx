@@ -1,6 +1,14 @@
 /**
  * Packages registry (/packages) — the audited-report index.
  *
+ * ── ONE JOB: find a package and read its latest concluded audit ─────────────
+ *
+ * The command bar is the page header, and the table is everything else.
+ * DANGEROUS rows lead; the safe ones sit behind a count, because a registry of
+ * two hundred green rows buries the one row somebody came to find. The aggregate
+ * totals that used to sit above the table are gone: "N shown" beside the search
+ * is the only count that helps somebody looking for a package.
+ *
  * ONE list query (fetchPackages → {packages}), then everything else is derived
  * with .filter/.find/useMemo — no store, no data-grid, no virtualization
  * (patterns-synthesis.md §1.4). Selection lives in the URL: each row is a real
@@ -37,7 +45,7 @@
  * on the sibling surface, and one fewer portal in a toolbar.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../lib/api-base.ts";
 import { fetchPackages, resolveVersion } from "../lib/api.ts";
@@ -45,7 +53,15 @@ import type { PackageSummary, VerdictEnum } from "@npmguard/shared";
 import { formatDate } from "../lib/format.ts";
 import { parsePackageInput } from "../lib/types.ts";
 import { useAuditStore } from "../stores/auditStore.ts";
-import { PanelPage, SectionLabel } from "../components/panel/layout.tsx";
+import { SectionLabel } from "../components/panel/layout.tsx";
+import {
+  NothingToDo,
+  QuietGroup,
+  WorkspaceBody,
+  WorkspaceHeader,
+  WorkspacePage,
+  WorkspaceSection,
+} from "../components/shell/workspace.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card } from "../components/ui/card.tsx";
 import { DegradedRegion, DegradedSurface } from "../components/ui/degraded-state.tsx";
@@ -178,115 +194,151 @@ export function Registry() {
   // field-scale version of the empty/degraded conflation (§3.4).
   const shownCount = state.status === "ok" ? `${filtered.length}` : "—";
 
+  const dangerous = filtered.filter((pkg) => pkg.verdict === "DANGEROUS");
+  const clean = filtered.filter((pkg) => pkg.verdict !== "DANGEROUS");
+
   return (
-    <PanelPage>
-      <header className="flex flex-wrap items-baseline justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <SectionLabel>Registry</SectionLabel>
-          <h1 className="text-2xl font-semibold text-text">Audited packages</h1>
-        </div>
-        <span
-          aria-label="packages shown"
-          aria-live="polite"
-          className="font-mono text-2xs tracking-wide whitespace-nowrap text-text-3 uppercase tabular-nums"
-        >
-          {shownCount} shown
-        </span>
-      </header>
-
-      <form
-        className="mt-6 flex flex-wrap items-center gap-2"
-        role="search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (trimmedSearch) void runLookup(trimmedSearch);
-        }}
-      >
-        <SearchInput
-          label="filter audited packages by name"
-          placeholder="Filter by package name…"
-          name="q"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            if (lookup.kind !== "idle") setLookup({ kind: "idle" });
+    <WorkspacePage>
+      <WorkspaceHeader title="Packages" meta={`${shownCount} shown`}>
+        <form
+          className="flex w-full flex-wrap items-center gap-2"
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (trimmedSearch) void runLookup(trimmedSearch);
           }}
-        />
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="filter by verdict">
-          {VERDICT_FILTERS.map((entry) => (
-            <Button
-              key={entry.key}
-              variant="outline"
-              size="sm"
-              aria-pressed={verdict === entry.key}
-              onClick={() => setVerdict(entry.key)}
-              className={cn(verdict === entry.key && "border-border-strong bg-sunken text-text")}
-            >
-              {entry.label}
-            </Button>
-          ))}
-        </div>
-        <Button
-          type="submit"
-          disabled={!trimmedSearch || lookup.kind === "resolving"}
-          aria-label={`look up ${trimmedSearch || "a package"} on the registry`}
         >
-          Look up
-        </Button>
-      </form>
+          <SearchInput
+            label="filter audited packages by name"
+            placeholder="Filter by package name…"
+            name="q"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              if (lookup.kind !== "idle") setLookup({ kind: "idle" });
+            }}
+          />
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="filter by verdict">
+            {VERDICT_FILTERS.map((entry) => (
+              <Button
+                key={entry.key}
+                variant="outline"
+                size="sm"
+                aria-pressed={verdict === entry.key}
+                onClick={() => setVerdict(entry.key)}
+                className={cn(verdict === entry.key && "border-border-strong bg-sunken text-text")}
+              >
+                {entry.label}
+              </Button>
+            ))}
+          </div>
+          <Button
+            type="submit"
+            disabled={!trimmedSearch || lookup.kind === "resolving"}
+            aria-label={`look up ${trimmedSearch || "a package"} on the registry`}
+          >
+            Look up
+          </Button>
+        </form>
+      </WorkspaceHeader>
 
-      {lookup.kind !== "idle" && (
-        <LookupResult
-          lookup={lookup}
-          starting={starting}
-          onAudit={(name, version) => void startAuditFor(name, version)}
-        />
-      )}
+      <WorkspaceBody>
+        {lookup.kind !== "idle" && (
+          <LookupResult
+            lookup={lookup}
+            starting={starting}
+            onAudit={(name, version) => void startAuditFor(name, version)}
+          />
+        )}
 
-      {state.status === "failed" ? (
-        // `surface`, not `region`: this is the page's primary fetch and there is
-        // no partial page worth salvaging around it.
-        <DegradedSurface
-          failure={state.failure}
-          escape={{ label: "Audit a package instead", href: "/" }}
-          className="mt-6"
-        />
-      ) : (
-        <div className="mt-6 overflow-x-auto">
-          <Table label="Audited packages" className="min-w-[520px]">
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Package</TableHead>
-                <TableHead>Version</TableHead>
-                <TableHead>Verdict</TableHead>
-                <TableHead>Audited</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {state.status === "loading" ? (
-                Array.from({ length: SKELETON_ROWS }, (_, i) => <SkeletonRow key={i} />)
-              ) : filtered.length > 0 ? (
-                filtered.map((pkg) => (
-                  <PackageRow key={`${pkg.packageName}@${pkg.version}`} pkg={pkg} />
-                ))
+        {state.status === "failed" ? (
+          // `surface`, not `region`: this is the page's primary fetch and there
+          // is no partial page worth salvaging around it.
+          <DegradedSurface
+            failure={state.failure}
+            escape={{ label: "Audit a package instead", href: "/" }}
+          />
+        ) : state.status === "loading" ? (
+          <PackageTable label="Audited packages">
+            {Array.from({ length: SKELETON_ROWS }, (_, i) => <SkeletonRow key={i} />)}
+          </PackageTable>
+        ) : filtered.length === 0 ? (
+          // The empty state stays INSIDE the table body rather than replacing
+          // the table: keeping the header row around the emptiness preserves the
+          // reader's sense of WHERE the emptiness is.
+          <PackageTable label="Audited packages">
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={4} className="p-0">
+                <RegistryEmpty
+                  read={state.read}
+                  totalCount={allPackages.length}
+                  search={trimmedSearch}
+                  filtered={verdict !== "ALL"}
+                  onLookup={() => trimmedSearch && void runLookup(trimmedSearch)}
+                />
+              </TableCell>
+            </TableRow>
+          </PackageTable>
+        ) : (
+          <>
+            <WorkspaceSection
+              label="Confirmed dangerous"
+              tone="attention"
+              meta={`${dangerous.length} of ${filtered.length}`}
+            >
+              {dangerous.length === 0 ? (
+                <NothingToDo>
+                  No audited package in this view reached a DANGEROUS verdict. Every one of them
+                  was tested; none confirmed.
+                </NothingToDo>
               ) : (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={4} className="p-0">
-                    <RegistryEmpty
-                      read={state.read}
-                      totalCount={allPackages.length}
-                      search={trimmedSearch}
-                      filtered={verdict !== "ALL"}
-                      onLookup={() => trimmedSearch && void runLookup(trimmedSearch)}
-                    />
-                  </TableCell>
-                </TableRow>
+                <PackageTable label="Packages with a confirmed threat">
+                  {dangerous.map((pkg) => (
+                    <PackageRow key={`${pkg.packageName}@${pkg.version}`} pkg={pkg} />
+                  ))}
+                </PackageTable>
               )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </PanelPage>
+            </WorkspaceSection>
+
+            <WorkspaceSection label="Everything else">
+              <QuietGroup
+                label="Packages with no confirmed threat"
+                count={clean.length}
+                // A narrowed view is a deliberate act: somebody who filtered or
+                // typed a name wants to SEE the matches, not a count of them.
+                defaultOpen={trimmedSearch.length > 0 || verdict !== "ALL"}
+              >
+                <PackageTable label="Audited packages">
+                  {clean.map((pkg) => (
+                    <PackageRow key={`${pkg.packageName}@${pkg.version}`} pkg={pkg} />
+                  ))}
+                </PackageTable>
+              </QuietGroup>
+            </WorkspaceSection>
+          </>
+        )}
+      </WorkspaceBody>
+    </WorkspacePage>
+  );
+}
+
+/** The shared table shell, so the loading, empty and loaded shapes cannot drift
+ * apart — every one of them is the same four columns. */
+function PackageTable({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <Table label={label} className="min-w-[520px]">
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead>Package</TableHead>
+            <TableHead>Version</TableHead>
+            <TableHead>Verdict</TableHead>
+            <TableHead>Audited</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>{children}</TableBody>
+      </Table>
+    </div>
   );
 }
 

@@ -425,7 +425,15 @@ class MockLlm:
         )
 
     def _judge_body(self, config: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
-        """Content-aware judge: cite REAL event ids parsed from the live timeline."""
+        """Content-aware judge: cite REAL event ids parsed from the live timeline.
+
+        `cite_matching` narrows the citation to rows whose TEXT matches a regex,
+        so a scripted DANGEROUS run can cite the row that carries the behaviour
+        instead of whichever three rows happen to come first. The ids are still
+        read off the live prompt, so a citation cannot name a row the run did not
+        produce; the regex only chooses among rows that exist, and a pattern that
+        matches nothing falls back to document order rather than inventing one.
+        """
         malicious = bool(config.get("malicious", False))
         if not malicious:
             return {
@@ -435,12 +443,21 @@ class MockLlm:
                 ),
                 "citedEvents": [],
             }
-        ids = _TIMELINE_ID.findall(self._user_text(body))
+        text = self._user_text(body)
+        ids = _TIMELINE_ID.findall(text)
         if not ids:
             raise MockLoadError(
                 "scripted judge: malicious=true requested but no event ids (e1..eN) found "
                 "in the incoming timeline — the run captured no events"
             )
+        if pattern := config.get("cite_matching"):
+            matcher = re.compile(str(pattern))
+            preferred = [
+                match.group(1)
+                for line in text.splitlines()
+                if (match := _TIMELINE_ID.match(line)) and matcher.search(line)
+            ]
+            ids = preferred or ids
         return {
             "malicious": True,
             "reason": str(

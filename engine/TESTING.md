@@ -95,11 +95,10 @@ S24/S25), `NPMGUARD_MAX_SOURCE_FILES` (per-audit model spend, same file S36 and
 concurrency, set explicitly by the e2e harness so a scenario's fan-out is not
 inherited).
 
-`NPMGUARD_DEMO_SPEED` divides the demo replay's human throttle; 0 emits
-instantly, which is what Playwright and the e2e tier use. It is read at
-`npmguard.demo` import scope, so the environment variable is the only seam and a
-test that wants a different value reloads the module (`test_demo.py`'s
-`at_speed`).
+A demo replay has no pacing knob, and that is the design: `DemoService.start`
+seeds the whole recording into the durable log at once, so every tier — unit,
+e2e, Playwright — reads a complete stream the moment the call returns. Tempo is a
+client decision, because only the client can pause, seek and change speed.
 
 **Every `NPMGUARD_*` variable production code reads is declared on `Settings`**,
 so a malformed value is refused at boot with the *variable* named — not the
@@ -129,9 +128,9 @@ test per class, enumerated where you can actually run it.
 **A file header carries what the tests cannot**, and nothing they already say:
 
 - the unit, and the **seam** — what is real, what is stubbed, and why that stub is
-  the honest one (`test_demo.py` reloads the module, because `DEMO_SPEED` is read
-  at import and moving a module attribute would prove the attribute is honoured
-  while saying nothing about the knob);
+  the honest one (`test_orchestrator_success.py` substitutes the sandbox boundary
+  with sealed artifacts and runs the REAL judge chain, so a judgment is proven on
+  real data while a docker run is not required to observe one);
 - **input provenance** — where captured input came from, and which literals are
   hand-authored, with the reason no capture exists;
 - the **axes** the classes are a product of;

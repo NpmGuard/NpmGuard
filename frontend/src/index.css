@@ -41,3 +41,71 @@
 
 @import "./styles/base.css";
 @import "./styles/how-it-works.css";
+
+/* React Flow's own layout CSS: the viewport transform, the pane, the handle and
+ * edge geometry. It is not a theme — every colour and surface below comes from
+ * the token layer, and the nodes are our components. Without it the canvas
+ * renders as a static stack of divs, because panning IS a transform this sheet
+ * defines. */
+@import "@xyflow/react/dist/base.css";
+
+@layer components {
+  /* The three things a canvas needs that the design system has no reason to
+   * own. Each reads a PRIMITIVE (`var(--ng-*)`), because raw CSS cannot see an
+   * `@theme inline` key — those are substituted into utilities at build time
+   * and never emitted as custom properties. */
+  .react-flow {
+    background: var(--ng-sunken);
+  }
+
+  .react-flow__controls-button {
+    background: var(--ng-surface);
+    border-bottom: 1px solid var(--ng-border);
+    color: var(--ng-text-2);
+    /* §10: canvas controls are at least 44px, on every pointer. */
+    width: var(--ng-tap-min);
+    height: var(--ng-tap-min);
+  }
+
+  .react-flow__node:focus-visible {
+    outline: 2px solid var(--ng-focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* The scan sweep — a 2px line crossing the file once, in the time that file
+   * holds the playhead (`--ng-scan-duration`, set by the pane).
+   *
+   * ONCE, not looping. A repeating sweep says "still working on this file" for
+   * as long as it runs, and the engine reads a file in a single call — a second
+   * pass would describe work that is not happening. One pass that ends as the
+   * hold ends is the honest shape, and the readable one: the eye follows a sweep
+   * that finishes.
+   *
+   * A line rather than a band, because a band tints the code it crosses and this
+   * pane's whole job is showing that code.
+   *
+   * Plain CSS rather than a Motion value: it re-keys per file and runs to
+   * completion, so a JS-driven transform would animate thousands of frames per
+   * replay for nothing. `prefers-reduced-motion` is honoured by the caller,
+   * which does not render it at all. */
+  .ng-scanline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--ng-accent), transparent);
+    animation: ng-scan var(--ng-scan-duration, 2s) ease-in-out 1 forwards;
+  }
+
+  @keyframes ng-scan {
+    from {
+      top: 0;
+      opacity: 0.75;
+    }
+    to {
+      top: 100%;
+      opacity: 0;
+    }
+  }
+}
