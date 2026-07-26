@@ -1,5 +1,20 @@
-/** GitHub workspace dashboard: posture hero, plan ledger, public audit
- * history, portfolio rail, alerts, and the filterable repo grid.
+/** The workspace dashboard.
+ *
+ * ── ONE JOB: what needs attention now ───────────────────────────────────────
+ *
+ * The page leads with repositories whose last audit set came back DANGEROUS or
+ * could not conclude, and with the alerts that go with them. Everything else —
+ * plan usage, portfolio proportions, public-audit history, the repositories with
+ * nothing wrong — is support, and sits below.
+ *
+ * That ordering is the whole recomposition. This was a wall of regions in
+ * roughly the order they were built: posture hero, alerts, plan ledger, audit
+ * history, portfolio rail, then the grid. Every one of them was honest and none
+ * of them answered the question somebody opens a dashboard to ask. A KPI row
+ * above the finding is a KPI row a reader learns to scroll past.
+ *
+ * Clean repositories are COLLAPSED, never dropped: the count is the reassurance
+ * and it has to be openable, or it is a claim rather than a check.
  *
  * Every region below reads its OWN query, and that is the point. Fetching five
  * resources through one `Promise.allSettled` collapses them into one `loading`
@@ -34,14 +49,21 @@ import type { PanelRepo } from "@npmguard/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { Globe, Plus, RefreshCw, ServerOff, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { PanelPage, PanelSection, SectionLabel } from "../components/panel/layout.tsx";
+import {
+  NothingToDo,
+  QuietGroup,
+  WorkspaceBody,
+  WorkspaceHeader,
+  WorkspacePage,
+  WorkspaceSection,
+} from "../components/shell/workspace.tsx";
+import { PanelPage, SectionLabel } from "../components/panel/layout.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardBody } from "../components/ui/card.tsx";
 import { DataRegion } from "../components/ui/data-region.tsx";
-import { DegradedSurface } from "../components/ui/degraded-state.tsx";
+import { DegradedRegion, DegradedSurface } from "../components/ui/degraded-state.tsx";
 import { EmptyState } from "../components/ui/empty-state.tsx";
 import { SearchInput } from "../components/ui/input.tsx";
-import { loaded } from "../components/ui/load-state.ts";
 import { Skeleton } from "../components/ui/skeleton.tsx";
 import { StaleChip } from "../components/ui/stale-chip.tsx";
 import { AlertsNotice } from "../features/alerts/components/AlertsNotice.tsx";
@@ -58,6 +80,7 @@ import { usePublicScans, useRepos } from "../features/repos/hooks.ts";
 import {
   matchesRepoFilter,
   matchesRepoQuery,
+  needsAttention,
   repoFilterCounts,
   type RepoFilter,
 } from "../features/repos/posture.ts";
@@ -268,171 +291,223 @@ export function Dashboard() {
     setFilter("all");
   };
 
+  const attention = known.filter(needsAttention);
+  const running = known.filter((repo) => repo.lastScan?.status === "running");
+  const settled = known.filter(
+    (repo) => !needsAttention(repo) && repo.lastScan?.status !== "running",
+  );
+
   return (
-    <PanelPage>
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col items-start gap-1.5">
-          <SectionLabel>GitHub workspace</SectionLabel>
-          <h1 className="text-2xl font-semibold tracking-tight text-text">Repository posture</h1>
-          <p className="text-sm text-text-2">
-            Continuous dependency audits across your connected repositories.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {hasBillingAccounts && (
-            <Button variant="outline" onClick={() => setAuditDialogOpen(true)}>
-              <Globe aria-hidden="true" className="size-icon-sm" /> Audit public repo
-            </Button>
-          )}
-          <Button variant="outline" disabled={refreshing} onClick={refreshAll}>
-            <RefreshCw
-              aria-hidden="true"
-              className={cn(
-                "size-icon-sm",
-                // The word "Refresh" is beside it, so the spin is decoration and
-                // may stop under reduced motion without losing information.
-                refreshing && "animate-spin motion-reduce:animate-none",
-              )}
-            />{" "}
-            Refresh
-          </Button>
-          {installUrl && (
-            <Button asChild>
-              <a href={installUrl} target="_blank" rel="noreferrer">
-                <Plus aria-hidden="true" className="size-icon-sm" /> Add repositories
-              </a>
-            </Button>
-          )}
-        </div>
-      </header>
-
-      {billingNotice === "success" && (
-        <Notice tone="accent" onDismiss={() => setBillingNotice(null)}>
-          Payment confirmed — your plan is updating. This can take a few seconds.
-        </Notice>
-      )}
-      {billingNotice === "cancelled" && (
-        <Notice tone="neutral" onDismiss={() => setBillingNotice(null)}>
-          Checkout cancelled — your plan is unchanged.
-        </Notice>
-      )}
-
-      <div className="mt-6">
-        <AlertsNotice state={alerts} />
-      </div>
-
-      <PlanLedger state={billing} />
-      <PublicAuditHistory
-        state={publicScans}
-        onOpen={(scanId) => {
-          setAuditDialogOpen(false);
-          setReportScanId(scanId);
-        }}
-      />
-      {/* The posture rail is a proportion over the repo list, so it renders only
-          from the arm that HOLDS that list. A rail computed over a partial read
-          would be a chart of an unknown denominator. */}
-      {repos.status === "ok" && <PortfolioPosture repos={repos.data} />}
-
-      <DataRegion
-        className="mt-12"
-        state={workspace}
-        title="Repositories"
-        empty={
-          noInstallations
-            ? {
-                message: "Install NpmGuard on a GitHub account to audit its repositories.",
-                hint: "Connect an organization or personal account.",
-                action: installUrl ? (
-                  <Button asChild>
-                    <a href={installUrl} target="_blank" rel="noreferrer">
-                      Add repositories
-                    </a>
-                  </Button>
-                ) : undefined,
-              }
-            : {
-                message: "No auditable repositories found.",
-                hint: "Only repositories with package-lock.json, pnpm-lock.yaml, or yarn.lock at the repository root are shown.",
-              }
+    <WorkspacePage>
+      <WorkspaceHeader
+        title="Workspace"
+        meta={
+          workspace.status === "ok"
+            ? `${counts.all} repositor${counts.all === 1 ? "y" : "ies"}`
+            : undefined
         }
-        isEmpty={(data) => data.repos.length === 0}
-        loading={
-          <div className={GRID}>
-            {[0, 1, 2].map((slot) => (
-              <Skeleton key={slot} className="h-40 w-full" />
-            ))}
-          </div>
+        actions={
+          <>
+            {hasBillingAccounts && (
+              <Button variant="outline" size="sm" onClick={() => setAuditDialogOpen(true)}>
+                <Globe aria-hidden="true" className="size-icon-sm" /> Audit public repo
+              </Button>
+            )}
+            <Button variant="outline" size="sm" disabled={refreshing} onClick={refreshAll}>
+              <RefreshCw
+                aria-hidden="true"
+                className={cn(
+                  "size-icon-sm",
+                  // The word "Refresh" is beside it, so the spin is decoration
+                  // and may stop under reduced motion without losing anything.
+                  refreshing && "animate-spin motion-reduce:animate-none",
+                )}
+              />
+              Refresh
+            </Button>
+            {installUrl && (
+              <Button asChild size="sm">
+                <a href={installUrl} target="_blank" rel="noreferrer">
+                  <Plus aria-hidden="true" className="size-icon-sm" /> Add repositories
+                </a>
+              </Button>
+            )}
+          </>
         }
       >
-        {({ repos: all }) => {
-          const visible = matching(all);
-          return (
-            <PanelSection className="mt-0" label="Repositories">
-              <div className="mb-4 flex flex-wrap items-center gap-3">
-                <SearchInput
-                  label="Search repositories"
-                  placeholder="Search repositories"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-                {/* Stale data is the third fact: real, but not current. `asOf` is
-                    set only when the last refresh actually FAILED, so this chip
-                    appearing means one specific thing rather than "some time has
-                    passed". */}
-                {staleAsOf && (
-                  <StaleChip asOf={formatDateTime(staleAsOf)} onRefresh={refreshAll} />
-                )}
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter repositories">
-                  {FILTERS.map((entry) => (
-                    <Button
-                      key={entry.key}
-                      variant="outline"
-                      size="sm"
-                      aria-pressed={filter === entry.key}
-                      onClick={() => setFilter(entry.key)}
-                      // A selected filter is chrome, not an outcome: it wears the
-                      // system accent wash, never a semantic hue. A green
-                      // "Protected" chip would read as a verdict about the repos
-                      // behind it.
-                      className={cn(
-                        filter === entry.key &&
-                          "border-accent-border bg-accent-wash text-accent-text",
-                      )}
-                    >
-                      {entry.label}{" "}
-                      <span className="font-mono text-2xs tabular-nums opacity-70">
-                        {counts[entry.key]}
-                      </span>
-                    </Button>
-                  ))}
-                </div>
+        <SearchInput
+          label="Search repositories"
+          placeholder="Search repositories"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter repositories">
+          {FILTERS.map((entry) => (
+            <Button
+              key={entry.key}
+              variant="outline"
+              size="sm"
+              aria-pressed={filter === entry.key}
+              onClick={() => setFilter(entry.key)}
+              // A selected filter is chrome, not an outcome: it wears the system
+              // accent wash, never a semantic hue. A green "Protected" chip would
+              // read as a verdict about the repos behind it.
+              className={cn(
+                filter === entry.key && "border-accent-border bg-accent-wash text-accent-text",
+              )}
+            >
+              {entry.label}{" "}
+              <span className="font-mono text-2xs tabular-nums opacity-70">
+                {counts[entry.key]}
+              </span>
+            </Button>
+          ))}
+        </div>
+        {/* Stale data is the third fact: real, but not current. `asOf` is set
+            only when the last refresh actually FAILED, so this chip appearing
+            means one specific thing rather than "some time has passed". */}
+        {staleAsOf && <StaleChip asOf={formatDateTime(staleAsOf)} onRefresh={refreshAll} />}
+      </WorkspaceHeader>
+
+      <WorkspaceBody>
+        {billingNotice === "success" && (
+          <Notice tone="accent" onDismiss={() => setBillingNotice(null)}>
+            Payment confirmed — your plan is updating. This can take a few seconds.
+          </Notice>
+        )}
+        {billingNotice === "cancelled" && (
+          <Notice tone="neutral" onDismiss={() => setBillingNotice(null)}>
+            Checkout cancelled — your plan is unchanged.
+          </Notice>
+        )}
+
+        {/* ── LEADS: what needs somebody ─────────────────────────────────── */}
+        <WorkspaceSection
+          label="Needs attention"
+          tone="attention"
+          meta={
+            workspace.status === "ok"
+              ? `${attention.length} of ${counts.all}`
+              : "waiting on the repository list"
+          }
+        >
+          <div className="grid gap-3">
+            <AlertsNotice state={alerts} />
+            {workspace.status === "failed" ? (
+              <DegradedRegion title="Repositories" failure={workspace.failure} />
+            ) : workspace.status === "loading" ? (
+              <Skeleton className="h-24 w-full" />
+            ) : attention.length === 0 ? (
+              <NothingToDo>
+                No repository has a confirmed dangerous dependency or an audit that could not
+                conclude. That is this moment, not a guarantee — the next lockfile change is
+                unaudited until it is scanned.
+              </NothingToDo>
+            ) : (
+              <div className={GRID}>
+                {matching(attention).map((repo) => (
+                  <RepoCard key={repo.id} repo={repo} />
+                ))}
               </div>
-              {/* `loaded(visible)` is not a formality. The filter result is data
-                  we are holding, so it can mint the token honestly — and routing
-                  the "nothing matched" case through the same chokepoint as the
-                  read means there is no second, hand-written empty box on this
-                  page that a future edit could point at a failure. */}
-              <DataRegion
-                state={loaded(visible)}
-                empty={{
-                  message: "No repositories match this view.",
-                  hint: "Clear the search box or widen the filter.",
-                  action: <Button variant="outline" onClick={resetFilters}>Reset filters</Button>,
-                }}
-              >
-                {(rows) => (
-                  <div className={GRID}>
-                    {rows.map((repo) => (
+            )}
+          </div>
+        </WorkspaceSection>
+
+        {running.length > 0 && (
+          <WorkspaceSection label="Running now" meta={`${running.length} scanning`}>
+            <div className={GRID}>
+              {matching(running).map((repo) => (
+                <RepoCard key={repo.id} repo={repo} />
+              ))}
+            </div>
+          </WorkspaceSection>
+        )}
+
+        {/* ── SUPPORTS: everything that needs nobody ───────────────────────
+            Rendered only on a successful read. A failed one is already named
+            once, above; naming it twice would put the same sentence in two
+            places on one page and teach a reader that two things broke. */}
+        {workspace.status !== "ok" ? null : (
+        <WorkspaceSection
+          label="Everything else"
+          meta={filter === "all" ? undefined : "filtered"}
+        >
+          <DataRegion
+            state={workspace}
+            empty={
+              noInstallations
+                ? {
+                    message: "Install NpmGuard on a GitHub account to audit its repositories.",
+                    hint: "Connect an organization or personal account.",
+                    action: installUrl ? (
+                      <Button asChild>
+                        <a href={installUrl} target="_blank" rel="noreferrer">
+                          Add repositories
+                        </a>
+                      </Button>
+                    ) : undefined,
+                  }
+                : {
+                    message: "No auditable repositories found.",
+                    hint: "Only repositories with package-lock.json, pnpm-lock.yaml, or yarn.lock at the repository root are shown.",
+                  }
+            }
+            isEmpty={(data) => data.repos.length === 0}
+            loading={
+              <div className={GRID}>
+                {[0, 1, 2].map((slot) => (
+                  <Skeleton key={slot} className="h-40 w-full" />
+                ))}
+              </div>
+            }
+          >
+            {() => {
+              const visible = matching(settled);
+              // Filtering to a narrower view is a deliberate act, so the group
+              // opens with it — a viewer who clicked "Protected" wants to SEE the
+              // protected ones, not a count of them.
+              const narrowed = filter !== "all" || query.trim().length > 0;
+              return visible.length === 0 && narrowed ? (
+                <NothingToDo>
+                  No repository outside the attention list matches this view.{" "}
+                  <Button variant="ghost" size="sm" onClick={resetFilters}>
+                    Reset filters
+                  </Button>
+                </NothingToDo>
+              ) : (
+                <QuietGroup
+                  label="Repositories with nothing to act on"
+                  count={visible.length}
+                  defaultOpen={narrowed}
+                >
+                  <div className={cn(GRID, "p-3")}>
+                    {visible.map((repo) => (
                       <RepoCard key={repo.id} repo={repo} />
                     ))}
                   </div>
-                )}
-              </DataRegion>
-            </PanelSection>
-          );
-        }}
-      </DataRegion>
+                </QuietGroup>
+              );
+            }}
+          </DataRegion>
+        </WorkspaceSection>
+        )}
+
+        <WorkspaceSection label="Coverage and usage">
+          <div className="grid gap-4">
+            {/* Proportions over the list we HOLD. A rail computed over a partial
+                read would be a chart of an unknown denominator. */}
+            {repos.status === "ok" && <PortfolioPosture repos={repos.data} />}
+            <PlanLedger state={billing} />
+            <PublicAuditHistory
+              state={publicScans}
+              onOpen={(scanId) => {
+                setAuditDialogOpen(false);
+                setReportScanId(scanId);
+              }}
+            />
+          </div>
+        </WorkspaceSection>
+      </WorkspaceBody>
 
       {/* Mounted conditionally rather than wrapped in `AnimatePresence`: the
           dialog primitive's enter is a `@starting-style` transition and its exit
@@ -454,6 +529,6 @@ export function Dashboard() {
         />
       )}
       {paywall && <UpgradeDialog />}
-    </PanelPage>
+    </WorkspacePage>
   );
 }

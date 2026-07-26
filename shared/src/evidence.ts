@@ -240,6 +240,124 @@ export const EventSummary = z.object({
 export const EventSummarySchema = EventSummary;
 export type EventSummary = z.infer<typeof EventSummary>;
 
+// ---------------------------------------------------------------------------
+// Frontend-safe projections of a run — what may cross the SSE boundary
+// ---------------------------------------------------------------------------
+//
+// A `RunArtifact` is the sealed unit of evidence and it is NOT shippable: its
+// events carry raw strace buffers, captured request bodies, compiled script
+// source and planted environment values. The shapes below are the bounded,
+// redacted view a viewer is allowed to see.
+//
+// THE REDACTION RULE, stated once: a display value may name WHERE something
+// went and WHAT was touched — host, port, path, module specifier, environment
+// KEY — and may never carry the bytes. A payload is described by its size, its
+// outcome, and which engine-minted canaries it carried, never by its content.
+// "Package-generated content off the wire" is not a hardening measure; it is
+// what keeps a shared audit link safe to paste when the package under test read
+// a real developer's `~/.npmrc`.
+
+// Why an observation was kept when the display bound is spent.
+//   high    — the behaviour a judge would cite: network, credential-file reads,
+//             environment access, process spawn, eval, crypto, destructive fs.
+//   context — a neighbour of a high-signal event, kept so a citation reads in
+//             sequence rather than alone.
+//   error   — a run error or a truncation. Never dropped, at any bound.
+export const ObservationSignal = z.enum(["high", "context", "error"]);
+export const ObservationSignalSchema = ObservationSignal;
+export type ObservationSignal = z.infer<typeof ObservationSignal>;
+
+// One row of the timeline the judge read, redacted for display.
+//
+// `eventId` is the identity the JUDGE cites (`hypothesis_resolved.citedEventIds`),
+// assigned by `render_timeline` — so the two join exactly and the frontend never
+// has to guess which observation a citation means. It is a per-run identity
+// ("e14"), not a global one.
+//
+// `occurrences` is the timeline's own collapse count. Without it, 44 DNS packets
+// carrying 44 chunks of a credential dump render as one line and the display
+// understates the run.
+export const DisplayObservation = z.object({
+  eventId: z.string(),
+  atMs: z.number().nonnegative(),
+  stream: StreamKind,
+  kind: EventKind,
+  summary: z.string(),
+  signal: ObservationSignal,
+  occurrences: z.number().int().positive(),
+});
+export const DisplayObservationSchema = DisplayObservation;
+export type DisplayObservation = z.infer<typeof DisplayObservation>;
+
+// A stub as the display states it. `served` is `StubUrlRef.responseHash !== null`
+// — the fact that matters ("the endpoint we told you was stubbed was actually
+// contacted"), carried as the boolean it always was.
+export const DisplayStub = z.object({
+  pattern: z.string(),
+  served: z.boolean(),
+});
+export const DisplayStubSchema = DisplayStub;
+export type DisplayStub = z.infer<typeof DisplayStub>;
+
+// `SetupApplied` minus every value. Environment KEYS are named because "we
+// planted GITHUB_TOKEN and it left the process" is the whole point; the values
+// are bait this engine planted, and bait is still a token-shaped string nobody
+// needs to read off a public page.
+//
+// There is no per-key "is this synthetic" flag because there is no per-key
+// question: a value in `SetupApplied.env` was written BY the experiment, so all
+// of them are synthetic and a viewer needs to be told that once, not per row.
+// The UI renders them `[synthetic secret]` — which is a label, where a blanked
+// field would read as "a real credential is being hidden".
+export const SanitizedSetup = z.object({
+  envKeys: z.array(z.string()),
+  date: z.string().nullable(),
+  plantedFiles: z.array(PlantedFileRef),
+  stubUrls: z.array(DisplayStub),
+  hostname: z.string().nullable(),
+  locale: z.string().nullable(),
+  patchedFiles: z.array(z.string()),
+  preloaded: z.boolean(),
+});
+export const SanitizedSetupSchema = SanitizedSetup;
+export type SanitizedSetup = z.infer<typeof SanitizedSetup>;
+
+// The raw-capture digests, carried so an inspector can state that a capture
+// exists and name it. A hash is not content.
+export const RunCaptures = z.object({
+  stdoutHash: z.string().nullable(),
+  stderrHash: z.string().nullable(),
+  fsDiffHash: z.string().nullable(),
+  pcapHash: z.string().nullable(),
+  straceLogHash: z.string().nullable(),
+});
+export const RunCapturesSchema = RunCaptures;
+export type RunCaptures = z.infer<typeof RunCaptures>;
+
+// What `sandbox_completed` carries. Bounded by construction: `observations` is a
+// deterministic selection and `omittedObservationCount` states exactly what the
+// selection dropped, so a truncated display can never read as a complete one.
+//
+// The judge has NOT run when this is emitted. So the observation set here is a
+// PREVIEW, and `hypothesis_resolved.citedObservations` carries every cited row
+// independently of this bound — the frontend merges the two by `eventId`.
+export const RunDisplay = z.object({
+  runId: z.string(),
+  wallMs: z.number().nonnegative(),
+  exitCode: z.number().int().nullable(),
+  timedOut: z.boolean(),
+  eventCount: z.number().int().nonnegative(),
+  eventSummary: EventSummary,
+  error: RunError.nullable(),
+  setupApplied: SanitizedSetup,
+  observations: z.array(DisplayObservation),
+  omittedObservationCount: z.number().int().nonnegative(),
+  captures: RunCaptures,
+  contentHash: z.string(),
+});
+export const RunDisplaySchema = RunDisplay;
+export type RunDisplay = z.infer<typeof RunDisplay>;
+
 export const RunArtifact = z.object({
   runId: z.string(),
   triggerUsed: Trigger,

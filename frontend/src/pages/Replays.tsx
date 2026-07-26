@@ -1,6 +1,15 @@
 /**
  * Replays (/replays) — every audit this engine has finished, watchable again.
  *
+ * ── ONE JOB: choose an investigation worth watching ─────────────────────────
+ *
+ * So the page leads with the runs that actually PLAY. An audit recorded before
+ * the stream carried experiment, sandbox and judgment frames has no
+ * investigation to animate — opening it lands on a static report — and the row
+ * says so here rather than letting somebody find out by clicking. Those rows are
+ * still listed, collapsed, because they are real audits and hiding them would
+ * make the gallery look emptier than the engine is.
+ *
  * There is nothing here but a list of links. That is the whole design: the
  * engine already replays any terminal audit from its durable event log at
  * `/audit/{id}/events`, and `AuditRoute` already connects to it, so a gallery
@@ -17,10 +26,18 @@
  */
 
 import type { ReplayEntry } from "@npmguard/shared";
+import { REPLAY_FORMAT } from "@npmguard/shared";
 import { History } from "lucide-react";
 import { Link } from "react-router";
 import { VerdictStamp } from "../components/ui/verdict-stamp.tsx";
-import { PanelPage, SectionLabel } from "../components/panel/layout.tsx";
+import {
+  NothingToDo,
+  QuietGroup,
+  WorkspaceBody,
+  WorkspaceHeader,
+  WorkspacePage,
+  WorkspaceSection,
+} from "../components/shell/workspace.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { DataRegion } from "../components/ui/data-region.tsx";
 import { Skeleton } from "../components/ui/skeleton.tsx";
@@ -38,63 +55,101 @@ import { formatDateTime, formatDuration } from "../lib/format.ts";
 export function Replays() {
   const replays = useReplays();
 
-  return (
-    <PanelPage>
-      <header className="flex flex-col items-start gap-1.5">
-        <SectionLabel>Replay</SectionLabel>
-        <h1 className="text-2xl font-semibold tracking-tight text-text">Finished audits</h1>
-        <p className="max-w-2xl text-sm text-text-2">
-          Every audit this engine has completed. Opening one rebuilds the entire run from its
-          durable event log — the same phases, in the same order, reaching the same verdict.
-        </p>
-      </header>
+  const playable = replays.status === "ok" ? replays.data.filter(isPlayable) : [];
+  const archived = replays.status === "ok" ? replays.data.filter((row) => !isPlayable(row)) : [];
 
-      <DataRegion
-        className="mt-8"
-        state={replays}
-        title="Finished audits"
-        // The page's only read: there is no partial page worth keeping around a
-        // failure, so the failure gets the whole surface.
-        blastRadius="surface"
-        empty={{
-          message: "No audits have finished on this engine yet.",
-          hint: "An audit appears here the moment it reaches a verdict. Nothing has to be recorded first.",
-          action: (
-            <Button asChild>
-              <Link to="/packages">Audit a package</Link>
-            </Button>
-          ),
-        }}
-        loading={
-          <div className="flex flex-col gap-2">
-            {[0, 1, 2, 3].map((slot) => (
-              <Skeleton key={slot} className="h-row w-full" />
-            ))}
-          </div>
-        }
-      >
-        {(rows) => (
-          <div className="overflow-x-auto">
-            <Table label="Finished audits">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Package</TableHead>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Verdict</TableHead>
-                  <TableHead>Took</TableHead>
-                  <TableHead>Ran</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((entry) => (
-                  <ReplayRow key={entry.auditId} entry={entry} />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </DataRegion>
-    </PanelPage>
+  return (
+    <WorkspacePage>
+      <WorkspaceHeader
+        title="Replays"
+        lede="Every audit this engine has completed. Opening one rebuilds the run from its durable event log — the same steps, in the same order, reaching the same verdict."
+        meta={replays.status === "ok" ? `${playable.length} playable` : undefined}
+      />
+
+      <WorkspaceBody>
+        <DataRegion
+          state={replays}
+          title="Finished audits"
+          // The page's only read: there is no partial page worth keeping around
+          // a failure, so the failure gets the whole surface.
+          blastRadius="surface"
+          empty={{
+            message: "No audits have finished on this engine yet.",
+            hint: "An audit appears here the moment it reaches a verdict. Nothing has to be recorded first.",
+            action: (
+              <Button asChild>
+                <Link to="/packages">Audit a package</Link>
+              </Button>
+            ),
+          }}
+          loading={
+            <div className="flex flex-col gap-2">
+              {[0, 1, 2, 3].map((slot) => (
+                <Skeleton key={slot} className="h-row w-full" />
+              ))}
+            </div>
+          }
+        >
+          {() => (
+            <>
+              <WorkspaceSection
+                label="Watchable investigations"
+                meta={`${playable.length} of ${playable.length + archived.length}`}
+              >
+                {playable.length === 0 ? (
+                  <NothingToDo>
+                    No audit on this engine carries the event format the animated replay needs.
+                    Every run below still opens as a static report.
+                  </NothingToDo>
+                ) : (
+                  <ReplayTable label="Watchable investigations" rows={playable} />
+                )}
+              </WorkspaceSection>
+
+              <WorkspaceSection label="Archived">
+                <QuietGroup
+                  label="Audits recorded before the evidence graph"
+                  count={archived.length}
+                >
+                  <ReplayTable label="Archived audits" rows={archived} />
+                </QuietGroup>
+              </WorkspaceSection>
+            </>
+          )}
+        </DataRegion>
+      </WorkspaceBody>
+    </WorkspacePage>
+  );
+}
+
+/** Does this run carry the frames the animated replay is made of?
+ *
+ * Read off the entry, never guessed from a date: the engine reports what each
+ * stream announced, and a cutoff would be a guess dressed as a fact. */
+function isPlayable(entry: ReplayEntry): boolean {
+  return entry.replayVersion >= REPLAY_FORMAT;
+}
+
+function ReplayTable({ label, rows }: { label: string; rows: ReplayEntry[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <Table label={label}>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Package</TableHead>
+            <TableHead>Version</TableHead>
+            <TableHead>Verdict</TableHead>
+            <TableHead>Took</TableHead>
+            <TableHead>Ran</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((entry) => (
+            <ReplayRow key={entry.auditId} entry={entry} />
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -132,7 +187,12 @@ function ReplayRow({ entry }: { entry: ReplayEntry }) {
       <TableCell className="font-mono tabular-nums text-text-2">
         {formatDuration(entry.durationMs)}
       </TableCell>
-      <TableCell className="text-text-3">{formatDateTime(entry.recordedAt)}</TableCell>
+      <TableCell className="text-text-3">
+        {formatDateTime(entry.recordedAt)}
+        {!isPlayable(entry) ? (
+          <span className="ms-2 font-mono text-2xs text-text-3">static report</span>
+        ) : null}
+      </TableCell>
     </TableRow>
   );
 }

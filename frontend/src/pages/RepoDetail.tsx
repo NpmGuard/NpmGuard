@@ -34,6 +34,7 @@ import { ArrowLeft, ChevronRight, RefreshCw, ShieldCheck, X } from "lucide-react
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { PanelPage, PanelSection, SectionLabel } from "../components/panel/layout.tsx";
+import { WorkspaceBody, WorkspacePage } from "../components/shell/workspace.tsx";
 import {
   depPriority,
   depTone,
@@ -205,6 +206,17 @@ export function RepoDetail() {
     setVisibleCount(PAGE);
   }, [owner, name]);
 
+  // A long inventory OPENS on the rows that need a human, and falls back to
+  // everything when there are none. A four-hundred-row table sorted by priority
+  // still asks the reader to scan for the top of it; this hands it to them, and
+  // the chips beside it keep the whole table one click away with its counts
+  // intact — the context the spec's "without losing table context" is about.
+  //
+  // It runs once per repository, keyed on the arrival of a dependency baseline,
+  // so a viewer who widens the filter is not overruled a moment later.
+  const [autoFiltered, setAutoFiltered] = useState<string | null>(null);
+  const repoKey = `${owner}/${name}`;
+
   useEffect(() => {
     setVisibleCount(PAGE);
   }, [query, filter]);
@@ -231,6 +243,13 @@ export function RepoDetail() {
           a.name.localeCompare(b.name),
       );
   }, [deps, filter, query]);
+
+  useEffect(() => {
+    if (autoFiltered === repoKey || deps.length === 0) return;
+    setAutoFiltered(repoKey);
+    const flagged = deps.some((dep) => dep.outcome === "DANGEROUS" || dep.outcome === "ERROR");
+    if (flagged) setFilter("flagged");
+  }, [autoFiltered, deps, repoKey]);
 
   const queueDeps = useMemo(
     () =>
@@ -363,7 +382,8 @@ export function RepoDetail() {
   };
 
   return (
-    <PanelPage>
+    <WorkspacePage>
+      <WorkspaceBody>
       {/* A link, not a `navigate()` button — same destination, but back-to-parent
           is navigation and belongs on an `<a>`. */}
       <Button asChild variant="ghost" size="sm" className="-ms-2 mb-2">
@@ -723,8 +743,9 @@ export function RepoDetail() {
           </>
         )}
       </PanelSection>
+      </WorkspaceBody>
 
       {paywall && <UpgradeDialog />}
-    </PanelPage>
+    </WorkspacePage>
   );
 }

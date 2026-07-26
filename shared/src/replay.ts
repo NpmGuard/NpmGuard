@@ -37,6 +37,16 @@ export const ReplayEntrySchema = z.object({
   // claim, never a progress bar.
   durationMs: z.number().int().nonnegative(),
   recordedAt: z.string(),
+  // The replay vocabulary this audit's stream announced, read off its own
+  // `audit_started` frame. Below `REPLAY_FORMAT` the run carries no experiment,
+  // sandbox or judgment frames, so there is no investigation to animate — the
+  // gallery says which rows play and which open as a static report, rather than
+  // letting somebody find out by clicking.
+  //
+  // An audit that predates the stamp reports 1. Defaulting it FORWARD would make
+  // every archived run claim to be animatable, which is the one thing this field
+  // exists to prevent.
+  replayVersion: z.number().int().positive(),
 });
 export type ReplayEntry = z.infer<typeof ReplayEntrySchema>;
 

@@ -1,10 +1,12 @@
 import { Suspense, lazy, useEffect } from "react";
 import { Route, Routes, useLocation, useNavigate, useParams } from "react-router";
-import { Header } from "./components/Header.tsx";
+import { AppShell } from "./components/shell/AppShell.tsx";
+import { EvidenceFrame } from "./components/shell/EvidenceFrame.tsx";
+import { PublicFrame } from "./components/shell/PublicFrame.tsx";
 import { useAuditStore } from "./stores/auditStore.ts";
 
-// Route-level code splitting: CodeMirror (audit/report source view) and viem
-// (pay) are heavy and none belong in the boot chunk.
+// Route-level code splitting: CodeMirror (audit/report source view), React Flow
+// (the evidence graph) and viem (pay) are heavy and none belong in the boot chunk.
 const AuditView = lazy(() =>
   import("./components/audit/AuditView.tsx").then((m) => ({ default: m.AuditView })),
 );
@@ -34,21 +36,6 @@ const Scan = lazy(() => import("./pages/Scan.tsx").then((m) => ({ default: m.Sca
 // Back/forward off these routes resets the audit store.
 const KEEP_STATE_RE = /^\/(audit|replays|packages|package|cli|pay|dashboard|repo|scan)(\/|$)/;
 
-function HomeOrAudit() {
-  const hasStarted = useAuditStore((s) => s.hasStarted);
-  const verdict = useAuditStore((s) => s.verdict);
-  const running = useAuditStore((s) => s.running);
-  const error = useAuditStore((s) => s.error);
-  const demoInline = useAuditStore((s) => s.demoInline);
-  // An inline Landing demo streams INSIDE Landing (the MiniAuditFeed) — keep
-  // Landing mounted so starting it doesn't swap the whole view to AuditView
-  // (which would unmount Landing and reset the very stream it started).
-  if (demoInline) return <Landing />;
-  // `error` too: a stale/expired /audit/:id link resolves to an error-only
-  // state which AuditView surfaces honestly — Landing would hide it.
-  return hasStarted || running || verdict || error ? <AuditView /> : <Landing />;
-}
-
 function AuditRoute() {
   const { auditId } = useParams();
   const storeAuditId = useAuditStore((s) => s.auditId);
@@ -58,7 +45,18 @@ function AuditRoute() {
     if (auditId && auditId !== storeAuditId) void connectToSession(auditId);
   }, [auditId, storeAuditId, connectToSession]);
 
-  return <HomeOrAudit />;
+  return <AuditView />;
+}
+
+/** A route chunk arriving is PROGRESS, not an empty result. `aria-busy` plus one
+ * announcement, no visual placeholder: the final layout's dimensions are unknown
+ * here, and a skeleton is only honest where they are known. */
+function RouteFallback() {
+  return (
+    <div aria-busy="true" role="status" className="px-4 py-16 text-center">
+      <span className="text-sm text-text-3">Loading…</span>
+    </div>
+  );
 }
 
 export function App() {
@@ -79,12 +77,10 @@ export function App() {
   }, []);
 
   // A started audit gets a shareable URL. /pay stays put (the pay page swaps to
-  // the live view itself); an inline Landing demo streams in place, so it must
-  // NOT take over the route (navigating would unmount Landing and reset it).
+  // the live view itself).
   useEffect(() => {
     if (
       auditId &&
-      !useAuditStore.getState().demoInline &&
       !location.pathname.startsWith("/pay") &&
       location.pathname !== `/audit/${auditId}`
     ) {
@@ -122,37 +118,56 @@ export function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  // THREE FRAMES, chosen per route rather than one shell with exceptions.
+  //
+  //   PublicFrame   — the product site: landing, methodology, CLI, benchmark.
+  //   EvidenceFrame — /audit/:id and /package/:name. Public and shareable, in
+  //                   the workspace language, with account-only navigation
+  //                   dropped for anonymous visitors.
+  //   AppShell      — everything operational.
+  //
+  // Split at the ROUTER because it is a structural difference, not a styling
+  // one: the shell owns the viewport and the public frame does not, and a single
+  // frame trying to be both is what made every marketing page feel like a
+  // settings screen.
   return (
-    <>
-      <Header />
-      <main className="min-h-[60vh] bg-canvas">
-        <Suspense
-          fallback={
-            // A route chunk arriving is PROGRESS, not an empty result — it used
-            // `.empty-state`, which is the component that means "we read this
-            // and there was nothing". `aria-busy` + one announcement, no visual
-            // placeholder: the final layout's dimensions are unknown here, and
-            // §3.1 only permits a skeleton where they are known.
-            <div aria-busy="true" role="status" className="px-4 py-16 text-center">
-              <span className="text-sm text-text-3">Loading…</span>
-            </div>
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        {/* Public product site */}
+        <Route path="/" element={<PublicFrame><Landing /></PublicFrame>} />
+        <Route path="/how-it-works" element={<PublicFrame><HowItWorks /></PublicFrame>} />
+        <Route path="/cli" element={<PublicFrame><CliInstall /></PublicFrame>} />
+
+        {/* Public, shareable evidence */}
+        <Route path="/audit/:auditId" element={<EvidenceFrame><AuditRoute /></EvidenceFrame>} />
+        <Route path="/audit" element={<EvidenceFrame><AuditView /></EvidenceFrame>} />
+        {/* The report scrolls inside itself: EvidenceFrame's main is
+            overflow-hidden so the audit workspace can size its graph pane to
+            the viewport, and a document-shaped page brings its own scroll. */}
+        <Route
+          path="/package/*"
+          element={
+            <EvidenceFrame>
+              <div className="min-h-0 flex-1 overflow-auto">
+                <PackageLookup />
+              </div>
+            </EvidenceFrame>
           }
-        >
-          <Routes>
-            <Route path="/replays" element={<Replays />} />
-            <Route path="/packages" element={<Registry />} />
-            <Route path="/package/*" element={<PackageLookup />} />
-            <Route path="/cli" element={<CliInstall />} />
-            <Route path="/how-it-works" element={<HowItWorks />} />
-            <Route path="/pay" element={<PayPage />} />
-            <Route path="/scan" element={<Scan />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/repo/:owner/:name" element={<RepoDetail />} />
-            <Route path="/audit/:auditId" element={<AuditRoute />} />
-            <Route path="*" element={<HomeOrAudit />} />
-          </Routes>
-        </Suspense>
-      </main>
-    </>
+        />
+
+        {/* Payment is a focused transactional surface — no navigation to lose
+            someone in halfway through paying. */}
+        <Route path="/pay" element={<PayPage />} />
+
+        {/* Application */}
+        <Route path="/dashboard" element={<AppShell><Dashboard /></AppShell>} />
+        <Route path="/scan" element={<AppShell><Scan /></AppShell>} />
+        <Route path="/packages" element={<AppShell><Registry /></AppShell>} />
+        <Route path="/replays" element={<AppShell><Replays /></AppShell>} />
+        <Route path="/repo/:owner/:name" element={<AppShell><RepoDetail /></AppShell>} />
+
+        <Route path="*" element={<PublicFrame><Landing /></PublicFrame>} />
+      </Routes>
+    </Suspense>
   );
 }

@@ -36,11 +36,15 @@
     "triage_complete",
     "graph_built",
     "phase_started",
+    "experiment_started",
+    "sandbox_started",
+    "sandbox_completed",
+    "judgment_started",
     "hypothesis_resolved",
     "phase_completed",
     "verdict_reached"
   ],
-  "eventCount": 38,
+  "eventCount": 42,
   "terminal": {
     "verdict": "SAFE",
     "counts": {
@@ -52,5 +56,5 @@
       "deferred": 0
     }
   },
-  "note": "Event-TYPE sequence only (seq/ts/auditId/duration are nondeterministic). Live frames additionally validated against shared/src/events.ts zod schemas on the TS side."
+  "note": "Event-TYPE sequence only (seq/ts/auditId/duration are nondeterministic). Every hypothesis that reaches the sandbox emits the format-2 chain \u2014 experiment_started, sandbox_started, sandbox_completed, judgment_started \u2014 before it resolves; a hypothesis merged at graph build never resolves, so resolutions and dispatches are one to one here. Live frames are additionally validated against shared/src/events.ts zod schemas on the TS side."
 }

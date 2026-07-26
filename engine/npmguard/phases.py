@@ -811,13 +811,19 @@ async def run_hypothesize(
             )
             output[index] = hypothesis
             if emitter:
+                # The suspicion in full, including the source ranges it was drawn
+                # from — a hypothesis with no focus range has no line for a reader
+                # to look at, and inventing one is the failure this carries the
+                # real field to avoid.
                 await emitter.emit(
                     "hypothesis_emitted",
                     {
                         "hypId": hypothesis_id,
                         "claim": hypothesis.claim.kind,
                         "severity": hypothesis.severity,
-                        "file": flag.file,
+                        "description": hypothesis.description,
+                        "focusFiles": hypothesis.focusFiles or [flag.file],
+                        "focusLines": hypothesis.focusLines or [],
                     },
                 )
 

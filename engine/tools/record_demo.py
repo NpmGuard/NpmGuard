@@ -1,23 +1,18 @@
 """Produce the two deterministic demo recordings under ``engine/demo-data/``.
 
-Both recordings are contract-faithful to the DEV Python engine wire format
-(engine-contract §3/§6): only event types the engine actually emits, the dev
-``verdict_reached`` shape, and a schemaVersion-2 ``AuditReport``. Neither uses
-docker.
+Both are captured end to end from the real uvicorn engine against a mock LLM, so
+every frame is a frame some audit really emitted. Nothing here reconstructs a
+frame, and that is a hard rule rather than a preference: these recordings are the
+product's flagship replays, and a viewer walking a verdict back to its evidence
+has no way to tell a reconstructed step from a recorded one.
 
-- SAFE (chalk): a REAL end-to-end capture. Boots the real uvicorn engine
-  (harness) against the in-process mock LLM (``scripted_safe_roles``) + the
-  committed registry stub, then dumps the exact wire frames, the served source
-  files, and the finalized report.
+- SAFE (chalk): scripted zero-flag roles + the committed registry stub. No
+  sandbox — a clean package never reaches one.
 
-- DANGEROUS (test-pkg-env-exfil): a HYBRID capture. The orchestrator portion is
-  driven for REAL over the committed env-exfil replay bundle (the slice-replay
-  tier: ``IndexedReplayProvider`` + ``RecordedSandbox``, no docker), yielding
-  authentic ``hypothesis_resolved`` frames, the real graph verdict, and the real
-  schemaVersion-2 report. The pre-orchestrator frames (audit_started ->
-  triage_complete -> graph_built) are reconstructed from the committed
-  hypotheses + package sources, following the committed SSE skeleton's exact
-  event-TYPE order (``tests/fixtures/sse/test-pkg-env-exfil.skeleton.json``).
+- DANGEROUS (test-pkg-env-exfil): the committed replay bundle supplies the real
+  intent / flag / hypothesis chain, the sandbox runs LIVE under docker, and a
+  content-aware scripted judge cites ids it reads off the live timeline.
+  **Requires docker.**
 
 Run: ``uv run python -m tools.record_demo [--safe] [--dangerous]`` (default: both).
 """
@@ -28,9 +23,11 @@ import argparse
 import asyncio
 import json
 import tempfile
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+from npmguard.contract.kinds import HYPOTHESIS_EVENT_ORDER
+from npmguard.events import REPLAY_FORMAT
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ENGINE_ROOT.parent
@@ -38,10 +35,6 @@ DEMO_DATA_DIR = ENGINE_ROOT / "demo-data"
 
 # Event envelope fields the demo replay re-stamps on its own — never persist them.
 _ENVELOPE_DROP = {"auditId", "seq"}
-
-
-def _iso(base: datetime, step: int, *, ms: int = 250) -> str:
-    return (base + timedelta(milliseconds=ms * step)).isoformat().replace("+00:00", "Z")
 
 
 # --------------------------------------------------------------------------
@@ -89,9 +82,7 @@ async def record_safe() -> dict[str, Any]:
 
         from tests.support.harness import EngineHarness
 
-        engine = EngineHarness(
-            workdir=workdir, llm_url=mock.v1_url, registry_url=registry.base_url
-        )
+        engine = EngineHarness(workdir=workdir, llm_url=mock.v1_url, registry_url=registry.base_url)
         engine.start()
         try:
             started = engine.start_audit("chalk", version="5.6.2")
@@ -149,92 +140,33 @@ def _poll_report(base_url: str, audit_id: str, *, attempts: int = 60) -> dict[st
 
 
 # --------------------------------------------------------------------------
-# DANGEROUS: real orchestrator over the env-exfil replay bundle + reconstruction.
+# DANGEROUS: a REAL end-to-end audit — recorded triage chain, LIVE docker.
 # --------------------------------------------------------------------------
+#
+# This used to be a hybrid: the orchestrator ran for real over recorded sandbox
+# artifacts and everything before it was reconstructed from a skeleton. Format 2
+# closed that off. A `hypothesis_resolved` cites timeline ids, and the ids in the
+# committed bundle's stored timeline TEXT address rows a live render no longer
+# produces — the text predates several renderer fixes (syscall outcomes, buffer
+# clauses, the socket-target correction), each of which changed a collapse key
+# and therefore the row numbering. Those citations resolve to the wrong rows, and
+# a verdict pointing at the wrong evidence is the one thing this recording must
+# never do.
+#
+# So the DANGEROUS flagship is now captured the same way `test_verdicts.py::S2`
+# proves the path: the bundle supplies the real intent / flag / hypothesis chain
+# (14 authentic hypotheses with their claims, descriptions and focus ranges), the
+# sandbox runs LIVE under docker, and a content-aware scripted judge cites ids it
+# reads out of the live timeline. Every frame is then a frame some audit really
+# emitted, and a citation resolves to the row it names.
+#
+# Requires docker and takes as long as 14 full-oracle experiments take.
 
-
-class _CapturingEmitter:
-    """Duck-typed AuditEmitter: records (type, payload) instead of streaming."""
-
-    def __init__(self) -> None:
-        self.captured: list[tuple[str, dict[str, Any]]] = []
-
-    async def emit(self, event_type: str, payload: dict[str, Any] | None = None) -> None:
-        self.captured.append((event_type, dict(payload or {})))
-
-
-async def _run_env_exfil_orchestrator(tmp_path: Path):
-    """Drive the REAL orchestrator over the committed env-exfil bundle (no docker).
-
-    Mirrors tests/slice/test_replay_slices._replay_orchestrator but wires a
-    capturing emitter so the authentic hypothesis_resolved frames are recorded.
-    Returns (bundle, graph, resolved_frames)."""
-    import os
-
-    os.environ.setdefault("NPMGUARD_AUDIT_LOG_DIR", str(tmp_path / "logs"))
-
-    from kit_spine import make_engine, make_session_factory
-    from kit_spine.db import metadata
-    from npmguard import orchestrator as orchestrator_module
-    from npmguard.audit_log import AuditLog
-    from npmguard.config import Settings
-    from npmguard.contract.models import Hypothesis
-    from npmguard.evidence import ArtifactStore
-    from npmguard.graph import build_graph
-    from npmguard.llm_runtime import build_npmguard_llm
-    from npmguard.orchestrator import run_orchestrator
-    from tests.support.llm_replay import IndexedReplayProvider, RecordedSandbox, load_bundle
-
-    bundle = load_bundle(ENGINE_ROOT / "tests" / "fixtures" / "llm" / "test-pkg-env-exfil@2.0.1")
-
-    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'replay.sqlite3'}")
-    async with engine.begin() as connection:
-        await connection.run_sync(metadata.create_all)
-    sessions = make_session_factory(engine)
-
-    settings = Settings(_env_file=None)
-    object.__setattr__(settings, "triage_model", bundle.models["triage"])
-    object.__setattr__(settings, "investigation_model", bundle.models["investigation"])
-
-    judge_exchanges = [
-        exchange
-        for exchange in bundle.exchanges_for_roles({"judge"})
-        if exchange.attempt_status != "provider_error"
-    ]
-    provider = IndexedReplayProvider(judge_exchanges)
-    llm = build_npmguard_llm(sessions, settings, provider=provider)
-
-    hypotheses = [Hypothesis.model_validate(h) for h in bundle.hypotheses]
-    graph, _, _ = build_graph(f"replay-{bundle.package}", hypotheses)
-    sandbox = RecordedSandbox(bundle)
-    # One-shot process: patched globally and never restored. ty reads a bound
-    # method as a distinct type from the module-level function it replaces, even
-    # with an identical signature.
-    orchestrator_module.run_experiment = (  # ty: ignore[invalid-assignment]
-        sandbox.run_experiment
-    )
-
-    log = AuditLog(bundle.package, f"replay-{bundle.package}")
-    store = ArtifactStore(log.run_dir)
-    emitter = _CapturingEmitter()
-    try:
-        await run_orchestrator(
-            graph,
-            package_path=tmp_path,
-            artifact_store=store,
-            log=log,
-            emitter=emitter,
-            stated_purpose=bundle.manifest["statedPurpose"],
-            global_budget_ms=6_000_000,
-            settings=settings,
-            llm=llm,
-        )
-    finally:
-        await llm.aclose()
-        await engine.dispose()
-
-    resolved = [payload for event_type, payload in emitter.captured if event_type == "hypothesis_resolved"]
-    return bundle, graph, resolved
+# What the judge should point at. Matched against the live timeline's own rows,
+# so it selects among events that happened and never introduces one: the exfil
+# host the fixture posts to, and any row the renderer marked as carrying a
+# planted canary out of the process.
+_EXFIL_ROW = r"carries planted env|POST |http .*(exfil|169\.254\.169\.254)"
 
 
 def _env_exfil_sources() -> dict[str, str]:
@@ -246,193 +178,136 @@ def _env_exfil_sources() -> dict[str, str]:
 
 
 async def record_dangerous() -> dict[str, Any]:
-    from npmguard.contract.models import (
-        FileRecord,
-        FileSummary,
-        FileVerdict,
-        PackageMetadata,
-        PhaseLog,
-    )
-    from npmguard.graph import derive_graph_verdict
+    from tests.e2e.llm_mock import MockLlmClient, create_mock_app
+    from tests.support.harness import EngineHarness
+    from tests.support.sse import collect_frames, event_types, terminal_frame
+    from tests.support.stubs import RegistryStub, StubServer
 
-    tmp_path = Path(tempfile.mkdtemp(prefix="demo-env-exfil-"))
-    bundle, graph, resolved_frames = await _run_env_exfil_orchestrator(tmp_path)
+    bundle_dir = ENGINE_ROOT / "tests" / "fixtures" / "llm" / "test-pkg-env-exfil@2.0.1"
+    manifest = json.loads((bundle_dir / "manifest.json").read_text(encoding="utf-8"))
+    package, version = manifest["package"], manifest["packageVersion"]
 
-    verdict = derive_graph_verdict(graph)
-    assert verdict.verdict == "DANGEROUS", verdict
-    assert len(resolved_frames) == len(bundle.hypotheses) == 14, (
-        len(resolved_frames),
-        len(bundle.hypotheses),
-    )
+    spool = Path(tempfile.mkdtemp(prefix="demo-danger-spool-"))
+    workdir = Path(tempfile.mkdtemp(prefix="demo-danger-engine-"))
 
-    files = _env_exfil_sources()
-    package_json = json.loads(files["package.json"])
-    hyps = bundle.hypotheses  # committed order hyp-0001..hyp-0014
-
-    # File-level shape used by file_list / inventory_meta / file_verdict frames.
-    file_records = [
-        FileRecord(path="index.js", fileType="javascript", sizeBytes=len(files["index.js"]),
-                   permissions="0644", isBinary=False),
-        FileRecord(path="setup.js", fileType="javascript", sizeBytes=len(files["setup.js"]),
-                   permissions="0644", isBinary=False),
-        FileRecord(path="package.json", fileType="json", sizeBytes=len(files["package.json"]),
-                   permissions="0644", isBinary=False),
-    ]
-
-    def _hyp_lines(target: str) -> str | None:
-        ranges = [
-            fl["range"]
-            for hyp in hyps
-            for fl in (hyp.get("focusLines") or [])
-            if fl["file"] == target
-        ]
-        return ",".join(ranges) or None
-
-    setup_verdict = FileVerdict(
-        file="setup.js",
-        capabilities=["ENV_VARS", "CREDENTIAL_THEFT", "NETWORK", "FILESYSTEM"],
-        suspiciousPatterns=[
-            hyp["description"] for hyp in hyps if "setup.js" in (hyp.get("focusFiles") or [])
-        ],
-        suspiciousLines=_hyp_lines("setup.js"),
-        summary="preinstall script harvests sensitive env vars + credential files and POSTs them to a remote host.",
-        riskContribution=10,
-    )
-    index_verdict = FileVerdict(
-        file="index.js",
-        capabilities=["ENV_VARS", "FILESYSTEM"],
-        suspiciousPatterns=[
-            hyp["description"] for hyp in hyps if "index.js" in (hyp.get("focusFiles") or [])
-        ],
-        suspiciousLines=_hyp_lines("index.js"),
-        summary="config loader reads process.env and a local .env file; no outbound path observed.",
-        riskContribution=3,
-    )
-
-    # ---- payload queues keyed by event type; the skeleton order drives dequeue.
-    stated_purpose = bundle.manifest["statedPurpose"]
-    phases = ["resolve", "inventory", "intent-extraction", "flag", "hypothesize", "orchestrator"]
-    phase_durations = {
-        "resolve": 1400.0, "inventory": 320.0, "intent-extraction": 2100.0,
-        "flag": 5200.0, "hypothesize": 8600.0, "orchestrator": 41800.0,
-    }
-    # 16 file_analyzing frames: 2 in flag (per source file), 14 in hypothesize (per armed flag).
-    hypothesize_files = [(hyp.get("focusFiles") or ["index.js"])[0] for hyp in hyps]
-    file_analyzing_files = ["setup.js", "index.js", *hypothesize_files]
-
-    queues: dict[str, list[dict[str, Any]]] = {
-        "audit_started": [{"packageName": bundle.package}],
-        "phase_started": [{"phase": phase} for phase in phases],
-        "phase_completed": [
-            {"phase": phase, "durationMs": phase_durations[phase]} for phase in phases
-        ],
-        "dependencies_provisioned": [
-            {"installed": True, "packageCount": 0, "skipped": None, "error": None}
-        ],
-        "file_list": [{"files": [record.model_dump(mode="json") for record in file_records]}],
-        "inventory_meta": [
-            {
-                "scripts": package_json.get("scripts", {}),
-                "dependencies": {},
-                "entryPoints": {"install": ["setup.js"], "runtime": ["index.js"], "bin": []},
-                "metadata": PackageMetadata(
-                    name=package_json.get("name"),
-                    version=package_json.get("version"),
-                    description=package_json.get("description"),
-                    license=package_json.get("license"),
-                ).model_dump(mode="json"),
-            }
-        ],
-        "intent_extracted": [
-            {"statedPurpose": stated_purpose, "expectedCapabilities": ["FILESYSTEM"]}
-        ],
-        "file_analyzing": [{"file": name} for name in file_analyzing_files],
-        "triage_progress": [
-            {"current": 1, "total": 2, "file": "setup.js"},
-            {"current": 2, "total": 2, "file": "index.js"},
-        ],
-        "hypothesis_emitted": [
-            {
-                "hypId": hyp["hypId"],
-                "claim": hyp["claim"]["kind"],
-                "severity": hyp.get("severity") or "medium",
-                "file": (hyp.get("focusFiles") or ["index.js"])[0],
-            }
-            for hyp in hyps
-        ],
-        "file_verdict": [
-            {"verdict": setup_verdict.model_dump(mode="json")},
-            {"verdict": index_verdict.model_dump(mode="json")},
-        ],
-        "triage_complete": [
-            {
-                "hypothesisCount": len(hyps),
-                "hypotheses": [
-                    {
-                        "hypId": hyp["hypId"],
-                        "claim": hyp["claim"]["kind"],
-                        "severity": hyp.get("severity") or "medium",
-                        "description": hyp["description"],
-                    }
-                    for hyp in hyps
-                ],
-            }
-        ],
-        "graph_built": [{"nodeCount": graph.size, "addedCount": graph.size, "mergedCount": 0}],
-        "hypothesis_resolved": list(resolved_frames),  # authentic, dispatch order
-        "verdict_reached": [
-            {
-                "verdict": verdict.verdict,
-                "rationale": verdict.rationale,
-                "counts": verdict.counts.model_dump(mode="json"),
-                "confirmedCount": verdict.counts.confirmed,
-            }
-        ],
-    }
-
-    skeleton = json.loads(
-        (ENGINE_ROOT / "tests" / "fixtures" / "sse" / "test-pkg-env-exfil.skeleton.json").read_text(
-            encoding="utf-8"
+    with StubServer(create_mock_app(spool)) as mock_server, RegistryStub() as registry:
+        # The fixture reaches the audit the way production reaches a package:
+        # published to a registry and resolved by name. The engine reads no
+        # meaning into a package name, so a fixture nothing serves is a 404.
+        registry.serve_package_dir(REPO_ROOT / "sandbox" / "test-fixtures" / package)
+        mock = MockLlmClient(mock_server.base_url)
+        mock.load(
+            bundle_dirs=[str(bundle_dir)],
+            scripted_roles={
+                "judge": {
+                    "kind": "judge",
+                    "malicious": True,
+                    "cite_matching": _EXFIL_ROW,
+                    "max_cited": 4,
+                    "reason": (
+                        "Confirmed: the planted credentials were read and left the "
+                        "process on the cited events."
+                    ),
+                },
+                "hypothesis": {"kind": "hypothesis", "claim_kind": "env_exfil"},
+            },
         )
-    )
-    base = datetime(2026, 1, 1, tzinfo=UTC)
-    events: list[dict[str, Any]] = []
-    cursor: dict[str, int] = {}
-    for step, event_type in enumerate(skeleton["eventTypes"]):
-        index = cursor.get(event_type, 0)
-        cursor[event_type] = index + 1
-        payload = queues[event_type][index]
-        events.append({"type": event_type, "timestamp": _iso(base, step), **payload})
+        # Recorded judge/propose/agent exchanges go deliberately unconsumed — a
+        # live timeline embeds runIds and wall-clock, so it cannot match a
+        # recorded judge prompt. That is exactly why the judge is scripted here.
+        mock.teardown_checks = False
 
-    # Report: built by the real pipeline helper over the real resolved graph.
-    from npmguard.pipeline import _report
+        engine = EngineHarness(
+            workdir=workdir,
+            llm_url=mock.v1_url,
+            registry_url=registry.base_url,
+            triage_model=manifest["models"]["triage"],
+            investigation_model=manifest["models"]["investigation"],
+        )
+        engine.start()
+        try:
+            started = engine.start_audit(package, version=version)
+            audit_id = started["auditId"]
+            frames = await collect_frames(engine.base_url, audit_id, deadline=2400.0)
 
-    trace = [
-        PhaseLog(phase=phase, durationMs=phase_durations[phase], input={}, output={})
-        for phase in phases
-    ]
-    file_summaries = [
-        FileSummary(
-            file="setup.js",
-            summary=setup_verdict.summary,
-            capabilities=setup_verdict.capabilities,
-        ),
-        FileSummary(
-            file="index.js",
-            summary=index_verdict.summary,
-            capabilities=index_verdict.capabilities,
-        ),
-    ]
-    report = _report(graph, file_summaries, trace).model_dump(mode="json", exclude_none=False)
+            terminal = terminal_frame(frames)
+            assert terminal is not None and terminal.type == "verdict_reached", event_types(frames)
+            assert terminal.payload["verdict"] == "DANGEROUS", terminal.data
+            assert terminal.payload["counts"]["confirmed"] >= 1, terminal.data
+
+            report = _poll_report(engine.base_url, audit_id)
+            events = [
+                {key: value for key, value in frame.data.items() if key not in _ENVELOPE_DROP}
+                for frame in frames
+                if frame.data is not None
+            ]
+        finally:
+            engine.close()
+
+    _assert_format_2(events)
     assert report["schemaVersion"] == 2 and report["verdict"] == "DANGEROUS", report
-
     return {
-        "packageName": bundle.package,
-        "version": bundle.package_version,
+        "packageName": package,
+        "version": version,
         "events": events,
-        "files": files,
+        "files": _env_exfil_sources(),
         "report": report,
     }
+
+
+def _assert_format_2(events: list[dict[str, Any]]) -> None:
+    """The recording carries a complete causal chain, not a progress log.
+
+    Checked at RECORD time because a recording is what the gallery, the e2e specs
+    and the contract tests all read: a chain that quietly lost a boundary here
+    would be indistinguishable from an engine that stopped emitting one, and the
+    replay would animate a hypothesis that resolves out of nowhere.
+    """
+    # Found by type, not by position: the single-owner queue emits an
+    # `audit_enqueued` lifecycle frame at submit, so `audit_started` is second on
+    # a real stream.
+    started = next(event for event in events if event["type"] == "audit_started")
+    assert started["replayVersion"] == REPLAY_FORMAT, started
+
+    # Three legal chains:
+    #   full six          — reached the sandbox;
+    #   emitted+resolved  — deferred before dispatch (analysis budget);
+    #   emitted only      — merged into another node at graph build, so it never
+    #                       ran. Legal ONLY if `graph_built` names where it went;
+    #                       otherwise it is a suspicion that vanished.
+    full = list(HYPOTHESIS_EVENT_ORDER)
+    undispatched = [full[0], full[-1]]
+    merged_into = {
+        merge["hypId"]: merge["into"]
+        for event in events
+        if event["type"] == "graph_built"
+        for merge in event["merges"]
+    }
+    seen: dict[str, list[str]] = {}
+    for event in events:
+        if (hyp_id := event.get("hypId")) is not None:
+            seen.setdefault(hyp_id, []).append(event["type"])
+    assert seen, "recording contains no hypothesis at all"
+    for hyp_id, chain in seen.items():
+        if chain == [full[0]]:
+            assert hyp_id in merged_into, f"{hyp_id} was announced and then vanished"
+            assert merged_into[hyp_id] in seen, (hyp_id, merged_into[hyp_id])
+            continue
+        assert chain in (full, undispatched), (hyp_id, chain)
+    assert any(chain == full for chain in seen.values()), "no hypothesis reached the sandbox"
+
+    cited = [
+        event
+        for event in events
+        if event["type"] == "hypothesis_resolved" and event["state"] == "CONFIRMED"
+    ]
+    assert cited, "the DANGEROUS flagship must confirm something"
+    for event in cited:
+        assert event["citedEventIds"], event["hypId"]
+        # Every cited id resolves to a row the frontend can show. This is the
+        # property the old hybrid recording could not hold.
+        resolved = {item["eventId"] for item in event["citedObservations"]}
+        assert resolved == set(event["citedEventIds"]), (event["hypId"], resolved)
 
 
 # --------------------------------------------------------------------------
@@ -450,7 +325,9 @@ async def _amain(do_safe: bool, do_dangerous: bool) -> None:
         safe = await record_safe()
         path = _write(safe)
         terminal = safe["events"][-1]
-        print(f"[safe]      wrote {path}  verdict={terminal.get('verdict')}  events={len(safe['events'])}")
+        print(
+            f"[safe]      wrote {path}  verdict={terminal.get('verdict')}  events={len(safe['events'])}"
+        )
     if do_dangerous:
         dangerous = await record_dangerous()
         path = _write(dangerous)
