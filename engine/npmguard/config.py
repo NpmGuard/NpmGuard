@@ -1,12 +1,13 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from kit_spine import KitSettings
+
+from .validation import valid_http_origin
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -235,13 +236,7 @@ class Settings(KitSettings):
     @field_validator("api_url", "npm_registry")
     @classmethod
     def _http_origin(cls, value: str) -> str:
-        parsed = urlsplit(value)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            raise ValueError(f"must be an absolute http(s) URL with a host (got {value!r})")
-        # INVARIANT: no trailing slash, so every f-string that appends "/{path}"
-        # to one of these produces one separator rather than two. Normalising here
-        # is what makes that true for EVERY reader, instead of each one stripping.
-        return value.rstrip("/")
+        return valid_http_origin(value)
 
     @field_validator("audit_log_dir", "data_dir")
     @classmethod

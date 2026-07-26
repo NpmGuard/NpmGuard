@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
@@ -12,6 +13,19 @@ SupportedChain = Literal["base-sepolia", "base"]
 PACKAGE_NAME_RE = re.compile(r"^(@[a-z0-9\-~][a-z0-9._~\-]*/)?[a-z0-9\-~][a-z0-9._~\-]*$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$")
 TX_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
+
+
+def valid_http_origin(value: str) -> str:
+    """An absolute http(s) origin, trailing slash normalised off.
+
+    INVARIANT: no trailing slash, so every f-string appending "/{path}" produces
+    one separator. Normalising here makes that true for every reader instead of
+    each one stripping.
+    """
+    parsed = urlsplit(value)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(f"must be an absolute http(s) URL with a host (got {value!r})")
+    return value.rstrip("/")
 
 
 def valid_package_name(value: str) -> str:
@@ -26,20 +40,25 @@ def valid_semver(value: str) -> str:
     return value
 
 
-def valid_local_path(value: str) -> str:
-    """An absolute directory holding a package.json, checked at parse time.
+def valid_local_path_shape(value: str) -> str:
+    """The half of the localPath rule that reads no filesystem.
 
-    A path that is relative, missing, or not a package is incoherent — there is
-    nothing for resolve to acquire — so it is refused here rather than becoming
-    a resolve-phase failure inside an admitted audit. Absolute only: a relative
-    path would resolve against the engine process's cwd, which no caller knows.
+    A relative path is incoherent whoever asks — it resolves against the engine
+    process's cwd, which no caller knows — so it is a statement about the REQUEST
+    and belongs at parse time. Whether the path IS a package directory is a
+    statement about the engine's host, which is what `local_package_audits`
+    gates, so it lives behind that gate in `api._local_path_refused`. Answering
+    it here would answer it for callers holding neither payment nor capability.
     """
-    path = Path(value)
-    if not path.is_absolute():
+    if not Path(value).is_absolute():
         raise ValueError("localPath must be absolute")
-    if not (path / "package.json").is_file():
-        raise ValueError(f"localPath {value} is not a package directory")
     return value
+
+
+def is_package_directory(value: str) -> bool:
+    """Whether a staged path is something `resolve` could acquire. Call only
+    where the local-read capability is already granted."""
+    return (Path(value) / "package.json").is_file()
 
 
 class AuditRequest(BaseModel):
@@ -55,7 +74,7 @@ class AuditRequest(BaseModel):
         if self.version is not None:
             valid_semver(self.version)
         if self.localPath is not None:
-            valid_local_path(self.localPath)
+            valid_local_path_shape(self.localPath)
         return self
 
 
@@ -70,6 +89,12 @@ class CheckoutRequest(AuditRequest):
         if self.localPath is not None:
             raise ValueError("localPath is not accepted on a checkout")
         return self
+
+
+class DemoStartRequest(BaseModel):
+    # A recording's key, not an npm identity: the demo gallery is a fixed set of
+    # committed files, so `packageName` is looked up and never resolved.
+    packageName: str = Field(min_length=1)
 
 
 class StreamAuditRequest(BaseModel):
@@ -90,7 +115,7 @@ class StreamAuditRequest(BaseModel):
         if self.version is not None:
             valid_semver(self.version)
         if self.localPath is not None:
-            valid_local_path(self.localPath)
+            valid_local_path_shape(self.localPath)
         if self.txHash is not None and TX_HASH_RE.fullmatch(self.txHash) is None:
             raise ValueError("Invalid txHash")
         return self

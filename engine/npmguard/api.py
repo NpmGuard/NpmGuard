@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -53,7 +53,7 @@ from .contract.models import (
     ValidationIssue,
 )
 from .demo import DemoService
-from .errors import NpmGuardError, QueueFullError
+from .errors import NpmGuardError, PackageNotFoundError, QueueFullError
 from .events import sse_events
 from .llm_runtime import build_npmguard_llm
 from .panel.alerts.notify import handle_dangerous_verdict
@@ -105,7 +105,9 @@ from .service import AuditService
 from .validation import (
     AuditRequest,
     CheckoutRequest,
+    DemoStartRequest,
     StreamAuditRequest,
+    is_package_directory,
     valid_package_name,
     valid_semver,
 )
@@ -347,7 +349,8 @@ async def health() -> dict[str, str]:
 
 
 def _local_path_refused(runtime: Any, local_path: str | None) -> JSONResponse | None:
-    """Refuse a staged-package audit unless this engine is configured for one.
+    """Refuse a staged-package audit unless this engine is configured for one, and
+    unless the path names something `resolve` could actually acquire.
 
     INVARIANT: the capability is checked HERE, at admission, and nowhere else.
     Downstream (`service.admit`, `pipeline.run`, `resolve_package`) takes the
@@ -355,12 +358,25 @@ def _local_path_refused(runtime: Any, local_path: str | None) -> JSONResponse | 
     engine with it off still serves every stored bench run, row, metric and
     replay, which is how production publishes benchmark results it cannot
     produce.
+
+    ORDER IS THE POINT: the capability answers before anything here reads the
+    host's filesystem, so the 403 is identical whether the path exists or not and
+    a caller without the capability learns nothing about the host. The coherence
+    check stays at admission, so an incoherent path never becomes a resolve-phase
+    failure inside an audit that already exists.
     """
-    if local_path is None or runtime.settings.local_package_audits:
+    if local_path is None:
         return None
-    return JSONResponse(
-        {"error": "localPath audits are not enabled on this engine"}, status_code=403
-    )
+    if not runtime.settings.local_package_audits:
+        return JSONResponse(
+            {"error": "localPath audits are not enabled on this engine"}, status_code=403
+        )
+    if not is_package_directory(local_path):
+        return _validation_failed(
+            "Invalid request",
+            [ValidationIssue(field="localPath", message=f"{local_path} is not a package directory")],
+        )
+    return None
 
 
 @router.post("/audit")
@@ -569,12 +585,26 @@ async def checkout(request: Request) -> JSONResponse:
     version = parsed.version or "latest"
     # Unconditional: CheckoutRequest refuses a localPath, so everything reaching
     # here is a registry package and must exist before money is taken.
+    #
+    # Both outcomes refuse the checkout, so the split decides what the payer is
+    # TOLD: a missing package is a dead end, an unreachable registry is worth
+    # retrying. Same rule as /resolve.
     try:
         await resolve_tarball_url(parsed.packageName, version)
-    except Exception:
+    except PackageNotFoundError:
         return JSONResponse(
             {"error": f"Package {parsed.packageName}@{version} not found on npm"},
             status_code=404,
+        )
+    except Exception:
+        log.warning(
+            "npm registry unreachable during checkout",
+            package=parsed.packageName,
+            version=version,
+        )
+        return JSONResponse(
+            {"error": "Could not reach the npm registry to confirm the package exists"},
+            status_code=502,
         )
     try:
         url, session_id = await create_checkout_session(
@@ -729,15 +759,12 @@ async def demo_packages(request: Request) -> JSONResponse:
 
 @router.post("/demo/start")
 async def demo_start(request: Request) -> JSONResponse:
+    parsed, error = await _body(request, DemoStartRequest)
+    if error:
+        return error
+    assert parsed is not None
     try:
-        payload = await request.json()
-    except Exception:
-        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
-    package_name = payload.get("packageName") if isinstance(payload, dict) else None
-    if not package_name:
-        return JSONResponse({"error": "packageName is required"}, status_code=400)
-    try:
-        return _wire(await _runtime(request).demos.start(package_name))
+        return _wire(await _runtime(request).demos.start(parsed.packageName))
     except KeyError as exc:
         return JSONResponse({"error": exc.args[0]}, status_code=404)
 
@@ -853,15 +880,47 @@ async def package_report(name: str, request: Request) -> JSONResponse:
 
 @router.get("/resolve/{name:path}")
 async def resolve(name: str, request: Request) -> JSONResponse:
+    """A dist-tag resolved to a concrete semver.
+
+    THREE outcomes, and the third is the point: "npm has no such package" and
+    "this engine could not ask npm" are different facts, and a 404 for the second
+    is a fabricated absence (N-3) the client cannot detect — the web app's
+    `retryable()` reads 404 as a deterministic function of the request, so a
+    transient outage renders as permanent. 502 says the upstream failed, and
+    every `>= 500` is retryable to the client.
+    """
     version = request.query_params.get("version", "latest")
     try:
         valid_package_name(name)
-        resolved_version, _ = await resolve_tarball_url(name, version)
-        return _wire(ResolveResponse(packageName=name, version=resolved_version))
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
-    except Exception as exc:
-        return JSONResponse({"error": str(exc) or "Resolution failed"}, status_code=404)
+    try:
+        resolved_version, _ = await resolve_tarball_url(name, version)
+    except PackageNotFoundError as exc:
+        return JSONResponse({"error": exc.message}, status_code=404)
+    except Exception:
+        # Transport prose names this engine's plumbing, not the caller's problem.
+        log.warning("npm registry resolution failed", package=name, version=version)
+        return JSONResponse(
+            {"error": f"Could not reach the npm registry to resolve {name}@{version}"},
+            status_code=502,
+        )
+    return _wire(ResolveResponse(packageName=name, version=resolved_version))
+
+
+async def _stop_panel_loops(runtime: Runtime) -> None:
+    """Cancel every loop before awaiting any, so neither runs through the other's
+    teardown."""
+    tasks = [
+        task
+        for task in (runtime.panel_watch_task, runtime.panel_reconcile_task)
+        if task is not None
+    ]
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 @asynccontextmanager
@@ -882,208 +941,204 @@ async def lifespan(app: FastAPI):
         db_path = make_url(settings.database_url).database
         if db_path and db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    engine = make_engine(settings.database_url)
-    sessions_factory = make_session_factory(engine)
-    if settings.env != "prod":
-        async with engine.begin() as connection:
-            await connection.run_sync(metadata.create_all)
-    notifier = make_notifier(settings.database_url)
-    await notifier.start()
-    stream = StreamService(sessions_factory, notifier)
-    sessions = AuditSessionStore(sessions_factory)
-    llm = build_npmguard_llm(sessions_factory, settings)
-    pipeline = AuditPipeline(settings, llm, sessions)
-    audits = AuditService(
-        pipeline,
-        sessions,
-        stream,
-        queue_size=settings.queue_size,
-        max_concurrent=settings.max_running_sessions,
-    )
-    # Panel wiring: build the GitHub App client + panel stores only when the App
-    # is configured. Without it every panel route 503s and none of this exists,
-    # so the engine boots and behaves exactly as it does without the panel.
-    runtime: Runtime = Runtime(
-        settings,
-        engine,
-        sessions,
-        stream,
-        llm,
-        audits,
-        DemoService(sessions, stream),
-        sessionmaker=sessions_factory,
-    )
-    if settings.github_app_enabled:
-        gh_client = GitHubAppClient(settings)
-        panel_sessions = PanelSessionStore(sessions_factory)
-        gh_users = GhUserStore(sessions_factory)
-        panel_installations = InstallationStore(sessions_factory)
-        panel_repos = RepoStore(sessions_factory)
-        panel_caps = CapsStore(sessions_factory, settings)
-        panel_verdicts = VerdictIndex(sessions_factory)
-
-        # Conclude a set's GitHub check-run once the set finalizes. The mapping is
-        # check_conclusion over the ROLLUP (fail only on DANGEROUS, neutral on
-        # ERROR, neutral when the set covered nothing) — every answer is terminal,
-        # because only a finalized set gets here and a finalized set has no pending
-        # items — including the empty push, whose check run would otherwise spin
-        # forever.
-        async def finalize_check(set_id: int, check_run_id: int, rollup: Rollup) -> None:
-            async with sessions_factory() as session:
-                repo = (
-                    (
-                        await session.execute(
-                            sa.select(repo_table)
-                            .select_from(
-                                repo_table.join(
-                                    audit_sets,
-                                    audit_sets.c.origin_ref == repo_table.c.id,
-                                )
-                            )
-                            .where(audit_sets.c.id == set_id)
-                        )
-                    )
-                    .mappings()
-                    .one_or_none()
-                )
-            if repo is None:
-                return
-            octo = gh_client.installation_octokit(repo["installation_id"])
-            await conclude_check_run(
-                octo,
-                repo["owner"],
-                repo["name"],
-                check_run_id,
-                check_conclusion(rollup),
-                check_summary(rollup),
-            )
-
-        # The ONE audit-set entity: every origin's progress, rollup and stream.
-        panel_sets = build_store(
-            sessions_factory,
-            panel_verdicts,
-            audits,
+    # INVARIANT: everything acquired here is released on ANY exit, a raise
+    # partway through boot included — in-process that leak crosses into the next
+    # caller rather than dying with the process. Registration order is therefore
+    # reverse teardown order: loops, pool, LLM, notifier, engine.
+    async with AsyncExitStack() as stack:
+        engine = make_engine(settings.database_url)
+        stack.push_async_callback(engine.dispose)
+        sessions_factory = make_session_factory(engine)
+        if settings.env != "prod":
+            async with engine.begin() as connection:
+                await connection.run_sync(metadata.create_all)
+        notifier = make_notifier(settings.database_url)
+        await notifier.start()
+        stack.push_async_callback(notifier.close)
+        stream = StreamService(sessions_factory, notifier)
+        sessions = AuditSessionStore(sessions_factory)
+        llm = build_npmguard_llm(sessions_factory, settings)
+        stack.push_async_callback(llm.aclose)
+        pipeline = AuditPipeline(settings, llm, sessions)
+        audits = AuditService(
+            pipeline,
+            sessions,
             stream,
-            notifier,
-            finalize_check=finalize_check,
+            queue_size=settings.queue_size,
+            max_concurrent=settings.max_running_sessions,
         )
-        panel_scan = RepoScanEngine(
-            sessions=sessions_factory,
-            caps=panel_caps,
-            sets=panel_sets,
-            fetch_repo_deps=_make_fetch_repo_deps(gh_client),
-            # Keep watched_packages reconciled after a protected repo's index
-            # changes (reconcile/push full scans) — the same seam the routes and
-            # webhook handlers call directly.
-            watch_sync=lambda: sync_watched_packages(sessions_factory),
-        )
-        panel_public_scan = PublicRepoScanEngine(
-            sessions=sessions_factory,
-            limits=PublicScanLimits(sessions=sessions_factory, settings=settings),
-            sets=panel_sets,
-        )
-        panel_billing = BillingStore(sessions_factory)
-
-        # The alert hook: fired by a worker only when IT lands a DANGEROUS
-        # verdict. It fans out over the exposed repos and emails each org — it
-        # never touches the core engine. ``origin`` is the job's own recorded
-        # AuditSetOrigin, so a public-repo finding is not filed as a registry-watch
-        # alert.
-        async def on_dangerous(name: str, version: str, origin: str) -> None:
-            await handle_dangerous_verdict(
-                sessions_factory, name, version, origin=origin, settings=settings
-            )
-
-        # The panel's aftermath, fired once per audit that reaches a terminal state
-        # on a cache-filling lane: index the verdict, alert on DANGEROUS, advance
-        # every live set covering the pair. One hook where a whole worker pool used
-        # to await futures for audits it had itself admitted.
-        audits.bind_settle_hook(
-            build_settle_hook(
-                panel_verdicts,
-                panel_sets,
-                on_dangerous=on_dangerous,
-                load_report=load_report,
-            )
-        )
-        rebuilt = await panel_verdicts.rebuild(_saved_reports)
-        # Sets left live by a crashed process are finalized honestly here, BEFORE
-        # the pool starts: without it a set whose work never existed stays
-        # `running` forever, its check run never concludes, and its stream never
-        # terminates.
-        swept = await panel_sets.refresh_live()
-
-        # Registry-watch + reconcile background loops. Both self-schedule with a
-        # short first-run delay so boot isn't blocked; interval from
-        # settings.watch_interval_min (reconcile stays on its daily default).
-        watch_interval_seconds = settings.watch_interval_min * 60
-        watcher = RegistryWatcher(sessions_factory, audits, panel_verdicts)
-        panel_watch_task = asyncio.create_task(
-            watcher.run_forever(watch_interval_seconds),
-            name="npmguard-panel-registry-watch",
-        )
-        reconciler = Reconciler(
-            sessions=sessions_factory,
-            gh_client=gh_client,
-            panel_scan=panel_scan,
-            fetch_lockfile=fetch_lockfile,
-        )
-        panel_reconcile_task = asyncio.create_task(
-            reconciler.run_forever(),
-            name="npmguard-panel-reconcile",
-        )
-
-        log.info(
-            "panel enabled: GitHub App configured",
-            verdicts_rebuilt=rebuilt,
-            live_sets_swept=swept,
-            scan_concurrency=settings.scan_concurrency,
-            watch_interval_min=settings.watch_interval_min,
-        )
-        runtime = PanelRuntime(
+        # Panel wiring: build the GitHub App client + panel stores only when the App
+        # is configured. Without it every panel route 503s and none of this exists,
+        # so the engine boots and behaves exactly as it does without the panel.
+        runtime: Runtime = Runtime(
             settings,
             engine,
             sessions,
             stream,
             llm,
             audits,
-            runtime.demos,
+            DemoService(sessions, stream),
             sessionmaker=sessions_factory,
-            gh_client=gh_client,
-            panel_sessions=panel_sessions,
-            gh_users=gh_users,
-            panel_installations=panel_installations,
-            panel_repos=panel_repos,
-            panel_caps=panel_caps,
-            panel_verdicts=panel_verdicts,
-            panel_sets=panel_sets,
-            panel_scan=panel_scan,
-            panel_public_scan=panel_public_scan,
-            panel_billing=panel_billing,
-            panel_watch_task=panel_watch_task,
-            panel_reconcile_task=panel_reconcile_task,
         )
-    # LAST, so every settle consumer is bound before a worker can claim: start()
-    # also runs restart recovery, which settles interrupted rows immediately.
-    await audits.start()
-    app.state.runtime = runtime
-    try:
+        if settings.github_app_enabled:
+            gh_client = GitHubAppClient(settings)
+            panel_sessions = PanelSessionStore(sessions_factory)
+            gh_users = GhUserStore(sessions_factory)
+            panel_installations = InstallationStore(sessions_factory)
+            panel_repos = RepoStore(sessions_factory)
+            panel_caps = CapsStore(sessions_factory, settings)
+            panel_verdicts = VerdictIndex(sessions_factory)
+
+            # Conclude a set's GitHub check-run once the set finalizes. The mapping is
+            # check_conclusion over the ROLLUP (fail only on DANGEROUS, neutral on
+            # ERROR, neutral when the set covered nothing) — every answer is terminal,
+            # because only a finalized set gets here and a finalized set has no pending
+            # items — including the empty push, whose check run would otherwise spin
+            # forever.
+            async def finalize_check(set_id: int, check_run_id: int, rollup: Rollup) -> None:
+                async with sessions_factory() as session:
+                    repo = (
+                        (
+                            await session.execute(
+                                sa.select(repo_table)
+                                .select_from(
+                                    repo_table.join(
+                                        audit_sets,
+                                        audit_sets.c.origin_ref == repo_table.c.id,
+                                    )
+                                )
+                                .where(audit_sets.c.id == set_id)
+                            )
+                        )
+                        .mappings()
+                        .one_or_none()
+                    )
+                if repo is None:
+                    return
+                octo = gh_client.installation_octokit(repo["installation_id"])
+                await conclude_check_run(
+                    octo,
+                    repo["owner"],
+                    repo["name"],
+                    check_run_id,
+                    check_conclusion(rollup),
+                    check_summary(rollup),
+                )
+
+            # The ONE audit-set entity: every origin's progress, rollup and stream.
+            panel_sets = build_store(
+                sessions_factory,
+                panel_verdicts,
+                audits,
+                stream,
+                notifier,
+                finalize_check=finalize_check,
+            )
+            panel_scan = RepoScanEngine(
+                sessions=sessions_factory,
+                caps=panel_caps,
+                sets=panel_sets,
+                fetch_repo_deps=_make_fetch_repo_deps(gh_client),
+                # Keep watched_packages reconciled after a protected repo's index
+                # changes (reconcile/push full scans) — the same seam the routes and
+                # webhook handlers call directly.
+                watch_sync=lambda: sync_watched_packages(sessions_factory),
+            )
+            panel_public_scan = PublicRepoScanEngine(
+                sessions=sessions_factory,
+                limits=PublicScanLimits(sessions=sessions_factory, settings=settings),
+                sets=panel_sets,
+            )
+            panel_billing = BillingStore(sessions_factory)
+
+            # The alert hook: fired by a worker only when IT lands a DANGEROUS
+            # verdict. It fans out over the exposed repos and emails each org — it
+            # never touches the core engine. ``origin`` is the job's own recorded
+            # AuditSetOrigin, so a public-repo finding is not filed as a registry-watch
+            # alert.
+            async def on_dangerous(name: str, version: str, origin: str) -> None:
+                await handle_dangerous_verdict(
+                    sessions_factory, name, version, origin=origin, settings=settings
+                )
+
+            # The panel's aftermath, fired once per audit that reaches a terminal state
+            # on a cache-filling lane: index the verdict, alert on DANGEROUS, advance
+            # every live set covering the pair. One hook where a whole worker pool used
+            # to await futures for audits it had itself admitted.
+            audits.bind_settle_hook(
+                build_settle_hook(
+                    panel_verdicts,
+                    panel_sets,
+                    on_dangerous=on_dangerous,
+                    load_report=load_report,
+                )
+            )
+            rebuilt = await panel_verdicts.rebuild(_saved_reports)
+            # Sets left live by a crashed process are finalized honestly here, BEFORE
+            # the pool starts: without it a set whose work never existed stays
+            # `running` forever, its check run never concludes, and its stream never
+            # terminates.
+            swept = await panel_sets.refresh_live()
+
+            # Registry-watch + reconcile background loops. Both self-schedule with a
+            # short first-run delay so boot isn't blocked; interval from
+            # settings.watch_interval_min (reconcile stays on its daily default).
+            watch_interval_seconds = settings.watch_interval_min * 60
+            watcher = RegistryWatcher(sessions_factory, audits, panel_verdicts)
+            panel_watch_task = asyncio.create_task(
+                watcher.run_forever(watch_interval_seconds),
+                name="npmguard-panel-registry-watch",
+            )
+            reconciler = Reconciler(
+                sessions=sessions_factory,
+                gh_client=gh_client,
+                panel_scan=panel_scan,
+                fetch_lockfile=fetch_lockfile,
+            )
+            panel_reconcile_task = asyncio.create_task(
+                reconciler.run_forever(),
+                name="npmguard-panel-reconcile",
+            )
+
+            log.info(
+                "panel enabled: GitHub App configured",
+                verdicts_rebuilt=rebuilt,
+                live_sets_swept=swept,
+                scan_concurrency=settings.scan_concurrency,
+                watch_interval_min=settings.watch_interval_min,
+            )
+            runtime = PanelRuntime(
+                settings,
+                engine,
+                sessions,
+                stream,
+                llm,
+                audits,
+                runtime.demos,
+                sessionmaker=sessions_factory,
+                gh_client=gh_client,
+                panel_sessions=panel_sessions,
+                gh_users=gh_users,
+                panel_installations=panel_installations,
+                panel_repos=panel_repos,
+                panel_caps=panel_caps,
+                panel_verdicts=panel_verdicts,
+                panel_sets=panel_sets,
+                panel_scan=panel_scan,
+                panel_public_scan=panel_public_scan,
+                panel_billing=panel_billing,
+                panel_watch_task=panel_watch_task,
+                panel_reconcile_task=panel_reconcile_task,
+            )
+        # LAST, so every settle consumer is bound before a worker can claim: start()
+        # also runs restart recovery, which settles interrupted rows immediately.
+        stack.push_async_callback(audits.close, settings.shutdown_deadline_seconds)
+        # Registered after it, therefore unwound before it: nothing may admit or
+        # enqueue against an AuditService that is shutting down.
+        stack.push_async_callback(_stop_panel_loops, runtime)
+        await audits.start()
+        app.state.runtime = runtime
         yield
-    finally:
-        # Stop the background loops + worker pool BEFORE the executor closes, so
-        # nothing tries to admit/enqueue against a shutting-down AuditService.
-        tasks = (runtime.panel_watch_task, runtime.panel_reconcile_task)
-        for task in tasks:
-            if task is not None:
-                task.cancel()
-        for task in tasks:
-            if task is not None:
-                with suppress(asyncio.CancelledError):
-                    await task
-        await audits.close(settings.shutdown_deadline_seconds)
-        await llm.aclose()
-        await notifier.close()
-        await engine.dispose()
 
 
 # Namespaces the API owns, so a request that matched no route there answers a

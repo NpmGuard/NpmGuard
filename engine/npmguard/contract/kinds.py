@@ -16,7 +16,14 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel
 
-from .models import AuditSetItem, BenchCorpus, BenchEntry, EvidenceEvent, ScanProgressFrame
+from .models import (
+    AuditEvent,
+    AuditSetItem,
+    BenchCorpus,
+    BenchEntry,
+    EvidenceEvent,
+    ScanProgressFrame,
+)
 
 # shared/src/evidence.ts :: EventKind
 EventKind = Literal[
@@ -68,6 +75,14 @@ BenchVerdict = Literal["SAFE", "DANGEROUS"]
 BenchCorpusSource = Literal["datadog", "negative-control", "watchlist"]
 
 EVENT_KINDS: frozenset[str] = frozenset(get_args(EventKind))
+
+# shared/src/events.ts :: EVENT_TYPES, read off the generated union rather than
+# retyped. A name absent here has no emit site and no listener, so anything
+# keyed by event type can check itself against it instead of rotting.
+AUDIT_EVENT_TYPES: frozenset[str] = frozenset(
+    get_args(member.model_fields["type"].annotation)[0]
+    for member in get_args(AuditEvent.model_fields["root"].annotation)
+)
 
 
 def _field_literals(model: type[BaseModel], field: str) -> frozenset[str]:

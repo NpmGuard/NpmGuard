@@ -10,25 +10,27 @@ from typing import Any
 from kit_stream import StreamService
 
 from .config import REPO_ROOT, Settings
+from .contract.kinds import AUDIT_EVENT_TYPES
 from .contract.models import StartAuditResponse
 from .events import ENVELOPE_KEYS, TERMINAL_EVENTS, AuditEmitter, audit_channel
 from .persistence import DEMO_PACKAGE_PATH, AuditSessionStore
 
 MIN_DELAY_MS = 10
 MAX_DELAY_MS = 4_000
+# How long a frame of each type stays on screen, at minimum.
 MIN_TYPE_DELAY = {
     "phase_started": 400,
     "file_analyzing": 600,
     "file_verdict": 300,
-    "agent_thinking": 500,
-    "agent_tool_call": 400,
-    "agent_tool_result": 500,
-    "agent_reasoning": 800,
-    "finding_discovered": 600,
     "triage_complete": 500,
     "verdict_reached": 800,
-    "verify_test_result": 700,
 }
+# A floor for a type the engine cannot emit is unreachable pacing, and reads as
+# a claim that the replay covers a frame no audit produces.
+assert MIN_TYPE_DELAY.keys() <= AUDIT_EVENT_TYPES, (
+    f"MIN_TYPE_DELAY floors event types outside the contract: "
+    f"{sorted(MIN_TYPE_DELAY.keys() - AUDIT_EVENT_TYPES)}"
+)
 # Playwright/e2e divides the human throttle by this (0 ⇒ emit instantly); prod unset ⇒ 1.0.
 #
 # Read through Settings, so `NPMGUARD_DEMO_SPEED=fast` is a ConfigError NAMING the
