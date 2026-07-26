@@ -12,9 +12,9 @@ The SDK is constructed with max_retries=0: the chain walk owns retry
 semantics, and hidden SDK retries would both mask failures and multiply
 per-model timeouts."""
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
-import math
 from typing import Any, Protocol
 
 import httpx
@@ -402,6 +402,223 @@ class OpenAICompatAdapter:
         finally:
             for client in self._extra_http_clients:
                 await client.aclose()
+
+
+class BedrockAdapter(OpenAICompatAdapter):
+    """Amazon Bedrock's two OpenAI-compatible inference paths.
+
+    Bedrock hosts GPT-5.6 on the Responses API under ``/openai/v1`` while its
+    MiniMax and Z.AI models use Chat Completions under ``/v1``. One adapter must
+    own both clients so a single Kit fallback chain can cross that API boundary.
+    """
+
+    _RESPONSES_MODELS = frozenset(
+        {
+            "openai.gpt-5.6-luna",
+            "openai.gpt-5.6-sol",
+            "xai.grok-4.3",
+        }
+    )
+
+    def __init__(
+        self,
+        settings: LlmSettings,
+        *,
+        responses_base_url: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        super().__init__(settings, transport=transport)
+        client_options: dict[str, Any] = {}
+        if self._http_client is not None:
+            client_options["http_client"] = self._http_client
+        self._responses_client = AsyncOpenAI(
+            base_url=responses_base_url,
+            api_key=settings.llm_api_key or "unused",
+            max_retries=0,
+            **client_options,
+        )
+
+    @staticmethod
+    def _responses_input(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        wire: list[dict[str, Any]] = []
+        for message in _wire_messages(messages, cache_control=False):
+            role = message.get("role")
+            if role == "tool":
+                wire.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": message.get("tool_call_id"),
+                        "output": message.get("content") or "",
+                    }
+                )
+                continue
+
+            tool_calls = message.get("tool_calls")
+            content = message.get("content")
+            if content is not None:
+                wire.append({"role": role, "content": content})
+            if tool_calls:
+                for call in tool_calls:
+                    function = call["function"]
+                    wire.append(
+                        {
+                            "type": "function_call",
+                            "call_id": call["id"],
+                            "name": function["name"],
+                            "arguments": function.get("arguments", "{}"),
+                        }
+                    )
+        return wire
+
+    @staticmethod
+    def _responses_tool(tool: dict[str, Any]) -> dict[str, Any]:
+        function = tool["function"]
+        return {"type": "function", **function}
+
+    @staticmethod
+    def _responses_tool_choice(choice: dict[str, Any] | str) -> dict[str, Any] | str:
+        if isinstance(choice, dict) and choice.get("type") == "function":
+            return {"type": "function", "name": choice["function"]["name"]}
+        return choice
+
+    def _responses_request_kwargs(self, request: ProviderRequest) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "model": request.model,
+            "input": self._responses_input(request.messages),
+        }
+        if request.temperature is not None:
+            kwargs["temperature"] = request.temperature
+        if request.max_output_tokens is not None:
+            kwargs["max_output_tokens"] = request.max_output_tokens
+        if request.response_schema is not None:
+            kwargs["text"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": request.role,
+                    "strict": True,
+                    "schema": request.response_schema,
+                }
+            }
+        elif request.json_response:
+            kwargs["text"] = {"format": {"type": "json_object"}}
+        if request.tools:
+            kwargs["tools"] = [self._responses_tool(tool) for tool in request.tools]
+        if request.tool_choice is not None:
+            kwargs["tool_choice"] = self._responses_tool_choice(request.tool_choice)
+        if request.reasoning is not None and request.reasoning.get("effort") is not None:
+            kwargs["reasoning"] = {"effort": request.reasoning["effort"]}
+        return kwargs
+
+    @staticmethod
+    def _responses_usage(response: Any) -> tuple[int | None, int | None, int | None]:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None, None, None
+        details = getattr(usage, "input_tokens_details", None)
+        return (
+            getattr(usage, "input_tokens", None),
+            getattr(usage, "output_tokens", None),
+            getattr(details, "cached_tokens", None) if details is not None else None,
+        )
+
+    def _responses_result(self, response: Any) -> ProviderResult:
+        content_parts: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
+        refusals: list[str] = []
+        reasoning: list[Any] = []
+        for item in getattr(response, "output", None) or []:
+            item_type = getattr(item, "type", None)
+            if item_type == "function_call":
+                tool_calls.append(
+                    {
+                        "id": item.call_id,
+                        "type": "function",
+                        "function": {
+                            "name": item.name,
+                            "arguments": item.arguments,
+                        },
+                    }
+                )
+            elif item_type == "message":
+                for part in getattr(item, "content", None) or []:
+                    part_type = getattr(part, "type", None)
+                    if part_type == "output_text":
+                        content_parts.append(part.text)
+                    elif part_type == "refusal":
+                        refusals.append(part.refusal)
+            elif item_type == "reasoning":
+                reasoning.append(item.model_dump())
+
+        status = getattr(response, "status", None)
+        incomplete = getattr(response, "incomplete_details", None)
+        if status == "incomplete":
+            finish_reason = getattr(incomplete, "reason", None) or "incomplete"
+        elif status == "failed":
+            finish_reason = "error"
+        else:
+            finish_reason = "tool_calls" if tool_calls else "stop"
+        in_tokens, out_tokens, cached = self._responses_usage(response)
+        return ProviderResult(
+            content="".join(content_parts) if content_parts else None,
+            tool_calls=tool_calls or None,
+            in_tokens=in_tokens,
+            out_tokens=out_tokens,
+            cached_tokens=cached,
+            cost_usd=None,
+            provider_call_id=getattr(response, "id", None),
+            actual_model=getattr(response, "model", None),
+            provider="amazon-bedrock",
+            finish_reason=finish_reason,
+            refusal="\n".join(refusals) if refusals else None,
+            reasoning=reasoning or None,
+        )
+
+    async def complete(self, request: ProviderRequest) -> ProviderResult:
+        if request.model not in self._RESPONSES_MODELS:
+            return await super().complete(request)
+        response = await self._responses_client.responses.create(
+            **self._responses_request_kwargs(request)
+        )
+        result = self._responses_result(response)
+        if not getattr(response, "output", None):
+            raise ProviderResponseError(
+                f"provider returned no output (model {request.model!r})",
+                result,
+            )
+        return result
+
+    async def stream(
+        self, request: ProviderRequest, on_token: Callable[[str], None]
+    ) -> ProviderResult:
+        if request.model not in self._RESPONSES_MODELS:
+            return await super().stream(request, on_token)
+        async with self._responses_client.responses.stream(
+            **self._responses_request_kwargs(request)
+        ) as stream:
+            async for event in stream:
+                if getattr(event, "type", None) == "response.output_text.delta":
+                    on_token(event.delta)
+            response = await stream.get_final_response()
+        result = self._responses_result(response)
+        if not getattr(response, "output", None):
+            raise ProviderResponseError(
+                f"provider streamed no output (model {request.model!r})",
+                result,
+            )
+        return result
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            await self._responses_client.close()
+        finally:
+            try:
+                await self._client.close()
+            finally:
+                for client in self._extra_http_clients:
+                    await client.aclose()
 
 
 class OpenRouterAdapter(OpenAICompatAdapter):
