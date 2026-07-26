@@ -54,6 +54,14 @@ _AGENT_DEFAULT_CHAIN: tuple[str, ...] = (
     "zai.glm-5",
     "moonshotai.kimi-k2.5",
 )
+# Ordered by measured `compile_plan` pass rate, which is the bar this role has to
+# clear — a plan that parses but will not compile arms no experiment.
+_HYPOTHESIS_DEFAULT_CHAIN: tuple[str, ...] = (
+    "xai.grok-4.3",
+    "deepseek.v3.2",
+    "zai.glm-5",
+    "moonshotai.kimi-k2.5",
+)
 _MODEL_PRICES: dict[str, tuple[float, float]] = {
     "zai.glm-5": (1.00, 3.20),
     "deepseek.v3.2": (0.62, 1.85),
@@ -97,6 +105,21 @@ def _union_chain(slug: str, timeout_ms: int, max_output_tokens: int) -> tuple[Mo
         timeout_ms,
         max_output_tokens,
         transport=StrictSchema(),
+    )
+
+
+def _hypothesis_chain(slug: str, timeout_ms: int, max_output_tokens: int) -> tuple[ModelSpec, ...]:
+    models = (slug,) + tuple(model for model in _HYPOTHESIS_DEFAULT_CHAIN if model != slug)
+    return tuple(
+        ModelSpec(
+            model,
+            timeout_ms=timeout_ms,
+            max_output_tokens=max_output_tokens,
+            transport=StrictSchema(),
+            reasoning=_reasoning_for(model),
+            prices=_MODEL_PRICES.get(model),
+        )
+        for model in models
     )
 
 
@@ -170,6 +193,7 @@ def build_npmguard_llm(
     timeout = int(settings.llm_timeout_seconds * 1000)
     triage = _model(settings, settings.triage_model)
     investigation = _model(settings, settings.investigation_model)
+    hypothesis = _model(settings, settings.hypothesis_model)
     roles = Roles.of(
         Role(
             "intent",
@@ -185,7 +209,7 @@ def build_npmguard_llm(
             "hypothesis",
             # Generous output budget: reasoning-capable routes need room to think
             # AND answer; unused headroom is free (billing is per real token).
-            _union_chain(investigation, timeout, 8_000),
+            _hypothesis_chain(hypothesis, timeout, 8_000),
             # The per-call output is target-specific (hypothesis_submission);
             # this static representative only lets build_llm project the strict
             # transport at wiring. Its shape is identical to every per-call one.
@@ -238,9 +262,14 @@ def build_npmguard_llm(
         else:
             if settings.llm_backend == "bedrock":
                 origin = llm_settings.llm_base_url.removesuffix("/v1")
+                responses_origin = origin
+                if settings.bedrock_responses_region:
+                    responses_origin = (
+                        f"https://bedrock-mantle.{settings.bedrock_responses_region}.api.aws"
+                    )
                 provider = BedrockAdapter(
                     llm_settings,
-                    responses_base_url=f"{origin}/openai/v1",
+                    responses_base_url=f"{responses_origin}/openai/v1",
                 )
             elif "openrouter.ai" in llm_settings.llm_base_url:
                 provider = OpenRouterAdapter(llm_settings)

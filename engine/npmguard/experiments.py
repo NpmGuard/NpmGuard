@@ -177,6 +177,9 @@ def _preload(args: dict[str, Any]) -> Manipulation:
     )
 
 
+PACKAGE_ROOT = PurePosixPath("/pkg")
+
+
 def _patch_file(args: dict[str, Any]) -> Manipulation:
     patches = args.get("patches")
     if not isinstance(patches, list) or not patches:
@@ -187,7 +190,18 @@ def _patch_file(args: dict[str, Any]) -> Manipulation:
         if not isinstance(patch, dict) or not isinstance(patch.get("path"), str):
             raise ExperimentCompileError("invalid args for tool 'patchFile': path must be a string")
         path = PurePosixPath(patch["path"])
-        if path.is_absolute() or ".." in path.parts:
+        if path.is_absolute():
+            # The catalog teaches absolute /pkg paths for requires and planted
+            # files, so models spell this target the same way. /pkg IS the package
+            # root and patches are applied under it, so the two spellings name one
+            # file; anything else absolute is a genuine escape and still fails.
+            try:
+                path = path.relative_to(PACKAGE_ROOT)
+            except ValueError:
+                raise ExperimentCompileError(
+                    "invalid args for tool 'patchFile': path must stay under package root"
+                ) from None
+        if ".." in path.parts:
             raise ExperimentCompileError(
                 "invalid args for tool 'patchFile': path must stay under package root"
             )
