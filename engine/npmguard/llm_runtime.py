@@ -31,7 +31,6 @@ from .phases import FileFlagResponse, JudgeVerdict, PackageIntent, hypothesis_su
 # not. Absent entries (e.g. google/gemini-*) get no reasoning field. Keyed on the
 # resolved OpenRouter slug.
 _REASONING: dict[str, ReasoningControl] = {
-    "openai.gpt-5.6-sol": ReasoningControl(effort="low"),
     "xai.grok-4.3": ReasoningControl(effort="low"),
     "deepseek/deepseek-v4-flash": ReasoningControl(enabled=False),
     "qwen/qwen3-30b-a3b": ReasoningControl(enabled=False),
@@ -43,7 +42,9 @@ def _reasoning_for(slug: str) -> ReasoningControl | None:
     return _REASONING.get(slug)
 
 
-# Every role crosses model families after a provider/model failure.
+# Every role crosses model families after a provider/model failure. Structured
+# roles lead with the primary (GLM-5); the agent role leads with DeepSeek, whose
+# tool-calling is the more reliable of the two.
 _STRICT_FALLBACKS: tuple[str, ...] = (
     "deepseek.v3.2",
     "moonshotai.kimi-k2.5",
@@ -54,7 +55,6 @@ _AGENT_DEFAULT_CHAIN: tuple[str, ...] = (
     "moonshotai.kimi-k2.5",
 )
 _MODEL_PRICES: dict[str, tuple[float, float]] = {
-    "openai.gpt-5.6-sol": (5.50, 33.00),
     "zai.glm-5": (1.00, 3.20),
     "deepseek.v3.2": (0.62, 1.85),
     "moonshotai.kimi-k2.5": (0.60, 3.00),

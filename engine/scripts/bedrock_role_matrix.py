@@ -30,8 +30,9 @@ from npmguard.phases import (
 )
 
 MODELS = (
-    "openai.gpt-5.6-sol",
     "zai.glm-5",
+    "deepseek.v3.2",
+    "moonshotai.kimi-k2.5",
     "xai.grok-4.3",
 )
 ROLES = ("intent", "flag", "hypothesis", "propose", "agent", "judge")
@@ -79,7 +80,7 @@ def _request(model: str, role: str, fixture: dict[str, Any]) -> ProviderRequest:
         response_schema=portable_strict_schema(output) if output is not None else None,
         max_output_tokens=MAX_OUTPUT_TOKENS[role],
         tools=fixture.get("tools") if role == "agent" else None,
-        reasoning={"effort": "low"} if model in {"openai.gpt-5.6-sol", "xai.grok-4.3"} else None,
+        reasoning={"effort": "low"} if model == "xai.grok-4.3" else None,
     )
 
 
