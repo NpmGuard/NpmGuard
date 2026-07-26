@@ -4,7 +4,7 @@ import qrcode from "qrcode-terminal";
 import EventSource from "eventsource";
 import * as api from "../api.js";
 import { renderVerdict, renderUnusableVerdict, renderHypothesisResolved, renderPhase } from "../render.js";
-import { parsePackageArg } from "../utils.js";
+import { packagePath, parsePackageArg } from "../utils.js";
 
 /** Read a field off a report that may be flat or wrapped in `{ report: {...} }`. */
 function reportField<T>(report: unknown, key: string): T | undefined {
@@ -56,7 +56,7 @@ export async function auditCommand(
     );
     console.log();
     // The PAGE, not the JSON route behind it — this line is for a human to open.
-    console.log(chalk.dim(`View full report: ${apiUrl}/package/${encodeURIComponent(parsed.name)}`));
+    console.log(chalk.dim(`View full report: ${apiUrl}/package/${packagePath(parsed.name)}`));
     return done(verdict === "SAFE" ? 0 : 1);
   }
 

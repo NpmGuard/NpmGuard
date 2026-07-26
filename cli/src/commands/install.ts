@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { formatEther } from "viem";
 import * as api from "../api.js";
 import {
+  packagePath,
   parsePackageArg,
   prompt,
   resolveLatestVersion,
@@ -110,7 +111,7 @@ export async function installCommand(
   spinner.stop();
 
   if (report) {
-    handleExistingReport(report, name, fullSpec, apiUrl, opts);
+    await handleExistingReport(report, name, fullSpec, apiUrl, opts);
     return;
   }
 
@@ -146,18 +147,18 @@ export async function installCommand(
   process.exit(0);
 }
 
-function handleExistingReport(
+async function handleExistingReport(
   report: api.PackageReport,
   name: string,
   fullSpec: string,
   apiUrl: string,
   opts: InstallOpts,
-): void {
+): Promise<void> {
   const verdict = extractVerdict(report);
   const rationale = extractRationale(report);
   // The PAGE, not the JSON route it is built from: this is printed for a human
   // to open. `/package/<name>/report` renders the report as a raw body.
-  const reportUrl = `${apiUrl}/package/${encodeURIComponent(name)}`;
+  const reportUrl = `${apiUrl}/package/${packagePath(name)}`;
 
   // Not a verdict the engine can produce — a version skew or a rewritten body.
   // Refused rather than prompted: an unreadable answer is not a weak yes.
@@ -186,7 +187,7 @@ function handleExistingReport(
     console.log(chalk.yellow("  --force passed, installing anyway..."));
     process.exit(runInstall(fullSpec));
   }
-  promptAndInstallIfAccepted(
+  await promptAndInstallIfAccepted(
     fullSpec,
     "  Install anyway? This package has confirmed malicious behavior. (y/N) ",
   );
@@ -303,5 +304,5 @@ async function finalizeAfterAudit(
     console.log(chalk.red("  Audit finished but report not found."));
     process.exit(1);
   }
-  handleExistingReport(freshReport, name, fullSpec, apiUrl, { api: apiUrl });
+  await handleExistingReport(freshReport, name, fullSpec, apiUrl, { api: apiUrl });
 }

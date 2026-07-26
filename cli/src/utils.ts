@@ -30,6 +30,18 @@ export function parsePackageArg(pkg: string): { name: string; version?: string }
   return { name: pkg };
 }
 
+/**
+ * A package name as a URL PATH: each segment encoded, the scope slash kept.
+ *
+ * `/package/*` and `/resolve/*` are splat routes, so the slash in `@scope/pkg`
+ * is structure the engine matches on. Encoding the whole name to `%2F` leaves
+ * the request depending on the ASGI layer decoding it before routing — a
+ * behaviour a proxy in front is free to change. Mirrors `ops.py::_package_path`.
+ */
+export function packagePath(packageName: string): string {
+  return packageName.split("/").map(encodeURIComponent).join("/");
+}
+
 export function prompt(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
