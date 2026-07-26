@@ -1,43 +1,14 @@
-"""``npmguard-ops bench run`` — the only producer of a bench run.
+"""The sole producer of benchmark runs.
 
-Three properties this runner is built around, each of which is a rule from the
-design rather than a preference:
+The runner submits through the ordinary operator audit route, so benchmark work
+shares the engine's admission and capacity controls. Queue-full responses are
+back-pressure, not observations about detection quality. A dirty engine tree,
+mock model, or unidentified sandbox image makes a run unpublishable and is
+refused.
 
-1. **It uses the ORDINARY admission path** (F-G1). ``POST /audit`` with the
-   operator key reaches ``AuditService.admit``, which is ``reserve() -> create ->
-   submit`` — the same capacity gate, the same bounded wait queue, the same worker
-   pool as every other audit. There is no second pipeline, and the runner cannot
-   reach past the capacity owner because it only speaks HTTP for execution.
-
-2. **It never bypasses the payment trust boundary.** The operator key does not
-   verify a payment because a bench run has no payer; what it does NOT do is skip
-   any verification of a payment that was offered. That distinction is the whole
-   boundary: ``payments.py`` gates *paid* admission, and the unbilled lane is the
-   pre-existing operator path the registry watcher already uses. A bench route
-   still cannot enqueue anything (`routes.py`), so nothing here is reachable from
-   the internet.
-
-3. **It must not starve real work.** The wait queue is bounded (``queue_size``,
-   default 50) and refuses over-capacity admissions with ``QueueFullError``, so a
-   runner that fires 280 audits at once would push paid audits into a 503. The
-   runner therefore keeps at most ``--concurrency`` audits in flight (default 1)
-   and treats a refusal as BACK-PRESSURE — it waits and retries rather than
-   recording an observation, because a queue refusal caused by the harness's own
-   pressure is not a fact about the tool (§4.5).
-
-Two guards that refuse to produce a number rather than produce a wrong one:
-
-- **a dirty working tree is refused.** ``engineSha`` is a mandatory identifier and
-  a fidelity measurement taken against a working tree is not a measurement — the
-  methodology's own figures moved 4,140 → 4,616 rows mid-run because a peer was
-  editing ``evidence.py``.
-- **a mock-LLM engine is refused.** With ``NPMGUARD_MOCK_LLM=true`` no ledger row
-  exists, so the run has no observed model, no token count and no cost. That is
-  not a cheap benchmark run; it is a benchmark of the mock.
-
-Corpus fixtures are LIVE MALWARE (F-G7). This module checks only that a fixture
-DIRECTORY exists; it never reads, installs, copies or executes one. The engine's
-own resolver takes it from there, into the sandbox.
+Corpus fixtures can be live malware. This module checks directory existence but
+never reads, installs, copies, or executes fixture contents; the engine resolver
+stages them for the sandbox.
 """
 
 from __future__ import annotations
@@ -63,11 +34,8 @@ from .store import Attempt, BenchRunStore, RunDescriptor
 
 FIXTURES_DIR = REPO_ROOT / "sandbox" / "test-fixtures"
 
-# The engine's own worst-case phase envelope is ~77 min at timeout_scale 1 and
-# ~4.8 h at scale 4 (§7.2). `audit-batch`'s 20-minute default is BELOW that, so it
-# would abandon a slow-but-succeeding audit and record a failure the engine never
-# had (§7.4). 90 minutes covers scale 1; a corpus with large packages needs more,
-# and the flag says so.
+# Covers the measured scale-1 phase envelope. Large-package corpora must raise it
+# explicitly rather than recording a slow successful audit as a timeout.
 DEFAULT_TIMEOUT_MS = 5_400_000
 DEFAULT_POLL_MS = 5_000
 
@@ -109,10 +77,8 @@ def engine_sha(*, allow_dirty: bool) -> str:
 def sandbox_image_digest(image: str) -> str:
     """The concrete image id, resolved at run start.
 
-    ``settings.sandbox_image`` is a MUTABLE TAG (``npmguard-sandbox:v1``), and a tag
-    is not a reproducibility identifier — ``:v1`` can be rebuilt. The image is
-    built locally rather than pulled, so ``RepoDigests`` is typically empty and the
-    local ``Id`` is the correct value.
+    The configured image is a mutable local tag, not a reproducibility identifier.
+    The local image id identifies the bytes the run actually used.
     """
     result = subprocess.run(
         ["docker", "image", "inspect", "--format", "{{.Id}}", image],
@@ -124,16 +90,14 @@ def sandbox_image_digest(image: str) -> str:
         raise BenchRunnerError(
             f"cannot resolve a digest for sandbox image {image!r}: "
             f"{result.stderr.strip() or 'docker image inspect failed'}. "
-            "sandboxImageDigest is a mandatory run identifier (F-G5)."
+            "sandboxImageDigest is a mandatory run identifier."
         )
     return digest
 
 
 @dataclass
 class BenchApi:
-    """The audit-core client. Deliberately NOT ``ops.Api``: that one defaults to a
-    20-minute timeout and has a ``--skip-existing`` short-circuit, and a cache hit
-    is not an observation (B-10)."""
+    """Audit client with no cached-report short circuit."""
 
     base_url: str
     key: str
@@ -208,9 +172,7 @@ async def _one(
     async with gate:
         label = f"{entry.fixture_name}#{run_index}"
         try:
-            audit_id = await api.admit(
-                entry.fixture_name, str(FIXTURES_DIR / entry.fixture_name)
-            )
+            audit_id = await api.admit(entry.fixture_name, str(FIXTURES_DIR / entry.fixture_name))
         except BenchRunnerError as exc:
             print(f"[bench:run] not admitted {label}: {exc}", file=sys.stderr)
             await store.record(run_id, Attempt(entry.fixture_name, run_index, None, str(exc), None))
@@ -218,7 +180,7 @@ async def _one(
         settled = await api.wait(audit_id)
         # A client-side timeout is the harness measuring its own patience, so it is
         # recorded with a HARNESS code that the projector buckets VOID — never
-        # ABSTAINED, which would blame the tool for the runner giving up (§7.4).
+        # ABSTAINED, which would blame the tool for the runner giving up.
         await store.record(
             run_id,
             Attempt(
@@ -267,9 +229,7 @@ async def bench_run(args: argparse.Namespace) -> int:
         sessions=sessions,
         stream=StreamService(sessions, make_notifier(settings.database_url)),
     )
-    api = BenchApi(
-        base_url=args.api, key=key, timeout_ms=args.timeout_ms, poll_ms=args.poll_ms
-    )
+    api = BenchApi(base_url=args.api, key=key, timeout_ms=args.timeout_ms, poll_ms=args.poll_ms)
     try:
         await api.health()
         run_id = await store.create(descriptor, corpus.id)
@@ -308,17 +268,9 @@ async def bench_run(args: argparse.Namespace) -> int:
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
-    """Wire ``bench run``'s flags.
-
-    Exposed as a function so ``ops.py`` can mount this as ``npmguard-ops bench
-    run`` — the spelling the contract and design doc both name
-    (`shared/src/bench.ts:95-96`, §5.3) — in ONE call. That wiring is a two-hunk
-    patch to a file this agent does not own and is in the handoff; until it lands
-    the entry point is ``python -m npmguard.bench.runner``, which is the same code
-    reached by a different door.
-    """
+    """Add benchmark-runner flags to an argparse command."""
     parser.add_argument("--corpus", required=True, help="datasetVersion or name-version")
-    parser.add_argument("--runs", type=int, default=2, help="observations per entry (B-8: N=2)")
+    parser.add_argument("--runs", type=int, default=2, help="observations per entry")
     parser.add_argument("--api", default="http://127.0.0.1:8000")
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS)

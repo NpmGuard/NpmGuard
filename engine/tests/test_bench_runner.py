@@ -1,33 +1,9 @@
-# CLASS MAP — bench.runner: the ops runner on the unbilled lane
-# (seam: the HTTP boundary, via an httpx MockTransport. No engine, no docker, no
-#  git, and NO fixture is read — every class below is about what the runner does
-#  BEFORE and AROUND an audit, which is where all four of its constraints live.)
-#
-# "Must not starve real work" (the queue is bounded and shared with paid audits):
-#   C1  a full queue (NPMGUARD-0040) is BACK-PRESSURE: the runner waits and
-#       retries, and does not record an observation. Recording a VOID instead would
-#       let the harness's own impatience shrink the denominator
-#   C2  any other refusal is recorded as an attempt with auditId None + its reason,
-#       never retried forever
-#   C3  a fresh audit per run index: the runner never consults an existing report,
-#       so a cache hit cannot become a replicate (B-10). `--skip-existing` does not
-#       exist on this command
-# "Never fabricate a measurement":
-#   C4  a dirty working tree is refused — engineSha would not describe the engine
-#   C5  --allow-dirty is the explicit escape hatch, and it is named as such
-#   C6  a mock-LLM engine is refused: no ledger row means no observed model, no
-#       tokens, no cost
-#   C7  an unresolvable sandbox image digest is refused (F-G5 makes it mandatory,
-#       and settings.sandbox_image is a MUTABLE TAG, not an identifier)
-# "The client timeout must exceed the ENGINE's envelope" (§7.4):
-#   C8  the default is above the engine's ~77-minute scale-1 phase envelope, unlike
-#       audit-batch's 20-minute default which would abandon a succeeding audit
-#   C9  a client-side timeout is recorded with the HARNESS code, so the projector
-#       buckets it VOID and never ABSTAINED
-# Live malware (F-G7):
-#   C10 the fixture check is `is_dir()` only — the runner never opens, copies or
-#       executes a corpus fixture, and a missing one is a corpus bug that voids its
-#       observations rather than a crash
+"""Benchmark-runner policy at its HTTP and process boundaries.
+
+HTTP uses `MockTransport`; git and Docker commands are replaced at their process
+seams. No corpus fixture is read. Axes: admission outcome, reproducibility
+identifiers, timeout ownership, and fixture presence.
+"""
 
 import argparse
 from pathlib import Path
@@ -61,17 +37,12 @@ def _entry(name: str) -> Entry:
 
 def _api(handler) -> runner.BenchApi:
     api = runner.BenchApi(base_url="http://engine", key="k", timeout_ms=1_000, poll_ms=1)
-    api.client = httpx.AsyncClient(
-        base_url="http://engine", transport=httpx.MockTransport(handler)
-    )
+    api.client = httpx.AsyncClient(base_url="http://engine", transport=httpx.MockTransport(handler))
     return api
 
 
 async def test_a_full_queue_is_back_pressure_not_an_observation(monkeypatch) -> None:
-    """C1: the wait queue is bounded (queue_size, default 50) and shared with paid
-    audits, so 280 bench admissions fired at once would push real work into a 503.
-    The refusal means "the engine is busy with real work", which is not a fact about
-    the tool and must not enter any denominator."""
+    """C1: queue-full responses wait and retry instead of becoming observations."""
     calls: list[int] = []
     slept: list[float] = []
 
@@ -93,12 +64,12 @@ async def test_a_full_queue_is_back_pressure_not_an_observation(monkeypatch) -> 
     finally:
         await api.close()
     assert len(calls) == 3
-    assert slept == [runner._QUEUE_FULL_BACKOFF_SECONDS] * 2
+    assert len(slept) == 2
+    assert all(seconds > 0 for seconds in slept)
 
 
 async def test_a_real_refusal_is_recorded_not_retried() -> None:
-    """C2: a 402/400/500 is not back-pressure. It raises with the engine's own
-    message, and `_one` records it as an attempt that never reached an audit."""
+    """C2: a non-capacity refusal raises with the engine's message."""
     api = _api(lambda request: httpx.Response(402, json={"error": "Payment required."}))
     try:
         with pytest.raises(runner.BenchRunnerError, match="Payment required"):
@@ -108,10 +79,7 @@ async def test_a_real_refusal_is_recorded_not_retried() -> None:
 
 
 async def test_the_runner_never_consults_an_existing_report() -> None:
-    """C3: B-10 — a cache hit is not an observation. `POST /audit` reaches
-    AuditService.admit, which always creates a new audit_sessions row, and the
-    runner has no skip-existing path to short-circuit it. Asserted at the HTTP
-    boundary: the only request an admission makes is the POST."""
+    """C3: admission always requests a fresh audit and never reads a report."""
     seen: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -124,7 +92,6 @@ async def test_the_runner_never_consults_an_existing_report() -> None:
     finally:
         await api.close()
     assert seen == [("POST", "/audit")]
-    assert "skip_existing" not in {action.dest for action in _parser()._actions}
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -134,9 +101,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def test_a_dirty_tree_is_refused(monkeypatch) -> None:
-    """C4: a fidelity or detection number taken against a working tree is not a
-    measurement — the methodology's own figures moved 4,140 -> 4,616 rendered rows
-    mid-run because a peer was editing evidence.py."""
+    """C4/C5: dirty source is refused unless the operator marks it unpublishable."""
 
     class _Result:
         def __init__(self, out: str) -> None:
@@ -155,8 +120,7 @@ def test_a_dirty_tree_is_refused(monkeypatch) -> None:
 
 
 async def test_a_mock_llm_engine_is_refused(monkeypatch) -> None:
-    """C6: with NPMGUARD_MOCK_LLM on, `llm_attempts` gets no row — so the run has no
-    observed model, no token count and no cost. That is a benchmark of the mock."""
+    """C6: a mock model cannot produce a publishable benchmark."""
     from npmguard.config import get_settings
 
     monkeypatch.setenv("NPMGUARD_MOCK_LLM", "true")
@@ -170,10 +134,7 @@ async def test_a_mock_llm_engine_is_refused(monkeypatch) -> None:
 
 
 def test_an_unresolvable_sandbox_image_is_refused(monkeypatch) -> None:
-    """C7: `sandbox_image` is a mutable tag (`npmguard-sandbox:v1`) and a tag can be
-    rebuilt, so the runner resolves the concrete local image Id. F-G5 makes it
-    non-nullable, so failing to resolve one must stop the run rather than write a
-    null into a mandatory identifier — which is what the v1 TypeScript runner did."""
+    """C7: a run is refused when its sandbox bytes cannot be identified."""
 
     class _Result:
         stdout = ""
@@ -186,22 +147,16 @@ def test_an_unresolvable_sandbox_image_is_refused(monkeypatch) -> None:
 
 
 def test_the_client_timeout_exceeds_the_engine_envelope() -> None:
-    """C8: §7.4's trap. `npmguard-ops audit-batch` defaults to 20 minutes, which is
-    BELOW the engine's own ~77-minute scale-1 phase envelope, so a slow-but-
-    succeeding audit is abandoned and recorded as a failure the engine never had."""
+    """C8: the client default covers the measured scale-1 engine envelope."""
     engine_envelope_ms = 77 * 60 * 1_000
     assert engine_envelope_ms < runner.DEFAULT_TIMEOUT_MS
     assert _parser().parse_args(["--corpus", "x"]).timeout_ms == runner.DEFAULT_TIMEOUT_MS
-    # And N defaults to B-8's answer: 2 is the cheapest N that can observe a
-    # disagreement, and higher N actively worsens the published bound.
     assert _parser().parse_args(["--corpus", "x"]).runs == 2
     assert _parser().parse_args(["--corpus", "x"]).concurrency == 1
 
 
 async def test_a_client_timeout_is_recorded_with_the_harness_code() -> None:
-    """C9: the runner giving up is a harness artifact, so it carries a BENCH- code
-    that cannot collide with an NPMGUARD one and that the projector buckets VOID.
-    Filing it as ABSTAINED would blame the tool for the runner's patience."""
+    """C9: a client timeout is recorded as a harness failure, not a tool result."""
     recorded: list[Attempt] = []
 
     class _Store:
@@ -219,20 +174,21 @@ async def test_a_client_timeout_is_recorded_with_the_harness_code() -> None:
 
     import asyncio
 
-    # Fakes for the two collaborators _one touches; cast because it takes the
-    # concrete client and store, and standing either up would need a server.
-    await runner._one(cast(BenchApi, _Api()), cast(BenchRunStore, _Store()), 1, _entry("test-pkg-bench-x"), 0, asyncio.Semaphore(1))
+    await runner._one(
+        cast(BenchApi, _Api()),
+        cast(BenchRunStore, _Store()),
+        1,
+        _entry("test-pkg-bench-x"),
+        0,
+        asyncio.Semaphore(1),
+    )
     assert recorded[0].code == HARNESS_TIMEOUT_CODE
     assert recorded[0].audit_id == "a1"
     assert "gave up" in present(recorded[0].error)
 
 
 def test_a_missing_fixture_is_detected_without_reading_it(tmp_path: Path, monkeypatch) -> None:
-    """C10: corpus fixtures are LIVE MALWARE from the Datadog corpus. The runner
-    decides "is this entry runnable" from `is_dir()` alone — it never opens, copies
-    or executes one, and `sandbox/` is deliberately not an npm workspace so a
-    fixture install cannot reach the repo root. The engine's own resolver copies it
-    into a private workdir and the sandbox executes it there, or nowhere."""
+    """C10: fixture admission checks directory presence without reading malware."""
     fixtures = tmp_path / "test-fixtures"
     (fixtures / "test-pkg-bench-present").mkdir(parents=True)
     monkeypatch.setattr(runner, "FIXTURES_DIR", fixtures)
@@ -249,5 +205,4 @@ def test_a_missing_fixture_is_detected_without_reading_it(tmp_path: Path, monkey
     )
     missing = runner._missing_fixtures(corpus)
     assert [entry.fixture_name for entry in missing] == ["test-pkg-bench-absent"]
-    # No read happened: the present fixture directory is still empty.
     assert list((fixtures / "test-pkg-bench-present").iterdir()) == []

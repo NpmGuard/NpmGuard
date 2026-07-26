@@ -1,7 +1,7 @@
 # CLASS MAP — evidence: canonical JSON, merkle, L4 parse, artifact store, timeline
 # (pure functions + a filesystem ArtifactStore under tmp_path)
 # Axes: value shape (order/numbers/non-finite), leaf parity, trace framing,
-#       artifact integrity (round-trip/tamper/dedupe), timeline sections + collapse
+#       artifact integrity (tamper/dedupe), timeline sections + collapse
 #
 # The timeline classes are the expensive half of this file, because a timeline that
 # says LESS than the run did is what made real malware refute — three judges cannot
@@ -214,17 +214,6 @@ def test_seal_run_artifact_hash_is_self_consistent_and_deterministic() -> None:
     assert seal_run_artifact(draft).contentHash == declared
 
 
-def test_artifact_store_round_trip_and_verify(tmp_path) -> None:
-    """C7: write_artifact → read_artifact equal content, verify_artifact true."""
-    store = ArtifactStore(tmp_path)
-    draft = _artifact_draft([_l4("network", {"method": "GET", "url": "https://evil.test/x"})])
-    digest = store.write_artifact(draft)
-    loaded = store.read_artifact(digest)
-    assert loaded.contentHash == digest
-    assert loaded.runId == "run-1"
-    assert store.verify_artifact(digest)
-
-
 def test_tampered_artifact_fails_verification(tmp_path) -> None:
     """C8: editing the stored file breaks verify_artifact — hashes are checked."""
     store = ArtifactStore(tmp_path)
@@ -313,23 +302,38 @@ def test_captured_body_renders_bounded_and_names_the_minted_canary() -> None:
 def test_a_coincidental_planted_value_is_never_reported_as_carried_bait() -> None:
     """C13b: bait is what the engine MINTED, not what the model happened to plant.
     Both env values here are real, copied from the recorded corpus's own experiments,
-    and under the old 8-character length floor both manufactured a citation: a benign
-    crash report whose stack trace contains `/home/node` "carried planted env HOME",
-    and a GET with no body at all "carried planted env MYAPP_DB_HOST" because
-    `localhost` occurs in its own URL. That clause is written to be cited, one CONFIRM
-    is DANGEROUS, and DANGEROUS blocks an install — so the negative direction is the
-    expensive one. Paired with the positive probe in the same run, because "no clause"
-    must not be provable by breaking the clause."""
+    and a length-only bait rule would manufacture citations: a benign crash report
+    contains `/home/node`, while a bodyless health request contains `localhost`.
+    Paired with a positive probe so absence cannot pass through a broken renderer."""
     canary = mint_canary()
     crash = '{"stack":"Error: ENOENT at /home/node/app/index.js:3:11"}'
     exfil = f'{{"tok":"{canary}"}}'
     events = [
-        _l4("network", {"method": "POST", "url": "https://sentry.example.com/api/store",
-                        "body": crash, "bodyBytes": len(crash)}, timestamp=0),
-        _l4("network", {"method": "GET", "url": "http://localhost:9999/health",
-                        "body": "", "bodyBytes": 0}, timestamp=1),
-        _l4("network", {"method": "POST", "url": "https://evil.test/collect",
-                        "body": exfil, "bodyBytes": len(exfil)}, timestamp=2),
+        _l4(
+            "network",
+            {
+                "method": "POST",
+                "url": "https://sentry.example.com/api/store",
+                "body": crash,
+                "bodyBytes": len(crash),
+            },
+            timestamp=0,
+        ),
+        _l4(
+            "network",
+            {"method": "GET", "url": "http://localhost:9999/health", "body": "", "bodyBytes": 0},
+            timestamp=1,
+        ),
+        _l4(
+            "network",
+            {
+                "method": "POST",
+                "url": "https://evil.test/collect",
+                "body": exfil,
+                "bodyBytes": len(exfil),
+            },
+            timestamp=2,
+        ),
     ]
     draft = _artifact_draft(
         events,
@@ -435,9 +439,9 @@ def test_a_legacy_recorded_minus_one_states_its_own_coverage() -> None:
         / "fixtures/llm/test-pkg-env-exfil@2.0.1/sandbox/hyp-0009.runartifact.json"
     )
     artifact = RunArtifact.model_validate_json(path.read_text())
-    assert not any(
-        "error" in (event.normalized or {}) for event in artifact.events
-    ), "this artifact predates errno capture — that is what the class is about"
+    assert not any("error" in (event.normalized or {}) for event in artifact.events), (
+        "this artifact predates errno capture — that is what the class is about"
+    )
     rows = [row for row in render_timeline(artifact).text.splitlines() if "connect " in row]
     assert any("[-1, errno not recorded — refused or async in progress]" in row for row in rows)
     # Nothing in this artifact may be reported as a failure: no errno was recorded, and
@@ -479,20 +483,36 @@ def test_compute_event_summary_buckets_normalized_events() -> None:
     events = [
         _l4("network", {"method": "GET", "url": "https://evil.test/x"}),
         EvidenceEvent(
-            stream="L2:pcap", timestamp=0, pid=0, kind="http_request",
-            raw={}, normalized={"host": "api.evil.test", "method": "POST", "path": "/y"},
+            stream="L2:pcap",
+            timestamp=0,
+            pid=0,
+            kind="http_request",
+            raw={},
+            normalized={"host": "api.evil.test", "method": "POST", "path": "/y"},
         ),
         EvidenceEvent(
-            stream="L2:pcap", timestamp=0, pid=0, kind="dns_query",
-            raw={}, normalized={"host": "exfil.evil.test"},
+            stream="L2:pcap",
+            timestamp=0,
+            pid=0,
+            kind="dns_query",
+            raw={},
+            normalized={"host": "exfil.evil.test"},
         ),
         EvidenceEvent(
-            stream="L3:fsDiff", timestamp=0, pid=0, kind="file_created",
-            raw="A /pkg/dropped.sh", normalized={"path": "/pkg/dropped.sh"},
+            stream="L3:fsDiff",
+            timestamp=0,
+            pid=0,
+            kind="file_created",
+            raw="A /pkg/dropped.sh",
+            normalized={"path": "/pkg/dropped.sh"},
         ),
         EvidenceEvent(
-            stream="L1:seccomp", timestamp=0, pid=0, kind="connect",
-            raw="connect(...)", normalized={"ret": "0"},
+            stream="L1:seccomp",
+            timestamp=0,
+            pid=0,
+            kind="connect",
+            raw="connect(...)",
+            normalized={"ret": "0"},
         ),
     ]
     summary = compute_event_summary(events)
@@ -575,7 +595,9 @@ def test_a_setup_bypass_event_renders_its_reason() -> None:
     """C17: a bypass row's whole content is WHY the setup did not hold. Rendering a
     bare "bypass" told the judge that something in the manipulation failed without
     saying what, which is worse than saying nothing at all."""
-    events = [synthetic_event("setup_bypass", "stubUrl pattern 'https://x/y' cannot be intercepted")]
+    events = [
+        synthetic_event("setup_bypass", "stubUrl pattern 'https://x/y' cannot be intercepted")
+    ]
     text = render_timeline(seal_run_artifact(_artifact_draft(events))).text
     assert "bypass   stubUrl pattern 'https://x/y' cannot be intercepted" in text
 

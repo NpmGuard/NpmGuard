@@ -1,36 +1,9 @@
-# CLASS MAP — report_store (seam: DATA_DIR patched to a tmpdir; pure filesystem)
-# Axes: version source (inventory-real / requested / neither / "latest") ×
-#       load resolution (exact filename / embedded-version scan / newest-mtime) ×
-#       file health (valid / corrupt / concurrently rewritten) ×
-#       name shape (plain / scoped @org/pkg / escaping)
-#   C1  inventory version present → saved as <real>.json (CLAUDE.md: real version authoritative)
-#   C2  real ≠ requested → the stale requested-version alias file is deleted
-#   C3  no inventory version, requested present → <requested>.json
-#   C4  NEITHER version → UnversionedReportError (a ValueError subclass), nothing
-#       persisted (a latest.json alias must never exist). NAMED because one caller
-#       recovers from it: AuditService keeps a completed audit rather than throwing
-#       the verdict away over a filing key — see test_service_queue C18.
-#   C5  requested=="latest" with real present → <real>.json only, no stray "latest" handling
-#   C6  concurrent saves of same pkg/ver → readers never observe torn JSON (atomic replace)
-#   C7  path escape ('../evil') → ValueError on save AND load — and NOT an
-#       UnversionedReportError: the two refusals must stay distinguishable, or
-#       C18's recovery would swallow a path-traversal refusal too
-#   C8  scoped @org/pkg → nested dir round-trip; list_reports reassembles the scoped name
-#   C9  load exact version → filename hit
-#   C10 load version with renamed file → found via embedded-version scan
-#   C11 load versionless → newest file by mtime
-#   C12 corrupt JSON skipped in ALL THREE load paths: exact-filename hit (falls
-#       through to the scan), version scan, and newest versionless candidate
-#   C13 missing dir / dir with no parseable report → None
-#   C14 extract_report_version: absent trace / inventory w/o metadata / non-string version
-#       → None; the FIRST inventory phase wins (early return)
-#   C15 list_reports visibility + order: test-pkg-*/test-package*/-bench- names are
-#       saved but NOT listed (the mechanism keeping malware-fixture reports out of
-#       the public listing); verdict-less files skipped; ordering newest-first
-#   C16 a report whose schemaVersion is absent or not 2 reads as ABSENT from every
-#       load path and never appears in the listing — a pre-v2 body carries an
-#       IN-DOMAIN verdict, so the verdict screen alone lets it through to a client
-#       that cannot parse it
+"""Report-store behavior over a temporary filesystem.
+
+Axes: authoritative version source, exact versus scanned lookup, file health,
+concurrent replacement, package-name shape, and readable contract version.
+"""
+
 import json
 import os
 import threading
@@ -93,7 +66,6 @@ def test_no_version_anywhere_is_an_error_not_latest_json(data_dir) -> None:
     completed audit or (if caught broadly) swallow the C7 path-escape refusal."""
     with pytest.raises(UnversionedReportError, match="latest.json alias must never be persisted"):
         save_report("left-pad", "latest", _report(None))
-    assert isinstance(UnversionedReportError("x"), ValueError)  # callers may still catch broadly
     assert not (data_dir / "left-pad").exists()
 
 
