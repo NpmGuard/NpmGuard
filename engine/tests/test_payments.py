@@ -190,8 +190,34 @@ async def test_unreachable_rpc_maps_to_verification_error() -> None:
     settings = Settings(
         _env_file=None, base_sepolia_rpc_url=DEAD_RPC, base_sepolia_contract=CONTRACT
     )
-    with pytest.raises(ChainVerificationError, match="Could not fetch receipt"):
+    with pytest.raises(ChainVerificationError, match="Could not fetch a receipt"):
         await verify_audit_payment(settings, "base-sepolia", "0x" + "cc" * 32, "left-pad", "1.3.0")
+
+
+async def test_rpc_failure_never_quotes_the_endpoint(capsys) -> None:
+    """C5b: an RPC endpoint is a credential — Alchemy's is
+    `https://<host>/v2/<API_KEY>` — and `requests` puts the request URL in the
+    text of every HTTP error it raises. `ChainVerificationError`'s message is
+    returned verbatim as the 402 body, so any caller could read the key back by
+    provoking one; a 429 needs only txHashes faster than the RPC plan allows.
+
+    Asserted on the log too, not just the wire: CLAUDE.md keeps secrets out of
+    both, and urllib3 reports host and path apart — `url: /v2/<key>` names no
+    host, so redacting only the whole URL leaves the key in place. The token
+    below sits where a real Alchemy key sits."""
+    secret = "SUPER-SECRET-RPC-KEY"
+    settings = Settings(
+        _env_file=None,
+        base_sepolia_rpc_url=f"{DEAD_RPC}/v2/{secret}",
+        base_sepolia_contract=CONTRACT,
+    )
+    with pytest.raises(ChainVerificationError) as excinfo:
+        await verify_audit_payment(settings, "base-sepolia", "0x" + "cc" * 32, "left-pad", "1.3.0")
+    logged = capsys.readouterr().out
+    assert secret not in str(excinfo.value)
+    assert secret not in logged
+    # Discriminating: the cause is still recorded, just without the endpoint.
+    assert "receipt fetch failed" in logged
 
 
 async def test_reverted_tx_rejected(chain) -> None:

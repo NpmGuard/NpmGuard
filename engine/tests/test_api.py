@@ -15,6 +15,16 @@
 #   C8 unknown audit id               → 404 report
 #   C9 the 400 body is EXACTLY the declared shape — no undeclared key, and none of
 #      pydantic's own error keys (`type`, `input`) inside an issue
+# `localPath` — the local-read capability, whose axes are the knob and the host:
+#   C-local-1 the knob decides           — same body 403 with it off, 200 with it on
+#   C-local-2 an incoherent path         — relative, or not a package → 400, no audit
+#   C-local-3 a staged audit             — never files into the published report store
+#   C-local-4 ordering                   — the capability answers before any disk read,
+#      so a caller without it cannot tell a package directory from a missing one
+#   C-resolve-1 upstream vs absence      — an unreachable registry is 502, never a 404
+#      that a client reads as "npm has no such package" and does not retry
+#   C-boot-1 lifespan is all-or-nothing  — a raise during startup releases the engine
+#      pool, notifier, LLM client and worker pool it had already acquired
 # Residue: conftest pins NPMGUARD_DATA_DIR/NPMGUARD_AUDIT_LOG_DIR to a temp dir at
 # import; this file re-points both knobs to tmp_path per test (report_store's is an
 # import-time constant, so its module value is re-pointed to the same tmp target).
@@ -242,7 +252,7 @@ def test_staged_audits_are_refused_unless_the_engine_is_configured_for_them(
         assert client.post("/audit/stream", json=body).status_code == 200
 
 
-def test_an_incoherent_local_path_is_refused_at_parse_time(make_app) -> None:
+def test_an_incoherent_local_path_is_refused_at_admission(make_app) -> None:
     """C-local-2: a relative path, or one that is not a package, is refused with a
     400 before an audit exists — there is nothing for resolve to acquire, so it is
     made unreachable rather than handled as a resolve-phase failure."""
@@ -252,6 +262,39 @@ def test_an_incoherent_local_path_is_refused_at_parse_time(make_app) -> None:
                 "/audit/stream", json={"packageName": "test-pkg-child-success", "localPath": bad}
             )
             assert response.status_code == 400, bad
+
+
+def test_a_caller_without_the_capability_learns_nothing_about_the_host(
+    make_app, tmp_path
+) -> None:
+    """C-local-4: the capability answers BEFORE anything reads the host's disk.
+
+    A parse-time "is this a package directory" check sits ahead of both gates and
+    is therefore an unauthenticated filesystem oracle: on a production engine
+    (payment on, staging off) the status code alone separates a path holding a
+    package.json from one that does not.
+
+    Discriminating: the two paths differ ONLY in whether package.json exists, so
+    an identical response is the whole assertion — body included, since a probe
+    leaks just as well through prose."""
+    present = tmp_path / "is-a-package"
+    present.mkdir()
+    (present / "package.json").write_text("{}")
+    absent = tmp_path / "is-not-a-package"
+    absent.mkdir()
+
+    app = make_app(
+        NPMGUARD_PAYMENT_REQUIRED="true", NPMGUARD_LOCAL_PACKAGE_AUDITS="false"
+    )
+    with TestClient(app) as client:
+        answers = {
+            client.post(
+                "/audit", json={"packageName": "is-number", "localPath": str(path)}
+            ).text
+            for path in (present, absent)
+        }
+    assert len(answers) == 1, answers
+    assert _session_count(tmp_path) == 0
 
 
 def test_a_staged_audit_never_enters_the_published_report_store(make_app, tmp_path) -> None:
@@ -268,3 +311,55 @@ def test_a_staged_audit_never_enters_the_published_report_store(make_app, tmp_pa
         assert _wait_report(client, "", audit_id).status_code == 200
         assert client.get("/api/packages").json()["packages"] == []
         assert not list((tmp_path / "data" / "reports").rglob("*.json"))
+
+
+def test_an_unreachable_registry_is_not_reported_as_a_missing_package(
+    make_app, monkeypatch
+) -> None:
+    """C-resolve-1: "npm has no such package" and "we could not ask npm" are
+    different facts, and /resolve must not collapse the second into the first.
+
+    A 404 there is a fabricated absence (N-3) with a second-order cost: the web
+    app's `retryable()` reads 404 as a deterministic function of the request and
+    does not retry, so a transient outage renders as a permanent verdict about
+    the package. 127.0.0.1:1 refuses instantly — an outage without a sleep."""
+    with TestClient(make_app()) as client:
+        monkeypatch.setattr("npmguard.resolve.NPM_REGISTRY", "http://127.0.0.1:1")
+        response = client.get("/resolve/is-number")
+    assert response.status_code == 502, response.text
+    # The 5xx is what makes it retryable; the body must not name our transport.
+    assert "connection" not in response.text.lower()
+    assert "not found" not in response.text.lower()
+
+
+def test_a_failed_boot_releases_everything_it_acquired(monkeypatch, tmp_path) -> None:
+    """C-boot-1: lifespan acquires an engine pool, a notifier task, an LLM client
+    and a worker pool. A raise partway through must release all of them.
+
+    In-process the leak is not academic: a notifier task and an aiosqlite
+    connection outliving a failed startup surface later as
+    PytestUnraisableExceptionWarning under `filterwarnings = ["error"]`, attributed
+    to whichever test runs next.
+
+    `AuditService.start` is the injection point because it is the LAST thing
+    lifespan does, so every acquisition is already live when it raises."""
+    for name, value in {
+        "NPMGUARD_ENV": "test",
+        "NPMGUARD_MOCK_LLM": "true",
+        "NPMGUARD_DATABASE_URL": f"sqlite+aiosqlite:///{tmp_path / 'api.sqlite3'}",
+        "NPMGUARD_DATA_DIR": str(tmp_path / "data"),
+        "NPMGUARD_AUDIT_LOG_DIR": str(tmp_path / "audit-logs"),
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        "npmguard.report_store.DATA_DIR", (tmp_path / "data" / "reports").resolve()
+    )
+    get_settings.cache_clear()
+
+    async def refuse_to_start(self) -> None:
+        raise RuntimeError("restart recovery failed")
+
+    monkeypatch.setattr("npmguard.service.AuditService.start", refuse_to_start)
+    with pytest.raises(RuntimeError, match="restart recovery failed"), TestClient(create_app()):
+        pass
+    get_settings.cache_clear()
