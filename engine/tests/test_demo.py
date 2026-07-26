@@ -465,14 +465,14 @@ def test_a_non_numeric_speed_breaks_the_import(at_speed) -> None:
 @pytest.mark.parametrize(
     ("kind", "speed", "events", "lower", "upper"),
     [
-        # agent_reasoning floors at 800 ms; the recorded gap is 1 ms. At speed 4
-        # the floor is 200 ms, while the recorded delta alone would be 0.25 ms.
+        # file_analyzing floors at 600 ms; the recorded gap is 1 ms. At speed 4
+        # the floor is 150 ms, while the recorded delta alone would be 0.25 ms.
         (
             "floor",
             "4",
             [
-                ("agent_reasoning", "00.000"),
-                ("agent_reasoning", "00.001"),
+                ("file_analyzing", "00.000"),
+                ("file_analyzing", "00.001"),
                 ("verdict_reached", "00.002"),
             ],
             0.1,
