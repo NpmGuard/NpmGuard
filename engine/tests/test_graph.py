@@ -5,7 +5,8 @@
 #   C1 confirm/refute require evidence; terminal states are sticky
 #   C2 DEFERRED is never laundered into SAFE — verdict derivation refuses
 #   C3 CONFIRMED wins the verdict; next_open dispatches severity-first
-#   C4 near-duplicate hypotheses merge; snapshot save/load round-trips
+#   C4 near-duplicate hypotheses merge; the snapshot round-trips through
+#      serialize()/load() — the pair the pipeline and the replay actually use
 #   C5 the injected clock stamps created/updated/resolved times — time is a
 #      parameter, not ambient state
 #   C6 admission asserts armed: an OPEN node with an empty experiment never
@@ -20,7 +21,6 @@
 # Deduping on description alone drops the incoming experiment/claim/severity while
 # UNIONING focus regions into the survivor: the second bait never runs, and the
 # report points at both regions as if one run had covered them.
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -97,8 +97,12 @@ def test_confirmed_always_wins_and_priority_is_severity_first() -> None:
     assert verdict.confirmed_hyp_ids == ["critical"]
 
 
-def test_merge_and_persistence_round_trip(tmp_path: Path) -> None:
-    """C4: duplicates merge focus; snapshot serializes and reloads identically."""
+def test_merge_and_persistence_round_trip() -> None:
+    """C4: duplicates merge focus; snapshot serializes and reloads identically.
+
+    Round-trips through `serialize()`/`load()`, which is the pair production
+    uses — the pipeline writes `graph.serialize()` into the audit log and the
+    replay reads it back."""
     graph = HypothesisGraph("audit-1")
     graph.add(hypothesis("original"))
     merged, was_merged = graph.add_or_merge(
@@ -111,9 +115,7 @@ def test_merge_and_persistence_round_trip(tmp_path: Path) -> None:
     assert was_merged is True
     assert graph.size == 1
     assert merged.focusFiles == ["index.js", "setup.js"]
-    path = tmp_path / "graph.json"
-    graph.save_to(path)
-    restored = HypothesisGraph.load_from(path)
+    restored = HypothesisGraph.load(graph.serialize())
     assert restored.serialize() == graph.serialize()
 
 
