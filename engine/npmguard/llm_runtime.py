@@ -4,6 +4,7 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from kit_llm import (
+    BedrockAdapter,
     JsonObject,
     LlmSettings,
     ModelSpec,
@@ -30,6 +31,7 @@ from .phases import FileFlagResponse, JudgeVerdict, PackageIntent, hypothesis_su
 # not. Absent entries (e.g. google/gemini-*) get no reasoning field. Keyed on the
 # resolved OpenRouter slug.
 _REASONING: dict[str, ReasoningControl] = {
+    "xai.grok-4.3": ReasoningControl(effort="medium"),
     "deepseek/deepseek-v4-flash": ReasoningControl(enabled=False),
     "qwen/qwen3-30b-a3b": ReasoningControl(enabled=False),
     "openai/gpt-5-nano": ReasoningControl(effort="low"),
@@ -40,36 +42,22 @@ def _reasoning_for(slug: str) -> ReasoningControl | None:
     return _REASONING.get(slug)
 
 
-# Cross-provider model fallback appended after the primary (deepseek) on every
-# role. When the primary route fails — timeout, provider abort, or exhausted
-# repair — the client advances the chain (client.py:515/528/620) to a DIFFERENT
-# model instead of hard-ERRORing the audit; without one, a provider outage kills
-# every entry (the whole chain is one model), which turned a deepseek latency
-# window into a 14/15-ERROR benchmark run.
-#
-# Role-split by what each fallback was PROBED to do (``:free`` slugs, pinned to
-# zero price so spend stays off the expensive-fallback rate):
-#   nemotron-3-super  — conforms to StrictSchema 3/3 (FileFlagResponse) AND
-#                       tool-calls 2/3 → usable in every role.
-#   minimax-m3        — conforms to StrictSchema 2/3, fast (1-6.5s), cheap-paid
-#                       ($0.30/$1.20 per Mtok, backfilled — not in _FREE_PRICES);
-#                       different provider than nemotron → structured 3rd tier.
-#   cohere/north-mini — tool-calls 3/3 but fails StrictSchema 0/3 (truncates /
-#                       wrong top-level type) → agent role ONLY, where offered
-#                       tools suppress the response format anyway (client.py:467).
-#   xiaomi/mimo-v2.5  — rejected: ~110s/call (over the 60s per-call timeout) and
-#                       truncates; disabling reasoning did not rescue it.
+# Every role crosses model families after a provider/model failure. Structured
+# roles lead with the primary (GLM-5); the agent role leads with DeepSeek, whose
+# tool-calling is the more reliable of the two.
 _STRICT_FALLBACKS: tuple[str, ...] = (
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "minimax/minimax-m3",
+    "deepseek.v3.2",
+    "moonshotai.kimi-k2.5",
 )
-_AGENT_FALLBACKS: tuple[str, ...] = (
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "cohere/north-mini-code:free",
+_AGENT_DEFAULT_CHAIN: tuple[str, ...] = (
+    "deepseek.v3.2",
+    "zai.glm-5",
+    "moonshotai.kimi-k2.5",
 )
-_FREE_PRICES: dict[str, tuple[float, float]] = {
-    "nvidia/nemotron-3-super-120b-a12b:free": (0.0, 0.0),
-    "cohere/north-mini-code:free": (0.0, 0.0),
+_MODEL_PRICES: dict[str, tuple[float, float]] = {
+    "zai.glm-5": (1.00, 3.20),
+    "deepseek.v3.2": (0.62, 1.85),
+    "moonshotai.kimi-k2.5": (0.60, 3.00),
 }
 
 
@@ -87,20 +75,14 @@ def _fallback_specs(
             max_output_tokens=max_output_tokens,
             transport=transport,
             reasoning=_reasoning_for(slug),
-            prices=_FREE_PRICES.get(slug),
+            prices=_MODEL_PRICES.get(slug),
         )
         for slug in slugs
     )
 
 
 def _union_chain(slug: str, timeout_ms: int, max_output_tokens: int) -> tuple[ModelSpec, ...]:
-    """deepseek under StrictSchema, then the cross-provider StrictSchema fallback
-    tail. The primary's own strict→JsonObject transport hop was dropped: measured
-    JsonObject fallbacks do NOT conform to the strict contracts (they omit e.g.
-    FileFlagResponse.flags[].lines), and the cross-model tail now covers the
-    total-outage / provider-abort cases the same-model json hop used to. Trade-off:
-    we lose deepseek's own strict∪json transport-union recovery (hyp-confirm-v1:
-    52/64 each, 62/64 union) in favour of a different-model retry — worth measuring."""
+    """Strict-schema primary followed by the measured cross-model fallbacks."""
     return (
         ModelSpec(
             slug,
@@ -108,8 +90,32 @@ def _union_chain(slug: str, timeout_ms: int, max_output_tokens: int) -> tuple[Mo
             max_output_tokens=max_output_tokens,
             transport=StrictSchema(),
             reasoning=_reasoning_for(slug),
+            prices=_MODEL_PRICES.get(slug),
         ),
-    ) + _fallback_specs(_STRICT_FALLBACKS, timeout_ms, max_output_tokens, transport=StrictSchema())
+    ) + _fallback_specs(
+        tuple(model for model in _STRICT_FALLBACKS if model != slug),
+        timeout_ms,
+        max_output_tokens,
+        transport=StrictSchema(),
+    )
+
+
+def _agent_chain(slug: str, timeout_ms: int) -> tuple[ModelSpec, ...]:
+    models = (
+        _AGENT_DEFAULT_CHAIN
+        if slug == "zai.glm-5"
+        else (slug,) + tuple(model for model in _AGENT_DEFAULT_CHAIN if model != slug)
+    )
+    return tuple(
+        ModelSpec(
+            model,
+            timeout_ms=timeout_ms,
+            max_output_tokens=3_000,
+            reasoning=_reasoning_for(model),
+            prices=_MODEL_PRICES.get(model),
+        )
+        for model in models
+    )
 
 
 def _model(settings: Settings, model: str) -> str:
@@ -134,6 +140,18 @@ def _provider_settings(settings: Settings) -> LlmSettings:
     elif settings.llm_backend == "google":
         base_url = base_url or "https://generativelanguage.googleapis.com/v1beta/openai/"
         api_key = api_key or os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
+    elif settings.llm_backend == "bedrock":
+        origin = (base_url or f"https://bedrock-mantle.{settings.bedrock_region}.api.aws").rstrip(
+            "/"
+        )
+        origin = origin.removesuffix("/openai/v1").removesuffix("/v1")
+        base_url = f"{origin}/v1"
+        api_key = (
+            api_key
+            or os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "")
+            or os.environ.get("AWS_BEDROCK_API_KEY", "")
+            or os.environ.get("BEDROCK_KEY", "")
+        )
     return LlmSettings(
         llm_api_key=api_key,
         llm_base_url=base_url or "https://openrouter.ai/api/v1",
@@ -182,24 +200,12 @@ def build_npmguard_llm(
             repair_retries=1,
         ),
         # ...then an agentic tool-building loop. Offered tools suppress the
-        # response format, so this route needs no transport — one spec, just the
-        # reasoning knob and room to iterate.
+        # response format, so this route needs no transport.
         Role(
             "agent",
-            (
-                ModelSpec(
-                    investigation,
-                    timeout_ms=timeout,
-                    max_output_tokens=3_000,
-                    reasoning=_reasoning_for(investigation),
-                ),
-            )
-            # transport-free fallbacks: offered tools suppress response_format
-            # (client.py:467), so these matter only if they tool-call — verified
-            # for both agent slugs, so a deepseek outage here now advances to a
-            # working tool-caller (incl. cohere, which is excluded from the strict
-            # roles) instead of failing to arm.
-            + _fallback_specs(_AGENT_FALLBACKS, timeout, 3_000, transport=None),
+            # Tool-call reliability is a distinct measured capability, so its
+            # ordering differs from the structured-output roles.
+            _agent_chain(investigation, timeout),
             output=None,
         ),
         Role(
@@ -230,9 +236,14 @@ def build_npmguard_llm(
                 }
             )
         else:
-            provider = (
-                OpenRouterAdapter(llm_settings)
-                if "openrouter.ai" in llm_settings.llm_base_url
-                else OpenAICompatAdapter(llm_settings)
-            )
+            if settings.llm_backend == "bedrock":
+                origin = llm_settings.llm_base_url.removesuffix("/v1")
+                provider = BedrockAdapter(
+                    llm_settings,
+                    responses_base_url=f"{origin}/openai/v1",
+                )
+            elif "openrouter.ai" in llm_settings.llm_base_url:
+                provider = OpenRouterAdapter(llm_settings)
+            else:
+                provider = OpenAICompatAdapter(llm_settings)
     return build_llm(sessions, llm_settings, roles, provider=provider)
