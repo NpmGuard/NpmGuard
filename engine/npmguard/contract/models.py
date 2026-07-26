@@ -359,11 +359,11 @@ class ResolvedPackage(BaseModel):
 
 
 class RunCaptures(BaseModel):
-    stdoutHash: str | None = None
-    stderrHash: str | None = None
-    fsDiffHash: str | None = None
-    pcapHash: str | None = None
-    straceLogHash: str | None = None
+    stdoutHash: str | None
+    stderrHash: str | None
+    fsDiffHash: str | None
+    pcapHash: str | None
+    straceLogHash: str | None
 
 
 class RunError(BaseModel):
@@ -375,16 +375,14 @@ class RunError(BaseModel):
 
 
 class SanitizedSetup(BaseModel):
-    envKeys: list[str] | None = []
-    date: str | None = None
-    plantedFiles: Annotated[
-        list[PlantedFileRef] | None, Field(validate_default=True)
-    ] = []
-    stubUrls: Annotated[list[DisplayStub] | None, Field(validate_default=True)] = []
-    hostname: str | None = None
-    locale: str | None = None
-    patchedFiles: list[str] | None = []
-    preloaded: bool | None = False
+    envKeys: list[str]
+    date: str | None
+    plantedFiles: list[PlantedFileRef]
+    stubUrls: list[DisplayStub]
+    hostname: str | None
+    locale: str | None
+    patchedFiles: list[str]
+    preloaded: bool
 
 
 class ScanAlreadyRunning(BaseModel):
@@ -836,7 +834,7 @@ class DisplayObservation(BaseModel):
     signal: Annotated[
         Literal['high', 'context', 'error'], Field(title='ObservationSignal')
     ]
-    occurrences: Annotated[int | None, Field(gt=0)] = 1
+    occurrences: Annotated[int, Field(gt=0)]
 
 
 class EvidenceEvent(BaseModel):
@@ -900,7 +898,7 @@ class ExperimentStartedEvent(BaseModel):
     type: Literal['experiment_started']
     hypId: str
     runId: str
-    experiment: Annotated[list[ToolCall] | None, Field(validate_default=True)] = []
+    experiment: list[ToolCall]
     trigger: Trigger
 
 
@@ -936,7 +934,7 @@ class GraphBuiltEvent(BaseModel):
     nodeCount: Annotated[int, Field(ge=0)]
     addedCount: Annotated[int, Field(ge=0)]
     mergedCount: Annotated[int, Field(ge=0)]
-    merges: Annotated[list[HypothesisMerge] | None, Field(validate_default=True)] = []
+    merges: list[HypothesisMerge]
 
 
 class HypothesisEmittedEvent(BaseModel):
@@ -967,8 +965,8 @@ class HypothesisEmittedEvent(BaseModel):
         Literal['low', 'medium', 'high', 'critical'], Field(title='HypothesisSeverity')
     ]
     description: str
-    focusFiles: list[str] | None = []
-    focusLines: Annotated[list[FocusRange] | None, Field(validate_default=True)] = []
+    focusFiles: list[str]
+    focusLines: list[FocusRange]
 
 
 class HypothesisResolvedEvent(BaseModel):
@@ -1004,12 +1002,10 @@ class HypothesisResolvedEvent(BaseModel):
     ]
     by: str
     reason: str
-    evidenceRefs: Annotated[list[EvidenceRef] | None, Field(validate_default=True)] = []
-    citedEventIds: list[str] | None = []
-    citedObservations: Annotated[
-        list[DisplayObservation] | None, Field(validate_default=True)
-    ] = []
-    runId: str | None = None
+    evidenceRefs: list[EvidenceRef]
+    citedEventIds: list[str]
+    citedObservations: list[DisplayObservation]
+    runId: str | None
 
 
 class Hypothesis(BaseModel):
@@ -1174,12 +1170,10 @@ class RunDisplay(BaseModel):
     timedOut: bool
     eventCount: Annotated[int, Field(ge=0)]
     eventSummary: EventSummary
-    error: RunError | None = None
+    error: RunError | None
     setupApplied: SanitizedSetup
-    observations: Annotated[
-        list[DisplayObservation] | None, Field(validate_default=True)
-    ] = []
-    omittedObservationCount: Annotated[int | None, Field(ge=0)] = 0
+    observations: list[DisplayObservation]
+    omittedObservationCount: Annotated[int, Field(ge=0)]
     captures: RunCaptures
     contentHash: str
 

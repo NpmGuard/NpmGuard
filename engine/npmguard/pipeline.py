@@ -468,9 +468,7 @@ class AuditPipeline:
             if not flagged.flags:
                 graph = build_graph(audit_id, []).graph
                 await _emit_file_verdicts(flagged.fileSummaries, [], emitter)
-                report = _report(
-                    graph, flagged.fileSummaries, trace, coverage_gaps=coverage_gaps
-                )
+                report = _report(graph, flagged.fileSummaries, trace, coverage_gaps=coverage_gaps)
                 log.write("report.json", report)
                 return AuditResult(report, resolved.path, resolved, replay_sources)
 

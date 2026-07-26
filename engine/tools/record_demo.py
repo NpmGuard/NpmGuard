@@ -82,9 +82,7 @@ async def record_safe() -> dict[str, Any]:
 
         from tests.support.harness import EngineHarness
 
-        engine = EngineHarness(
-            workdir=workdir, llm_url=mock.v1_url, registry_url=registry.base_url
-        )
+        engine = EngineHarness(workdir=workdir, llm_url=mock.v1_url, registry_url=registry.base_url)
         engine.start()
         try:
             started = engine.start_audit("chalk", version="5.6.2")
@@ -327,7 +325,9 @@ async def _amain(do_safe: bool, do_dangerous: bool) -> None:
         safe = await record_safe()
         path = _write(safe)
         terminal = safe["events"][-1]
-        print(f"[safe]      wrote {path}  verdict={terminal.get('verdict')}  events={len(safe['events'])}")
+        print(
+            f"[safe]      wrote {path}  verdict={terminal.get('verdict')}  events={len(safe['events'])}"
+        )
     if do_dangerous:
         dangerous = await record_dangerous()
         path = _write(dangerous)

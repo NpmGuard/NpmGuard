@@ -279,7 +279,7 @@ export const DisplayObservation = z.object({
   kind: EventKind,
   summary: z.string(),
   signal: ObservationSignal,
-  occurrences: z.number().int().positive().default(1),
+  occurrences: z.number().int().positive(),
 });
 export const DisplayObservationSchema = DisplayObservation;
 export type DisplayObservation = z.infer<typeof DisplayObservation>;
@@ -305,14 +305,14 @@ export type DisplayStub = z.infer<typeof DisplayStub>;
 // The UI renders them `[synthetic secret]` — which is a label, where a blanked
 // field would read as "a real credential is being hidden".
 export const SanitizedSetup = z.object({
-  envKeys: z.array(z.string()).default([]),
-  date: z.string().nullable().default(null),
-  plantedFiles: z.array(PlantedFileRef).default([]),
-  stubUrls: z.array(DisplayStub).default([]),
-  hostname: z.string().nullable().default(null),
-  locale: z.string().nullable().default(null),
-  patchedFiles: z.array(z.string()).default([]),
-  preloaded: z.boolean().default(false),
+  envKeys: z.array(z.string()),
+  date: z.string().nullable(),
+  plantedFiles: z.array(PlantedFileRef),
+  stubUrls: z.array(DisplayStub),
+  hostname: z.string().nullable(),
+  locale: z.string().nullable(),
+  patchedFiles: z.array(z.string()),
+  preloaded: z.boolean(),
 });
 export const SanitizedSetupSchema = SanitizedSetup;
 export type SanitizedSetup = z.infer<typeof SanitizedSetup>;
@@ -320,11 +320,11 @@ export type SanitizedSetup = z.infer<typeof SanitizedSetup>;
 // The raw-capture digests, carried so an inspector can state that a capture
 // exists and name it. A hash is not content.
 export const RunCaptures = z.object({
-  stdoutHash: z.string().nullable().default(null),
-  stderrHash: z.string().nullable().default(null),
-  fsDiffHash: z.string().nullable().default(null),
-  pcapHash: z.string().nullable().default(null),
-  straceLogHash: z.string().nullable().default(null),
+  stdoutHash: z.string().nullable(),
+  stderrHash: z.string().nullable(),
+  fsDiffHash: z.string().nullable(),
+  pcapHash: z.string().nullable(),
+  straceLogHash: z.string().nullable(),
 });
 export const RunCapturesSchema = RunCaptures;
 export type RunCaptures = z.infer<typeof RunCaptures>;
@@ -343,10 +343,10 @@ export const RunDisplay = z.object({
   timedOut: z.boolean(),
   eventCount: z.number().int().nonnegative(),
   eventSummary: EventSummary,
-  error: RunError.nullable().default(null),
+  error: RunError.nullable(),
   setupApplied: SanitizedSetup,
-  observations: z.array(DisplayObservation).default([]),
-  omittedObservationCount: z.number().int().nonnegative().default(0),
+  observations: z.array(DisplayObservation),
+  omittedObservationCount: z.number().int().nonnegative(),
   captures: RunCaptures,
   contentHash: z.string(),
 });

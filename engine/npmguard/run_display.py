@@ -24,7 +24,7 @@ confirmed verdict can be walked back to the rows it rests on.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from .contract.models import (
@@ -46,6 +46,10 @@ from .evidence import CANARY_PATTERN, TimelineRow, timeline_rows
 # in the committed corpus with room to spare, so the bound is a ceiling on
 # pathology rather than a routine cut.
 DISPLAY_OBSERVATION_BOUND = 60
+
+# shared/src/evidence.ts :: ObservationSignal. Named here rather than restated at
+# each use so the three tiers and the priority order below cannot drift apart.
+ObservationSignal = Literal["high", "context", "error"]
 
 # A synthetic value, wherever one is displayed. Never a blank: an empty field
 # reads as "a real credential is being hidden", which is the opposite of true.
@@ -210,7 +214,7 @@ def _display_target(row: TimelineRow, bait: dict[str, str]) -> str:
     return _bare(row.target)
 
 
-def _signal(row: TimelineRow) -> str:
+def _signal(row: TimelineRow) -> ObservationSignal:
     kind = row.events[0].kind
     if kind in _ALWAYS_KINDS or row.events[0].stream == "engine":
         return "error"
@@ -221,7 +225,9 @@ def _signal(row: TimelineRow) -> str:
     return "context"
 
 
-def _observation(row: TimelineRow, signal: str, bait: dict[str, str]) -> DisplayObservation:
+def _observation(
+    row: TimelineRow, signal: ObservationSignal, bait: dict[str, str]
+) -> DisplayObservation:
     event = row.events[0]
     target = _display_target(row, bait)
     clauses = _outcome_clauses(row.target) + _payload_witness(row, bait)
@@ -266,7 +272,7 @@ def select_observations(
     Returns the selection in row order, and how many rows it left out.
     """
     seen: set[tuple[str, str]] = set()
-    ranked: list[tuple[int, int, TimelineRow, str]] = []
+    ranked: list[tuple[int, int, TimelineRow, ObservationSignal]] = []
     for index, row in enumerate(rows):
         signal = _signal(row)
         if signal == "high":

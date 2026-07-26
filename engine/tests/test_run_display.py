@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import pytest
 
+from npmguard.contract.kinds import EventKind, StreamKind
 from npmguard.contract.models import EvidenceEvent, ToolCall
 from npmguard.evidence import (
     CANARY_PREFIX,
@@ -72,7 +73,7 @@ ALL_SECRETS = (
 )
 
 
-def _event(kind: str, *, stream: str = "L4:monkey", at: int = 0, raw=None, **normalized):
+def _event(kind: EventKind, *, stream: StreamKind = "L4:monkey", at: int = 0, raw=None, **normalized):
     return EvidenceEvent(
         stream=stream, timestamp=at, pid=1, kind=kind, raw=raw, normalized=normalized
     )
@@ -289,8 +290,12 @@ def test_repeat_high_signal_behaviour_is_demoted_not_merged() -> None:
     otherwise one chatty loop fills the whole bound."""
     events = []
     for index in range(12):
-        events.append(_event("connect", stream="L1:seccomp", at=index * 2, addr="1.2.3.4", port="443"))
-        events.append(_event("openat", stream="L1:seccomp", at=index * 2 + 1, path=f"/tmp/x{index}"))
+        events.append(
+            _event("connect", stream="L1:seccomp", at=index * 2, addr="1.2.3.4", port="443")
+        )
+        events.append(
+            _event("openat", stream="L1:seccomp", at=index * 2 + 1, path=f"/tmp/x{index}")
+        )
     display = project_run_display(_artifact(events), run_id=RUN_ID, bound=6)
     connects = [item for item in display.observations if item.kind == "connect"]
     assert [item.signal for item in connects].count("high") == 1
@@ -300,8 +305,15 @@ def test_a_collapsed_row_carries_its_true_count() -> None:
     """C3d: 44 identical packets are one row. Without `occurrences` the display
     shows one and understates the run by 43."""
     events = [
-        _event("sendto", stream="L1:seccomp", at=index, raw='sendto(19, "x", 1, 0, NULL, 0)',
-               addr="1.2.3.4", port="53", ret="1")
+        _event(
+            "sendto",
+            stream="L1:seccomp",
+            at=index,
+            raw='sendto(19, "x", 1, 0, NULL, 0)',
+            addr="1.2.3.4",
+            port="53",
+            ret="1",
+        )
         for index in range(44)
     ]
     display = project_run_display(_artifact(events), run_id=RUN_ID)
@@ -331,9 +343,7 @@ def test_a_citation_resolves_even_when_the_preview_dropped_it() -> None:
     # timeline line names at that id. A projection that merely returned three
     # observations would pass the equality above.
     for item in cited:
-        line = next(
-            row for row in timeline.text.splitlines() if row.startswith(f"{item.eventId} ")
-        )
+        line = next(row for row in timeline.text.splitlines() if row.startswith(f"{item.eventId} "))
         assert item.summary.split()[-1] in line
 
 
@@ -368,7 +378,9 @@ def test_setup_names_keys_and_drops_values() -> None:
 def test_a_stub_reports_whether_it_was_ever_contacted() -> None:
     """C5b: "the endpoint you were told is stubbed was never contacted" is evidence
     about the run — the experiment's central manipulation never fired."""
-    stubs = {stub.pattern: stub.served for stub in sanitize_setup(_leaky_run().setupApplied).stubUrls}
+    stubs = {
+        stub.pattern: stub.served for stub in sanitize_setup(_leaky_run().setupApplied).stubUrls
+    }
     assert stubs == {"http://evil.test/*": True, "http://unused.test/*": False}
 
 
