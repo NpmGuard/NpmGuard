@@ -296,17 +296,29 @@ async def test_replay_restamps_the_envelope_and_drops_recorded_timestamps(rig) -
 
 
 async def test_replay_finalises_the_row_with_the_recorded_report(rig) -> None:
-    """C6: nothing is regenerated — the row's report is the recorded object, whose
-    verdict/counts/hypotheses are the faithful half of the hybrid."""
+    """C6: nothing is regenerated — the row's report IS the recorded object.
+
+    Internal consistency rather than pinned totals: a re-record moves how many
+    hypotheses confirmed, and a test that pins the number goes red for a reason
+    that is not a defect. What must hold on every capture is that the counts, the
+    confirmed ids and the hypothesis list agree with each other."""
     recorded = _recording(DANGEROUS_RECORDING)
     result = await _replay(rig, package="test-pkg-env-exfil")
     assert result.row.status == "done"
     assert result.row.error is None
     assert result.row.report == recorded["report"]
-    assert result.row.report["verdict"] == "DANGEROUS"
-    assert result.row.report["counts"]["confirmed"] == 1
-    assert result.row.report["confirmedHypIds"] == ["hyp-0008"]
-    assert len(result.row.report["hypotheses"]) == 14
+
+    report = result.row.report
+    assert report["verdict"] == "DANGEROUS"
+    confirmed = [
+        hypothesis["hypId"]
+        for hypothesis in report["hypotheses"]
+        if hypothesis["state"] == "CONFIRMED"
+    ]
+    assert confirmed, "a DANGEROUS verdict rests on at least one confirmed hypothesis"
+    assert sorted(report["confirmedHypIds"]) == sorted(confirmed)
+    assert report["counts"]["confirmed"] == len(confirmed)
+    assert report["counts"]["total"] == len(report["hypotheses"])
 
 
 async def test_safe_recording_replays_the_same_way(rig) -> None:
@@ -392,19 +404,25 @@ async def test_seeding_a_long_recording_costs_no_wall_clock(rig, tmp_path, monke
 
 
 # --------------------------------------------------------------------------- #
-# The hybrid, and the trap it sets
+# Fidelity — the recording IS an audit
 # --------------------------------------------------------------------------- #
+#
+# These replace the divergence pins (C14a–c). Those existed to make a HYBRID
+# recording's curated values visible — a `file_list` claiming fileType
+# "javascript" where the engine emits "js", a `dependencies_provisioned` claiming
+# an install that never ran, a risk score contradicting its own severities — and
+# their own docstrings said to delete them when the recording was re-recorded.
+# It has been: both recordings are now end-to-end captures from the real engine.
+#
+# So the class flips direction. Where it once pinned divergence AS divergence, it
+# now asserts agreement, and against the engine's own code over the same
+# committed source tree rather than against a quoted document.
 
 
-def test_recorded_file_frames_diverge_from_what_the_engine_emits(tmp_path) -> None:
-    """C14: the divergence pin (§24.1), computed rather than quoted. classify_files
-    and provision_dependencies are run over the committed source tree the recording
-    is an audit OF, so the "engine would produce" column is the engine's own
-    output, not a claim from a document. DELETE THIS TEST when the recording is
-    re-recorded — it exists to make the hybrid visible, so it must go red then.
-    Faithful here: the file set and every sizeBytes. Divergent: fileType
-    ("javascript" vs "js") and permissions ("0644" vs "644" — §24.1 does not list
-    the second one)."""
+def test_the_recorded_file_frame_is_what_the_engine_emits(tmp_path) -> None:
+    """C14: `file_list` agrees with `classify_files` over the source tree the
+    recording is an audit OF — path set, sizes, fileType and permissions. Computed
+    from the engine, so a change to either side has to move both."""
     recorded = _recording(DANGEROUS_RECORDING)
     frame = next(event for event in recorded["events"] if event["type"] == "file_list")
     recorded_files = {entry["path"]: entry for entry in frame["files"]}
@@ -415,89 +433,87 @@ def test_recorded_file_frames_diverge_from_what_the_engine_emits(tmp_path) -> No
 
     assert set(recorded_files) == set(engine_files)
     for path, record in engine_files.items():
-        assert recorded_files[path]["sizeBytes"] == record.sizeBytes  # faithful
-    assert {entry["fileType"] for entry in recorded_files.values()} == {"javascript", "json"}
-    assert {record.fileType for record in engine_files.values()} == {"js", "json"}
+        assert recorded_files[path]["sizeBytes"] == record.sizeBytes
+        assert recorded_files[path]["fileType"] == record.fileType
     assert EXTENSION_TYPE_MAP[".js"] == "js"
-    assert {entry["permissions"] for entry in recorded_files.values()} == {"0644"}
-    assert {record.permissions for record in engine_files.values()} == {
+    assert {entry["permissions"] for entry in recorded_files.values()} == {
         format(stat.S_IMODE(0o644), "o")
     }
-    assert {record.permissions for record in engine_files.values()} == {"644"}
 
 
-async def test_recorded_dependency_frame_diverges_from_what_the_engine_emits(tmp_path) -> None:
-    """C14b: the same pin for dependencies_provisioned. The package declares no
-    `dependencies`, so the engine's own provisioner reports installed=False with
-    skipped="no runtime dependencies" — the recording claims installed=True and no
-    skip reason. No docker is reached: the empty-dependencies case short-circuits
-    before the daemon."""
+async def test_the_recorded_dependency_frame_is_what_the_engine_emits(tmp_path) -> None:
+    """C14b: the same, for `dependencies_provisioned`. The package declares no
+    runtime dependencies, so the engine reports installed=False with a skip reason —
+    and now so does the recording. No docker is reached: the empty case
+    short-circuits before the daemon."""
     recorded = _recording(DANGEROUS_RECORDING)
-    frame = next(event for event in recorded["events"] if event["type"] == "dependencies_provisioned")
-    assert (frame["installed"], frame["packageCount"], frame["skipped"]) == (True, 0, None)
+    frame = next(
+        event for event in recorded["events"] if event["type"] == "dependencies_provisioned"
+    )
 
     package = tmp_path / "package"
     shutil.copytree(EXFIL_SOURCES, package)
     provision = await provision_dependencies(package, Settings(_env_file=None))
-    assert (provision.installed, provision.package_count, provision.skipped_reason) == (
-        False,
-        0,
-        "no runtime dependencies",
+    assert (frame["installed"], frame["packageCount"], frame["skipped"]) == (
+        provision.installed,
+        provision.package_count,
+        provision.skipped_reason,
     )
 
 
-def test_recorded_index_risk_contribution_contradicts_the_recorded_severities() -> None:
-    """C14c: §24.2, recomputed from the recording's own hypotheses through the
-    engine's own SEVERITY_SCORE table. index.js's six hypotheses max out at "high"
-    (8); the recorded frame says 3, which is the score for "low". A UI calibrated
-    on the demo therefore under-reports a multi-severity file. Not a blessing of
-    3 — the assertion is that the two disagree."""
+def test_the_recorded_risk_score_is_what_the_severities_compute() -> None:
+    """C14c: a file's `riskContribution` is the engine's SEVERITY_SCORE over the max
+    severity of the hypotheses pointing at it. The hybrid recording said 3 for a
+    file whose six hypotheses maxed at "high" (8), so a UI calibrated on the demo
+    under-reported a multi-severity file. Recomputed here from the recording's own
+    hypotheses, so the demo can no longer teach a wrong calibration."""
     recorded = _recording(DANGEROUS_RECORDING)
-    frame = next(
-        event
-        for event in recorded["events"]
-        if event["type"] == "file_verdict" and event["verdict"]["file"] == "index.js"
-    )
-    severities = [
-        hypothesis["severity"]
-        for hypothesis in recorded["report"]["hypotheses"]
-        if "index.js" in (hypothesis.get("focusFiles") or [])
-    ]
-    assert severities  # otherwise the computation below is vacuous
-    computed = SEVERITY_SCORE[max(severities, key=lambda value: SEVERITY_SCORE[value])]
-    assert computed == 8
-    assert frame["verdict"]["riskContribution"] == 3 != computed
+    for frame in recorded["events"]:
+        if frame["type"] != "file_verdict":
+            continue
+        file = frame["verdict"]["file"]
+        severities = [
+            hypothesis["severity"]
+            for hypothesis in recorded["report"]["hypotheses"]
+            if file in (hypothesis.get("focusFiles") or [])
+        ]
+        if not severities:
+            continue
+        computed = SEVERITY_SCORE[max(severities, key=lambda value: SEVERITY_SCORE[value])]
+        assert frame["verdict"]["riskContribution"] == computed, file
 
 
-def test_recorded_report_has_no_extractable_version(rig, tmp_path, monkeypatch) -> None:
-    """C15: the trap, and the half of it that is now closed. Every trace[].output in
-    the recording is {} (curated), so the store still cannot recover a version from
-    the report itself:
-      * extract_report_version -> None;
-      * save_report with "latest" or "" raises UnversionedReportError;
-      * save_report with a version SUCCEEDS, filing the report under whatever the
-        caller passed — the store cannot tell an honest version from a guess.
-    What changed is that there is now something honest to pass: DemoRecording loads
-    the recording's own `version`. Checked against the package.json of the source
-    tree the recording is an audit OF, so this asserts AGREEMENT with the audited
-    package rather than blessing a curated value — a re-record that moved the
-    version would have to move both."""
+def test_the_recorded_report_carries_a_recoverable_version(rig, tmp_path, monkeypatch) -> None:
+    """C15: the trap, now closed at the source.
+
+    `save_report` cannot tell an honest version from a guess — it accepts whatever
+    the caller passes and refuses only "latest"/"". The hybrid recording made that
+    reachable, because every `trace[].output` in it was `{}` and
+    `extract_report_version` therefore returned None. A real capture carries the
+    resolve phase's real output, so the version is recoverable FROM THE REPORT and
+    agrees with the package.json of the tree the recording is an audit of."""
     recorded = _recording(DANGEROUS_RECORDING)
     report = recorded["report"]
-    assert [phase["output"] for phase in report["trace"]] == [{}] * len(report["trace"])
-    assert report_store.extract_report_version(report) is None
+    audited = json.loads((EXFIL_SOURCES / "package.json").read_text(encoding="utf-8"))
+
+    assert report_store.extract_report_version(report) == audited["version"]
 
     monkeypatch.setattr(report_store, "DATA_DIR", tmp_path / "reports")
-    for requested in ("latest", ""):
-        with pytest.raises(report_store.UnversionedReportError):
-            report_store.save_report("test-pkg-env-exfil", requested, report)
-    guessed = report_store.save_report("test-pkg-env-exfil", "9.9.9-a-guess", report)
-    assert guessed == "9.9.9-a-guess"  # the caller's version, not the report's
+    # The report now OUTRANKS the caller, which is the whole repair: "latest" and
+    # a wrong guess both file under the version the audit really resolved, so a
+    # caller can no longer misfile a report by passing the wrong string.
+    for requested in ("latest", "", "9.9.9-a-guess"):
+        assert report_store.save_report("test-pkg-env-exfil", requested, report) == "2.0.1"
+
+    # And the refusal still stands where it is still the only guard: a report with
+    # no concrete version anywhere must never be persisted as a `latest` alias.
+    versionless = {**report, "trace": [{**phase, "output": {}} for phase in report["trace"]]}
+    assert report_store.extract_report_version(versionless) is None
+    with pytest.raises(report_store.UnversionedReportError):
+        report_store.save_report("test-pkg-env-exfil", "latest", versionless)
 
     recording = demo_module.DemoService(rig.sessions, rig.stream).recordings["test-pkg-env-exfil"]
-    audited = json.loads((EXFIL_SOURCES / "package.json").read_text(encoding="utf-8"))
     assert recording.version == audited["version"]
-    assert report_store.save_report("test-pkg-env-exfil", recording.version, report) == "2.0.1"
 
 
 async def test_the_report_row_is_durable_no_later_than_the_terminal_frame(rig) -> None:
@@ -511,9 +527,7 @@ async def test_the_report_row_is_durable_no_later_than_the_terminal_frame(rig) -
     result = await _replay(rig, package="chalk")
     observed = rig.sessions.frames_at_finalize
     assert observed is not None
-    assert [frame["type"] for frame in observed] == [
-        frame["type"] for frame in result.frames[:-1]
-    ]
+    assert [frame["type"] for frame in observed] == [frame["type"] for frame in result.frames[:-1]]
     assert not [frame for frame in observed if frame["type"] in TERMINAL_EVENTS]
     assert result.frames[-1]["type"] == "verdict_reached"
     assert result.row.status == "done" and result.row.report is not None

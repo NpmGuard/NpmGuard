@@ -65,6 +65,16 @@ EventKind = Literal[
     "error",
 ]
 
+# shared/src/evidence.ts :: StreamKind — which sensor produced an event.
+StreamKind = Literal[
+    "L1:seccomp",
+    "L2:pcap",
+    "L3:fsDiff",
+    "L4:monkey",
+    "L4:v8inspector",
+    "engine",
+]
+
 # shared/src/panel.ts :: the audit-set vocabularies.
 PackageOutcome = Literal["SAFE", "ERROR", "DANGEROUS"]
 JobState = Literal["queued", "running", "failed"]
@@ -115,6 +125,7 @@ def _field_literals(model: type[BaseModel], field: str) -> frozenset[str]:
 
 for _alias, _model, _field in (
     (EventKind, EvidenceEvent, "kind"),
+    (StreamKind, EvidenceEvent, "stream"),
     (PackageOutcome, AuditSetItem, "outcome"),
     (JobState, AuditSetItem, "jobState"),
     (SetStatus, ScanProgressFrame, "status"),

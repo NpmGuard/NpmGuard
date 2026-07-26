@@ -274,7 +274,6 @@ class Settings(KitSettings):
         return self
 
 
-
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()

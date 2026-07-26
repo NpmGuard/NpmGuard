@@ -1867,8 +1867,7 @@
         "occurrences": {
           "type": "integer",
           "exclusiveMinimum": true,
-          "minimum": 0,
-          "default": 1
+          "minimum": 0
         }
       },
       "required": [
@@ -1877,7 +1876,8 @@
         "stream",
         "kind",
         "summary",
-        "signal"
+        "signal",
+        "occurrences"
       ],
       "title": "DisplayObservation"
     },
@@ -2115,8 +2115,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/ToolCall"
-          },
-          "default": []
+          }
         },
         "trigger": {
           "$ref": "#/$defs/Trigger"
@@ -2129,6 +2128,7 @@
         "type",
         "hypId",
         "runId",
+        "experiment",
         "trigger"
       ],
       "title": "ExperimentStartedEvent"
@@ -2419,8 +2419,7 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/HypothesisMerge"
-          },
-          "default": []
+          }
         }
       },
       "required": [
@@ -2430,7 +2429,8 @@
         "type",
         "nodeCount",
         "addedCount",
-        "mergedCount"
+        "mergedCount",
+        "merges"
       ],
       "title": "GraphBuiltEvent"
     },
@@ -2504,15 +2504,13 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "default": []
+          }
         },
         "focusLines": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/FocusRange"
-          },
-          "default": []
+          }
         }
       },
       "required": [
@@ -2523,7 +2521,9 @@
         "hypId",
         "claim",
         "severity",
-        "description"
+        "description",
+        "focusFiles",
+        "focusLines"
       ],
       "title": "HypothesisEmittedEvent"
     },
@@ -2629,29 +2629,25 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/EvidenceRef"
-          },
-          "default": []
+          }
         },
         "citedEventIds": {
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "default": []
+          }
         },
         "citedObservations": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/DisplayObservation"
-          },
-          "default": []
+          }
         },
         "runId": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         }
       },
       "required": [
@@ -2664,7 +2660,11 @@
         "severity",
         "state",
         "by",
-        "reason"
+        "reason",
+        "evidenceRefs",
+        "citedEventIds",
+        "citedObservations",
+        "runId"
       ],
       "title": "HypothesisResolvedEvent"
     },
@@ -3993,38 +3993,40 @@
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "stderrHash": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "fsDiffHash": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "pcapHash": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "straceLogHash": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         }
       },
+      "required": [
+        "stdoutHash",
+        "stderrHash",
+        "fsDiffHash",
+        "pcapHash",
+        "straceLogHash"
+      ],
       "title": "RunCaptures"
     },
     "RunDisplay": {
@@ -4065,8 +4067,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "setupApplied": {
           "$ref": "#/$defs/SanitizedSetup"
@@ -4075,13 +4076,11 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/DisplayObservation"
-          },
-          "default": []
+          }
         },
         "omittedObservationCount": {
           "type": "integer",
-          "minimum": 0,
-          "default": 0
+          "minimum": 0
         },
         "captures": {
           "$ref": "#/$defs/RunCaptures"
@@ -4097,7 +4096,10 @@
         "timedOut",
         "eventCount",
         "eventSummary",
+        "error",
         "setupApplied",
+        "observations",
+        "omittedObservationCount",
         "captures",
         "contentHash"
       ],
@@ -4210,56 +4212,58 @@
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "default": []
+          }
         },
         "date": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "plantedFiles": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/PlantedFileRef"
-          },
-          "default": []
+          }
         },
         "stubUrls": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/DisplayStub"
-          },
-          "default": []
+          }
         },
         "hostname": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "locale": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "patchedFiles": {
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "default": []
+          }
         },
         "preloaded": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         }
       },
+      "required": [
+        "envKeys",
+        "date",
+        "plantedFiles",
+        "stubUrls",
+        "hostname",
+        "locale",
+        "patchedFiles",
+        "preloaded"
+      ],
       "title": "SanitizedSetup"
     },
     "ScanAlreadyRunning": {

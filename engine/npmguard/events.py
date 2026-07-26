@@ -83,9 +83,7 @@ class AuditEmitter:
             f"{event_type} payload would shadow envelope field(s) "
             f"{sorted(body.keys() & ENVELOPE_KEYS)} on audit {self.audit_id}"
         )
-        return await self._stream.append(
-            audit_channel(self.audit_id), event_type, json_value(body)
-        )
+        return await self._stream.append(audit_channel(self.audit_id), event_type, json_value(body))
 
 
 def _wire_event(audit_id: str, envelope: dict[str, Any]) -> dict[str, Any]:

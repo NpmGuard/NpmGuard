@@ -128,8 +128,8 @@ export const HypothesisEmittedEventSchema = BaseAuditEventSchema.extend({
   claim: ClaimKindSchema,
   severity: HypothesisSeveritySchema,
   description: z.string(),
-  focusFiles: z.array(z.string()).default([]),
-  focusLines: z.array(FocusRangeSchema).default([]),
+  focusFiles: z.array(z.string()),
+  focusLines: z.array(FocusRangeSchema),
 });
 export type HypothesisEmittedEvent = z.infer<typeof HypothesisEmittedEventSchema>;
 
@@ -151,10 +151,10 @@ export const HypothesisResolvedEventSchema = BaseAuditEventSchema.extend({
   state: HypothesisStateSchema,
   by: z.string(),
   reason: z.string(),
-  evidenceRefs: z.array(EvidenceRefSchema).default([]),
-  citedEventIds: z.array(z.string()).default([]),
-  citedObservations: z.array(DisplayObservationSchema).default([]),
-  runId: z.string().nullable().default(null),
+  evidenceRefs: z.array(EvidenceRefSchema),
+  citedEventIds: z.array(z.string()),
+  citedObservations: z.array(DisplayObservationSchema),
+  runId: z.string().nullable(),
 });
 export type HypothesisResolvedEvent = z.infer<typeof HypothesisResolvedEventSchema>;
 
@@ -178,7 +178,7 @@ export const ExperimentStartedEventSchema = BaseAuditEventSchema.extend({
   // The ordered tool calls the hypothesis armed, with engine-minted canary
   // values replaced by a label. These are the ENGINE's and the model's strings,
   // never the package's.
-  experiment: z.array(ToolCallSchema).default([]),
+  experiment: z.array(ToolCallSchema),
   trigger: TriggerSchema,
 });
 export type ExperimentStartedEvent = z.infer<typeof ExperimentStartedEventSchema>;
@@ -283,7 +283,7 @@ export const GraphBuiltEventSchema = BaseAuditEventSchema.extend({
   nodeCount: z.number().int().nonnegative(),
   addedCount: z.number().int().nonnegative(),
   mergedCount: z.number().int().nonnegative(),
-  merges: z.array(HypothesisMergeSchema).default([]),
+  merges: z.array(HypothesisMergeSchema),
 });
 export type GraphBuiltEvent = z.infer<typeof GraphBuiltEventSchema>;
 

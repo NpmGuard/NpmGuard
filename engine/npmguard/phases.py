@@ -150,8 +150,7 @@ class FlagDraft(BaseModel):
                 if match := re.fullmatch(r"(\d+)\s*-\s*(\d+)", stripped):
                     normalized.append(f"{match.group(1)}-{match.group(2)}")
                 elif match := (
-                    re.fullmatch(r"(\d+)", stripped)
-                    or re.match(r"(\d+)\s*:.*", stripped, re.S)
+                    re.fullmatch(r"(\d+)", stripped) or re.match(r"(\d+)\s*:.*", stripped, re.S)
                 ):
                     normalized.append(f"{match.group(1)}-{match.group(1)}")
                 else:
@@ -652,7 +651,9 @@ class KitHypothesisGenerator:
                     target = target[len(prefix) :].strip()
             driver_code: str | None = None
             if target not in targets:
-                if "\n" in target or re.search(r"\b(?:const|let|var|require|import)\b|[;{}]", target):
+                if "\n" in target or re.search(
+                    r"\b(?:const|let|var|require|import)\b|[;{}]", target
+                ):
                     driver_code = target
                     target = "/pkg/npmguard-driver.js"
                 else:

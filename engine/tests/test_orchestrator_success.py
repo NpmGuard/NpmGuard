@@ -199,7 +199,9 @@ async def rig_factory(tmp_path, monkeypatch):
             factory, Settings(_env_file=None), provider=ScriptedLlm({"judge": judge_steps})
         )
         log = AuditLog("orchestrator-unit", f"orch-unit-{len(rigs)}")
-        rig = Rig(llm, engine, ArtifactStore(log.run_dir), StreamService(factory, PollingNotifier()), log)
+        rig = Rig(
+            llm, engine, ArtifactStore(log.run_dir), StreamService(factory, PollingNotifier()), log
+        )
         rigs.append(rig)
         return rig
 
@@ -237,7 +239,9 @@ async def _run(
     return graph, summary
 
 
-async def test_confirmed_with_citations_and_resolved_event(rig_factory, monkeypatch, tmp_path) -> None:
+async def test_confirmed_with_citations_and_resolved_event(
+    rig_factory, monkeypatch, tmp_path
+) -> None:
     """C1: malicious=true citing real timeline ids → CONFIRMED with severity and
     a hypothesis_resolved event carrying state/severity/reason on the channel."""
     rig = await rig_factory([CONFIRM])
@@ -438,7 +442,9 @@ async def test_empty_timeline_cannot_confirm(rig_factory, monkeypatch, tmp_path)
     assert summary.confirmed == 0
 
 
-async def test_exhausted_global_budget_defers_undispatched(rig_factory, monkeypatch, tmp_path) -> None:
+async def test_exhausted_global_budget_defers_undispatched(
+    rig_factory, monkeypatch, tmp_path
+) -> None:
     """C7: a zero global budget expires before the first dispatch — every OPEN
     hypothesis is DEFERRED with the budget reason and nothing runs."""
     rig = await rig_factory([REFUTE])
@@ -469,9 +475,7 @@ async def test_mid_run_budget_exhaustion_defers_only_the_rest(
     more wall time than the whole budget, so exhaustion-after-one is guaranteed.)"""
     budget_ms = 50
     rig = await rig_factory([REFUTE])
-    observation = FakeObservation(
-        [_artifact()], stall_seconds=(budget_ms / 1000) * 4
-    )
+    observation = FakeObservation([_artifact()], stall_seconds=(budget_ms / 1000) * 4)
     graph, summary = await _run(
         rig,
         monkeypatch,
@@ -530,7 +534,9 @@ async def test_per_hypothesis_timeout_boundary_defers(rig_factory, monkeypatch, 
     assert "per-hypothesis timeout" in node.resolution.reason
 
 
-async def test_experiment_budget_plumbed_into_observation(rig_factory, monkeypatch, tmp_path) -> None:
+async def test_experiment_budget_plumbed_into_observation(
+    rig_factory, monkeypatch, tmp_path
+) -> None:
     """C9: run_experiment forwards FULL_ORACLE and EXPERIMENT_BUDGET verbatim to
     the observation boundary, and returns the artifact's own evidence ref."""
     rig = await rig_factory([REFUTE])
