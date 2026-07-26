@@ -1,13 +1,17 @@
 import asyncio
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import stripe
+import structlog
 from eth_typing import HexStr
 from web3 import Web3
 
 from .config import Settings
 from .validation import SupportedChain
+
+log = structlog.get_logger("npmguard.payments")
 
 AUDIT_EVENT_TOPIC = Web3.keccak(text="AuditRequested(string,string,address,uint256)").hex()
 AUDIT_FEE_ABI = [
@@ -22,7 +26,14 @@ AUDIT_FEE_ABI = [
 
 
 class ChainVerificationError(ValueError):
-    pass
+    """A payment proof this engine will not accept.
+
+    Its message crosses the wire verbatim (`api.start_stream` returns it as the
+    402 body), so it states what the CALLER got wrong and never quotes an
+    upstream error. A provider URL carries the API key, and `requests` puts the
+    request URL in the text of every HTTP error it raises — including the 429 any
+    caller can provoke by sending txHashes faster than the RPC plan allows.
+    """
 
 
 @dataclass(frozen=True)
@@ -55,6 +66,27 @@ def _chain(settings: Settings, chain: SupportedChain) -> tuple[str, str, str] | 
     )
 
 
+def _without_rpc_urls(settings: Settings, text: str) -> str:
+    """The same text with every configured RPC endpoint removed.
+
+    For the log, not the wire: an RPC URL is a credential (Alchemy's key is its
+    path), and CLAUDE.md keeps those out of logs as well as out of responses.
+
+    The PATH is redacted separately from the whole URL because urllib3 reports
+    the two apart — `Max retries exceeded with url: /v2/<key>` names no host at
+    all, so redacting only the full URL leaves the secret in place.
+    """
+    for url in (settings.base_sepolia_rpc_url, settings.base_rpc_url):
+        if not url:
+            continue
+        parsed = urlsplit(url)
+        target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        for secret in (url, target):
+            if len(secret) > 1:
+                text = text.replace(secret, "<rpc-endpoint>")
+    return text
+
+
 def is_chain_configured(settings: Settings, chain: SupportedChain) -> bool:
     return _chain(settings, chain) is not None
 
@@ -77,22 +109,33 @@ async def verify_audit_payment(
             web3.eth.wait_for_transaction_receipt, HexStr(tx_hash), 30, 2
         )
     except Exception as exc:
-        raise ChainVerificationError(f"Could not fetch receipt for {tx_hash}: {exc}") from exc
+        log.warning(
+            "receipt fetch failed",
+            chain=chain,
+            tx_hash=tx_hash,
+            error_type=type(exc).__name__,
+            error=_without_rpc_urls(settings, str(exc)),
+        )
+        raise ChainVerificationError(
+            f"Could not fetch a receipt for {tx_hash} on {chain}"
+        ) from exc
     if receipt["status"] != 1:
         raise ChainVerificationError(f"Transaction {tx_hash} reverted")
-    relevant = [log for log in receipt["logs"] if log["address"].lower() == contract.lower()]
+    relevant = [
+        entry for entry in receipt["logs"] if entry["address"].lower() == contract.lower()
+    ]
     if not relevant:
         raise ChainVerificationError(
             f"Transaction {tx_hash} did not interact with audit contract {contract}"
         )
     match = None
-    for log in relevant:
-        topics = [topic.hex() for topic in log["topics"]]
+    for entry in relevant:
+        topics = [topic.hex() for topic in entry["topics"]]
         if not topics or topics[0].lower() != AUDIT_EVENT_TOPIC.lower() or len(topics) < 2:
             continue
         try:
             decoded_name, decoded_version, fee = web3.codec.decode(
-                ["string", "string", "uint256"], bytes(log["data"])
+                ["string", "string", "uint256"], bytes(entry["data"])
             )
             requester = Web3.to_checksum_address("0x" + topics[1][-40:])
         except Exception:
@@ -121,7 +164,18 @@ async def read_audit_fee(settings: Settings, chain: SupportedChain) -> int | Non
     rpc, address, _ = configured
     web3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 10}))
     contract = web3.eth.contract(address=Web3.to_checksum_address(address), abi=AUDIT_FEE_ABI)
-    return int(await asyncio.to_thread(contract.functions.auditFee().call))
+    try:
+        return int(await asyncio.to_thread(contract.functions.auditFee().call))
+    except Exception as exc:
+        # The caller retracts the whole crypto option on failure; without this it
+        # does so with no recorded cause, because the raw text cannot be logged.
+        log.warning(
+            "audit fee read failed",
+            chain=chain,
+            error_type=type(exc).__name__,
+            error=_without_rpc_urls(settings, str(exc)),
+        )
+        raise
 
 
 def _field(value: Any, name: str, default: Any = None) -> Any:
