@@ -150,6 +150,24 @@ def test_per_tool_invalid_args_matrix(bad_call: ToolCall, message: str) -> None:
         compile_experiment([bad_call, _trigger()] if bad_call.tool != "trigger" else [bad_call])
 
 
+@pytest.mark.parametrize("spelling", ["index.js", "/pkg/index.js", "./index.js"])
+def test_patch_file_accepts_every_spelling_of_the_same_package_file(spelling: str) -> None:
+    """/pkg IS the package root, so an absolute /pkg path and a relative one name one
+    file. The tool catalog teaches absolute /pkg paths elsewhere, so models spell the
+    patch target that way; rejecting it wasted a whole plan over notation."""
+    compiled = compile_experiment(
+        [
+            call(
+                "patchFile",
+                patches=[{"path": spelling, "replacements": [{"pattern": "a", "replacement": "b"}]}],
+            ),
+            _trigger(),
+        ]
+    )
+    (patched,) = compiled.setup[0].applied["patches"]
+    assert patched.path == "index.js"
+
+
 def test_compose_env_conflict_later_wins() -> None:
     """C4: later setEnv overrides colliding keys; distinct keys merge; the
     applied record reflects the effective (post-conflict) env."""

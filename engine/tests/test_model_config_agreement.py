@@ -36,13 +36,14 @@ FIXTURES = ENGINE_ROOT / "tests" / "fixtures" / "llm"
 ROLE_VARIABLES = {
     "triage_model": "NPMGUARD_TRIAGE_MODEL",
     "investigation_model": "NPMGUARD_INVESTIGATION_MODEL",
+    "hypothesis_model": "NPMGUARD_HYPOTHESIS_MODEL",
 }
 
 # Where an env-style declaration may legitimately live. A real `.env` is a
 # developer's machine-local file and is never read here (conftest disables the
 # dotenv source entirely; see tests/conftest.py).
 _ENV_DECLARATION = re.compile(
-    r"^\s*(?:#\s*)?(NPMGUARD_(?:TRIAGE|INVESTIGATION)_MODEL)\s*=\s*(\S+)\s*$",
+    r"^\s*(?:#\s*)?(NPMGUARD_(?:TRIAGE|INVESTIGATION|HYPOTHESIS)_MODEL)\s*=\s*(\S+)\s*$",
     re.MULTILINE,
 )
 

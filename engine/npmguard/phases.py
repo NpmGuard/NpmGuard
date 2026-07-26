@@ -590,6 +590,95 @@ def trigger_targets(flag: Flag, entry_points: EntryPoints) -> list[str]:
     )
 
 
+def compile_plan(
+    submission: HypothesisPlan, targets: list[str], focus: str
+) -> tuple[HypothesisPlan, list[ToolCall]]:
+    """Turn a model's plan into the tool calls that build its experiment.
+
+    Raises CandidateRejected for a plan the sandbox could not run, so the
+    client's bounded repair sees the reason rather than a compile failure
+    surfacing later as a dead experiment."""
+    setup = submission.setup
+    calls: list[ToolCall] = []
+    target = submission.triggerTarget.strip()
+    for prefix in ("runtime:", "install:", "bin:"):
+        if target.startswith(prefix):
+            target = target[len(prefix) :].strip()
+    driver_code: str | None = None
+    if target not in targets:
+        if "\n" in target or re.search(r"\b(?:const|let|var|require|import)\b|[;{}]", target):
+            driver_code = target
+            target = "/pkg/npmguard-driver.js"
+        else:
+            raise CandidateRejected(
+                f"triggerTarget must be one of {targets!r} or contain a JavaScript driver"
+            )
+    if setup.environment:
+        env: dict[str, str] = {}
+        for item in setup.environment:
+            if item.name in env:
+                raise CandidateRejected(f"duplicate environment variable {item.name!r}")
+            env[item.name] = item.value
+        if re.search(r"if\s*\(\s*process\.env\.CI\s*\)", focus) and env.get("CI"):
+            raise CandidateRejected(
+                "CI is tested by JavaScript truthiness; omit CI or set it to an empty string, never 'false'"
+            )
+        calls.append(ToolCall(tool="setEnv", args={"env": env}))
+    files = [item.model_dump(mode="json") for item in setup.files]
+    if driver_code is not None:
+        if any(item["path"] == target for item in files):
+            raise CandidateRejected(f"duplicate planted driver path {target!r}")
+        files.append({"path": target, "content": driver_code})
+    if files:
+        calls.append(
+            ToolCall(
+                tool="plantFiles",
+                args={"files": files},
+            )
+        )
+    if setup.dateIso is not None:
+        calls.append(ToolCall(tool="setDate", args={"iso": setup.dateIso}))
+    if setup.urlStubs:
+        stubs = []
+        for stub in setup.urlStubs:
+            headers: dict[str, str] = {}
+            for header in stub.responseHeaders:
+                if header.name in headers:
+                    raise CandidateRejected(f"duplicate response header {header.name!r}")
+                headers[header.name] = header.value
+            stubs.append(
+                {
+                    "pattern": stub.pattern,
+                    "responseStatus": stub.responseStatus,
+                    "responseBody": stub.responseBody,
+                    "responseHeaders": headers,
+                }
+            )
+        calls.append(ToolCall(tool="stubUrl", args={"stubs": stubs}))
+    if setup.filePatches:
+        calls.append(
+            ToolCall(
+                tool="patchFile",
+                args={"patches": [patch.model_dump(mode="json") for patch in setup.filePatches]},
+            )
+        )
+    if setup.preloadCode is not None:
+        calls.append(ToolCall(tool="preload", args={"code": setup.preloadCode}))
+    calls.append(
+        ToolCall(
+            tool="trigger",
+            args={
+                "kind": "entrypoint",
+                "target": target,
+                "argv": [],
+                "stdin": None,
+            },
+        )
+    )
+    compile_experiment(calls)
+    return submission, calls
+
+
 class HypothesisGenerator(Protocol):
     async def generate(
         self,
@@ -642,92 +731,10 @@ class KitHypothesisGenerator:
             "Suggested bait canary: NPMGUARD_CANARY_TOKEN_f8e2d91a"
         )
 
-        def decode_plan(submission: HypothesisPlan) -> tuple[HypothesisPlan, list[ToolCall]]:
-            setup = submission.setup
-            calls: list[ToolCall] = []
-            target = submission.triggerTarget.strip()
-            for prefix in ("runtime:", "install:", "bin:"):
-                if target.startswith(prefix):
-                    target = target[len(prefix) :].strip()
-            driver_code: str | None = None
-            if target not in targets:
-                if "\n" in target or re.search(
-                    r"\b(?:const|let|var|require|import)\b|[;{}]", target
-                ):
-                    driver_code = target
-                    target = "/pkg/npmguard-driver.js"
-                else:
-                    raise CandidateRejected(
-                        f"triggerTarget must be one of {targets!r} or contain a JavaScript driver"
-                    )
-            if setup.environment:
-                env: dict[str, str] = {}
-                for item in setup.environment:
-                    if item.name in env:
-                        raise CandidateRejected(f"duplicate environment variable {item.name!r}")
-                    env[item.name] = item.value
-                if re.search(r"if\s*\(\s*process\.env\.CI\s*\)", focus) and env.get("CI"):
-                    raise CandidateRejected(
-                        "CI is tested by JavaScript truthiness; omit CI or set it to an empty string, never 'false'"
-                    )
-                calls.append(ToolCall(tool="setEnv", args={"env": env}))
-            files = [item.model_dump(mode="json") for item in setup.files]
-            if driver_code is not None:
-                if any(item["path"] == target for item in files):
-                    raise CandidateRejected(f"duplicate planted driver path {target!r}")
-                files.append({"path": target, "content": driver_code})
-            if files:
-                calls.append(
-                    ToolCall(
-                        tool="plantFiles",
-                        args={"files": files},
-                    )
-                )
-            if setup.dateIso is not None:
-                calls.append(ToolCall(tool="setDate", args={"iso": setup.dateIso}))
-            if setup.urlStubs:
-                stubs = []
-                for stub in setup.urlStubs:
-                    headers: dict[str, str] = {}
-                    for header in stub.responseHeaders:
-                        if header.name in headers:
-                            raise CandidateRejected(f"duplicate response header {header.name!r}")
-                        headers[header.name] = header.value
-                    stubs.append(
-                        {
-                            "pattern": stub.pattern,
-                            "responseStatus": stub.responseStatus,
-                            "responseBody": stub.responseBody,
-                            "responseHeaders": headers,
-                        }
-                    )
-                calls.append(ToolCall(tool="stubUrl", args={"stubs": stubs}))
-            if setup.filePatches:
-                calls.append(
-                    ToolCall(
-                        tool="patchFile",
-                        args={
-                            "patches": [
-                                patch.model_dump(mode="json") for patch in setup.filePatches
-                            ]
-                        },
-                    )
-                )
-            if setup.preloadCode is not None:
-                calls.append(ToolCall(tool="preload", args={"code": setup.preloadCode}))
-            calls.append(
-                ToolCall(
-                    tool="trigger",
-                    args={
-                        "kind": "entrypoint",
-                        "target": target,
-                        "argv": [],
-                        "stdin": None,
-                    },
-                )
-            )
-            compile_experiment(calls)
-            return submission, calls
+        def decode_plan(
+            submission: HypothesisPlan,
+        ) -> tuple[HypothesisPlan, list[ToolCall]]:
+            return compile_plan(submission, targets, focus)
 
         try:
             result = await self.llm.run(

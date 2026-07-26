@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -26,6 +27,7 @@ from npmguard.phases import (
     FileFlagResponse,
     JudgeVerdict,
     PackageIntent,
+    compile_plan,
     hypothesis_submission,
 )
 
@@ -38,15 +40,35 @@ MODELS = (
 ROLES = ("intent", "flag", "hypothesis", "propose", "agent", "judge")
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "llm"
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+VERBOSE_ERRORS = False
 OUTPUTS: dict[str, type[BaseModel]] = {
     "intent": PackageIntent,
     "flag": FileFlagResponse,
-    "hypothesis": hypothesis_submission(
-        ["package.json#preinstall", "index.js", "setup.js", "/pkg/npmguard-driver.js"]
-    ),
     "propose": HypothesisProposal,
     "judge": JudgeVerdict,
 }
+# The trigger targets are per-package, so the recorded prompt is the only source
+# that agrees with what the model was told. A fixed list would score a model as
+# wrong for obeying its own instructions.
+_TARGETS_IN_PROMPT = re.compile(
+    r"Set triggerTarget to exactly one of: (.+?)\. If exercising", re.DOTALL
+)
+
+
+def _hypothesis_targets(fixture: dict[str, Any]) -> list[str]:
+    prompt = "\n".join(str(message.get("content", "")) for message in fixture["messages"])
+    found = _TARGETS_IN_PROMPT.search(prompt)
+    if not found:
+        raise RuntimeError("hypothesis fixture does not state its trigger targets")
+    return [target.strip() for target in found.group(1).split(",") if target.strip()]
+
+
+def _output_model(role: str, fixture: dict[str, Any]) -> type[BaseModel] | None:
+    if role == "hypothesis":
+        return hypothesis_submission(_hypothesis_targets(fixture))
+    return OUTPUTS.get(role)
+
+
 MAX_OUTPUT_TOKENS = {
     "intent": 1_500,
     "flag": 2_500,
@@ -72,7 +94,7 @@ def _fixtures(root: Path) -> dict[str, list[dict[str, Any]]]:
 
 
 def _request(model: str, role: str, fixture: dict[str, Any]) -> ProviderRequest:
-    output = OUTPUTS.get(role)
+    output = _output_model(role, fixture)
     return ProviderRequest(
         role=role,
         model=model,
@@ -101,7 +123,15 @@ def _validate(role: str, fixture: dict[str, Any], result) -> None:
         return
     if result.content is None:
         raise ValueError("structured role returned no text")
-    OUTPUTS[role].model_validate_json(result.content)
+    model_type = _output_model(role, fixture)
+    assert model_type is not None
+    parsed = model_type.model_validate_json(result.content)
+    if role == "hypothesis":
+        # Schema conformance is not the bar this role has to clear: the plan still
+        # has to survive decode into runnable tool calls. Same function the audit
+        # runs, so a pass here means the audit would have armed the experiment.
+        focus = "\n".join(str(message.get("content", "")) for message in fixture["messages"])
+        compile_plan(parsed, _hypothesis_targets(fixture), focus)
 
 
 async def _probe(
@@ -182,6 +212,10 @@ def _error_summary(error: Exception) -> str:
         body = getattr(error, "body", None)
         code = body.get("code") if isinstance(body, dict) else None
         return f"provider HTTP {status}" + (f" ({code})" if code else "")
+    if VERBOSE_ERRORS:
+        # Opt-in only: a rejection reason can quote the plan that earned it, so
+        # the default stays redacted and this is for local model comparison.
+        return message
     return "call failed; inspect provider logs"
 
 
@@ -263,8 +297,11 @@ async def main() -> None:
     parser.add_argument("--timeout-seconds", type=float, default=60)
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--verbose-errors", action="store_true")
     parser.add_argument("--credentials-file", type=Path, default=ENV_FILE)
     args = parser.parse_args()
+    global VERBOSE_ERRORS
+    VERBOSE_ERRORS = args.verbose_errors
 
     key = _credential(args.credentials_file)
     if not key:
