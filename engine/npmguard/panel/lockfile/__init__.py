@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from ._base import LOCKFILE_CANDIDATES, LockfileDep, UnsupportedLockfileError
+from ._base import LOCKFILE_CANDIDATES, LockfileDep, UnsupportedLockfileError, strip_bom
 from .npm import parse_npm_lockfile
 from .pnpm import parse_pnpm_lockfile
 from .yarn import parse_yarn_lockfile
@@ -24,6 +24,7 @@ __all__ = [
     "UnsupportedLockfileError",
     "manifest_ranges",
     "parse_lockfile",
+    "strip_bom",
 ]
 
 
@@ -39,7 +40,7 @@ def manifest_ranges(package_json_content: str | dict | None) -> dict[str, str]:
     manifest: object
     if isinstance(package_json_content, str):
         try:
-            manifest = json.loads(package_json_content)
+            manifest = json.loads(strip_bom(package_json_content))
         except (ValueError, TypeError):
             return {}
     else:
@@ -72,6 +73,7 @@ def parse_lockfile(
     :class:`UnsupportedLockfileError` naming the supported formats.
     """
     ranges = manifest or {}
+    content = strip_bom(content)
     if filename == "package-lock.json":
         return parse_npm_lockfile(content, ranges)
     if filename == "pnpm-lock.yaml":
