@@ -25,6 +25,8 @@
 #  - Terminal coherence runs report-then-row+event in ONE transaction, so at the first
 #    verdict_reached the report is already durable. A terminal frame therefore implies
 #    a readable report.
+#  - `queuePosition` counts in CLAIM order, lane rank first — a payer behind a repo
+#    scan is next, and a created_at-ordered count said they were last.
 #  - A COMPLETED audit whose (name, version) key cannot be formed still reaches
 #    verdict_reached with a durable row report; only the filesystem file is skipped.
 #    The verdict outranks the filing key — and the paired class proves a REAL save
@@ -44,6 +46,7 @@ from kit_spine.notify_polling import PollingNotifier
 from kit_stream import StreamService
 from npmguard.errors import AuditIncompleteError, QueueFullError
 from npmguard.events import audit_channel
+from npmguard.lanes import PAID, PANEL
 from npmguard.persistence import DEMO_PACKAGE_PATH, AuditSessionStore
 from npmguard.pipeline import AuditPipeline
 from npmguard.service import AuditService, SubmitResult
@@ -716,3 +719,28 @@ async def test_completed_audit_without_a_version_is_not_discarded(rig, tmp_path,
     logged = capsys.readouterr().out  # structlog writes the event to stdout
     assert "report file skipped: no concrete version" in logged
     assert result.audit_id in logged  # loud AND located: the skip names its audit
+
+
+async def test_position_counts_in_the_order_work_is_actually_claimed(rig) -> None:
+    """C13: `queuePosition` counts by LANE RANK first, because that is how
+    `claim_next` orders the queue.
+
+    Counting by `created_at` alone told a payer arriving behind a repo scan that
+    they were last, while the lane made them next — the number contradicted the
+    one guarantee lanes exist to provide, exactly when it mattered.
+
+    Discriminating: the scan rows are enqueued FIRST and are more numerous, so a
+    created_at-ordered count cannot return 1 by luck. The claim is the oracle —
+    the position is asserted against which row a worker actually takes."""
+    sessions = rig.sessions
+    for index in range(5):
+        await sessions.create(f"dep-{index}", "1.0.0", lane=PANEL)
+    payer = await sessions.create("express", "5.0.0", lane=PAID)
+
+    assert await sessions.queue_position(payer.audit_id, payer.created_at, payer.lane) == 1
+    claimed = await sessions.claim_next("probe-worker", ttl_seconds=60)
+    assert claimed is not None and claimed.audit_id == payer.audit_id
+    # And the scan rows report positions behind it rather than in front.
+    scan = (await sessions.queued())[0]
+    if scan.lane == PANEL:
+        assert await sessions.queue_position(scan.audit_id, scan.created_at, scan.lane) > 1
