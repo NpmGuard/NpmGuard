@@ -248,15 +248,6 @@ class Installation(BaseModel):
     suspended: bool
 
 
-class LifecycleHook(
-    RootModel[Literal['preinstall', 'install', 'postinstall', 'prepare']]
-):
-    root: Annotated[
-        Literal['preinstall', 'install', 'postinstall', 'prepare'],
-        Field(title='LifecycleHook'),
-    ]
-
-
 class NetworkCall(BaseModel):
     method: str
     url: str
@@ -465,9 +456,7 @@ class TriageHypothesis(BaseModel):
 
 
 class Trigger(BaseModel):
-    kind: Annotated[
-        Literal['entrypoint', 'lifecycle', 'bin', 'subpath'], Field(title='TriggerKind')
-    ]
+    kind: Annotated[Literal['entrypoint', 'subpath'], Field(title='TriggerKind')]
     target: str
     argv: list[str] | None = []
     stdin: str | None = None

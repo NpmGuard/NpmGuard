@@ -110,7 +110,7 @@ def _artifact(*events: dict) -> RunArtifact:
             "runId": "run-1",
             "contentHash": "",
             "createdAt": "2026-07-25T00:00:00Z",
-            "triggerUsed": {"kind": "lifecycle", "target": "setup.js"},
+            "triggerUsed": {"kind": "entrypoint", "target": "setup.js"},
             "setupApplied": {"env": {"HOME": "/home/node"}},
             "events": list(events),
             "eventSummary": {

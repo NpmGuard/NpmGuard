@@ -27,7 +27,7 @@ from dataclasses import dataclass
 import httpx
 from githubkit.exception import RequestFailed
 
-from npmguard.panel.lockfile import LOCKFILE_CANDIDATES
+from npmguard.panel.lockfile import LOCKFILE_CANDIDATES, strip_bom
 
 MAX_PUBLIC_REPO_FILE_BYTES = 20 * 1024 * 1024
 _RAW_HOST = "raw.githubusercontent.com"
@@ -182,7 +182,7 @@ async def fetch_manifest(
     if not file:
         return None
     try:
-        parsed = json.loads(file.content)
+        parsed = json.loads(strip_bom(file.content))
     except (ValueError, TypeError):
         return None
     return parsed if isinstance(parsed, dict) else None
@@ -259,7 +259,7 @@ async def fetch_public_repo_inputs(
             manifest_content = await _download_public_root_file(
                 manifest_entry, raw_base=raw_base
             )
-            parsed = json.loads(manifest_content)
+            parsed = json.loads(strip_bom(manifest_content))
             if isinstance(parsed, dict):
                 manifest = parsed
         except (ValueError, TypeError, PublicRepoFileTooLargeError):

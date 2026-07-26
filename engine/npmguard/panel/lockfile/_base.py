@@ -17,6 +17,20 @@ LOCKFILE_CANDIDATES: tuple[str, ...] = (
 )
 
 
+def strip_bom(content: str) -> str:
+    """Drop a leading UTF-8 BOM.
+
+    npm, pnpm and yarn all read a BOM-prefixed file fine, and Windows editors
+    write them, so a BOM is a property of the repo rather than a defect in it.
+    Python disagrees only once the bytes are already a `str`: `json.loads` on
+    bytes strips the BOM itself, `json.loads` on a `str` raises. Every parser
+    here takes a `str`, so the strip belongs at this boundary — the same fact
+    `deps.py` states as `utf-8-sig` and `inventory.load_manifest` states by
+    handing `json.loads` the raw bytes.
+    """
+    return content.lstrip("﻿")
+
+
 @dataclass(frozen=True, slots=True)
 class LockfileDep:
     """One normalized dependency extracted from a lockfile.

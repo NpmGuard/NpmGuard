@@ -16,6 +16,10 @@
 #  - VOID by DEFAULT for an unknown code. A new failure mode must never enter the
 #    denominator silently, so the projector's ignorance costs it an observation
 #    rather than costing the rate its meaning.
+#  - The two code sets PARTITION the taxonomy (C38). VOIDING_CODES is read by
+#    nobody — the rule is "not abstaining => void" — so it is prose, and prose
+#    about which errors do not count toward a published rate has to be mechanical
+#    or it silently stops being true.
 #  - A client-side timeout is VOID, never ABSTAINED: the harness measuring its own
 #    patience is not the tool's answer. ABSTAINED is reserved for an engine
 #    capability limit (0031 incomplete, 0030 phase timeout), and it STAYS in the
@@ -43,7 +47,9 @@ import pytest
 
 from npmguard.bench.corpus import Entry
 from npmguard.bench.projector import (
+    ABSTAINING_CODES,
     HARNESS_TIMEOUT_CODE,
+    VOIDING_CODES,
     BenchPoolingError,
     EntryBucket,
     Outcome,
@@ -57,6 +63,7 @@ from npmguard.bench.projector import (
 )
 from npmguard.contract import models as contract
 from npmguard.contract.kinds import BenchVerdict
+from npmguard.errors import NpmGuardError
 from tests.support.optional import present
 
 
@@ -472,3 +479,43 @@ def test_pooling_nothing_is_refused() -> None:
     """C37: there is no engineSha to name, so there is no measurement."""
     with pytest.raises(BenchPoolingError, match="zero runs"):
         pooled_engine_sha([])
+
+
+def test_the_code_buckets_partition_the_error_taxonomy() -> None:
+    """C38: every declared NpmGuardError code is in exactly one bucket, and neither
+    bucket names a code no class produces.
+
+    `VOIDING_CODES` is consulted by nothing — §4.5's rule is "not abstaining ⟹
+    void" — so it is documentation of which failures are excluded from a
+    published detection rate. Documentation of that kind either has a test or
+    quietly stops matching the taxonomy it describes.
+
+    Both directions, because they fail differently: a declared code in neither
+    set is a failure mode the reader is not told about, and a set naming a code
+    nothing raises describes an exclusion that cannot happen."""
+    declared = {
+        cls.code
+        for cls in _error_taxonomy_members()
+        # The base class is the 9999 fallback, which IS reachable — service.py and
+        # api.py write it as a literal for a non-NpmGuardError.
+    }
+    buckets = ABSTAINING_CODES | VOIDING_CODES
+
+    assert declared - buckets == set(), (
+        f"declared error codes in neither bucket: {sorted(declared - buckets)}"
+    )
+    assert buckets - declared == set(), (
+        f"bucketed codes no class produces: {sorted(buckets - declared)}"
+    )
+    assert set() == ABSTAINING_CODES & VOIDING_CODES, "a code cannot both abstain and void"
+
+
+def _error_taxonomy_members() -> list[type[NpmGuardError]]:
+    """Every NpmGuardError in the process, base included, walked transitively."""
+    found: dict[str, type[NpmGuardError]] = {}
+    stack: list[type[NpmGuardError]] = [NpmGuardError]
+    while stack:
+        cls = stack.pop()
+        found[cls.__name__] = cls
+        stack.extend(cls.__subclasses__())
+    return list(found.values())
