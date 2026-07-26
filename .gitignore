@@ -64,3 +64,7 @@ undefined/
 # absent: the note has to sit next to the code to get read, and it must never be
 # committed, because every line of it is false on somebody else's machine.
 LOCAL-STATE.md
+
+# forge's dependency lock. The submodule gitlink in .gitmodules already pins
+# forge-std, and two locks for one dependency can disagree.
+contracts/foundry.lock

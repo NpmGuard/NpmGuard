@@ -109,4 +109,37 @@ contract NpmGuardAuditRequestTest is Test {
         assertEq(user.balance, balBefore - FEE);
         assertEq(address(contractUnderTest).balance, FEE);
     }
+
+    // The request key must identify exactly one (packageName, version).
+    // 
+    // `abi.encodePacked` concatenates dynamic types with no length prefix, so
+    // `packageName + "@" + version` is ambiguous whenever a scoped name puts a
+    // second `@` in the string: ("@scope/pkg", "1.0.0") and ("", "scope/pkg@1.0.0")
+    // both flatten to "@scope/pkg@1.0.0".
+    // 
+    // That is not cosmetic. `requestAudit` is permissionless and the key is a
+    // PERMANENT one-shot flag, so for one fee anybody can burn the slot of any
+    // scoped package and lock its real request out of `AlreadyRequested` forever.
+    // The attacker gains nothing — the engine matches the decoded name against the
+    // audit it was asked for — which makes it pure griefing.
+    function test_RequestAudit_ScopedNameCannotBeGriefedByKeyCollision() public {
+        // The griefer front-runs with a split that flattens to the same string.
+        vm.prank(user);
+        contractUnderTest.requestAudit{value: FEE}("", "scope/pkg@1.0.0");
+
+        // The real request must still be available.
+        assertFalse(contractUnderTest.isRequested("@scope/pkg", "1.0.0"));
+        vm.prank(user);
+        contractUnderTest.requestAudit{value: FEE}("@scope/pkg", "1.0.0");
+        assertTrue(contractUnderTest.isRequested("@scope/pkg", "1.0.0"));
+    }
+
+    // The one-shot guard still holds for a scoped package's own replay.
+    function test_RequestAudit_ScopedNameIsStillOneShot() public {
+        vm.startPrank(user);
+        contractUnderTest.requestAudit{value: FEE}("@scope/pkg", "1.0.0");
+        vm.expectRevert(NpmGuardAuditRequest.AlreadyRequested.selector);
+        contractUnderTest.requestAudit{value: FEE}("@scope/pkg", "1.0.0");
+        vm.stopPrank();
+    }
 }
