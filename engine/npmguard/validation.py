@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
@@ -12,6 +13,19 @@ SupportedChain = Literal["base-sepolia", "base"]
 PACKAGE_NAME_RE = re.compile(r"^(@[a-z0-9\-~][a-z0-9._~\-]*/)?[a-z0-9\-~][a-z0-9._~\-]*$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$")
 TX_HASH_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
+
+
+def valid_http_origin(value: str) -> str:
+    """An absolute http(s) origin, trailing slash normalised off.
+
+    INVARIANT: no trailing slash, so every f-string appending "/{path}" produces
+    one separator. Normalising here makes that true for every reader instead of
+    each one stripping.
+    """
+    parsed = urlsplit(value)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(f"must be an absolute http(s) URL with a host (got {value!r})")
+    return value.rstrip("/")
 
 
 def valid_package_name(value: str) -> str:
