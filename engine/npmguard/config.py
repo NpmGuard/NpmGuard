@@ -147,8 +147,20 @@ class Settings(KitSettings):
     max_running_sessions: int = Field(default=4, ge=1)
     shutdown_deadline_seconds: float = Field(default=10, gt=0)
 
-    triage_model: str = "claude-haiku-4-5-20251001"
-    investigation_model: str = "claude-sonnet-4-6"
+    # These defaults are the pair the RECORDED CORPUS shows actually serving —
+    # `engine/tests/fixtures/llm/*/manifest.json`, whose `models` block stores what
+    # answered rather than what someone intended. Three sources used to disagree and
+    # only that one was evidence: these fields read `claude-haiku-4-5`/`claude-sonnet-4-6`
+    # (never run), `.env.template` shipped `deepseek-v3.2`/`z-ai/glm-5` (never validated,
+    # and it is what a deploy copies), and the corpus showed deepseek-v4-flash on both
+    # roles. Keep all three in step when the model changes, and take the corpus as the
+    # tie-breaker. `llm_runtime` appends the cross-provider fallback tail after this
+    # primary, so a run's observed models are legitimately plural (bench B-11).
+    # `min_length=1`: an explicitly-empty value must fail at boot naming its VARIABLE,
+    # not later as `ModelSpec`'s "model slug must be a non-empty string" — roles are
+    # built before the mock short-circuit, so even a mock engine constructs these.
+    triage_model: str = Field(default="deepseek/deepseek-v4-flash", min_length=1)
+    investigation_model: str = Field(default="deepseek/deepseek-v4-flash", min_length=1)
     # Model-call concurrency of BOTH triage fan-outs (phases.run_flag over the FLAG
     # file set, phases.run_hypothesize over the flags it produced) — i.e. how many
     # provider calls one audit has in flight, not how many it makes. `ge=1` makes the
@@ -267,6 +279,7 @@ class Settings(KitSettings):
                 "NPMGUARD_LLM_BASE_URL is required when NPMGUARD_LLM_BACKEND=openai_compatible"
             )
         return self
+
 
 
 @lru_cache(maxsize=1)
