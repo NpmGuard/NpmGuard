@@ -25,6 +25,7 @@ import {
   type AttestSessionResponse,
 } from "../lib/api.ts";
 import { ApiError } from "../lib/api-base.ts";
+import { apiBase } from "../lib/config.ts";
 import { readCompletion } from "../lib/idkit-completion.ts";
 import "../styles/attest.css";
 
@@ -103,7 +104,7 @@ export function Attest() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         // Bounce through the panel's existing GitHub OAuth and come back here.
-        window.location.href = `/auth/github/login?next=${encodeURIComponent(
+        window.location.href = `${apiBase()}/auth/github/login?next=${encodeURIComponent(
           `/attest/${sessionId}`,
         )}`;
         return;
