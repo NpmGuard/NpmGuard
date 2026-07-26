@@ -253,14 +253,34 @@ class HypothesisGraph:
         return graph
 
 
-def build_graph(audit_id: str, hypotheses: list[Hypothesis]) -> tuple[HypothesisGraph, int, int]:
+@dataclass(frozen=True)
+class GraphBuild:
+    graph: HypothesisGraph
+    added: int
+    # (absorbed hypId → surviving hypId). A merged hypothesis was ANNOUNCED to the
+    # stream when hypothesize armed it and then never runs, because the survivor
+    # asks the same question of the same run. Without the pairing a consumer sees
+    # a suspicion that is emitted and never resolved, which is indistinguishable
+    # from one the engine lost — so the graph would hold it open for ever with no
+    # way to say why. The count alone cannot express that; the mapping can.
+    merges: tuple[tuple[str, str], ...]
+
+    @property
+    def merged(self) -> int:
+        return len(self.merges)
+
+
+def build_graph(audit_id: str, hypotheses: list[Hypothesis]) -> GraphBuild:
     graph = HypothesisGraph(audit_id)
-    merged = added = 0
+    merges: list[tuple[str, str]] = []
+    added = 0
     for hypothesis in hypotheses:
-        _, did_merge = graph.add_or_merge(hypothesis)
-        merged += int(did_merge)
-        added += int(not did_merge)
-    return graph, merged, added
+        survivor, did_merge = graph.add_or_merge(hypothesis)
+        if did_merge:
+            merges.append((hypothesis.hypId, survivor.hypId))
+        else:
+            added += 1
+    return GraphBuild(graph, added, tuple(merges))
 
 
 def next_open(graph: HypothesisGraph) -> Hypothesis | None:

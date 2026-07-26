@@ -104,6 +104,9 @@ describe("connectAuditStream — C2 delivered event", () => {
     FakeEventSource.latest().emit("audit_started", auditFrame({ type: "audit_started", packageName: "chalk" }));
     expect(onEvent).toHaveBeenCalledWith({
       type: "audit_started",
+      // Defaulted by the schema: a durable frame written by an older engine
+      // still parses, and folds as a format the rich replay refuses.
+      replayVersion: 1,
       auditId: "aud-1",
       timestamp: "2026-07-25T00:00:00.000Z",
       seq: 1,

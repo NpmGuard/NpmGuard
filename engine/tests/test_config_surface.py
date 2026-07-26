@@ -21,7 +21,7 @@
 # the declaration looks exactly like a working one.
 #
 # Why C3 is the other half, and why it was not added earlier: it needed a large
-# exemption list until the reads were moved. `NPMGUARD_DEMO_SPEED=fast` stopped the
+# exemption list until the reads were moved. `NPMGUARD_LLM_TIMEOUT_SECONDS=fast` stops the
 # engine BOOTING (`float()` on the raw string at demo.py module scope, and
 # npmguard.api imports demo) with a ValueError naming neither the knob nor the
 # module; `NPMGUARD_TRIAGE_CONCURRENCY` — the knob that sets model-call concurrency,
@@ -168,7 +168,7 @@ def test_every_environment_variable_read_is_declared() -> None:
     paid for.
 
     Measured against the pre-cleanup tree, this scan fails
-    naming NPMGUARD_DEMO_SPEED (demo.py), NPMGUARD_NPM_REGISTRY (resolve.py),
+    naming NPMGUARD_NPM_REGISTRY (resolve.py),
     NPMGUARD_AUDIT_LOG_DIR (audit_log.py) and NPMGUARD_API_URL (ops.py) — four of the
     six then-undeclared reads, the other two being the pair in UNDECLARED_READS. That
     is the falsification: the four this change fixed all show up, and each surviving

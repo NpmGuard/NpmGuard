@@ -41,3 +41,34 @@
 
 @import "./styles/base.css";
 @import "./styles/how-it-works.css";
+
+/* React Flow's own layout CSS: the viewport transform, the pane, the handle and
+ * edge geometry. It is not a theme — every colour and surface below comes from
+ * the token layer, and the nodes are our components. Without it the canvas
+ * renders as a static stack of divs, because panning IS a transform this sheet
+ * defines. */
+@import "@xyflow/react/dist/base.css";
+
+@layer components {
+  /* The three things a canvas needs that the design system has no reason to
+   * own. Each reads a PRIMITIVE (`var(--ng-*)`), because raw CSS cannot see an
+   * `@theme inline` key — those are substituted into utilities at build time
+   * and never emitted as custom properties. */
+  .react-flow {
+    background: var(--ng-canvas);
+  }
+
+  .react-flow__controls-button {
+    background: var(--ng-surface);
+    border-bottom: 1px solid var(--ng-border);
+    color: var(--ng-text-2);
+    /* §10: canvas controls are at least 44px, on every pointer. */
+    width: var(--ng-tap-min);
+    height: var(--ng-tap-min);
+  }
+
+  .react-flow__node:focus-visible {
+    outline: 2px solid var(--ng-focus-ring);
+    outline-offset: 2px;
+  }
+}

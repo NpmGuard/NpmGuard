@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -425,6 +426,8 @@ class RecordedSandbox:
         settings: Settings,
         llm: LlmClient,
         audit_id: str,
+        run_id: str,
+        on_run_complete: Callable[[RunArtifact], Awaitable[None]] | None = None,
     ) -> ExperimentResult:
         artifact = self.bundle.sandbox.get(hypothesis.hypId)
         if artifact is None:
@@ -432,6 +435,13 @@ class RecordedSandbox:
                 f"RecordedSandbox: no recorded artifact for hypothesis {hypothesis.hypId!r}"
             )
         self.seen.add(hypothesis.hypId)
+        # The caller's `run_id` names the run on the WIRE and the artifact keeps
+        # the id it was sealed under. They differ here and only here, because a
+        # recorded artifact cannot be re-sealed without changing the contentHash
+        # its bundle is pinned by — and the orchestrator projects the display
+        # under the wire id, so the four frames stay one run to a consumer.
+        if on_run_complete is not None:
+            await on_run_complete(artifact)
         # ids from live render_timeline (keeps the renderer exercised + proves the
         # event-id set is stable); text from the stored record-time timeline (the
         # persisted artifact is RFC-8785 canonicalized and re-rendering it would not

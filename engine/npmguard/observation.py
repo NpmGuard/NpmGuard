@@ -62,6 +62,33 @@ DEFAULT_BUDGET: dict[str, Any] = {
 }
 
 
+def mint_run_id() -> str:
+    """A fresh run identity.
+
+    Exposed so a CALLER can mint one before the run starts. The orchestrator
+    announces an experiment before it has an artifact to read an id off, and the
+    frame that announces a run and the frame that reports it have to name the
+    same run or neither is worth anything.
+    """
+    return f"run_{uuid4().hex[:26]}"
+
+
+def planned_run(
+    observe: dict[str, Any] | None, budget: dict[str, Any] | None
+) -> tuple[ObserveFlags, Budget]:
+    """What a run WILL observe and what it may spend, resolved against defaults.
+
+    The same function `run_under_observation` resolves with, so a `sandbox_started`
+    frame states the settings the sandbox is actually about to use rather than a
+    caller's partial request. A second copy of this merge would announce a budget
+    the run does not have the moment either default moves.
+    """
+    return (
+        ObserveFlags(**{**DEFAULT_OBSERVE, **(observe or {})}),
+        Budget(**{**DEFAULT_BUDGET, **(budget or {})}),
+    )
+
+
 class RunUnderObservationError(RuntimeError):
     def __init__(self, message: str, detail: str | None = None) -> None:
         super().__init__(message)
@@ -161,11 +188,14 @@ async def run_under_observation(
     *,
     observe: dict | None = None,
     budget: dict | None = None,
+    run_id: str | None = None,
 ) -> RunArtifact:
-    run_id = f"run_{uuid4().hex[:26]}"
+    # Caller-owned when supplied: the orchestrator announces the run before it
+    # starts, so the id has to exist before this function does. Execution is
+    # unchanged either way — the id names the run, it does not configure it.
+    run_id = run_id or mint_run_id()
     compiled = compile_experiment(experiment)
-    observed = ObserveFlags(**{**DEFAULT_OBSERVE, **(observe or {})})
-    limits = Budget(**{**DEFAULT_BUDGET, **(budget or {})})
+    observed, limits = planned_run(observe, budget)
     base = default_container_spec(
         settings,
         volumes=[VolumeMount(str(package_path), "/pkg-src", True)],
@@ -284,11 +314,14 @@ async def run_under_observation(
             else:
                 wrapped = wrap_with_strace(command) if observed.kernel else command
                 stdin_bytes = (
-                    compiled.trigger.stdin.encode()
-                    if compiled.trigger.stdin is not None
-                    else None
+                    compiled.trigger.stdin.encode() if compiled.trigger.stdin is not None else None
                 )
-                exec_args = ["exec", *(["-i"] if stdin_bytes is not None else []), container, *wrapped]
+                exec_args = [
+                    "exec",
+                    *(["-i"] if stdin_bytes is not None else []),
+                    container,
+                    *wrapped,
+                ]
                 try:
                     result = await docker_exec(exec_args, int(limits.wallMs), stdin=stdin_bytes)
                 except DockerOutputTooLargeError as exc:

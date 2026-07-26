@@ -352,7 +352,39 @@ class RenderedTimeline:
     ids: frozenset[str]
 
 
-def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
+@dataclass(frozen=True)
+class TimelineRow:
+    """One line of the timeline, and the events it stands for.
+
+    `event_id` is the `eN` handle the JUDGE cites. It is assigned here and
+    nowhere else, which is what lets a display projection (`run_display.py`) and
+    a judgment citation address the same row: two producers of `eN` would drift
+    the moment either renderer changed its ordering, and a citation that points
+    at the wrong row is a verdict pointing at the wrong evidence.
+
+    `events` is the collapsed group — `_collapse` merges consecutive rows sharing
+    (tag, verb, target), so `count` is how many events this one line stands for.
+    """
+
+    event_id: str
+    section: str  # "node" (L4, logical order) | "clock" (wall-clock t+)
+    tag: str
+    verb: str
+    target: str
+    count: int
+    first_ns: int
+    last_ns: int
+    events: tuple[EvidenceEvent, ...]
+
+
+def timeline_rows(artifact: RunArtifact) -> list[TimelineRow]:
+    """The artifact's events as identified, collapsed rows — the shared substrate
+    under both the judge's prompt text and the frontend-safe display projection.
+
+    Ordering is L4 (logical, no clock) then everything else (wall-clock), because
+    that is the order a reader needs: what the program asked for, then what the
+    kernel and the wire saw.
+    """
     home = (artifact.setupApplied.env or {}).get("HOME", "/home/node")
     # INVARIANT: every seed in `bait` is a token this engine minted (`mint_canary`),
     # so a seed cannot appear in a request the package did not build out of the
@@ -386,29 +418,47 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
     # prompt, and both sections go into the same prompt. L4 bodies do not draw on it —
     # they are already capped at capture.
     budget = _BufferBudget()
-    node_rows = _collapse([_describe(event, shorten, fds, bait, budget) for event in node])
-    clock_rows = _collapse([_describe(event, shorten, fds, bait, budget) for event in clock])
-    identifiers: set[str] = set()
-    counter = 0
+    rows: list[TimelineRow] = []
+    for section, events in (("node", node), ("clock", clock)):
+        for group in _collapse(
+            [(_describe(event, shorten, fds, bait, budget), event) for event in events]
+        ):
+            tag, verb, target, count, first, last, members = group
+            rows.append(
+                TimelineRow(
+                    event_id=f"e{len(rows) + 1}",
+                    section=section,
+                    tag=tag,
+                    verb=verb,
+                    target=target,
+                    count=count,
+                    first_ns=first,
+                    last_ns=last,
+                    events=members,
+                )
+            )
+    return rows
 
-    def identity() -> str:
-        nonlocal counter
-        counter += 1
-        value = f"e{counter}"
-        identifiers.add(value)
-        return value
 
+def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
+    rows = timeline_rows(artifact)
     node_lines = [
-        f"{identity():<5} {row[1]:<8} {row[2]}{f'  [x{row[3]}]' if row[3] > 1 else ''}".rstrip()
-        for row in node_rows
+        f"{row.event_id:<5} {row.verb:<8} {row.target}{f'  [x{row.count}]' if row.count > 1 else ''}".rstrip()
+        for row in rows
+        if row.section == "node"
     ]
     clock_lines = []
-    for tag, verb, target, count, first, last in clock_rows:
-        start, end = first / 1e9, last / 1e9
-        stamp = f"t+{start:.2f}-{end:.2f}s" if count > 1 and start != end else f"t+{start:.2f}s"
+    for row in (item for item in rows if item.section == "clock"):
+        start, end = row.first_ns / 1e9, row.last_ns / 1e9
+        stamp = f"t+{start:.2f}-{end:.2f}s" if row.count > 1 and start != end else f"t+{start:.2f}s"
         clock_lines.append(
-            f"{identity():<5} {stamp:<13} [{tag}]{' ' * max(0, 3 - len(tag))} {verb:<8} {target}{f'  [x{count}]' if count > 1 else ''}".rstrip()
+            f"{row.event_id:<5} {stamp:<13} [{row.tag}]{' ' * max(0, 3 - len(row.tag))} {row.verb:<8} {row.target}{f'  [x{row.count}]' if row.count > 1 else ''}".rstrip()
         )
+    home = (artifact.setupApplied.env or {}).get("HOME", "/home/node")
+
+    def shorten(value: str) -> str:
+        return _truncate(("~" + value[len(home) :]) if value.startswith(home) else value)
+
     trigger = artifact.triggerUsed
     env_keys = list((artifact.setupApplied.env or {}).keys())
     planted = [shorten(file.path) for file in artifact.setupApplied.plantFiles or []]
@@ -431,7 +481,7 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
         lines.append("# note: run hit the wall-clock budget (timed out)")
     if artifact.error:
         lines.append(f"# note: run error — {artifact.error.kind}: {artifact.error.detail}")
-    if counter == 0:
+    if not rows:
         lines.extend(["", "(no events captured)"])
     else:
         if node_lines:
@@ -444,18 +494,24 @@ def render_timeline(artifact: RunArtifact) -> RenderedTimeline:
                     *clock_lines,
                 ]
             )
-    return RenderedTimeline("\n".join(lines), frozenset(identifiers))
+    return RenderedTimeline("\n".join(lines), frozenset(row.event_id for row in rows))
 
 
-def _collapse(rows: list[tuple[str, str, str, int]]) -> list[tuple[str, str, str, int, int, int]]:
+def _collapse(
+    described: list[tuple[tuple[str, str, str, int], EvidenceEvent]],
+) -> list[tuple[str, str, str, int, int, int, tuple[EvidenceEvent, ...]]]:
+    """Merge CONSECUTIVE rows sharing (tag, verb, target) into one, keeping the
+    events each merged row stands for so a consumer can read a row's stream and
+    kind without re-describing it."""
     output: list[list[Any]] = []
-    for tag, verb, target, timestamp in rows:
+    for (tag, verb, target, timestamp), event in described:
         if output and output[-1][:3] == [tag, verb, target]:
             output[-1][3] += 1
             output[-1][5] = timestamp
+            output[-1][6].append(event)
         else:
-            output.append([tag, verb, target, 1, timestamp, timestamp])
-    return [tuple(row) for row in output]
+            output.append([tag, verb, target, 1, timestamp, timestamp, [event]])
+    return [(*row[:6], tuple(row[6])) for row in output]
 
 
 @dataclass
@@ -471,9 +527,7 @@ class _BufferBudget:
         return True
 
 
-def _buffer_clause(
-    event: EvidenceEvent, bait: dict[str, str], budget: _BufferBudget | None
-) -> str:
+def _buffer_clause(event: EvidenceEvent, bait: dict[str, str], budget: _BufferBudget | None) -> str:
     """What a write/sendto PUT on the descriptor: bounded, with its true size stated.
 
     Three sizes are distinct here and the clause never conflates them: `count` is the

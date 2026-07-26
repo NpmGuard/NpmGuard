@@ -23,7 +23,7 @@ from .contract.models import (
 )
 from .deps import provision_dependencies
 from .errors import AuditIncompleteError, AuditTimeoutError, PackageTooLargeError
-from .events import AuditEmitter
+from .events import REPLAY_FORMAT, AuditEmitter
 from .evidence import ArtifactStore
 from .graph import HypothesisGraph, build_graph, derive_graph_verdict
 from .hypothesis_agent import FallbackHypothesisGenerator, TwoPhaseHypothesisGenerator
@@ -263,7 +263,13 @@ class AuditPipeline:
         artifacts = ArtifactStore(log.run_dir)
         trace: list[PhaseLog] = []
         if emitter:
-            await emitter.emit("audit_started", {"packageName": package_name})
+            # The replay vocabulary this stream speaks. A consumer reads it off
+            # the first frame and either folds the stream as a causal record or
+            # says it cannot — it never infers the experiment frames a lower
+            # format does not carry.
+            await emitter.emit(
+                "audit_started", {"packageName": package_name, "replayVersion": REPLAY_FORMAT}
+            )
         # The workdir has exactly one owner from the instant resolve_package
         # returns it: `acquired` is assigned inside the phase operation, so the
         # cleanup handler below covers every step after acquisition — the resolve
@@ -460,7 +466,7 @@ class AuditPipeline:
             trace.append(phase)
             log.write("flag.json", flagged)
             if not flagged.flags:
-                graph, _, _ = build_graph(audit_id, [])
+                graph = build_graph(audit_id, []).graph
                 await _emit_file_verdicts(flagged.fileSummaries, [], emitter)
                 report = _report(
                     graph, flagged.fileSummaries, trace, coverage_gaps=coverage_gaps
@@ -515,12 +521,21 @@ class AuditPipeline:
                         ],
                     },
                 )
-            graph, merged, added = build_graph(audit_id, hypotheses)
+            build = build_graph(audit_id, hypotheses)
+            graph = build.graph
             log.write("graph.json", graph.serialize())
             if emitter:
                 await emitter.emit(
                     "graph_built",
-                    {"nodeCount": graph.size, "addedCount": added, "mergedCount": merged},
+                    {
+                        "nodeCount": graph.size,
+                        "addedCount": build.added,
+                        "mergedCount": build.merged,
+                        "merges": [
+                            {"hypId": absorbed, "into": survivor}
+                            for absorbed, survivor in build.merges
+                        ],
+                    },
                 )
                 await emitter.emit("phase_started", {"phase": "orchestrator"})
             started = time.monotonic()
