@@ -635,7 +635,7 @@ def compile_experiment(experiment: list[ToolCall]) -> CompiledExperiment:
                     "experiment has more than one trigger — a run has exactly one entrypoint"
                 )
             kind, target = args.get("kind"), args.get("target")
-            if kind not in {"entrypoint", "lifecycle", "bin", "subpath"} or not isinstance(
+            if kind not in {"entrypoint", "subpath"} or not isinstance(
                 target, str
             ):
                 raise ExperimentCompileError("invalid args for tool 'trigger'")

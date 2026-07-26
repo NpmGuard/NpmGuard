@@ -21,6 +21,10 @@
  *  C6  retries exhausted           — beyond maxRetries → onFailed, no further reopen.
  *  C7  isDone stops reconnect      — a terminal isDone()===true short-circuits reconnect.
  *  C8  close idempotence           — close() twice is safe; a closed stream ignores events/errors.
+ *  C10 reconnect carries the cursor — a manual reopen is a NEW EventSource, which
+ *                                    has no Last-Event-ID, so the highest delivered
+ *                                    seq rides on `?since=`. Without it every drop
+ *                                    replays the whole audit log from seq 0.
  *
  * Blackbox: a fake EventSourceCtor records listeners and lets the test drive
  * emit()/fail(); a synchronous backoff + fake timers remove all real waiting.
@@ -445,5 +449,43 @@ describe("connectScanStream — S5 close idempotence", () => {
     src.fail();
     expect(onMessage).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
+  });
+});
+
+describe("connectAuditStream — C10 reconnect carries the cursor", () => {
+  it("C10: a reopen resumes from the highest delivered seq, not from the start", () => {
+    const handle = connectAuditStream(
+      "/api/audit/a/events",
+      { onEvent: () => {} },
+      { eventSource: Ctor, backoffMs: () => 1000 },
+    );
+    // The first connection asks for everything — there is nothing to resume from.
+    expect(FakeEventSource.latest().url).toBe("/api/audit/a/events");
+
+    FakeEventSource.latest().emit("phase_started", auditFrame({ type: "phase_started", phase: "flag" }, 7));
+    FakeEventSource.latest().fail();
+    vi.advanceTimersByTime(1000);
+
+    // Closing the source to control the retry discards the browser's own
+    // Last-Event-ID, so the cursor has to be explicit or the engine replays
+    // every frame again.
+    expect(FakeEventSource.latest().url).toBe("/api/audit/a/events?since=7");
+    handle.close();
+  });
+
+  it("C10b: the cursor only ever moves forward", () => {
+    const handle = connectAuditStream(
+      "/api/audit/a/events",
+      { onEvent: () => {} },
+      { eventSource: Ctor, backoffMs: () => 1000 },
+    );
+    const src = FakeEventSource.latest();
+    src.emit("phase_started", auditFrame({ type: "phase_started", phase: "flag" }, 9));
+    // A replayed lower seq must not rewind the resume point.
+    src.emit("phase_started", auditFrame({ type: "phase_started", phase: "intent" }, 3));
+    src.fail();
+    vi.advanceTimersByTime(1000);
+    expect(FakeEventSource.latest().url).toBe("/api/audit/a/events?since=9");
+    handle.close();
   });
 });

@@ -1,6 +1,6 @@
-# CLASS MAP — evidence: canonical JSON, merkle, L4 parse, artifact store, timeline
+# CLASS MAP — evidence: canonical JSON, L4 parse, artifact store, timeline
 # (pure functions + a filesystem ArtifactStore under tmp_path)
-# Axes: value shape (order/numbers/non-finite), leaf parity, trace framing,
+# Axes: value shape (order/numbers/non-finite), trace framing,
 #       artifact integrity (tamper/dedupe), timeline sections + collapse
 #
 # The timeline classes are the expensive half of this file, because a timeline that
@@ -50,12 +50,10 @@ from npmguard.evidence import (
     canonicalize,
     compute_event_summary,
     content_hash_of,
-    merkle_root,
     mint_canary,
     parse_l4_trace,
     render_timeline,
     seal_run_artifact,
-    sha256_hex,
     synthetic_event,
 )
 from npmguard.sensors import parse_strace_log
@@ -181,13 +179,6 @@ def test_canonical_json_rejects_non_finite_numbers(number: float) -> None:
         canonicalize(number)
 
 
-def test_merkle_root_duplicates_an_odd_leaf() -> None:
-    """C4: odd leaf counts pair the trailing leaf with itself."""
-    leaves = [sha256_hex("a"), sha256_hex("b"), sha256_hex("c")]
-    expected = sha256_hex(sha256_hex(leaves[0] + leaves[1]) + sha256_hex(leaves[2] + leaves[2]))
-    assert merkle_root(leaves) == expected
-
-
 def test_l4_parser_uses_last_complete_trace_and_normalizes_events() -> None:
     """C5: broken earlier frames are ignored; the final frame parses and normalizes."""
     stdout = (
@@ -223,13 +214,18 @@ def test_tampered_artifact_fails_verification(tmp_path) -> None:
     assert not store.verify_artifact(digest)
 
 
-def test_blob_store_is_content_addressed(tmp_path) -> None:
-    """C9: identical bytes get one digest and one file; content round-trips."""
+def test_artifact_store_is_content_addressed(tmp_path) -> None:
+    """C9: the same artifact gets one digest and one file, and reads back equal.
+
+    Through `write_artifact`, which is the writer the orchestrator uses — a
+    content-addressing class proved through a door production never opens says
+    nothing about the store the product actually has."""
     store = ArtifactStore(tmp_path)
-    first = store.write_blob("payload", extension="txt")
-    second = store.write_blob("payload", extension="txt")
+    draft = _artifact_draft([])
+    first = store.write_artifact(draft)
+    second = store.write_artifact(draft)
     assert first == second
-    assert store.read_blob(first, extension="txt") == b"payload"
+    assert store.read_artifact(first).runId == "run-1"
     assert len(list(store.artifacts_dir.iterdir())) == 1
 
 
