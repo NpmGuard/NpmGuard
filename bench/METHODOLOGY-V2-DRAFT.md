@@ -1522,16 +1522,21 @@ fixing before the runner is written.** The engine does not run one model:
 
 - Roles split across **two** configured models — `intent` and `flag` on
   `triage_model`, and `hypothesis`/`propose`/`agent`/`judge` on
-  `investigation_model` (`llm_runtime.py:157-209`). Defaults are
-  `claude-haiku-4-5-20251001` and `claude-sonnet-4-6`
-  (`config.py:50`, `:52`).
+  `investigation_model` (`llm_runtime.py:157-209`). Both default to
+  `deepseek/deepseek-v4-flash`.
 - Every role additionally carries a **cross-provider fallback tail**
   (`llm_runtime.py:62-73`, `_fallback_specs` at `:76-93`), so one logical phase
   can bill on several models within a single audit.
-- The repo contains **three disagreeing sources of truth** about what actually
-  runs: the `config.py` defaults above; `engine/.env.template:6-10`
-  (OpenRouter, `deepseek/deepseek-v3.2` + `z-ai/glm-5`); and the recorded
-  production traffic (`deepseek/deepseek-v4-flash`, `google/gemini-2.5-flash`).
+- ~~The repo contains **three disagreeing sources of truth** about what actually
+  runs~~ — **resolved.** It did: the `config.py` defaults read
+  `claude-haiku-4-5-20251001`/`claude-sonnet-4-6` (never ran),
+  `engine/.env.template` declared `deepseek/deepseek-v3.2` + `z-ai/glm-5` (never
+  validated, and it is what a deploy copies), and the recorded traffic showed
+  `deepseek/deepseek-v4-flash`. Only the recording was evidence — it stores the
+  model that *answered*. The defaults now carry the recorded pair, the template
+  declares no pair at all, and `engine/tests/test_model_config_agreement.py`
+  makes the duplication **unreachable** rather than policed: C2 requires the
+  shipped model to appear in the corpus, C3 forbids any second declaration.
 
 Because per-attempt `actual_model` is already recorded (`capture.py:34-75`), the
 fix is to make the reproducibility identifier **observed rather than declared**:

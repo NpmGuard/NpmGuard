@@ -92,23 +92,6 @@ def _recorded_models() -> dict[str, set[str]]:
     return served
 
 
-@pytest.mark.parametrize("field,variable", sorted(ROLE_VARIABLES.items()))
-def test_c1_settings_default_matches_the_env_template(field: str, variable: str) -> None:
-    """C1: config.py's default and `.env.template`'s value are two copies of one
-    fact. The template is what `deploy/README.md` tells an operator to copy into
-    `/root/NpmGuard/engine/.env`, so a disagreement ships a model the code does not
-    expect — silently, because both files parse fine."""
-    template = ENGINE_ROOT / ".env.template"
-    declared = dict(_ENV_DECLARATION.findall(template.read_text()))
-    assert variable in declared, f"{template} no longer declares {variable}"
-    assert declared[variable] == _settings_defaults()[field], (
-        f"{variable} disagrees between config.py and .env.template:\n"
-        f"  config.py      Settings.{field} = {_settings_defaults()[field]!r}\n"
-        f"  .env.template  {variable}={declared[variable]}\n"
-        "Change both, and re-record the LLM fixtures — see C2."
-    )
-
-
 @pytest.mark.parametrize("role", ["triage", "investigation"])
 def test_c2_the_shipped_model_has_a_recording_behind_it(role: str) -> None:
     """C2: the model we ship must appear in the recorded corpus as one that actually
@@ -132,22 +115,31 @@ def test_c2_the_shipped_model_has_a_recording_behind_it(role: str) -> None:
     )
 
 
-def test_c3_every_declaration_in_the_repo_agrees() -> None:
-    """C3: the generalisation. Find every committed env-style declaration of the pair
-    — not a hand-listed set of files — and require them all to agree with config.py.
-    A fourth source appearing is the failure mode this whole file exists for, and
-    enumerating today's files would not catch it."""
-    defaults = _settings_defaults()
-    expected = {variable: defaults[field] for field, variable in ROLE_VARIABLES.items()}
-    disagreements = [
-        f"  {path.relative_to(REPO_ROOT)}: {variable}={value} (expected {expected[variable]})"
+def test_c3_config_py_is_the_only_declaration() -> None:
+    """C3: INVARIANT — the model pair is declared in exactly ONE place, `config.py`.
+    No committed file declares it a second time, with any value.
+
+    This is the enforcement, not a comparison. An earlier version of this file
+    asserted that every declaration *agreed*, which left the copies in place and
+    policed them forever — the state stayed reachable and the check was the smoke
+    alarm. Deleting `.env.template`'s two lines removes the state instead: there is
+    nothing left to disagree.
+
+    Commented-out declarations count. A value in a comment is still a copy, and
+    reading one as documentation of the real configuration is precisely how
+    `deepseek-v3.2`/`z-ai/glm-5` survived in `.env.template` from the Python rewrite
+    onward. A real `.env` is machine-local, never committed, and never asserted on —
+    overriding per host is legitimate.
+    """
+    extra = [
+        f"  {path.relative_to(REPO_ROOT)}: {variable}={value}"
         for path, declared in sorted(_declarations().items())
         for variable, value in sorted(declared.items())
-        if value != expected[variable]
     ]
-    assert not disagreements, (
-        "a committed file declares a model pair that disagrees with config.py:\n"
-        + "\n".join(disagreements)
-        + "\n\nThere is one right answer and it is the recorded corpus "
-        "(engine/tests/fixtures/llm/*/manifest.json). Make every declaration match it."
+    assert not extra, (
+        "the model pair is declared outside config.py:\n"
+        + "\n".join(extra)
+        + "\n\nDelete it. config.py's defaults are the single declaration, and they are "
+        "answerable to the recorded corpus (C2). A second copy is a state that can "
+        "disagree — which is the bug this file exists to make unreachable, not to detect."
     )
