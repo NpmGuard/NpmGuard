@@ -129,12 +129,16 @@ export function Landing() {
   return (
     <>
       <section className="border-b border-border">
-        <div className="mx-auto w-full max-w-[1160px] px-4 pt-16 pb-10 md:px-6 md:pt-24 lg:px-8">
-          <h1 className="max-w-3xl text-3xl leading-tight font-semibold tracking-tight text-text md:text-4xl">
-            Find out what an npm package{" "}
-            <em className="text-accent-text not-italic">actually does</em> when you install it.
+        <div className="mx-auto w-full max-w-[1160px] px-4 pt-16 pb-12 md:px-6 md:pt-24 lg:px-8">
+          <p className="flex items-center gap-3 font-mono text-2xs tracking-[0.18em] text-text-3 uppercase">
+            <span aria-hidden="true" className="h-px w-8 bg-accent" />
+            npm supply-chain auditing
+          </p>
+          <h1 className="mt-5 max-w-3xl text-4xl leading-[1.05] font-bold tracking-tight text-text md:text-5xl">
+            Find out what an npm package <em className="text-accent-text not-italic">actually
+            does</em> <span className="text-text-3">when you install it.</span>
           </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-text-2">
+          <p className="mt-6 max-w-2xl text-md leading-relaxed text-text-2">
             npmguard reads the source, turns each suspicion into an experiment, runs the package
             under a full-oracle sandbox, and gives you a verdict that cites the exact events it
             rests on.
@@ -167,10 +171,13 @@ export function Landing() {
         <div className="mx-auto w-full max-w-[1160px] px-4 py-12 md:px-6 lg:px-8">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 id="landing-replay" className="text-sm font-medium text-text">
+              <p className="font-mono text-2xs tracking-[0.18em] text-text-3 uppercase">
+                Evidence, not assertion
+              </p>
+              <h2 id="landing-replay" className="mt-2 text-2xl font-bold tracking-tight text-text">
                 Watch a real investigation
               </h2>
-              <p className="mt-1 max-w-xl text-xs leading-relaxed text-text-2">
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-text-2">
                 Not an animation of a report. These are the frames an audit emitted, replayed in
                 the same renderer a live audit uses — pause it, scrub it, open any node.
               </p>
@@ -183,7 +190,9 @@ export function Landing() {
             ) : null}
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-lg border border-border bg-surface shadow-card">
+          {/* Stamped `.dark`: the replay frame is the lacquer panel on the paper
+              page — the one place the landing shows the product's night face. */}
+          <div className="dark mt-6 overflow-hidden rounded-xl border border-border bg-canvas shadow-pop">
             {demos.status === "failed" ? (
               <div className="p-4">
                 <DegradedRegion title="Recorded audits" failure={demos.failure} />
@@ -202,14 +211,14 @@ export function Landing() {
       </section>
 
       <section className="border-b border-border">
-        <div className="mx-auto grid w-full max-w-[1160px] gap-8 px-4 py-14 md:grid-cols-3 md:px-6 lg:px-8">
+        <div className="mx-auto grid w-full max-w-[1160px] gap-x-8 gap-y-10 px-4 py-16 md:grid-cols-3 md:px-6 lg:px-8">
           {STEPS.map((step, index) => (
-            <div key={step.title}>
-              <span className="font-mono text-2xs text-text-3 tabular-nums">
+            <div key={step.title} className="border-t-2 border-text pt-4">
+              <span className="font-mono text-2xs text-accent-text tabular-nums">
                 {String(index + 1).padStart(2, "0")}
               </span>
-              <h3 className="mt-1 text-sm font-medium text-text">{step.title}</h3>
-              <p className="mt-1.5 text-xs leading-relaxed text-text-2">{step.body}</p>
+              <h3 className="mt-2 text-lg font-bold tracking-tight text-text">{step.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-text-2">{step.body}</p>
             </div>
           ))}
         </div>
@@ -217,7 +226,10 @@ export function Landing() {
 
       <section aria-labelledby="landing-verdicts">
         <div className="mx-auto w-full max-w-[1160px] px-4 py-14 md:px-6 lg:px-8">
-          <h2 id="landing-verdicts" className="text-sm font-medium text-text">
+          <p className="font-mono text-2xs tracking-[0.18em] text-text-3 uppercase">
+            Three outcomes, one axis
+          </p>
+          <h2 id="landing-verdicts" className="mt-2 text-2xl font-bold tracking-tight text-text">
             What a verdict can say
           </h2>
           <ul className="mt-5 grid gap-5 md:grid-cols-3">
@@ -262,7 +274,20 @@ function ReplayPoster({
   onPlay: (name: string) => void;
 }) {
   return (
-    <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_260px]">
+    <div>
+      <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
+        <span aria-hidden="true" className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-full bg-danger" />
+          <span className="size-2.5 rounded-full bg-accent" />
+          <span className="size-2.5 rounded-full bg-safe" />
+        </span>
+        <span className="font-mono text-2xs text-text-3">audit · recorded frames</span>
+        <span className="ml-auto flex items-center gap-1.5 font-mono text-2xs tracking-wide text-accent-text uppercase">
+          <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
+          replayable
+        </span>
+      </div>
+      <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_260px]">
       <div className="relative min-h-[320px] overflow-hidden p-6">
         <div
           aria-hidden="true"
@@ -317,6 +342,7 @@ function ReplayPoster({
         <p className="mt-3 text-2xs leading-relaxed text-text-3">
           Completed audits are public and linkable. Nothing here is paywalled.
         </p>
+      </div>
       </div>
     </div>
   );

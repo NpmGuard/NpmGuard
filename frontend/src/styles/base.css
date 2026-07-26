@@ -34,15 +34,22 @@ html {
   background-color: var(--ng-canvas);
 }
 
+body {
+  margin: 0;
+}
+
+/* No `margin: 0` on `.ng-root`: this rule is UNLAYERED, so any declaration here
+   beats every Tailwind utility on the same element — a `margin: 0` shared with
+   `body` is what silently killed `mx-auto` on every centered `ng-root`
+   container. Only `body` needs the UA-margin reset. */
 body,
 .ng-root {
-  margin: 0;
   font-family: var(--ng-font-sans);
   font-size: var(--text-base); /* 14px — the app is dense */
   line-height: 1.55; /* = --text-base--line-height */
   color: var(--ng-text);
   background-color: var(--ng-canvas);
-  font-synthesis: none; /* no faked bold/italic — Inter has real weights */
+  font-synthesis: none; /* no faked bold/italic — both faces are variable */
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
