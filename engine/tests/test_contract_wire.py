@@ -1,37 +1,10 @@
-# CLASS MAP — the WIRE CONTRACT itself: what the authored Zod makes
-# unrepresentable, and what it declares at all.
-# (seam: `npmguard.contract.models` — the GENERATED module — and
-#  `shared/contract/contract.schema.json`, the language-neutral artifact it is
-#  generated from. Read as data, never hand-edited. These tests exist because a
-#  contract invariant that only lives in a `.refine()` is invisible to the engine,
-#  which is the PRODUCER of every payload here.)
-#
-# Axes: is a dishonest state representable × does a declared value have a producer
-#   C1 BenchRate — `point is None ⟺ n == 0`, unrepresentable otherwise, in BOTH
-#      directions. An empty corpus cannot render as 0%, and a rate cannot arrive
-#      without its denominator.
-#   C2 BenchRunMetrics — the three POOLING identifiers (engineSha, datasetVersion,
-#      manifestSha) are required, so a payload that could be silently averaged with
-#      another does not parse
-#   C3 BenchCoverage — nullable, and its non-null shape is EXACTLY what the
-#      projector's `FidelityCounts.as_dict()` produces. The type has a producer even
-#      though the route sends null today; that is the difference between "not wired
-#      yet" and "declared with nothing behind it".
-#   C4 the deleted island — Finding / Proof / TriageResult / Confidence / ProofKind /
-#      Capability / FocusArea / AttackPathway are absent from the generated module
-#      AND from the contract artifact, and the retired `TEST_CONFIRMED` string
-#      reaches nothing executable. The falsification, recorded so a re-introduction
-#      fails a test rather than a review.
-#   C5 codegen parity — every OBJECT `$defs` entry is bound as a class in the
-#      generated module, every unbound one is an enum-or-union root that
-#      `--collapse-root-models` inlines by design, and D-6's two new vocabularies
-#      survive codegen value-for-value (the failure that mangled `TriageHypothesis`)
-#   C6 ValidationFailed — the 400 body's declared key set, with pydantic's own
-#      `type`/`input` absent from an issue by construction
-#   C7 codegen FRESHNESS — the committed artifact is what today's `shared/src/*.ts`
-#      renders. C5 checks artifact→python; this checks zod→artifact, the half where
-#      a schema edit that skipped `gen-contract.sh` leaves every consumer agreeing
-#      with each other about the WRONG shape
+"""Integrity checks for the generated wire contract.
+
+The seams are the generated Pydantic module and the language-neutral schema
+artifact authored from Zod. Axes: representable rate states, required pooling
+identifiers, coverage provenance, generated-model parity, validation-error shape,
+and code-generation freshness.
+"""
 
 import json
 import shutil
@@ -106,11 +79,6 @@ def _metrics(**overrides) -> dict:
     return payload
 
 
-# ---------------------------------------------------------------------------
-# C1 — the rate domain
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("rate", "why"),
     [
@@ -159,19 +127,16 @@ def test_the_rate_union_still_admits_every_honest_rate() -> None:
     assert empty.point is None and empty.lower is None and empty.upper is None
     # A perfect score over a real denominator is still a MEASURED rate — the union
     # must not treat `point == 1.0` or `k == 0` as the empty case.
-    for edge in ({"k": 2, "n": 2, "point": 1.0, "lower": 0.34, "upper": 1.0},
-                 {"k": 0, "n": 2, "point": 0.0, "lower": 0.0, "upper": 0.66}):
+    for edge in (
+        {"k": 2, "n": 2, "point": 1.0, "lower": 0.34, "upper": 1.0},
+        {"k": 0, "n": 2, "point": 0.0, "lower": 0.0, "upper": 0.66},
+    ):
         assert contract.BenchRunMetrics.model_validate(_metrics(missRate=edge)).missRate.n == 2
-
-
-# ---------------------------------------------------------------------------
-# C2 — the pooling identifiers
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("identifier", ["engineSha", "datasetVersion", "manifestSha"])
 def test_a_metrics_payload_without_its_pooling_identifiers_fails_to_parse(identifier) -> None:
-    """C2 / B-13: these are part of the MEASUREMENT, not metadata about it.
+    """C2: pooling identifiers are part of the measurement, not metadata.
 
     `pooled_engine_sha` refuses to combine runs whose `engineSha` differs, because a
     fidelity fix changes what the engine can SEE and a pre-fix MISSED is evidence
@@ -186,15 +151,8 @@ def test_a_metrics_payload_without_its_pooling_identifiers_fails_to_parse(identi
         contract.BenchRunMetrics.model_validate(payload)
 
 
-# ---------------------------------------------------------------------------
-# C3 — coverage
-# ---------------------------------------------------------------------------
-
-
 def test_coverage_is_nullable_and_its_shape_is_the_projectors(artifact) -> None:
-    """C3 / B-12: `coverage` is null — never a zeroed record — while the artifact tier
-    is unreachable, because zeros would claim "we measured coverage and found no
-    defects", a measurement nobody made.
+    """C3: absent coverage is null rather than a fabricated zero measurement.
 
     The non-null shape is asserted against `FidelityCounts.as_dict()` rather than
     restated, so the declared type has a PRODUCER even though the route sends null:
@@ -216,23 +174,8 @@ def test_coverage_is_nullable_and_its_shape_is_the_projectors(artifact) -> None:
     }
 
 
-# ---------------------------------------------------------------------------
-# C4 — the deleted island, and its falsification
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# C5 / C6 — codegen parity, and the declared 400 body
-# ---------------------------------------------------------------------------
-
-
 def test_the_validation_failed_body_declares_exactly_what_the_engine_sends() -> None:
-    """C6: `api.py::_body` used to emit an undeclared `details` carrying
-    `PydanticValidationError.errors()` verbatim. Zod strips unknown keys, so nothing
-    broke — which is the failure worth closing: invisible to a generated consumer,
-    and available to be depended on by one hand-reading JSON. Declared now in
-    NpmGuard's OWN vocabulary, so a pydantic upgrade is not a wire change and
-    `input` (which echoes submitted values) never leaves the process."""
+    """C6: validation details use NpmGuard's declared, secret-safe vocabulary."""
     assert set(contract.ValidationFailed.model_fields) == {"error", "details"}
     assert set(contract.ValidationIssue.model_fields) == {"field", "message"}
     body = contract.ValidationFailed.model_validate(
@@ -245,37 +188,37 @@ def test_the_validation_failed_body_declares_exactly_what_the_engine_sends() -> 
         contract.ValidationFailed.model_validate({"error": "Invalid request"})
 
 
-# ---------------------------------------------------------------------------
-# C7 — codegen FRESHNESS: the artifact still matches the Zod it came from
-# ---------------------------------------------------------------------------
-
-
 def test_the_contract_artifact_is_what_the_zod_renders_today() -> None:
-    """C7: `contract.schema.json` is regenerated, not merely generated once.
+    """C7: the committed schema equals output from the authored Zod contract.
 
-    C5 pins the artifact against the generated PYTHON, which is the second half of
-    the chain. This is the first half, and it was the unguarded one: `shared/src/*.ts`
-    is the authored source, and an edit there that never ran `scripts/gen-contract.sh`
-    leaves the artifact and `models.py` describing the OLD shape. Everything
-    downstream stays self-consistent and green — the engine constructs the stale
-    model, the frontend parses against the stale zod — while the contract silently
-    stops meaning what the repo says it means. That is exactly the two-authors
-    failure the generated contract exists to abolish, reappearing as a staleness
-    rather than as a hand-written copy.
-
-    Rendered to a TMPDIR and diffed, never in place: a test that wrote to
-    `shared/contract/` would repair the drift it is meant to catch and then pass.
-
-    Skipped loudly without npm — the toolchain is a repo-level dependency, and the
-    idiom for a tier that cannot run here is to say so, not to quietly pass (same
-    rule as the docker/postgres tiers in `scripts/gate.sh`).
+    Code generation targets a temporary directory so the test cannot repair the
+    artifact it checks.
     """
     if shutil.which("npm") is None:
         pytest.skip("npm unavailable — contract freshness UNVERIFIED (required before merge)")
     repo_root = CONTRACT_PATH.parents[2]
+    tsx_candidates = (
+        repo_root / "node_modules/.bin/tsx",
+        repo_root / "shared/node_modules/.bin/tsx",
+    )
+    if not any(path.is_file() for path in tsx_candidates):
+        pytest.skip(
+            "JavaScript dependencies unavailable — contract freshness UNVERIFIED "
+            "(run npm install before merge)"
+        )
     with tempfile.TemporaryDirectory() as tmp:
         result = subprocess.run(
-            ["npm", "--silent", "-w", "@npmguard/shared", "run", "contract:export", "--", "--out", tmp],
+            [
+                "npm",
+                "--silent",
+                "-w",
+                "@npmguard/shared",
+                "run",
+                "contract:export",
+                "--",
+                "--out",
+                tmp,
+            ],
             cwd=repo_root,
             capture_output=True,
             text=True,

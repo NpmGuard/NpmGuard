@@ -9,15 +9,9 @@ import httpx
 from .config import Settings
 from .errors import PackageNotFoundError
 
-# Bound at import, as before — `panel/watch.py` imports this name and uses it as a
-# dataclass field default, so the module attribute is the seam and stays one. What
-# changed is where the value comes from: a validated setting, so
-# `NPMGUARD_NPM_REGISTRY=registry.npmjs.org` (no scheme) is a named boot rejection
-# rather than an httpx UnsupportedProtocol raised inside a paid audit's resolve
-# phase, and the trailing slash is normalised off for the f-string below.
-# `Settings()` and not `get_settings()`: this is an import-time constant, and the
-# cached singleton would additionally fix the whole config surface at whatever
-# moment this module first got imported.
+# `panel/watch.py` captures this module attribute as a dataclass default. Resolve
+# it from validated settings at import so every consumer sees the same normalized
+# registry URL.
 NPM_REGISTRY = Settings().npm_registry
 
 
@@ -35,10 +29,8 @@ class ResolvedPackage:
     version: str | None = None
 
     def __post_init__(self) -> None:
-        # INVARIANT: path lives inside workdir, a fresh per-run tmpdir owned
-        # exclusively by this audit — fixtures are COPIED in, tarballs extracted
-        # in — so nothing an audit writes (e.g. deps.py unpacking node_modules
-        # into path) can mutate the committed fixture tree or leak across runs.
+        # INVARIANT: every staged package lives in the private workdir owned by
+        # this audit, so writes cannot mutate its source or leak across runs.
         assert self.path.resolve().is_relative_to(self.workdir.resolve()), (
             f"resolved path {self.path} escapes its private workdir {self.workdir}"
         )
@@ -73,10 +65,7 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
 
 
 def _reject_escaping_symlinks(root: Path, boundary: Path) -> None:
-    """Mirror of _safe_extract's link check for the local-copy path: a staged
-    package may be live malware and may ship symlinks; a link resolving outside
-    the private workdir would hand the audit a read/write channel to host files,
-    breaking the ResolvedPackage invariant."""
+    """Reject links that would give a staged package access to host files."""
     resolved_boundary = boundary.resolve()
     for entry in root.rglob("*"):
         if entry.is_symlink() and not entry.resolve().is_relative_to(resolved_boundary):
@@ -103,27 +92,18 @@ async def resolve_package(
 ) -> ResolvedPackage:
     # INVARIANT: the source is DECLARED by the caller, never inferred from the
     # package name — `local_path is None` iff this resolves from the registry.
-    # A name is an identity; when it also decided the source, four consumers had
-    # to re-derive that fact by re-matching a prefix, and they drifted apart.
     workdir = Path(tempfile.mkdtemp(prefix="npmguard-"))
     try:
         if local_path is not None:
-            # A private COPY: the staged tree stays byte-identical no matter what
-            # the run writes into `path`. Corpus packages are live malware.
-            # Absolute, and a package directory: checked at admission
-            # (`validation.valid_local_path`), so nothing is re-checked here. A
-            # tree removed since then fails loud out of copytree.
+            # Corpus packages can be live malware. Copy the admitted package
+            # directory so the run cannot write into the source tree.
             source = Path(local_path)
             path = workdir / source.name
             shutil.copytree(source, path, symlinks=True)
             _reject_escaping_symlinks(path, workdir)
-            # version stays None: a staged package has no registry-resolved
-            # version, which is what keeps it out of the published report store.
             return ResolvedPackage(path=path, workdir=workdir)
 
-        resolved_version, tarball_url = await resolve_tarball_url(
-            package_name, version or "latest"
-        )
+        resolved_version, tarball_url = await resolve_tarball_url(package_name, version or "latest")
         archive_path = workdir / "package.tgz"
         async with (
             httpx.AsyncClient(timeout=60, follow_redirects=True) as client,
@@ -143,20 +123,11 @@ async def resolve_package(
             version=resolved_version,
         )
     except BaseException:
-        # INVARIANT: resolve_package either RETURNS a ResolvedPackage that owns
-        # `workdir`, or leaves no workdir behind — there is no third state where a
-        # tmpdir exists with no owner to call cleanup_package on it.
-        # BaseException, not Exception: asyncio.CancelledError is a BaseException in
-        # 3.8+, and this function awaits a registry lookup and a streaming tarball
-        # download. `except Exception` therefore missed the two cancellations that
-        # actually happen — the phase's own timeout and engine shutdown — and each
-        # one leaked the whole extracted package tree into /tmp. Verified by
-        # probe: cancel during the download, one npmguard-* workdir left behind.
+        # INVARIANT: failure or cancellation before ownership is returned leaves
+        # no workdir behind. Cancellation is a BaseException.
         shutil.rmtree(workdir, ignore_errors=True)
         raise
 
 
 def cleanup_package(resolved: ResolvedPackage) -> None:
-    # workdir is always this run's private tmpdir (see ResolvedPackage
-    # invariant), so removal is unconditional — no needs_cleanup tri-state.
     shutil.rmtree(resolved.workdir, ignore_errors=True)
