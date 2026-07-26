@@ -27,8 +27,8 @@ from kit_llm.parser import (
     strip_code_fences,
 )
 from kit_llm.prompts import Prompt, load_prompt, prompt_hash, render
-from kit_llm.schema import audit_strict_schema, portable_strict_schema
 from kit_llm.provider import (
+    BedrockAdapter,
     OpenAICompatAdapter,
     OpenRouterAdapter,
     ProviderInvariantError,
@@ -38,10 +38,12 @@ from kit_llm.provider import (
     ProviderResult,
     ProviderResultError,
 )
+from kit_llm.schema import audit_strict_schema, portable_strict_schema
 from kit_llm.spend import SpendTracker, estimate_cost
 from kit_llm.tools import Tool, ToolCallError, ToolRegistry
 
 __all__ = [
+    "BedrockAdapter",
     "BudgetExhausted",
     "CandidateRejected",
     "CaptureStore",
