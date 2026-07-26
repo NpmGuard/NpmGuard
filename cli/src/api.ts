@@ -1,3 +1,5 @@
+import { packagePath } from "./utils.js";
+
 export interface CheckoutResponse {
   url: string;
   sessionId: string;
@@ -148,7 +150,7 @@ export async function getPackageReport(
   version?: string,
 ): Promise<PackageReport | null> {
   const query = version ? `?version=${encodeURIComponent(version)}` : "";
-  const url = `${apiUrl}/package/${encodeURIComponent(packageName)}/report${query}`;
+  const url = `${apiUrl}/package/${packagePath(packageName)}/report${query}`;
 
   try {
     return await request<PackageReport>(url);
