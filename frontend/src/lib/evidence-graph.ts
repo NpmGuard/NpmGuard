@@ -39,7 +39,7 @@
  * longer the point.
  */
 
-import type { DisplayObservation, FocusRange, HypothesisState } from "@npmguard/shared";
+import type { ClaimKind, DisplayObservation, FocusRange, HypothesisState } from "@npmguard/shared";
 import type { AuditFoldState, HypothesisView, RunView } from "./audit-fold.ts";
 import { RISK_SUSPICIOUS_THRESHOLD } from "./types.ts";
 
@@ -83,7 +83,7 @@ export interface SourceData {
 
 export interface ClusterData {
   file: string;
-  claim: string;
+  claim: ClaimKind;
   hypIds: string[];
 }
 
@@ -118,12 +118,27 @@ export interface GraphNode {
   id: string;
   kind: GraphNodeKind;
   column: number;
-  /** vertical slot within the column; stable across frames for the same node */
+  /**
+   * Vertical slot within the column, in ROW UNITS — fractional on purpose.
+   *
+   * A parent sits at the mean of its children, so a file that raised six
+   * suspicions is level with the middle of them and its six edges leave as a
+   * fan rather than as six crossings. Without it the columns are independent
+   * stacks and the edges between them are noise the reader has to untangle
+   * before the graph says anything.
+   */
   row: number;
   data: GraphNodeData;
   /** contracted into a quiet, expandable group (a refuted branch at verdict) */
   contracted: boolean;
-  /** the causal path a selected verdict highlights */
+  /**
+   * On the causal path from the package to a confirmed verdict.
+   *
+   * A FLAG, not a paint order. The canvas highlights it only while the verdict —
+   * or a node on the path — is selected, because a package with twelve confirmed
+   * hypotheses would otherwise render every edge in danger red, and a graph where
+   * everything is alarming carries no alarm at all.
+   */
   onProofPath: boolean;
 }
 
@@ -170,12 +185,16 @@ export const COVERAGE_NODE_ID = "coverage";
 export const VERDICT_NODE_ID = "verdict";
 
 export const sourceNodeId = (file: string) => `source:${file}`;
-export const clusterNodeId = (file: string, claim: string) => `cluster:${file}:${claim}`;
+export const clusterNodeId = (file: string, claim: ClaimKind) => `cluster:${file}:${claim}`;
 export const hypothesisNodeId = (hypId: string) => `hyp:${hypId}`;
 export const runNodeId = (hypId: string) => `run:${hypId}`;
 
 /** A hypothesis whose run still counts toward the argument at the verdict. */
 const SURVIVES_VERDICT = new Set<HypothesisState>(["CONFIRMED", "DEFERRED"]);
+
+function mean(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
 
 function primaryFile(hypothesis: HypothesisView): string | null {
   return hypothesis.focusLines[0]?.file ?? hypothesis.focusFiles[0] ?? null;
@@ -235,11 +254,80 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
   };
 
   const version = state.inventoryMeta?.metadata.version ?? null;
+
+  // Group live hypotheses by the file they point at. A hypothesis with no focus
+  // range has no source to originate from — recorded, never invented.
+  const byFile = new Map<string, HypothesisView[]>();
+  const ungroundedHypIds: string[] = [];
+  for (const hypothesis of live) {
+    const file = primaryFile(hypothesis);
+    if (file === null || hypothesis.focusLines.length === 0) {
+      ungroundedHypIds.push(hypothesis.hypId);
+      if (file === null) continue;
+    }
+    const group = byFile.get(file) ?? [];
+    group.push(hypothesis);
+    byFile.set(file, group);
+  }
+  // A flagged file with no surviving hypothesis still gets a source node: the
+  // audit suspected it, and dropping the node would erase that.
+  for (const verdict of flaggedFiles) {
+    if (!byFile.has(verdict.file)) byFile.set(verdict.file, []);
+  }
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+  //
+  // Rows are laid out CHILDREN FIRST, then each parent is placed at the mean of
+  // its own children. That single rule is what turns a set of independent
+  // columns into a readable tree: a file that raised six suspicions sits level
+  // with the middle of them, so its six edges leave as a fan instead of six
+  // crossings, and the eye can follow one branch without tracing it.
+  //
+  // Computed here rather than solved by the library, because a solver would
+  // place the same audit differently on a different run and a replay has to be
+  // the same picture every time.
+  const hypRowOf = new Map<string, number>();
+  const clusterRowOf = new Map<string, number>();
+  const sourceRowOf = new Map<string, number>();
+  const files = [...byFile.entries()].sort(([a], [b]) => a.localeCompare(b));
+
+  let cursor = 0;
+  for (const [file, group] of files) {
+    const byClaim = new Map<ClaimKind, HypothesisView[]>();
+    for (const hypothesis of group) {
+      const bucket = byClaim.get(hypothesis.claim) ?? [];
+      bucket.push(hypothesis);
+      byClaim.set(hypothesis.claim, bucket);
+    }
+    const claims = [...byClaim.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const fileRows: number[] = [];
+    for (const [claim, members] of claims) {
+      const rows: number[] = [];
+      for (const hypothesis of members) {
+        hypRowOf.set(hypothesis.hypId, cursor);
+        rows.push(cursor);
+        cursor += 1;
+      }
+      if (members.length > 1) clusterRowOf.set(clusterNodeId(file, claim), mean(rows));
+      fileRows.push(...rows);
+    }
+    // A flagged file with no surviving hypothesis still needs a slot of its own.
+    if (fileRows.length === 0) {
+      sourceRowOf.set(file, cursor);
+      cursor += 1;
+    } else {
+      sourceRowOf.set(file, mean(fileRows));
+    }
+    // One row of air between files, so branches read as branches.
+    cursor += 0.5;
+  }
+
+  const sourceRows = [...sourceRowOf.values()];
   nodes.push({
     id: PACKAGE_NODE_ID,
     kind: "package",
     column: COLUMN.package,
-    row: 0,
+    row: sourceRows.length ? mean(sourceRows) : 0,
     data: { kind: "package", label: state.packageName, version },
     contracted: false,
     onProofPath: true,
@@ -252,16 +340,15 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
     state: null,
   });
 
-  // Coverage first in the column: scanning is what the audit did before it had
-  // anything to suspect, and it stays as the achromatic backdrop the suspicions
-  // sit against.
-  let row = 0;
+  // Coverage sits above the suspicions, in the same column: scanning is what the
+  // audit did before it had anything to suspect, and it stays as the achromatic
+  // backdrop they sit against.
   if (coverage.total > 0 || coverage.scanned > 0) {
     nodes.push({
       id: COVERAGE_NODE_ID,
       kind: "coverage",
       column: COLUMN.coverage,
-      row: row++,
+      row: (sourceRows.length ? Math.min(...sourceRows) : 0) - 1.5,
       data: { kind: "coverage", coverage },
       contracted: false,
       onProofPath: false,
@@ -283,40 +370,17 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
     });
   }
 
-  // Group live hypotheses by the file they point at. A hypothesis with no focus
-  // range has no source to originate from — recorded, never invented.
-  const byFile = new Map<string, HypothesisView[]>();
-  const ungroundedHypIds: string[] = [];
-  for (const hypothesis of live) {
-    const file = primaryFile(hypothesis);
-    if (file === null || hypothesis.focusLines.length === 0) {
-      ungroundedHypIds.push(hypothesis.hypId);
-      if (file === null) continue;
-    }
-    const group = byFile.get(file) ?? [];
-    group.push(hypothesis);
-    byFile.set(file, group);
-  }
-
-  // A flagged file with no surviving hypothesis still gets a source node: the
-  // audit suspected it, and dropping the node would erase that.
-  for (const verdict of flaggedFiles) {
-    if (!byFile.has(verdict.file)) byFile.set(verdict.file, []);
-  }
-
   const runRowByHyp = new Map<string, number>();
-  let hypRow = 0;
-  let runRow = 0;
   const confirmedHypIds: string[] = [];
 
-  for (const [file, group] of [...byFile.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [file, group] of files) {
     const verdict = state.fileVerdicts[file];
     const sourceId = sourceNodeId(file);
     nodes.push({
       id: sourceId,
       kind: "source",
       column: COLUMN.source,
-      row: row++,
+      row: sourceRowOf.get(file) ?? 0,
       data: {
         kind: "source",
         source: {
@@ -327,7 +391,7 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
         },
       },
       contracted: false,
-      onProofPath: false,
+      onProofPath: group.some((item) => item.state === "CONFIRMED"),
     });
     edges.push({
       id: `${PACKAGE_NODE_ID}->${sourceId}`,
@@ -335,7 +399,7 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
       target: sourceId,
       relation: "contains the suspicious source",
       contracted: false,
-      onProofPath: false,
+      onProofPath: group.some((item) => item.state === "CONFIRMED"),
     });
     outline.push({
       id: sourceId,
@@ -347,7 +411,7 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
 
     // Cluster only when a file raises the SAME claim more than once. A cluster of
     // one is a box drawn around a single node.
-    const byClaim = new Map<string, HypothesisView[]>();
+    const byClaim = new Map<ClaimKind, HypothesisView[]>();
     for (const hypothesis of group) {
       const bucket = byClaim.get(hypothesis.claim) ?? [];
       bucket.push(hypothesis);
@@ -357,19 +421,20 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
     for (const [claim, members] of [...byClaim.entries()].sort(([a], [b]) => a.localeCompare(b))) {
       let parentId = sourceId;
       let parentDepth = 1;
+      const clusterId = clusterNodeId(file, claim);
       if (members.length > 1) {
-        const clusterId = clusterNodeId(file, claim);
+        const proof = members.some((item) => item.state === "CONFIRMED");
         nodes.push({
           id: clusterId,
           kind: "cluster",
           column: COLUMN.cluster,
-          row: hypRow,
+          row: clusterRowOf.get(clusterId) ?? 0,
           data: {
             kind: "cluster",
             cluster: { file, claim, hypIds: members.map((item) => item.hypId) },
           },
           contracted: false,
-          onProofPath: false,
+          onProofPath: proof,
         });
         edges.push({
           id: `${sourceId}->${clusterId}`,
@@ -377,7 +442,7 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
           target: clusterId,
           relation: "raised the related suspicions",
           contracted: false,
-          onProofPath: false,
+          onProofPath: proof,
         });
         outline.push({
           id: clusterId,
@@ -393,17 +458,17 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
       for (const hypothesis of members) {
         // At the verdict a refuted branch contracts. Confirmed and deferred stay
         // open: one is the proof, the other is the gap in it.
-        const contracted =
-          atVerdict && hypothesis.state === "REFUTED" && !SURVIVES_VERDICT.has(hypothesis.state);
+        const contracted = atVerdict && !SURVIVES_VERDICT.has(hypothesis.state);
         const onProofPath = hypothesis.state === "CONFIRMED";
         if (onProofPath) confirmedHypIds.push(hypothesis.hypId);
 
+        const row = hypRowOf.get(hypothesis.hypId) ?? 0;
         const hypId = hypothesisNodeId(hypothesis.hypId);
         nodes.push({
           id: hypId,
           kind: "hypothesis",
           column: COLUMN.hypothesis,
-          row: hypRow++,
+          row,
           data: {
             kind: "hypothesis",
             hypothesis: {
@@ -433,7 +498,7 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
         const run = state.runs[hypothesis.hypId];
         if (!run) continue;
         const runId = runNodeId(hypothesis.hypId);
-        runRowByHyp.set(hypothesis.hypId, runRow);
+        runRowByHyp.set(hypothesis.hypId, row);
         const cited = run.observations.filter((item) =>
           run.citedEventIds.includes(item.eventId),
         );
@@ -441,7 +506,7 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
           id: runId,
           kind: "run",
           column: COLUMN.run,
-          row: runRow++,
+          row,
           data: { kind: "run", run: { run, cited } },
           contracted,
           onProofPath,
@@ -471,11 +536,16 @@ export function projectEvidenceGraph(state: AuditFoldState): EvidenceGraph {
     const outcome: VerdictData["verdict"] = state.error
       ? "INCOMPLETE"
       : (state.verdict ?? "INCOMPLETE");
+    const decidingRows = [...runRowByHyp.entries()]
+      .filter(([hypId]) => confirmedHypIds.includes(hypId))
+      .map(([, row]) => row);
     nodes.push({
       id: VERDICT_NODE_ID,
       kind: "verdict",
       column: COLUMN.verdict,
-      row: 0,
+      row: decidingRows.length
+        ? mean(decidingRows)
+        : mean([...runRowByHyp.values()].length ? [...runRowByHyp.values()] : [0]),
       data: {
         kind: "verdict",
         verdict: {

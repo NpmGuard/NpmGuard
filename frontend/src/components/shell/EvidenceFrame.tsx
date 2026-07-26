@@ -58,7 +58,11 @@ export function EvidenceFrame({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
       </header>
-      <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+      {/* `overflow-hidden`, not `auto`: the evidence workspace owns its own
+          scroll regions, and a scrolling main would let its graph pane resolve
+          to content height instead of to the viewport. A page that wants to
+          scroll (the package report) scrolls inside itself. */}
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
     </div>
   );
 }

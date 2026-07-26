@@ -26,34 +26,41 @@ export const DEFAULT_SPEED: Speed = 1;
 /**
  * How long each event class holds the screen at 1×, in milliseconds.
  *
- * Read as a reading budget, not as a duration: a hypothesis arriving is a
- * sentence to absorb (800ms), one sandbox observation is a line to scan (120ms),
- * and a verdict is the end of the story (1200ms). File scans are the one class
- * paced as texture rather than as content — they are batched visually, and their
- * hold is short enough that 300 of them read as a sweep instead of a slideshow.
+ * Read as a READING BUDGET, not as a duration: a hypothesis arriving is a
+ * sentence to absorb, one experiment step is a claim to check, and a verdict is
+ * the end of the story. File scans are the one class paced as texture rather
+ * than as content.
  */
 export const HOLD_MS: Record<AuditEventType, number> = {
-  audit_enqueued: 200,
-  audit_started: 400,
-  phase_started: 320,
-  phase_completed: 60,
-  dependencies_provisioned: 200,
-  file_list: 400,
-  inventory_meta: 200,
-  intent_extracted: 500,
-  file_analyzing: 45,
-  triage_progress: 45,
-  hypothesis_emitted: 800,
-  file_verdict: 650,
-  triage_complete: 500,
-  graph_built: 400,
-  experiment_started: 280,
-  sandbox_started: 500,
-  sandbox_completed: 640,
-  judgment_started: 650,
-  hypothesis_resolved: 900,
-  verdict_reached: 1200,
-  audit_error: 1200,
+  audit_enqueued: 260,
+  audit_started: 700,
+  phase_started: 460,
+  phase_completed: 90,
+  dependencies_provisioned: 320,
+  file_list: 620,
+  inventory_meta: 260,
+  intent_extracted: 900,
+  // The two texture classes. Short enough that 300 file reads sweep past as
+  // activity rather than as a slideshow, long enough that the counter visibly
+  // moves — going below ~50ms makes the coverage number look like it jumped.
+  file_analyzing: 60,
+  triage_progress: 60,
+  file_verdict: 1100,
+  hypothesis_emitted: 1400,
+  triage_complete: 700,
+  graph_built: 520,
+  // The experiment chain is the part a first-time viewer is LEARNING, so it is
+  // the slowest. Each frame is a step in an argument — plan, run, weigh, decide
+  // — and a step that lands before the previous one has been read teaches
+  // nothing. Earlier values (280/500/640/650/900) were paced like a progress
+  // bar, which is what made a real investigation read as a flicker.
+  experiment_started: 1000,
+  sandbox_started: 1100,
+  sandbox_completed: 1300,
+  judgment_started: 1000,
+  hypothesis_resolved: 1600,
+  verdict_reached: 2000,
+  audit_error: 2000,
 };
 
 /**

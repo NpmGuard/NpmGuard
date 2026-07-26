@@ -141,7 +141,19 @@ export function App() {
         {/* Public, shareable evidence */}
         <Route path="/audit/:auditId" element={<EvidenceFrame><AuditRoute /></EvidenceFrame>} />
         <Route path="/audit" element={<EvidenceFrame><AuditView /></EvidenceFrame>} />
-        <Route path="/package/*" element={<EvidenceFrame><PackageLookup /></EvidenceFrame>} />
+        {/* The report scrolls inside itself: EvidenceFrame's main is
+            overflow-hidden so the audit workspace can size its graph pane to
+            the viewport, and a document-shaped page brings its own scroll. */}
+        <Route
+          path="/package/*"
+          element={
+            <EvidenceFrame>
+              <div className="min-h-0 flex-1 overflow-auto">
+                <PackageLookup />
+              </div>
+            </EvidenceFrame>
+          }
+        />
 
         {/* Payment is a focused transactional surface — no navigation to lose
             someone in halfway through paying. */}

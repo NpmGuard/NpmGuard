@@ -55,7 +55,7 @@
    * `@theme inline` key — those are substituted into utilities at build time
    * and never emitted as custom properties. */
   .react-flow {
-    background: var(--ng-canvas);
+    background: var(--ng-sunken);
   }
 
   .react-flow__controls-button {
