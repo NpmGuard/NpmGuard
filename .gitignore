@@ -8,6 +8,9 @@ __pycache__/
 .env
 .env.bck
 .env.*.bck
+# Local cloud credentials are secrets, regardless of which subproject reads them.
+.aws
+**/.aws
 openclaw/.env.gateway
 dist
 build
