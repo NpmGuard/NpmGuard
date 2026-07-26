@@ -30,6 +30,23 @@ from npmguard.audit_log import AuditLog
 from npmguard.evidence import ArtifactStore
 from npmguard.phases import Flag
 
+# The smallest artifact `write_artifact` accepts — this file is about WHERE a
+# sealed blob lands, not what is in it.
+_ARTIFACT_DRAFT = {
+    "runId": "run-1",
+    "triggerUsed": {"kind": "entrypoint", "target": "index.js", "argv": [], "stdin": None},
+    "setupApplied": {"env": {}, "plantFiles": []},
+    "observe": {"kernel": True, "network": True, "fsDiff": True, "node": True, "inspector": True},
+    "budget": {"wallMs": 20000},
+    "wallMs": 1.0,
+    "exitCode": 0,
+    "timedOut": False,
+    "events": [],
+    "eventSummary": {"counts": {}, "totalEvents": 0, "streams": [], "truncated": False},
+    "error": None,
+    "createdAt": "2026-07-20T00:00:00Z",
+}
+
 
 def test_audit_log_serializes_nested_model_lists(tmp_path, monkeypatch) -> None:
     """C1: a list of models round-trips to plain JSON under the env-pointed root."""
@@ -55,11 +72,11 @@ def test_a_sealed_artifact_is_findable_from_the_audit_id_alone(tmp_path, monkeyp
     audit_id = "3f2b9c10-0000-4000-8000-000000000001"
     log = AuditLog("@scope/pkg", audit_id)
 
-    digest = ArtifactStore(log.run_dir).write_blob(b"sealed evidence")
+    digest = ArtifactStore(log.run_dir).write_artifact(_ARTIFACT_DRAFT)
 
-    found = list(root.glob(f"*_{audit_id}/artifacts/{digest}"))
+    found = list(root.glob(f"*_{audit_id}/artifacts/{digest}.runartifact.json"))
     assert len(found) == 1, sorted(path.name for path in root.iterdir())
-    assert found[0].read_bytes() == b"sealed evidence"
+    assert digest in found[0].read_text(encoding="utf-8")
     # The timestamp and package survive in the name, so `sorted()`/`ls` still order
     # runs chronologically and a human can still see what was audited. The package's
     # `@` and `/` are sanitized to `_`, which is what makes the `_`-separated suffix

@@ -2888,16 +2888,6 @@
       ],
       "title": "JobState"
     },
-    "LifecycleHook": {
-      "type": "string",
-      "enum": [
-        "preinstall",
-        "install",
-        "postinstall",
-        "prepare"
-      ],
-      "title": "LifecycleHook"
-    },
     "NetworkCall": {
       "type": "object",
       "properties": {
@@ -4240,8 +4230,6 @@
       "type": "string",
       "enum": [
         "entrypoint",
-        "lifecycle",
-        "bin",
         "subpath"
       ],
       "title": "TriggerKind"

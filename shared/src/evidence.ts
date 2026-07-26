@@ -79,17 +79,22 @@ export type EvidenceRef = z.infer<typeof EvidenceRef>;
 // Trigger — how the package was invoked for this run
 // ---------------------------------------------------------------------------
 
-export const TriggerKind = z.enum(["entrypoint", "lifecycle", "bin", "subpath"]);
+// Every member is runnable: `observation.build_trigger_command` returns a command
+// for each one, so a trigger that compiles is a trigger that runs.
+//
+// DELETED: `lifecycle`, `bin`, and the `LifecycleHook` enum. `compile_experiment`
+// accepted the first two while `build_trigger_command` had no command for either,
+// so reaching one produced a SetupError and therefore a DEFER — a coverage gap
+// that blocks SAFE, earned by a value no producer emits. `LifecycleHook` had no
+// producer at all. Declared vocabulary with no producer forces every exhaustive
+// table to carry an arm nothing can reach (G31).
+export const TriggerKind = z.enum(["entrypoint", "subpath"]);
 export const TriggerKindSchema = TriggerKind;
 export type TriggerKind = z.infer<typeof TriggerKind>;
 
-export const LifecycleHook = z.enum(["preinstall", "install", "postinstall", "prepare"]);
-export const LifecycleHookSchema = LifecycleHook;
-export type LifecycleHook = z.infer<typeof LifecycleHook>;
-
 export const Trigger = z.object({
   kind: TriggerKind,
-  target: z.string(), // entrypoint file, hook name, bin name, or subpath
+  target: z.string(), // entrypoint file or subpath specifier
   argv: z.array(z.string()).default([]),
   stdin: z.string().nullable().default(null),
 });
