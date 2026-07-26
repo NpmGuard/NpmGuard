@@ -263,9 +263,9 @@ export function Attest() {
                   </p>
                   {attestation.tier < 2 && (
                     <p className="muted">
-                      <Link to="/attest/enrol">Complete an identity check</Link> once, and
-                      every release you attest afterwards carries document-backed assurance
-                      — without scanning anything again.
+                      <Link to="/attest/enrol">Complete an identity check</Link> to raise what
+                      your proofs say about you. Each release still needs its own — that is
+                      the part a stolen token cannot fake.
                     </p>
                   )}
                 </div>

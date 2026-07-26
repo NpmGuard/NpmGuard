@@ -94,11 +94,12 @@ export function Publish() {
       <div className="pg-publish__cards">
         <section className="card pg-publish__card">
           <h2 className="headline headline--sm">
-            <ShieldCheck size={16} aria-hidden /> What one release proves
+            <ShieldCheck size={16} aria-hidden /> Every release. Every time.
           </h2>
           <p className="muted">
-            A unique human was present and consented to this tarball. The proof is bound to
-            the package, the version and the digest — it is worthless for any other release.
+            A live check bound to this exact tarball. Yesterday's proof cannot sign today's
+            release, so there is nothing on your machine — npm token, CI secret, a worm
+            holding both — that can produce one.
           </p>
         </section>
         <section className="card pg-publish__card">
@@ -106,8 +107,9 @@ export function Publish() {
             <BadgeCheck size={16} aria-hidden /> Identity check
           </h2>
           <p className="muted">
-            Add <strong>document-verified adult</strong> to your publisher identity once, and
-            every release you attest afterwards carries it.
+            The document scan is the one thing you do once — repeating it per release would
+            prove nothing new, and it cannot be bound to a tarball at all. It upgrades what
+            your proofs say about you. It never replaces one.
           </p>
           <Link className="btn pg-publish__link" to="/attest/enrol">
             Set up identity check
