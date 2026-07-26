@@ -136,18 +136,19 @@ async def dry_run_load(
     return artifact.error if is_unresolved_module(artifact.error) else None
 
 
-def build_trigger_command(trigger: Trigger, l4: bool) -> list[str] | None:
+def build_trigger_command(trigger: Trigger, l4: bool) -> list[str]:
+    """TOTAL over `TriggerKind`: every declared kind has a command here, so a
+    trigger that compiles is a trigger that runs. Adding a kind without a case
+    below is a boot-time failure, not a SetupError inside a paid audit."""
     flags = ["--require", INSTRUMENT_PATH] if l4 else []
     if trigger.kind == "entrypoint":
         # Resolve like a shell against the sandbox workdir: an absolute path (e.g. a
         # planted /pkg/driver.js) stays absolute; a relative path resolves against
         # /pkg. require() the absolute result so there is no node_modules ambiguity.
         spec = posixpath.normpath(posixpath.join(SANDBOX_WORKDIR, trigger.target))
-    elif trigger.kind == "subpath":
+    else:
         # A subpath export is a module specifier, not a filesystem path.
         spec = trigger.target
-    else:
-        return None
     # Mirror a normal `node <spec> <argv...>` invocation: argv[1] is the entry,
     # argv[2:] the caller's args. `--` guards args that start with "-". stdin is
     # piped separately at exec time (docker exec -i), not encoded in argv.
@@ -276,93 +277,87 @@ async def run_under_observation(
 
         if error is None:
             command = build_trigger_command(compiled.trigger, bool(observed.node))
-            if command is None:
-                error = RunError(
-                    kind="SetupError",
-                    detail=f"trigger.kind='{compiled.trigger.kind}' has no run command",
-                )
+            wrapped = wrap_with_strace(command) if observed.kernel else command
+            stdin_bytes = (
+                compiled.trigger.stdin.encode()
+                if compiled.trigger.stdin is not None
+                else None
+            )
+            exec_args = ["exec", *(["-i"] if stdin_bytes is not None else []), container, *wrapped]
+            try:
+                result = await docker_exec(exec_args, int(limits.wallMs), stdin=stdin_bytes)
+            except DockerOutputTooLargeError as exc:
+                # The trigger wrote more than one transfer can carry (`error` is
+                # still None here — nothing else has run). Its stdout is BOTH the
+                # L4 trace and a hashed capture, so a prefix would seal stdoutHash
+                # over a fragment of the run and hand the judge a trace that just
+                # stops. No hash is computed, the gap is named in the timeline, and
+                # SensorError routes to DEFER.
+                #
+                # L1 is deliberately not read after this: abandoning the transfer
+                # kills the local docker client, not the traced process inside the
+                # container, so /tmp/strace.log is still being written and anything
+                # read from it is torn. The pcap below IS still collected —
+                # stop_pcap TERMs tcpdump and waits for its flush, so that file is
+                # whole — which keeps a real exfiltration confirmable from L2 while
+                # the gap bars a refutation.
+                error = RunError(kind="SensorError", detail=str(exc))
+                events.append(synthetic_event("truncated", str(exc)))
             else:
-                wrapped = wrap_with_strace(command) if observed.kernel else command
-                stdin_bytes = (
-                    compiled.trigger.stdin.encode()
-                    if compiled.trigger.stdin is not None
-                    else None
-                )
-                exec_args = ["exec", *(["-i"] if stdin_bytes is not None else []), container, *wrapped]
-                try:
-                    result = await docker_exec(exec_args, int(limits.wallMs), stdin=stdin_bytes)
-                except DockerOutputTooLargeError as exc:
-                    # The trigger wrote more than one transfer can carry (`error` is
-                    # still None here — nothing else has run). Its stdout is BOTH the
-                    # L4 trace and a hashed capture, so a prefix would seal stdoutHash
-                    # over a fragment of the run and hand the judge a trace that just
-                    # stops. No hash is computed, the gap is named in the timeline, and
-                    # SensorError routes to DEFER.
-                    #
-                    # L1 is deliberately not read after this: abandoning the transfer
-                    # kills the local docker client, not the traced process inside the
-                    # container, so /tmp/strace.log is still being written and anything
-                    # read from it is torn. The pcap below IS still collected —
-                    # stop_pcap TERMs tcpdump and waits for its flush, so that file is
-                    # whole — which keeps a real exfiltration confirmable from L2 while
-                    # the gap bars a refutation.
-                    error = RunError(kind="SensorError", detail=str(exc))
-                    events.append(synthetic_event("truncated", str(exc)))
-                else:
-                    exit_code, timed_out = result.exit_code, result.timed_out
-                    # Sound because of the seam's invariant: a returned stream is the
-                    # process's complete output, or `timed_out` marks it as cut short
-                    # by the kill. docker_exec never hands back a silent prefix, so
-                    # these hashes cannot attest a fragment as the whole stream.
-                    stdout_hash = sha256_hex(result.stdout) if result.stdout else None
-                    stderr_hash = sha256_hex(result.stderr) if result.stderr else None
-                    if timed_out:
+                exit_code, timed_out = result.exit_code, result.timed_out
+                # Sound because of the seam's invariant: a returned stream is the
+                # process's complete output, or `timed_out` marks it as cut short
+                # by the kill. docker_exec never hands back a silent prefix, so
+                # these hashes cannot attest a fragment as the whole stream.
+                stdout_hash = sha256_hex(result.stdout) if result.stdout else None
+                stderr_hash = sha256_hex(result.stderr) if result.stderr else None
+                if timed_out:
+                    error = RunError(
+                        kind="TimeoutError",
+                        detail=f"wall-clock budget ({limits.wallMs}ms) exceeded; container killed",
+                    )
+                    events.append(
+                        synthetic_event(
+                            "truncated", f"wall-clock budget ({limits.wallMs}ms) exceeded"
+                        )
+                    )
+                elif exit_code != 0:
+                    error = RunError(
+                        kind="CrashError",
+                        detail=f"node exited {exit_code}; stderr: {result.stderr[:500]}",
+                    )
+                if observed.node:
+                    l4 = parse_l4_trace(result.stdout)
+                    if l4 is None and error is None:
                         error = RunError(
-                            kind="TimeoutError",
-                            detail=f"wall-clock budget ({limits.wallMs}ms) exceeded; container killed",
+                            kind="SensorError",
+                            detail="L4 trace markers absent from stdout (instrumentation evaded or suppressed)",
                         )
-                        events.append(
-                            synthetic_event(
-                                "truncated", f"wall-clock budget ({limits.wallMs}ms) exceeded"
-                            )
+                    elif l4:
+                        events.extend(l4)
+                if observed.kernel:
+                    try:
+                        trace = await docker_exec(
+                            ["exec", container, "cat", "/tmp/strace.log"], 10_000
                         )
-                    elif exit_code != 0:
-                        error = RunError(
-                            kind="CrashError",
-                            detail=f"node exited {exit_code}; stderr: {result.stderr[:500]}",
-                        )
-                    if observed.node:
-                        l4 = parse_l4_trace(result.stdout)
-                        if l4 is None and error is None:
-                            error = RunError(
-                                kind="SensorError",
-                                detail="L4 trace markers absent from stdout (instrumentation evaded or suppressed)",
-                            )
-                        elif l4:
-                            events.extend(l4)
-                    if observed.kernel:
-                        try:
-                            trace = await docker_exec(
-                                ["exec", container, "cat", "/tmp/strace.log"], 10_000
-                            )
-                        except DockerOutputTooLargeError as exc:
-                            # A chatty run can outgrow one transfer. The log is hashed
-                            # into straceLogHash and parsed into every L1 event, so a
-                            # prefix would seal a hash over part of the trace and show
-                            # the judge a syscall record that ENDS early — which reads
-                            # exactly like a package that stopped acting. Raising at
-                            # the seam is what keeps parse_strace_log from having to
-                            # GUESS truncation from an incomplete last line.
-                            error = coverage_gap(error, str(exc))
-                            events.append(synthetic_event("truncated", str(exc)))
+                    except DockerOutputTooLargeError as exc:
+                        # A chatty run can outgrow one transfer. The log is hashed
+                        # into straceLogHash and parsed into every L1 event, so a
+                        # prefix would seal a hash over part of the trace and show
+                        # the judge a syscall record that ENDS early — which reads
+                        # exactly like a package that stopped acting. Raising at
+                        # the seam is what keeps parse_strace_log from having to
+                        # GUESS truncation from an incomplete last line.
+                        error = coverage_gap(error, str(exc))
+                        events.append(synthetic_event("truncated", str(exc)))
+                    else:
+                        if trace.exit_code == 0 and trace.stdout:
+                            events.extend(parse_strace_log(trace.stdout, run_start_sec))
+                            strace_hash = sha256_hex(trace.stdout)
                         else:
-                            if trace.exit_code == 0 and trace.stdout:
-                                events.extend(parse_strace_log(trace.stdout, run_start_sec))
-                                strace_hash = sha256_hex(trace.stdout)
-                            else:
-                                error = coverage_gap(
-                                    error, f"strace log unreadable: {trace.stderr[:300]}"
-                                )
+                            error = coverage_gap(
+                                error, f"strace log unreadable: {trace.stderr[:300]}"
+                            )
 
         if observed.fsDiff and (error is None or error.kind not in {"SetupError", "SensorError"}):
             try:

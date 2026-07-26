@@ -153,39 +153,12 @@ def content_hash_of(value: Any) -> str:
     return sha256_hex(canonicalize(value))
 
 
-def merkle_root(hashes: list[str]) -> str:
-    if not hashes:
-        return sha256_hex("")
-    if len(hashes) == 1:
-        return hashes[0]
-    return merkle_root(
-        [
-            sha256_hex(
-                hashes[index] + (hashes[index + 1] if index + 1 < len(hashes) else hashes[index])
-            )
-            for index in range(0, len(hashes), 2)
-        ]
-    )
-
-
 class ArtifactStore:
     def __init__(self, root_dir: Path) -> None:
         self.artifacts_dir = root_dir / "artifacts"
 
     def _path(self, digest: str, extension: str | None = None) -> Path:
         return self.artifacts_dir / (f"{digest}.{extension}" if extension else digest)
-
-    def write_blob(self, data: str | bytes, extension: str | None = None) -> str:
-        raw = data.encode() if isinstance(data, str) else data
-        digest = sha256_hex(raw)
-        target = self._path(digest, extension)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.exists():
-            target.write_bytes(raw)
-        return digest
-
-    def read_blob(self, digest: str, extension: str | None = None) -> bytes:
-        return self._path(digest, extension).read_bytes()
 
     def write_artifact(self, partial: dict[str, Any]) -> str:
         parsed = RunArtifact.model_validate({**partial, "contentHash": ""})
