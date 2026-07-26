@@ -31,7 +31,7 @@ from .phases import FileFlagResponse, JudgeVerdict, PackageIntent, hypothesis_su
 # not. Absent entries (e.g. google/gemini-*) get no reasoning field. Keyed on the
 # resolved OpenRouter slug.
 _REASONING: dict[str, ReasoningControl] = {
-    "xai.grok-4.3": ReasoningControl(effort="low"),
+    "xai.grok-4.3": ReasoningControl(effort="medium"),
     "deepseek/deepseek-v4-flash": ReasoningControl(enabled=False),
     "qwen/qwen3-30b-a3b": ReasoningControl(enabled=False),
     "openai/gpt-5-nano": ReasoningControl(effort="low"),
