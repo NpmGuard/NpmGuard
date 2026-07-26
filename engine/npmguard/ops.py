@@ -15,6 +15,16 @@ from urllib.parse import quote
 import httpx
 
 from .config import REPO_ROOT, get_settings
+from .validation import valid_http_origin
+
+
+def _api_origin(value: str) -> str:
+    # argparse renders a bare ValueError as "invalid <func name> value"; only
+    # ArgumentTypeError reaches the user as the rule that failed.
+    try:
+        return valid_http_origin(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _package_path(package_name: str) -> str:
@@ -48,7 +58,7 @@ class Api:
         # The /api mirror, not the root surface: the engine serves the SPA from
         # the same origin, so root paths that are also client routes belong to
         # the pages. /api addresses every route unambiguously.
-        self.client = httpx.AsyncClient(base_url=base_url.rstrip("/") + "/api", timeout=60)
+        self.client = httpx.AsyncClient(base_url=valid_http_origin(base_url) + "/api", timeout=60)
         self.cre_key = cre_key
 
     async def close(self) -> None:
@@ -391,21 +401,23 @@ def watchlist_check(args: argparse.Namespace) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
-    # NPMGUARD_API_URL through the validated setting, so a scheme-less value is a
-    # named rejection here rather than an httpx UnsupportedProtocol on the first
-    # request of a batch that may be hundreds of packages long.
+    # One rule for the API origin, whichever way it arrives: NPMGUARD_API_URL
+    # through the validated setting, `--api` through the same function as an
+    # argparse type. A scheme-less value is then a named rejection before the run
+    # rather than an httpx UnsupportedProtocol on the first request of a batch
+    # that may be hundreds of packages long.
     default_api = get_settings().api_url
     root = argparse.ArgumentParser(prog="npmguard-ops")
     commands = root.add_subparsers(dest="command", required=True)
     batch = commands.add_parser("audit-batch")
     batch.add_argument("packages", nargs="*")
-    batch.add_argument("--api", default=default_api)
+    batch.add_argument("--api", default=default_api, type=_api_origin)
     batch.add_argument("--file", type=Path)
     batch.add_argument("--timeout-ms", type=int, default=1_200_000)
     batch.add_argument("--poll-ms", type=int, default=5_000)
     batch.add_argument("--no-skip", action="store_false", dest="skip_existing")
     latest = commands.add_parser("audit-latest")
-    latest.add_argument("--api", default=default_api)
+    latest.add_argument("--api", default=default_api, type=_api_origin)
     latest.add_argument(
         "--watchlist",
         type=Path,
