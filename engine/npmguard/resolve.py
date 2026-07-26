@@ -96,7 +96,9 @@ async def resolve_package(
     try:
         if local_path is not None:
             # Corpus packages can be live malware. Copy the admitted package
-            # directory so the run cannot write into the source tree.
+            # directory so the run cannot write into the source tree. Absolute,
+            # and a package directory: both checked at admission
+            # (`validation.valid_local_path_shape`, `api._local_path_refused`).
             source = Path(local_path)
             path = workdir / source.name
             shutil.copytree(source, path, symlinks=True)
