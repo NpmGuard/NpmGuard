@@ -47,6 +47,12 @@ async def _packument(package_name: str, version: str) -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(url)
     if response.status_code == 404:
+        # npm answers 404 for both "no such package" and "no such version of a
+        # package that exists", and only the body tells them apart. Reporting the
+        # second as the first sends the caller looking for a typo in the name when
+        # the name was right — so read the body and say which one it actually is.
+        if "version not found" in response.text.lower():
+            raise ValueError(f"npm has {package_name}, but no version {version}")
         raise PackageNotFoundError(package_name)
     response.raise_for_status()
     return response.json()

@@ -210,7 +210,7 @@ export function Attest() {
                   </p>
                   <button
                     type="button"
-                    className="btn btn--primary pg-attest__cta"
+                    className="btn btn--dark pg-attest__cta"
                     onClick={() => void onProveOwnership()}
                     disabled={busy}
                     aria-label="Verify GitHub ownership"
@@ -433,7 +433,7 @@ function WorldProof({
       {!uri && (
         <button
           type="button"
-          className="btn btn--primary pg-attest__cta"
+          className="btn btn--dark pg-attest__cta"
           onClick={() => void startRequest()}
           disabled={busy || waiting}
           aria-label="Prove with World ID"

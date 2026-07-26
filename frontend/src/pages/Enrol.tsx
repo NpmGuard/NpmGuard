@@ -197,7 +197,7 @@ export function Enrol() {
             {!uri && (
               <button
                 type="button"
-                className="btn btn--primary pg-attest__cta"
+                className="btn btn--dark pg-attest__cta"
                 onClick={() => void start()}
                 disabled={!config || waiting}
                 aria-label="Start identity check"

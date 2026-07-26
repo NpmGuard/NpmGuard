@@ -20,6 +20,8 @@ const PayPage = lazy(() => import("./pages/PayPage.tsx").then((m) => ({ default:
 // Attestation pulls in IDKit (a WASM bundle) — kept off every other route.
 const Attest = lazy(() => import("./pages/Attest.tsx").then((m) => ({ default: m.Attest })));
 const Enrol = lazy(() => import("./pages/Enrol.tsx").then((m) => ({ default: m.Enrol })));
+// The door into attestation. Plain form + navigate, so it carries no IDKit.
+const Publish = lazy(() => import("./pages/Publish.tsx").then((m) => ({ default: m.Publish })));
 const Dashboard = lazy(() =>
   import("./pages/Dashboard.tsx").then((m) => ({ default: m.Dashboard })),
 );
@@ -28,7 +30,7 @@ const RepoDetail = lazy(() =>
 );
 
 // Back/forward off these routes resets the audit store.
-const KEEP_STATE_RE = /^\/(audit|packages|package|cli|pay|dashboard|repo)(\/|$)/;
+const KEEP_STATE_RE = /^\/(audit|packages|package|cli|pay|dashboard|repo|attest)(\/|$)/;
 
 function HomeOrAudit() {
   const hasStarted = useAuditStore((s) => s.hasStarted);
@@ -129,6 +131,7 @@ export function App() {
             <Route path="/package/*" element={<PackageLookup />} />
             <Route path="/cli" element={<CliInstall />} />
             <Route path="/pay" element={<PayPage />} />
+            <Route path="/attest" element={<Publish />} />
             {/* Before /attest/:sessionId — neither spelling is a session id.
                 Both are registered because the alternative is that a typo falls
                 through to the session route and reports "Unknown attestation

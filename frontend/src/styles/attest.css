@@ -1,7 +1,7 @@
 /* Publisher attestation page (`.pg-attest-…`). Composes base.css primitives. */
 
 .pg-attest__version {
-  color: var(--fg-muted);
+  color: var(--ink-faint);
   font-weight: 400;
 }
 
@@ -19,7 +19,7 @@
   padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-5);
   border: 1px solid var(--warn-line, #d9a441);
-  border-radius: var(--radius-2, 8px);
+  border-radius: var(--r-lg);
   background: var(--warn-bg, #fff8e6);
   color: var(--warn-fg, #6b4c00);
   font-size: 0.9rem;
@@ -75,7 +75,7 @@
 }
 
 .pg-attest-step__marker--todo {
-  color: var(--fg-muted);
+  color: var(--ink-faint);
 }
 
 .pg-attest__cta {
@@ -112,7 +112,7 @@
 
 .pg-attest__facts dt {
   min-width: 7rem;
-  color: var(--fg-muted);
+  color: var(--ink-faint);
 }
 
 .pg-attest__facts dd {
@@ -147,7 +147,7 @@
 
 .pg-attest__qr {
   border: 1px solid var(--line);
-  border-radius: var(--radius-2, 8px);
+  border-radius: var(--r-lg);
   background: #fff;
 }
 
@@ -163,7 +163,7 @@
   display: block;
   padding: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: var(--radius-2, 8px);
+  border-radius: var(--r-lg);
   font-size: 0.75rem;
   word-break: break-all;
   user-select: all;
@@ -271,3 +271,77 @@
   line-height: 1.5;
   color: var(--ink-faint);
 }
+
+/* --- /attest: the entry point ------------------------------------------- */
+
+.pg-publish__form {
+  margin-block: var(--space-5) var(--space-6);
+  max-width: 620px;
+}
+
+.pg-publish__label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.pg-publish__row {
+  position: relative; /* the icon is absolute against this, not the page */
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Sits inside the field, so it must not steal the click that focuses it. */
+.pg-publish__icon {
+  position: absolute;
+  margin-left: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+
+.pg-publish__input {
+  flex: 1;
+  padding-left: 34px;
+}
+
+.pg-publish__go {
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.pg-publish__hint {
+  margin-top: var(--space-2);
+  font-size: 12px;
+}
+
+.pg-publish__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+
+.pg-publish__card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}
+
+.pg-publish__card .headline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.pg-publish__card p { margin: 0; }
+
+.pg-publish__link { margin-top: auto; text-decoration: none; }

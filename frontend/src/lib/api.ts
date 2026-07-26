@@ -141,6 +141,21 @@ export interface AttestRequestConfig {
   version: string;
 }
 
+/** Open a session for one release. `version` may be a dist-tag (`latest`) — the
+ * engine resolves it against npm and answers with the concrete version, because
+ * the tarball the proof binds to has to come from the registry rather than from
+ * whatever the browser claims is being published. */
+export function createAttestSession(
+  packageName: string,
+  version: string,
+): Promise<AttestSessionResponse & { url?: string; integrity?: string }> {
+  return postJson(
+    `${apiBase()}/attest/session`,
+    { packageName, version },
+    "Could not open an attestation session",
+  );
+}
+
 export function fetchAttestSession(sessionId: string): Promise<AttestSessionResponse> {
   return getJson(`${apiBase()}/attest/session/${sessionId}`, "Could not load the session");
 }
