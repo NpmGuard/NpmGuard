@@ -23,6 +23,9 @@
 #   C15 yarn classic: multi-spec comma header + scoped name
 #   C16 yarn berry: deps via resolution "@npm:"; workspace: resolutions skipped
 #   C17 manifest_ranges: collects across sections, first section wins
+#   C21 a UTF-8 BOM is a property of the repo, not a defect in it: npm/pnpm/yarn
+#       all read one, so every format parses BOM-prefixed and the manifest keeps
+#       its direct ranges
 #   C18 manifest_ranges: garbage (None / non-JSON string / non-object) → empty, no raise
 #   C19 parse_lockfile dispatch: unknown filename → error naming supported formats
 #   C20 LOCKFILE_CANDIDATES: the ordered candidate filenames
@@ -317,3 +320,34 @@ def test_unknown_filename_names_supported_formats():
 def test_lockfile_candidates_order():
     """C20: LOCKFILE_CANDIDATES is the ordered candidate filename tuple."""
     assert LOCKFILE_CANDIDATES == ("package-lock.json", "pnpm-lock.yaml", "yarn.lock")
+
+
+BOM = "\ufeff"
+
+
+def test_a_bom_is_read_the_way_the_package_managers_read_it():
+    """C21: npm, pnpm and yarn all accept a BOM-prefixed file, and Windows editors
+    write them — so a BOM says nothing about whether the repo is well formed.
+
+    Python disagrees only once bytes are already a `str`: `json.loads` on bytes
+    strips the BOM, `json.loads` on a `str` raises. Every parser here takes a
+    `str`. Untreated, that told a user with a valid lockfile it "is not valid
+    JSON", and quietly reclassified every direct dependency as transitive when
+    only the manifest carried the BOM.
+
+    All three formats, because the strip belongs at the shared boundary and a
+    per-format fix is three chances to forget one."""
+    npm = _by_name(parse_lockfile("package-lock.json", BOM + NPM_V3))
+    assert npm["express"].direct and npm["express"].version == "4.18.2"
+
+    pnpm = _by_name(parse_lockfile("pnpm-lock.yaml", BOM + PNPM_V9))
+    assert pnpm
+
+    yarn = _by_name(parse_lockfile("yarn.lock", BOM + YARN_CLASSIC, YARN_MANIFEST))
+    assert yarn
+
+    # The manifest half: a BOM must not silently empty the direct-range map,
+    # because `manifest_ranges` is documented to degrade rather than raise.
+    assert manifest_ranges(BOM + '{"dependencies": {"left-pad": "^1.0.0"}}') == {
+        "left-pad": "^1.0.0"
+    }
