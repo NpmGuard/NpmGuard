@@ -27,6 +27,7 @@ coverage gap rather than a set that waits forever on work that already finished.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 import structlog
@@ -62,7 +63,9 @@ def build_settle_hook(
             # Nothing to key the shared cache on: the index is (name, version), and
             # a resolved-at-runtime "latest" is not a version anybody can look up.
             return
-        loaded = load_report(settled.package_name, version)
+        # Off the loop: a miss scans and parses the package's whole directory,
+        # and this runs on a worker that has audits waiting behind it.
+        loaded = await asyncio.to_thread(load_report, settled.package_name, version)
         report = loaded[0] if loaded else (settled.report or {})
         verdict, reason, evidence = assess_report(report)
         if verdict in LANDABLE_VERDICTS:

@@ -835,7 +835,11 @@ async def replays(request: Request) -> JSONResponse:
 
 @client_owned_router.get("/packages")
 async def packages() -> JSONResponse:
-    return _wire(PackageIndexResponse(packages=list_reports()))
+    # Off the loop: the listing reads and parses EVERY stored report, and the
+    # store only grows. Measured over reports of the size a real audit files
+    # (44 KB): 24 ms at 100 packages, 234 ms at 1000 — a stall every open SSE
+    # stream and every in-flight audit's emit would pay for, per request.
+    return _wire(PackageIndexResponse(packages=await asyncio.to_thread(list_reports)))
 
 
 @router.get("/package/{name:path}/report")
@@ -851,7 +855,9 @@ async def package_report(name: str, request: Request) -> JSONResponse:
     not_found = JSONResponse(
         {"error": f"No audit report found for {name}{suffix}"}, status_code=404
     )
-    result = load_report(name, version)
+    # Off the loop like the listing above: a miss on the exact path falls back to
+    # scanning and parsing every file in the package's directory.
+    result = await asyncio.to_thread(load_report, name, version)
     if result is None:
         return not_found
     report, resolved_version = result
