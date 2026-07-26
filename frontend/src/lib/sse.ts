@@ -2,10 +2,12 @@
  * SSE clients for the two engine stream shapes:
  *
  * - Audit stream (/audit/:id/events): NAMED events — one listener per event
- *   type; `onmessage` never fires. Reconnect resumes from a seq cursor: native
- *   EventSource re-sends the last `id:` as Last-Event-ID and the engine replays
- *   only events after it (it also accepts ?since=<seq>). Either way the fold's
- *   seq guard makes replay idempotent, so the client never reasons about dupes.
+ *   type; `onmessage` never fires. Reconnect is MANUAL (bounded retries, injected
+ *   backoff), which means the browser's own Last-Event-ID resume does not apply:
+ *   closing the source to control the retry also discards the cursor it would
+ *   have replayed from. The cursor is therefore carried explicitly as `?since=`,
+ *   the engine's other accepted form. The fold's seq guard makes replay
+ *   idempotent regardless, so the client never reasons about dupes.
  *   Frames are PARSED against `AuditEventSchema`, not cast — see the listener.
  * - Audit-set progress stream (/panel/scan/:id/events): UNNAMED default messages
  *   via `onmessage` — per-name listeners receive nothing. Frames DO carry an
@@ -113,10 +115,16 @@ export function connectAuditStream(
   let closed = false;
   let attempts = 0;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Highest seq delivered so far; -1 until the first frame, which is what the
+   * engine reads as "from the beginning". */
+  let cursor = -1;
+
+  const resumeUrl = () =>
+    cursor < 0 ? url : `${url}${url.includes("?") ? "&" : "?"}since=${cursor}`;
 
   const open = () => {
     if (closed) return;
-    source = new Ctor(url);
+    source = new Ctor(resumeUrl());
     for (const type of AUDIT_EVENT_TYPES) {
       source.addEventListener(type, (raw) => {
         if (closed) return;
@@ -148,6 +156,7 @@ export function connectAuditStream(
           handlers.onContractViolation?.(`${type}: ${describeFrameIssues(parsed.error)}`);
           return;
         }
+        if (parsed.data.seq > cursor) cursor = parsed.data.seq;
         handlers.onEvent(parsed.data);
       });
     }
