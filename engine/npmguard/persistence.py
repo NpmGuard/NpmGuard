@@ -129,8 +129,19 @@ def _lane_rank() -> sa.ColumnElement[int]:
     return sa.case(
         {name: lane.rank for name, lane in LANES.items()},
         value=audit_sessions.c.lane,
-        else_=max(lane.rank for lane in LANES.values()) + 1,
+        else_=_unknown_lane_rank(),
     )
+
+
+def _unknown_lane_rank() -> int:
+    return max(lane.rank for lane in LANES.values()) + 1
+
+
+def _rank_of(lane: str) -> int:
+    """``_lane_rank()``'s CASE evaluated in Python, for the one row a caller
+    already holds. Unknown sorts last, matching the ``else_``."""
+    known = LANES.get(lane)
+    return known.rank if known is not None else _unknown_lane_rank()
 
 
 def _lease_dead(now: str) -> sa.ColumnElement[bool]:
@@ -673,31 +684,42 @@ class AuditSessionStore:
             ).mappings()
             return [_session(row) for row in rows]
 
-    async def queue_position(self, audit_id: str, created_at: str) -> int:
-        """1-based position among durable queued rows, ordered exactly as
-        ``claim_next`` orders them (created_at, then audit_id — the tiebreak is
-        needed because millisecond ties are common).
+    async def queue_position(self, audit_id: str, created_at: str, lane: str) -> int:
+        """1-based position among durable queued rows, counted in the order
+        ``claim_next`` actually claims them. 0 means the row has already started.
 
-        Replaces the old ``asyncio.Queue.qsize()``: the wait queue is now the set
-        of queued rows, so its length is a count and a position is a ranked
-        count. 0 means the row is no longer queued, i.e. it has already started.
+        LANE RANK LEADS, and it is the whole reason this takes a lane. Counting
+        by ``created_at`` alone tells a payer who arrives behind a 300-dep repo
+        scan that they are 301st, when lane rank means they are next — and
+        "a scan never sits in front of paid work" is the guarantee lanes exist
+        for, so the number contradicted it exactly when it mattered.
+
+        Org fairness is deliberately NOT modelled: it reorders only within a lane
+        and only between orgs, its input (rows currently running) changes under
+        the caller anyway, and pricing it in costs a correlated subquery per
+        candidate row. A position is a snapshot, and this is the term that
+        decides whether it is honest at the top of the queue.
         """
+        rank = _rank_of(lane)
+        ahead = sa.or_(
+            _lane_rank() < rank,
+            sa.and_(
+                _lane_rank() == rank,
+                sa.or_(
+                    audit_sessions.c.created_at < created_at,
+                    sa.and_(
+                        audit_sessions.c.created_at == created_at,
+                        audit_sessions.c.audit_id <= audit_id,
+                    ),
+                ),
+            ),
+        )
         async with self._sessions() as session:
             return (
                 await session.execute(
                     sa.select(sa.func.count())
                     .select_from(audit_sessions)
-                    .where(
-                        audit_sessions.c.status == "queued",
-                        _not_demo(),
-                        sa.or_(
-                            audit_sessions.c.created_at < created_at,
-                            sa.and_(
-                                audit_sessions.c.created_at == created_at,
-                                audit_sessions.c.audit_id <= audit_id,
-                            ),
-                        ),
-                    )
+                    .where(audit_sessions.c.status == "queued", _not_demo(), ahead)
                 )
             ).scalar_one()
 
