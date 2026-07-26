@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from kit_spine import now_iso
 from kit_spine.db import metadata
+from kit_stream import stream_events
 
+from .events import audit_channel
 from .lanes import DEFAULT_LANE, LANES
 
 # The dedupe index's predicate, shared with the migration that creates it so the
@@ -416,6 +418,38 @@ class AuditSessionStore:
             ).mappings()
             return [_session(row) for row in rows]
 
+    async def replay_formats(self, audit_ids: list[str]) -> dict[str, int]:
+        """The replay vocabulary each audit's stream announced, by audit id.
+
+        Read off the `audit_started` frame, which is where the engine stamps it —
+        one query over every requested channel rather than a read per row, because
+        a gallery of two hundred audits must not become two hundred queries.
+
+        An id missing from the result is an audit whose stream predates the stamp.
+        The caller treats that as format 1 rather than assuming the current one:
+        the whole point of the field is that a consumer can tell, and defaulting
+        it forward would make every old audit claim to be animatable.
+        """
+        if not audit_ids:
+            return {}
+        channels = {audit_channel(audit_id): audit_id for audit_id in audit_ids}
+        async with self._sessions() as session:
+            rows = (
+                await session.execute(
+                    sa.select(stream_events.c.channel, stream_events.c.data).where(
+                        stream_events.c.channel.in_(list(channels)),
+                        stream_events.c.type == "audit_started",
+                    )
+                )
+            ).all()
+        formats: dict[str, int] = {}
+        for channel, data in rows:
+            audit_id = channels.get(channel)
+            version = (data or {}).get("replayVersion")
+            if audit_id is not None and isinstance(version, int):
+                formats[audit_id] = version
+        return formats
+
     async def create_deduped(self, specs: list[EnqueueSpec]) -> list[AuditSession]:
         """Insert one row per spec, SKIPPING any whose dedupe_key is already
         active. Returns the rows actually created — which is the budget to charge.
@@ -589,9 +623,7 @@ class AuditSessionStore:
             )
             if rowcount != 1:
                 return None  # lost the guarded claim; another claimer owns it
-        return replace(
-            _session(row), claimed_by=owner, lease_expires_at=expires, updated_at=now
-        )
+        return replace(_session(row), claimed_by=owner, lease_expires_at=expires, updated_at=now)
 
     async def renew_leases(self, owner: str, *, ttl_seconds: float) -> int:
         """Push every claim this owner holds out by a fresh TTL; returns how many.
@@ -648,9 +680,7 @@ class AuditSessionStore:
             ).mappings()
             return [_session(row) for row in rows]
 
-    async def orphaned_running(
-        self, *, exclude_owner: str | None = None
-    ) -> list[AuditSession]:
+    async def orphaned_running(self, *, exclude_owner: str | None = None) -> list[AuditSession]:
         """``running`` rows that no LIVE claim covers — their owner died mid-run.
 
         A lease that has not expired is excluded whether it is ours or another
@@ -679,9 +709,7 @@ class AuditSessionStore:
                 )
             )
         async with self._sessions() as session:
-            rows = (
-                await session.execute(sa.select(audit_sessions).where(*conditions))
-            ).mappings()
+            rows = (await session.execute(sa.select(audit_sessions).where(*conditions))).mappings()
             return [_session(row) for row in rows]
 
     async def queue_position(self, audit_id: str, created_at: str, lane: str) -> int:

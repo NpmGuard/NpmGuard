@@ -3744,6 +3744,11 @@
         },
         "recordedAt": {
           "type": "string"
+        },
+        "replayVersion": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
         }
       },
       "required": [
@@ -3752,7 +3757,8 @@
         "version",
         "verdict",
         "durationMs",
-        "recordedAt"
+        "recordedAt",
+        "replayVersion"
       ],
       "title": "ReplayEntry"
     },

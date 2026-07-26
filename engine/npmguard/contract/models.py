@@ -1145,6 +1145,7 @@ class ReplayEntry(BaseModel):
     verdict: Annotated[Literal['SAFE', 'DANGEROUS'], Field(title='Verdict')]
     durationMs: Annotated[int, Field(ge=0)]
     recordedAt: str
+    replayVersion: Annotated[int, Field(gt=0)]
 
 
 class ReplayGalleryResponse(BaseModel):
