@@ -10,7 +10,10 @@ gone and so is the Google Fonts request; `styles/base.css` is 105 lines of
 element defaults, down from 798.
 
 Design authority: [`docs/specs/2026-07-25-frontend-design-direction.md`](../docs/specs/2026-07-25-frontend-design-direction.md)
-— §2 is the token spec (every value in `styles/tokens.css` is quoted from it),
+— §2 is the token spec's *structure* (inventory, floors, ladders, enforcement);
+the palette **values** are the paper-and-lacquer identity authored in
+`styles/tokens.css` itself (warm cream light / lacquer-gold dark,
+Space Grotesk + JetBrains Mono), and that file wins where a §2 hex disagrees.
 §3.4 is the empty-vs-degraded rule this app enforces in types.
 
 This app talks to the **Python engine**. Contract gotchas are at the bottom.

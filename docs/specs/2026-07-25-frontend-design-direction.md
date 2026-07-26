@@ -196,6 +196,17 @@ four-state verdict tone map, and per-page stylesheets.
 
 ## 2. Token specification
 
+> **Value authority moved.** This section's *structure* stands: the token
+> inventory, the five-step semantic shape, the contrast floors, the CVD
+> methodology, the motion and spacing ladders, and every enforcement mechanism.
+> The palette *values* and the two faces were later re-authored into the
+> paper-and-lacquer identity — warm cream light theme, lacquer-brown dark theme
+> with a gold accent, Space Grotesk + JetBrains Mono — and
+> `frontend/src/styles/tokens.css` is the authority for values.
+> `token-contract.test.ts` recomputes this section's floors against whatever
+> values that file holds, so the floors bind without the hexes below needing to
+> match. Where a hex in this section disagrees with `tokens.css`, the CSS wins.
+
 ### 2.1 How this maps onto Tailwind v4
 
 Semantic values must change per theme, so the primitives live in scoped custom
