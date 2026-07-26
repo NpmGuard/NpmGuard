@@ -4,7 +4,6 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Literal
 
 from .contract.models import (
@@ -244,10 +243,6 @@ class HypothesisGraph:
             updatedAt=self.updated_at,
         )
 
-    def save_to(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.serialize().model_dump_json(indent=2), encoding="utf-8")
-
     @classmethod
     def load(cls, snapshot: HypothesisGraphSnapshot, *, clock=now_iso) -> HypothesisGraph:
         parsed = HypothesisGraphSnapshot.model_validate(snapshot)
@@ -256,13 +251,6 @@ class HypothesisGraph:
         graph.updated_at = parsed.updatedAt
         graph._nodes = {node.hypId: node for node in parsed.nodes}
         return graph
-
-    @classmethod
-    def load_from(cls, path: Path, *, clock=now_iso) -> HypothesisGraph:
-        return cls.load(
-            HypothesisGraphSnapshot.model_validate_json(path.read_text(encoding="utf-8")),
-            clock=clock,
-        )
 
 
 def build_graph(audit_id: str, hypotheses: list[Hypothesis]) -> tuple[HypothesisGraph, int, int]:
