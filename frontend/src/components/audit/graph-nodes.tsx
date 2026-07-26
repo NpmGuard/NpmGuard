@@ -34,6 +34,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { motion, useReducedMotion } from "motion/react";
 import {
   Boxes,
+  ChevronRight,
   FileCode2,
   FlaskConical,
   Layers,
@@ -101,8 +102,9 @@ function NodeShell({
       animate={{ opacity: data.contracted ? 0.4 : 1, scale: 1, x: 0 }}
       transition={{ duration: 0.36 * data.motionScale, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "w-[13.5rem] rounded-lg border px-2.5 py-2 text-left shadow-sm",
-        "transition-[box-shadow,border-color] duration-fast hover:shadow-pop",
+        "group w-[13.5rem] cursor-pointer rounded-lg border px-2.5 py-2 text-left shadow-sm",
+        "transition-[box-shadow,border-color,transform] duration-fast",
+        "hover:-translate-y-0.5 hover:shadow-pop",
         // Chips sit on `surface` over a `sunken` field, so they read as objects
         // on a plane rather than as text floating on the page.
         TONE_SKIN[tone],
@@ -168,7 +170,18 @@ function Title({ children }: { children: React.ReactNode }) {
 }
 
 function Meta({ children }: { children: React.ReactNode }) {
-  return <p className="truncate font-mono text-[11px] text-text-3 tabular-nums">{children}</p>;
+  return (
+    <p className="flex items-center gap-1 truncate font-mono text-[11px] text-text-3 tabular-nums">
+      <span className="min-w-0 truncate">{children}</span>
+      {/* The affordance. A pointer cursor is not discoverable at a glance on a
+       * canvas where nothing else is clickable either; an arrow that appears on
+       * hover says "this opens" without adding a control to every node. */}
+      <ChevronRight
+        aria-hidden="true"
+        className="ml-auto size-3 shrink-0 opacity-0 transition-opacity duration-fast group-hover:opacity-60"
+      />
+    </p>
+  );
 }
 
 export function PackageNode({ data }: EvidenceNodeProps) {

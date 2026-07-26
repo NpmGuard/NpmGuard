@@ -29,7 +29,7 @@ import {
   Radio,
 } from "lucide-react";
 import { useAuditStore, unseenCount } from "../../stores/auditStore.ts";
-import { SPEEDS, elapsedMs, holdMsFor, type Speed } from "../../lib/replay-clock.ts";
+import { SPEEDS, elapsedMs, fileScanScale, holdMsFor, type Speed } from "../../lib/replay-clock.ts";
 import { Button } from "../ui/button.tsx";
 
 const IDLE_BEFORE_WARNING_MS = 12_000;
@@ -186,7 +186,10 @@ function useReplayClock() {
 
   useEffect(() => {
     if (!playing || playhead >= frames.length) return;
-    const timer = window.setTimeout(() => advance(), holdMsFor(frames[playhead], speed));
+    const timer = window.setTimeout(
+      () => advance(),
+      holdMsFor(frames[playhead], speed, fileScanScale(frames)),
+    );
     return () => window.clearTimeout(timer);
   }, [advance, frames, playhead, playing, speed]);
 }

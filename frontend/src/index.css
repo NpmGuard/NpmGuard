@@ -71,4 +71,41 @@
     outline: 2px solid var(--ng-focus-ring);
     outline-offset: 2px;
   }
+
+  /* The scan sweep — a 2px line crossing the file once, in the time that file
+   * holds the playhead (`--ng-scan-duration`, set by the pane).
+   *
+   * ONCE, not looping. A repeating sweep says "still working on this file" for
+   * as long as it runs, and the engine reads a file in a single call — a second
+   * pass would describe work that is not happening. One pass that ends as the
+   * hold ends is the honest shape, and the readable one: the eye follows a sweep
+   * that finishes.
+   *
+   * A line rather than a band, because a band tints the code it crosses and this
+   * pane's whole job is showing that code.
+   *
+   * Plain CSS rather than a Motion value: it re-keys per file and runs to
+   * completion, so a JS-driven transform would animate thousands of frames per
+   * replay for nothing. `prefers-reduced-motion` is honoured by the caller,
+   * which does not render it at all. */
+  .ng-scanline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--ng-accent), transparent);
+    animation: ng-scan var(--ng-scan-duration, 2s) ease-in-out 1 forwards;
+  }
+
+  @keyframes ng-scan {
+    from {
+      top: 0;
+      opacity: 0.75;
+    }
+    to {
+      top: 100%;
+      opacity: 0;
+    }
+  }
 }
