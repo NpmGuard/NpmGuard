@@ -40,11 +40,12 @@ export const HOLD_MS: Record<AuditEventType, number> = {
   file_list: 620,
   inventory_meta: 260,
   intent_extracted: 900,
-  // The two texture classes. Short enough that 300 file reads sweep past as
-  // activity rather than as a slideshow, long enough that the counter visibly
-  // moves — going below ~50ms makes the coverage number look like it jumped.
-  file_analyzing: 60,
-  triage_progress: 60,
+  // A file read is WATCHED, not ticked past: the scan crosses real source and a
+  // viewer is meant to see it happen. This is the hold for a package with few
+  // files; `fileScanScale` shrinks it for a package with many, so a 300-file
+  // scan is a sweep instead of five minutes.
+  file_analyzing: 900,
+  triage_progress: 900,
   file_verdict: 1100,
   hypothesis_emitted: 1400,
   triage_complete: 700,
@@ -64,14 +65,39 @@ export const HOLD_MS: Record<AuditEventType, number> = {
 };
 
 /**
+ * How much of a file read's hold survives, given how many there are.
+ *
+ * A three-file fixture and a three-hundred-file package cannot share one dwell:
+ * at the fixture's pace the big package scans for five minutes, and at the big
+ * package's pace the fixture's scan is a flicker. So the dwell scales with the
+ * COUNT — and it is a function of the tape, which keeps it deterministic: the
+ * same recording paces identically on every load.
+ *
+ * It compresses waits and nothing else. Order, state and evidence are untouched,
+ * which is the line this whole module sits on.
+ */
+export function fileScanScale(frames: readonly AuditEventUnion[]): number {
+  const reads = frames.reduce(
+    (total, frame) => total + (frame.type === "file_analyzing" ? 1 : 0),
+    0,
+  );
+  if (reads <= 16) return 1;
+  // Total scan time is held near constant past the threshold, floored so a very
+  // large package still shows motion rather than a jump.
+  return Math.max(0.06, 16 / reads);
+}
+
+/**
  * The wait before the frame AFTER this one is released.
  *
  * Rounded to a whole millisecond so a scrubber's elapsed readout is the sum of
  * exactly what was waited, rather than drifting by a fraction per frame over a
  * few hundred frames.
  */
-export function holdMsFor(event: AuditEventUnion, speed: Speed): number {
-  return Math.round((HOLD_MS[event.type] ?? 200) / speed);
+export function holdMsFor(event: AuditEventUnion, speed: Speed, scanScale = 1): number {
+  const base = HOLD_MS[event.type] ?? 200;
+  const scaled = event.type === "file_analyzing" ? base * scanScale : base;
+  return Math.round(scaled / speed);
 }
 
 /**
@@ -87,9 +113,10 @@ export function elapsedMs(
   count: number,
   speed: Speed,
 ): number {
+  const scanScale = fileScanScale(frames);
   let total = 0;
   for (let index = 0; index < Math.min(count, frames.length); index += 1) {
-    total += holdMsFor(frames[index], speed);
+    total += holdMsFor(frames[index], speed, scanScale);
   }
   return total;
 }

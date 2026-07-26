@@ -20,9 +20,15 @@
  *
  * ── Camera ──────────────────────────────────────────────────────────────────
  *
- * Follows the active branch until the viewer touches it, then stops until they
- * ask for it back. Interruptible, and never during an inspection: a canvas that
- * re-frames while someone is reading a node has taken the page away from them.
+ * Keeps the WHOLE graph in view as it grows, rather than tracking the active
+ * branch. Branch-following looked better in a screenshot and was worse to use:
+ * it zoomed in far enough that most nodes sat off-canvas, so clicking one meant
+ * hunting for it first, and a viewer who wanted the shape of the investigation
+ * had to pan to reconstruct it. Everything stays reachable, and the node the
+ * audit just touched is marked instead of chased.
+ *
+ * Interruptible, and never during an inspection: a canvas that re-frames while
+ * someone is reading a node has taken the page away from them.
  */
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -230,53 +236,30 @@ function CameraController({
   reduce: boolean;
 }) {
   const flow = useReactFlow();
-  const lastTarget = useRef<string | null>(null);
-  const framed = useRef(false);
+  const count = graph.nodes.length;
+  const lastCount = useRef(0);
 
-  const atVerdict = graph.nodes.some((node) => node.kind === "verdict");
-  const active = graph.nodes[graph.nodes.length - 1]?.id ?? null;
-
-  const fit = useCallback(
-    (ids: string[]) => {
-      if (ids.length === 0) return;
-      void flow.fitView({
-        nodes: ids.map((id) => ({ id })),
-        padding: 0.4,
-        duration: reduce ? 0 : 520,
-        maxZoom: 1,
-      });
-    },
-    [flow, reduce],
-  );
+  const fitAll = useCallback(() => {
+    void flow.fitView({
+      padding: 0.14,
+      duration: reduce ? 0 : 520,
+      // Capped so a two-node graph does not open at absurd magnification.
+      maxZoom: 0.95,
+      // FLOORED, which matters more. The graph is six columns wide and opens in
+      // a pane that starts at less than half the viewport, so an unfloored fit
+      // shrinks the chips until their labels are decoration. Below this the
+      // viewer pans — a graph they can read and scroll beats one they can see
+      // all of and cannot.
+      minZoom: 0.55,
+    });
+  }, [flow, reduce]);
 
   useEffect(() => {
     if (!enabled || selectedId !== null) return;
-    // First paint: frame whatever exists, so the graph opens centred instead of
-    // pinned in a corner while the first nodes arrive.
-    if (!framed.current && graph.nodes.length > 0) {
-      framed.current = true;
-      fit(graph.nodes.map((node) => node.id));
-      return;
-    }
-    if (atVerdict) {
-      // Pull back to the proof: confirmed and deferred paths, plus the verdict.
-      const proof = graph.nodes.filter((node) => node.onProofPath).map((node) => node.id);
-      if (lastTarget.current !== "verdict") {
-        lastTarget.current = "verdict";
-        fit(proof.length > 1 ? proof : graph.nodes.map((node) => node.id));
-      }
-      return;
-    }
-    if (active && active !== lastTarget.current) {
-      lastTarget.current = active;
-      // Frame the active node WITH its parent chain in view, so a new branch
-      // arrives in context instead of the camera snapping to a lone chip.
-      const incoming = graph.edges
-        .filter((edge) => edge.target === active)
-        .map((edge) => edge.source);
-      fit([active, ...incoming]);
-    }
-  }, [active, atVerdict, enabled, fit, graph.edges, graph.nodes, selectedId]);
+    if (count === lastCount.current) return;
+    lastCount.current = count;
+    fitAll();
+  }, [count, enabled, fitAll, selectedId]);
 
   return null;
 }

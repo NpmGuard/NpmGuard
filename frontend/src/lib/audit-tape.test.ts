@@ -34,7 +34,14 @@ import {
   stateAt,
 } from "./audit-tape.ts";
 import { foldAuditEvent, initialFoldState } from "./audit-fold.ts";
-import { HOLD_MS, SPEEDS, animationScale, elapsedMs, holdMsFor } from "./replay-clock.ts";
+import {
+  HOLD_MS,
+  SPEEDS,
+  animationScale,
+  elapsedMs,
+  fileScanScale,
+  holdMsFor,
+} from "./replay-clock.ts";
 
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 type EventPayload = DistOmit<AuditEventUnion, "auditId" | "timestamp" | "seq">;
@@ -175,12 +182,48 @@ describe("replay-clock — C4 speed changes waits and nothing else", () => {
   });
 });
 
+describe("replay-clock — C6 the file dwell scales with the package", () => {
+  it("C6: a small package reads at full dwell; a large one compresses", () => {
+    const few: AuditEventUnion[] = Array.from({ length: 8 }, (_, index) =>
+      ev(index + 1, { type: "file_analyzing", file: `f${index}.js` }),
+    );
+    const many: AuditEventUnion[] = Array.from({ length: 400 }, (_, index) =>
+      ev(index + 1, { type: "file_analyzing", file: `f${index}.js` }),
+    );
+    expect(fileScanScale(few)).toBe(1);
+    expect(fileScanScale(many)).toBeLessThan(0.1);
+    // The point of the scale: total scan time stays watchable at both sizes
+    // rather than being a flicker at one end and five minutes at the other.
+    expect(elapsedMs(many, many.length, 1)).toBeLessThan(elapsedMs(few, few.length, 1) * 6);
+  });
+
+  it("C6: the scale is a function of the TAPE, so a replay paces identically", () => {
+    const frames = stream();
+    expect(fileScanScale(frames)).toBe(fileScanScale([...frames]));
+  });
+
+  it("C6: it compresses waits and never touches state", () => {
+    const tape = appendFrames(emptyTape(), stream());
+    const before = stateAt(tape, tape.frames.length);
+    expect(fileScanScale(tape.frames)).toBeLessThanOrEqual(1);
+    expect(stateAt(tape, tape.frames.length)).toEqual(before);
+  });
+});
+
 describe("replay-clock — C5 elapsed time", () => {
   it("C5: elapsed is the sum of the holds actually waited", () => {
     const frames = stream();
+    const scale = fileScanScale(frames);
     const expected = frames
       .slice(0, 5)
-      .reduce((total, frame) => total + Math.round(HOLD_MS[frame.type] / 2), 0);
+      .reduce(
+        (total, frame) =>
+          total +
+          Math.round(
+            (HOLD_MS[frame.type] * (frame.type === "file_analyzing" ? scale : 1)) / 2,
+          ),
+        0,
+      );
     expect(elapsedMs(frames, 5, 2)).toBe(expected);
   });
 
