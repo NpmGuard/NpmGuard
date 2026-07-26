@@ -83,6 +83,13 @@ class Settings(KitSettings):
     llm_base_url: str | None = None
     llm_api_key: str = ""
     bedrock_region: str = Field(default="us-east-1", pattern=r"^[a-z]{2}(?:-gov)?-[a-z]+-\d+$")
+    # Bedrock offers its Responses-API models in fewer regions than its chat ones,
+    # so a deployment pinned to a chat-only region needs a second region to reach
+    # them. Setting this sends those roles' prompts outside `bedrock_region` —
+    # explicit because it is a data-residency choice, not a routing detail.
+    bedrock_responses_region: str | None = Field(
+        default=None, pattern=r"^[a-z]{2}(?:-gov)?-[a-z]+-\d+$"
+    )
     llm_timeout_seconds: float = Field(default=60, gt=0)
     llm_budget_usd_24h: float = Field(default=0, ge=0)
     llm_budget_margin: float = Field(default=0.1, ge=0, le=1)
@@ -158,6 +165,11 @@ class Settings(KitSettings):
     # built before the mock short-circuit, so even a mock engine constructs these.
     triage_model: str = Field(default="zai.glm-5", min_length=1)
     investigation_model: str = Field(default="zai.glm-5", min_length=1)
+    # Hypothesis is the one role whose output must survive `compile_plan` into a
+    # runnable experiment, and measured pass rates separate the models on it far
+    # more than on the other structured roles — so it declares its own primary
+    # rather than riding `investigation_model`.
+    hypothesis_model: str = Field(default="xai.grok-4.3", min_length=1)
     # Model-call concurrency of BOTH triage fan-outs (phases.run_flag over the FLAG
     # file set, phases.run_hypothesize over the flags it produced) — i.e. how many
     # provider calls one audit has in flight, not how many it makes. `ge=1` makes the
