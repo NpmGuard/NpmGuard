@@ -304,6 +304,18 @@
           "$ref": "#/$defs/GraphBuiltEvent"
         },
         {
+          "$ref": "#/$defs/ExperimentStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/SandboxStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/SandboxCompletedEvent"
+        },
+        {
+          "$ref": "#/$defs/JudgmentStartedEvent"
+        },
+        {
           "$ref": "#/$defs/HypothesisResolvedEvent"
         },
         {
@@ -593,6 +605,12 @@
         },
         "packageName": {
           "type": "string"
+        },
+        "replayVersion": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0,
+          "default": 1
         }
       },
       "required": [
@@ -1824,6 +1842,61 @@
       },
       "title": "DependencyGroups"
     },
+    "DisplayObservation": {
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string"
+        },
+        "atMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stream": {
+          "$ref": "#/$defs/StreamKind"
+        },
+        "kind": {
+          "$ref": "#/$defs/EventKind"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "signal": {
+          "$ref": "#/$defs/ObservationSignal"
+        },
+        "occurrences": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "eventId",
+        "atMs",
+        "stream",
+        "kind",
+        "summary",
+        "signal",
+        "occurrences"
+      ],
+      "title": "DisplayObservation"
+    },
+    "DisplayStub": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "served": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pattern",
+        "served"
+      ],
+      "title": "DisplayStub"
+    },
     "EntryPoints": {
       "type": "object",
       "properties": {
@@ -2015,6 +2088,50 @@
         "hash"
       ],
       "title": "EvidenceRef"
+    },
+    "ExperimentStartedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "experiment_started"
+        },
+        "hypId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "experiment": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolCall"
+          }
+        },
+        "trigger": {
+          "$ref": "#/$defs/Trigger"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "hypId",
+        "runId",
+        "experiment",
+        "trigger"
+      ],
+      "title": "ExperimentStartedEvent"
     },
     "FileAnalyzingEvent": {
       "type": "object",
@@ -2297,6 +2414,12 @@
         "mergedCount": {
           "type": "integer",
           "minimum": 0
+        },
+        "merges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HypothesisMerge"
+          }
         }
       },
       "required": [
@@ -2306,7 +2429,8 @@
         "type",
         "nodeCount",
         "addedCount",
-        "mergedCount"
+        "mergedCount",
+        "merges"
       ],
       "title": "GraphBuiltEvent"
     },
@@ -2373,8 +2497,20 @@
         "severity": {
           "$ref": "#/$defs/HypothesisSeverity"
         },
-        "file": {
+        "description": {
           "type": "string"
+        },
+        "focusFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "focusLines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FocusRange"
+          }
         }
       },
       "required": [
@@ -2385,7 +2521,9 @@
         "hypId",
         "claim",
         "severity",
-        "file"
+        "description",
+        "focusFiles",
+        "focusLines"
       ],
       "title": "HypothesisEmittedEvent"
     },
@@ -2420,6 +2558,22 @@
         "updatedAt"
       ],
       "title": "HypothesisGraphSnapshot"
+    },
+    "HypothesisMerge": {
+      "type": "object",
+      "properties": {
+        "hypId": {
+          "type": "string"
+        },
+        "into": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hypId",
+        "into"
+      ],
+      "title": "HypothesisMerge"
     },
     "HypothesisResolution": {
       "type": "object",
@@ -2470,6 +2624,30 @@
         },
         "reason": {
           "type": "string"
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          }
+        },
+        "citedEventIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "citedObservations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DisplayObservation"
+          }
+        },
+        "runId": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -2482,7 +2660,11 @@
         "severity",
         "state",
         "by",
-        "reason"
+        "reason",
+        "evidenceRefs",
+        "citedEventIds",
+        "citedObservations",
+        "runId"
       ],
       "title": "HypothesisResolvedEvent"
     },
@@ -2888,6 +3070,39 @@
       ],
       "title": "JobState"
     },
+    "JudgmentStartedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "judgment_started"
+        },
+        "hypId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "hypId",
+        "runId"
+      ],
+      "title": "JudgmentStartedEvent"
+    },
     "NetworkCall": {
       "type": "object",
       "properties": {
@@ -2907,6 +3122,15 @@
         "url"
       ],
       "title": "NetworkCall"
+    },
+    "ObservationSignal": {
+      "type": "string",
+      "enum": [
+        "high",
+        "context",
+        "error"
+      ],
+      "title": "ObservationSignal"
     },
     "ObserveFlags": {
       "type": "object",
@@ -3510,6 +3734,11 @@
         },
         "recordedAt": {
           "type": "string"
+        },
+        "replayVersion": {
+          "type": "integer",
+          "exclusiveMinimum": true,
+          "minimum": 0
         }
       },
       "required": [
@@ -3518,7 +3747,8 @@
         "version",
         "verdict",
         "durationMs",
-        "recordedAt"
+        "recordedAt",
+        "replayVersion"
       ],
       "title": "ReplayEntry"
     },
@@ -3752,6 +3982,125 @@
       ],
       "title": "RunArtifact"
     },
+    "RunCaptures": {
+      "type": "object",
+      "properties": {
+        "stdoutHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stderrHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fsDiffHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pcapHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "straceLogHash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stdoutHash",
+        "stderrHash",
+        "fsDiffHash",
+        "pcapHash",
+        "straceLogHash"
+      ],
+      "title": "RunCaptures"
+    },
+    "RunDisplay": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "wallMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timedOut": {
+          "type": "boolean"
+        },
+        "eventCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "eventSummary": {
+          "$ref": "#/$defs/EventSummary"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "setupApplied": {
+          "$ref": "#/$defs/SanitizedSetup"
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DisplayObservation"
+          }
+        },
+        "omittedObservationCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "captures": {
+          "$ref": "#/$defs/RunCaptures"
+        },
+        "contentHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "wallMs",
+        "exitCode",
+        "timedOut",
+        "eventCount",
+        "eventSummary",
+        "error",
+        "setupApplied",
+        "observations",
+        "omittedObservationCount",
+        "captures",
+        "contentHash"
+      ],
+      "title": "RunDisplay"
+    },
     "RunErrorKind": {
       "type": "string",
       "enum": [
@@ -3777,6 +4126,141 @@
         "detail"
       ],
       "title": "RunError"
+    },
+    "SandboxCompletedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "sandbox_completed"
+        },
+        "hypId": {
+          "type": "string"
+        },
+        "run": {
+          "$ref": "#/$defs/RunDisplay"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "hypId",
+        "run"
+      ],
+      "title": "SandboxCompletedEvent"
+    },
+    "SandboxStartedEvent": {
+      "type": "object",
+      "properties": {
+        "auditId": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/auditId"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/timestamp"
+        },
+        "seq": {
+          "$ref": "#/$defs/AuditEnqueuedEvent/properties/seq"
+        },
+        "type": {
+          "type": "string",
+          "const": "sandbox_started"
+        },
+        "hypId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "observe": {
+          "$ref": "#/$defs/ObserveFlags"
+        },
+        "budget": {
+          "$ref": "#/$defs/Budget"
+        }
+      },
+      "required": [
+        "auditId",
+        "timestamp",
+        "seq",
+        "type",
+        "hypId",
+        "runId",
+        "observe",
+        "budget"
+      ],
+      "title": "SandboxStartedEvent"
+    },
+    "SanitizedSetup": {
+      "type": "object",
+      "properties": {
+        "envKeys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plantedFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlantedFileRef"
+          }
+        },
+        "stubUrls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DisplayStub"
+          }
+        },
+        "hostname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "locale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "patchedFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preloaded": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "envKeys",
+        "date",
+        "plantedFiles",
+        "stubUrls",
+        "hostname",
+        "locale",
+        "patchedFiles",
+        "preloaded"
+      ],
+      "title": "SanitizedSetup"
     },
     "ScanAlreadyRunning": {
       "type": "object",

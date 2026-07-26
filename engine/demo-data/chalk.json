@@ -4,28 +4,29 @@
   "events": [
     {
       "type": "audit_enqueued",
-      "timestamp": "2026-07-23T23:27:24.059Z",
+      "timestamp": "2026-07-26T01:35:19.907Z",
       "queuePosition": 1
     },
     {
       "type": "audit_started",
-      "timestamp": "2026-07-23T23:27:24.066Z",
-      "packageName": "chalk"
+      "timestamp": "2026-07-26T01:35:19.926Z",
+      "packageName": "chalk",
+      "replayVersion": 2
     },
     {
       "type": "phase_started",
-      "timestamp": "2026-07-23T23:27:24.068Z",
+      "timestamp": "2026-07-26T01:35:19.934Z",
       "phase": "resolve"
     },
     {
       "type": "phase_completed",
-      "timestamp": "2026-07-23T23:27:24.095Z",
+      "timestamp": "2026-07-26T01:35:19.957Z",
       "phase": "resolve",
-      "durationMs": 25
+      "durationMs": 20
     },
     {
       "type": "dependencies_provisioned",
-      "timestamp": "2026-07-23T23:27:24.100Z",
+      "timestamp": "2026-07-26T01:35:19.961Z",
       "installed": false,
       "packageCount": 0,
       "skipped": "no runtime dependencies",
@@ -33,18 +34,18 @@
     },
     {
       "type": "phase_started",
-      "timestamp": "2026-07-23T23:27:24.101Z",
+      "timestamp": "2026-07-26T01:35:19.963Z",
       "phase": "inventory"
     },
     {
       "type": "phase_completed",
-      "timestamp": "2026-07-23T23:27:24.104Z",
+      "timestamp": "2026-07-26T01:35:19.968Z",
       "phase": "inventory",
-      "durationMs": 1
+      "durationMs": 4
     },
     {
       "type": "file_list",
-      "timestamp": "2026-07-23T23:27:24.107Z",
+      "timestamp": "2026-07-26T01:35:19.971Z",
       "files": [
         {
           "path": "readme.md",
@@ -146,7 +147,7 @@
     },
     {
       "type": "inventory_meta",
-      "timestamp": "2026-07-23T23:27:24.109Z",
+      "timestamp": "2026-07-26T01:35:19.973Z",
       "scripts": {
         "test": "xo && c8 ava && tsd",
         "bench": "matcha benchmark.js"
@@ -208,95 +209,95 @@
     },
     {
       "type": "phase_started",
-      "timestamp": "2026-07-23T23:27:24.111Z",
+      "timestamp": "2026-07-26T01:35:19.975Z",
       "phase": "intent-extraction"
     },
     {
       "type": "phase_completed",
-      "timestamp": "2026-07-23T23:27:24.356Z",
+      "timestamp": "2026-07-26T01:35:20.262Z",
       "phase": "intent-extraction",
-      "durationMs": 243
+      "durationMs": 285
     },
     {
       "type": "intent_extracted",
-      "timestamp": "2026-07-23T23:27:24.358Z",
+      "timestamp": "2026-07-26T01:35:20.264Z",
       "statedPurpose": "A small utility package (mock intent).",
       "expectedCapabilities": []
     },
     {
       "type": "phase_started",
-      "timestamp": "2026-07-23T23:27:24.360Z",
+      "timestamp": "2026-07-26T01:35:20.266Z",
       "phase": "flag"
     },
     {
       "type": "file_analyzing",
-      "timestamp": "2026-07-23T23:27:24.362Z",
+      "timestamp": "2026-07-26T01:35:20.276Z",
+      "file": "source/vendor/ansi-styles/index.js"
+    },
+    {
+      "type": "file_analyzing",
+      "timestamp": "2026-07-26T01:35:20.271Z",
       "file": "source/utilities.js"
     },
     {
       "type": "file_analyzing",
-      "timestamp": "2026-07-23T23:27:24.364Z",
-      "file": "source/vendor/ansi-styles/index.js"
+      "timestamp": "2026-07-26T01:35:20.276Z",
+      "file": "source/index.js"
     },
     {
       "type": "file_analyzing",
-      "timestamp": "2026-07-23T23:27:24.366Z",
-      "file": "source/vendor/supports-color/browser.js"
-    },
-    {
-      "type": "file_analyzing",
-      "timestamp": "2026-07-23T23:27:24.365Z",
+      "timestamp": "2026-07-26T01:35:20.277Z",
       "file": "source/vendor/supports-color/index.js"
     },
     {
       "type": "file_analyzing",
-      "timestamp": "2026-07-23T23:27:24.363Z",
-      "file": "source/index.js"
+      "timestamp": "2026-07-26T01:35:20.277Z",
+      "file": "source/vendor/supports-color/browser.js"
     },
     {
       "type": "triage_progress",
-      "timestamp": "2026-07-23T23:27:24.401Z",
+      "timestamp": "2026-07-26T01:35:20.313Z",
       "current": 1,
       "total": 5,
-      "file": "source/vendor/supports-color/browser.js"
-    },
-    {
-      "type": "triage_progress",
-      "timestamp": "2026-07-23T23:27:24.406Z",
-      "current": 2,
-      "total": 5,
-      "file": "source/vendor/ansi-styles/index.js"
-    },
-    {
-      "type": "triage_progress",
-      "timestamp": "2026-07-23T23:27:24.412Z",
-      "current": 3,
-      "total": 5,
       "file": "source/index.js"
     },
     {
       "type": "triage_progress",
-      "timestamp": "2026-07-23T23:27:24.415Z",
-      "current": 4,
+      "timestamp": "2026-07-26T01:35:20.319Z",
+      "current": 2,
       "total": 5,
       "file": "source/vendor/supports-color/index.js"
     },
     {
       "type": "triage_progress",
-      "timestamp": "2026-07-23T23:27:24.418Z",
+      "timestamp": "2026-07-26T01:35:20.324Z",
+      "current": 3,
+      "total": 5,
+      "file": "source/vendor/supports-color/browser.js"
+    },
+    {
+      "type": "triage_progress",
+      "timestamp": "2026-07-26T01:35:20.341Z",
+      "current": 4,
+      "total": 5,
+      "file": "source/vendor/ansi-styles/index.js"
+    },
+    {
+      "type": "triage_progress",
+      "timestamp": "2026-07-26T01:35:20.350Z",
       "current": 5,
       "total": 5,
       "file": "source/utilities.js"
     },
     {
       "type": "phase_completed",
-      "timestamp": "2026-07-23T23:27:24.420Z",
+      "timestamp": "2026-07-26T01:35:20.351Z",
       "phase": "flag",
-      "durationMs": 58
+      "durationMs": 83
     },
     {
       "type": "file_verdict",
-      "timestamp": "2026-07-23T23:27:24.423Z",
+      "timestamp": "2026-07-26T01:35:20.354Z",
       "verdict": {
         "file": "source/utilities.js",
         "capabilities": [],
@@ -308,7 +309,7 @@
     },
     {
       "type": "file_verdict",
-      "timestamp": "2026-07-23T23:27:24.424Z",
+      "timestamp": "2026-07-26T01:35:20.357Z",
       "verdict": {
         "file": "source/index.js",
         "capabilities": [],
@@ -320,7 +321,7 @@
     },
     {
       "type": "file_verdict",
-      "timestamp": "2026-07-23T23:27:24.426Z",
+      "timestamp": "2026-07-26T01:35:20.359Z",
       "verdict": {
         "file": "source/vendor/ansi-styles/index.js",
         "capabilities": [],
@@ -332,7 +333,7 @@
     },
     {
       "type": "file_verdict",
-      "timestamp": "2026-07-23T23:27:24.428Z",
+      "timestamp": "2026-07-26T01:35:20.361Z",
       "verdict": {
         "file": "source/vendor/supports-color/index.js",
         "capabilities": [],
@@ -344,7 +345,7 @@
     },
     {
       "type": "file_verdict",
-      "timestamp": "2026-07-23T23:27:24.431Z",
+      "timestamp": "2026-07-26T01:35:20.363Z",
       "verdict": {
         "file": "source/vendor/supports-color/browser.js",
         "capabilities": [],
@@ -356,7 +357,7 @@
     },
     {
       "type": "verdict_reached",
-      "timestamp": "2026-07-23T23:27:24.435Z",
+      "timestamp": "2026-07-26T01:35:20.370Z",
       "verdict": "SAFE",
       "rationale": "No suspicions were raised.",
       "counts": {
@@ -429,21 +430,21 @@
     "trace": [
       {
         "phase": "resolve",
-        "durationMs": 25.0,
+        "durationMs": 20.0,
         "input": {
           "packageName": "chalk",
           "version": "5.6.2"
         },
         "output": {
-          "path": "/tmp/npmguard-2nyufimb/extracted/package",
+          "path": "/tmp/npmguard-nonjc1z8/extracted/package",
           "version": "5.6.2"
         }
       },
       {
         "phase": "inventory",
-        "durationMs": 1.0,
+        "durationMs": 4.0,
         "input": {
-          "packagePath": "/tmp/npmguard-2nyufimb/extracted/package"
+          "packagePath": "/tmp/npmguard-nonjc1z8/extracted/package"
         },
         "output": {
           "fileCount": 12,
@@ -496,7 +497,7 @@
       },
       {
         "phase": "intent-extraction",
-        "durationMs": 243.0,
+        "durationMs": 285.0,
         "input": {
           "packageName": "chalk",
           "description": "Terminal string styling done right"
@@ -510,13 +511,9 @@
       },
       {
         "phase": "flag",
-        "durationMs": 58.0,
+        "durationMs": 83.0,
         "input": {
           "sourceFiles": [
-            {
-              "path": "source/index.d.ts",
-              "sizeBytes": 6918.0
-            },
             {
               "path": "source/utilities.js",
               "sizeBytes": 997.0
@@ -526,20 +523,8 @@
               "sizeBytes": 5902.0
             },
             {
-              "path": "source/vendor/ansi-styles/index.d.ts",
-              "sizeBytes": 5198.0
-            },
-            {
               "path": "source/vendor/ansi-styles/index.js",
               "sizeBytes": 5256.0
-            },
-            {
-              "path": "source/vendor/supports-color/index.d.ts",
-              "sizeBytes": 1010.0
-            },
-            {
-              "path": "source/vendor/supports-color/browser.d.ts",
-              "sizeBytes": 36.0
             },
             {
               "path": "source/vendor/supports-color/index.js",

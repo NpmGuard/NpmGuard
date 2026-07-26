@@ -3,7 +3,7 @@
 # plus one OUT-OF-PROCESS import of npmguard.api — the only place "at boot" can
 # actually be observed, since in-process the module is already imported.)
 #
-# The defect this file closes: `NPMGUARD_DEMO_SPEED=fast` stopped the engine from
+# The defect this file closes: `NPMGUARD_LLM_TIMEOUT_SECONDS=fast` stops the engine from
 # booting, because `float()` ran on the raw environment string at demo.py module
 # scope and npmguard.api imports demo. Verified out of process before the fix:
 # `ValueError: could not convert string to float: 'fast'` — a message naming neither
@@ -18,7 +18,7 @@
 #       when (Settings construction / process import)
 #   C1 every kind of bad value is refused at construction, and the message names the
 #      ENVIRONMENT VARIABLE. Measured: pydantic-settings names the FIELD
-#      (`demo_speed`), never the variable an operator writes in `.env`, in any of the
+#      (`llm_timeout_seconds`), never the variable an operator writes in `.env`, in any of the
 #      error kinds this surface produces — so config.py maps loc → NPMGUARD_<LOC>
 #   C2 the naming covers the WHOLE surface, not just the fields added with it: a
 #      pre-existing knob and the model-level cross-field validator both come out
@@ -28,7 +28,7 @@
 #   C4 a good value round-trips, normalised: no trailing slash on an origin, an
 #      absolute Path for a directory. Without this the C1 rows would also pass
 #      against a Settings that rejected everything
-#   C5 OUT-OF-PROCESS: `NPMGUARD_DEMO_SPEED=fast python -c "import npmguard.api"`
+#   C5 OUT-OF-PROCESS: `NPMGUARD_LLM_TIMEOUT_SECONDS=fast python -c "import npmguard.api"`
 #      still fails — that is correct, a bad knob must kill the process — but now
 #      names the variable. Paired with a control run at a VALID value that imports
 #      cleanly, so the class cannot pass by the import being broken for some other
@@ -67,7 +67,7 @@ def _settings(**env: str) -> Settings:
 
 # (variable, bad value, a fragment of the complaint that must appear)
 REJECTED = {
-    "unparseable-float": ("NPMGUARD_DEMO_SPEED", "fast", "valid number"),
+    "unparseable-float": ("NPMGUARD_LLM_TIMEOUT_SECONDS", "fast", "valid number"),
     "unparseable-int": ("NPMGUARD_MAX_SOURCE_FILES", "lots", "valid integer"),
     "negative-bound": ("NPMGUARD_MAX_SOURCE_FILES", "-1", "greater than or equal to 0"),
     "registry-without-scheme": ("NPMGUARD_NPM_REGISTRY", "registry.npmjs.org", "http(s) URL"),
@@ -125,13 +125,13 @@ def test_good_values_round_trip_and_are_normalised(tmp_path) -> None:
     f"{npm_registry}/{name}/{version}", so an un-normalised value produces a double
     separator against a registry that may or may not forgive it."""
     settings = _settings(
-        NPMGUARD_DEMO_SPEED="0",
+        NPMGUARD_LLM_TIMEOUT_SECONDS="30",
         NPMGUARD_MAX_SOURCE_FILES="1000",
         NPMGUARD_NPM_REGISTRY="http://127.0.0.1:1/",
         NPMGUARD_API_URL="https://api.npmguard.test/",
         NPMGUARD_AUDIT_LOG_DIR=str(tmp_path / "audit-logs"),
     )
-    assert settings.demo_speed == 0
+    assert settings.llm_timeout_seconds == 30
     assert settings.max_source_files == 1000
     assert settings.npm_registry == "http://127.0.0.1:1"
     assert settings.api_url == "https://api.npmguard.test"
@@ -165,14 +165,14 @@ def _boot(**env: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_a_bad_demo_speed_still_stops_the_boot_but_now_says_which_knob() -> None:
-    """C5: the original defect, observed where it actually bites. npmguard.api imports
-    npmguard.demo, which reads this knob at module scope, so a typo has always killed
-    the process — correctly. What changed is the message: it was `ValueError: could
-    not convert string to float: 'fast'`, naming neither the knob nor the fix."""
-    failed = _boot(NPMGUARD_DEMO_SPEED="fast")
+def test_a_bad_float_stops_the_boot_and_says_which_knob() -> None:
+    """C5: the original defect, observed where it actually bites. A typo in a float
+    knob has always killed the process — correctly. What changed is the message: it
+    was `ValueError: could not convert string to float: 'fast'`, naming neither the
+    knob nor the fix."""
+    failed = _boot(NPMGUARD_LLM_TIMEOUT_SECONDS="fast")
     assert failed.returncode != 0
-    assert "NPMGUARD_DEMO_SPEED" in failed.stderr, failed.stderr[-2000:]
+    assert "NPMGUARD_LLM_TIMEOUT_SECONDS" in failed.stderr, failed.stderr[-2000:]
     assert "could not convert string to float" not in failed.stderr, failed.stderr[-2000:]
 
 
@@ -180,5 +180,5 @@ def test_the_same_boot_succeeds_at_a_valid_value() -> None:
     """C5, the control. Without it the class above would also pass against an
     npmguard.api that cannot be imported for any unrelated reason — which is exactly
     the state a multi-agent tree spends part of its time in."""
-    booted = _boot(NPMGUARD_DEMO_SPEED="0")
+    booted = _boot(NPMGUARD_LLM_TIMEOUT_SECONDS="30")
     assert booted.returncode == 0, booted.stderr[-2000:]
