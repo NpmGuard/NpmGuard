@@ -341,7 +341,9 @@ class AuditService:
         return SubmitResult(aid, position, fut, created=True)
 
     async def _position(self, session: AuditSession) -> int:
-        return await self.sessions.queue_position(session.audit_id, session.created_at)
+        return await self.sessions.queue_position(
+            session.audit_id, session.created_at, session.lane
+        )
 
     async def _worker(self) -> None:
         # INVARIANT: this loop only exits BETWEEN claims, never inside a DB
