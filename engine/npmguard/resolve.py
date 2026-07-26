@@ -110,9 +110,9 @@ async def resolve_package(
         if local_path is not None:
             # A private COPY: the staged tree stays byte-identical no matter what
             # the run writes into `path`. Corpus packages are live malware.
-            # Absolute, and a package directory: checked at admission
-            # (`validation.valid_local_path`), so nothing is re-checked here. A
-            # tree removed since then fails loud out of copytree.
+            # Absolute, and a package directory: both checked at admission
+            # (`validation.valid_local_path_shape`, `api._local_path_refused`), so
+            # nothing is re-checked here. A tree removed since fails out of copytree.
             source = Path(local_path)
             path = workdir / source.name
             shutil.copytree(source, path, symlinks=True)
