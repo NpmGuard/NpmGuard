@@ -756,7 +756,7 @@ TOOL_CATALOG = """- setEnv (setup): Inject environment variables to plant creden
 - plantFiles (setup): Seed absolute-path files such as /home/node/.npmrc with bait content.
 - setDate (setup): Freeze wall-clock time at an ISO timestamp using libfaketime.
 - stubUrl (setup): Return canned HTTP responses for URL patterns using * as wildcard.
-- patchFile (setup): Rewrite package files with exact string replacements before execution.
+- patchFile (setup): Rewrite package files with exact string replacements before execution. Its path names a file inside the package, written either package-relative (index.js) or absolute under /pkg (/pkg/index.js); unlike plantFiles it cannot reach outside the package.
 - preload (setup): Inject a Node preload script before the package entrypoint loads.
 - trigger (trigger): Invoke exactly one entrypoint, lifecycle hook, bin, or subpath."""
 
