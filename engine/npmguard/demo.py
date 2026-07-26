@@ -1,52 +1,21 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from kit_stream import StreamService
 
-from .config import REPO_ROOT, Settings
-from .contract.kinds import AUDIT_EVENT_TYPES
+from .config import REPO_ROOT
 from .contract.models import StartAuditResponse
 from .events import ENVELOPE_KEYS, TERMINAL_EVENTS, AuditEmitter, audit_channel
 from .persistence import DEMO_PACKAGE_PATH, AuditSessionStore
 
-MIN_DELAY_MS = 10
-MAX_DELAY_MS = 4_000
-# How long a frame of each type stays on screen, at minimum.
-MIN_TYPE_DELAY = {
-    "phase_started": 400,
-    "file_analyzing": 600,
-    "file_verdict": 300,
-    "triage_complete": 500,
-    "verdict_reached": 800,
-}
-# A floor for a type the engine cannot emit is unreachable pacing, and reads as
-# a claim that the replay covers a frame no audit produces.
-assert MIN_TYPE_DELAY.keys() <= AUDIT_EVENT_TYPES, (
-    f"MIN_TYPE_DELAY floors event types outside the contract: "
-    f"{sorted(MIN_TYPE_DELAY.keys() - AUDIT_EVENT_TYPES)}"
-)
-# Playwright/e2e divides the human throttle by this (0 ⇒ emit instantly); prod unset ⇒ 1.0.
-#
-# Read through Settings, so `NPMGUARD_DEMO_SPEED=fast` is a ConfigError NAMING the
-# variable instead of `ValueError: could not convert string to float: 'fast'` from a
-# bare `float()` on the raw string — and npmguard.api imports this module, so that
-# bare ValueError stopped the engine booting. Still at module scope and still a
-# fresh `Settings()` rather than the cached `get_settings()`: this constant is the
-# knob's only seam (tests set the variable and reload the module), and a cached
-# singleton would make the reload a no-op.
-#
-# The `max(0.0, …)` clamp stays because it is pinned behaviour (test_demo.py C11),
-# but a negative divisor is an incoherent value, not a value to normalise:
-# `demo_speed: float = Field(default=1, ge=0)` in config.py would refuse it at boot
-# and let this line be `Settings().demo_speed`. That change is one line here plus
-# one there, and it turns C11 red — so it belongs with an edit to test_demo.py.
-DEMO_SPEED = max(0.0, Settings().demo_speed)
+# There is no pacing here, and the absence is the design. A recording is seeded
+# whole and instantly; how fast a viewer watches it is a client decision, because
+# the client is the only side that can pause, seek, restart and change speed. A
+# server-side sleep offers none of those and makes every replay start over.
 
 
 @dataclass(frozen=True)
@@ -130,7 +99,6 @@ class DemoService:
         self.sessions = sessions
         self.stream = stream
         self.recordings = self._load()
-        self._tasks: set[asyncio.Task[None]] = set()
 
     @staticmethod
     def _load() -> dict[str, DemoRecording]:
@@ -163,26 +131,27 @@ class DemoService:
         session = await self.sessions.create(
             package_name, file_contents=recording.files, package_path=DEMO_PACKAGE_PATH
         )
-        task = asyncio.create_task(
-            self._replay(session.audit_id, recording), name=f"npmguard-demo-{session.audit_id}"
-        )
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        # Awaited, not spawned: seeding is a handful of inserts with no pacing, so
+        # the response can honestly say the stream is already there. A background
+        # task would reintroduce the window a subscriber could win.
+        await self._seed(session.audit_id, recording)
         return StartAuditResponse(auditId=session.audit_id, packageName=package_name)
 
-    async def _replay(self, audit_id: str, recording: DemoRecording) -> None:
+    async def _seed(self, audit_id: str, recording: DemoRecording) -> None:
+        """Write the whole recording into the durable log, immediately.
+
+        No pacing. A replay's tempo is a PRESENTATION decision and it belongs to
+        the client, which is the only side that can pause, seek, change speed or
+        step — none of which a server-side sleep can offer, because the frame a
+        viewer wants to look at again is one the server already sent.
+
+        Seeding at once also makes a demo behave exactly like any other finished
+        audit: the durable stream is complete from the first read, so
+        `GET /audit/{id}/events` replays it from `seq` 0 the same way it replays a
+        real one, and a reconnect resumes from the same cursor.
+        """
         emitter = AuditEmitter(audit_id, self.stream)
-        previous: datetime | None = None
         for event in recording.events:
-            current = _timestamp(event.get("timestamp"))
-            if previous is not None and current is not None:
-                delta = int((current - previous).total_seconds() * 1_000)
-                delay = min(
-                    MAX_DELAY_MS, max(MIN_TYPE_DELAY.get(event["type"], MIN_DELAY_MS), delta)
-                )
-                if DEMO_SPEED > 0:
-                    await asyncio.sleep(delay / 1_000 / DEMO_SPEED)
-                # DEMO_SPEED == 0 → emit as fast as possible (skip the sleep entirely)
             # ENVELOPE_KEYS, not a local literal: these four are exactly the fields
             # _wire_event stamps back on, and a payload carrying one would shadow the
             # envelope's own value (events.py asserts it at both ends).
@@ -203,13 +172,3 @@ class DemoService:
                     )
             else:
                 await emitter.emit(event["type"], payload)
-            previous = current or previous
-
-
-def _timestamp(value: Any) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None

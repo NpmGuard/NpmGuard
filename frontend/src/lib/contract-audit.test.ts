@@ -116,6 +116,21 @@ describe("audit wire contract — C2 real recorded reports", () => {
 });
 
 describe("audit wire contract — C3 listener/union coverage", () => {
+  it("C3: the four experiment boundaries are union members with listeners", () => {
+    // A boundary in the union but absent from EVENT_TYPES is a frame the client
+    // never receives (EventSource drops unsubscribed names); the reverse is a
+    // permanently dead listener. The equality below covers both, but naming the
+    // four makes a silent removal of the causal chain fail by name.
+    for (const type of [
+      "experiment_started",
+      "sandbox_started",
+      "sandbox_completed",
+      "judgment_started",
+    ] as const) {
+      expect(EVENT_TYPES).toContain(type);
+    }
+  });
+
   it("C3: EVENT_TYPES is exactly the discriminant set of AuditEventSchema", () => {
     // zod exposes a discriminated union's members; each member's `type` shape is
     // the literal this arm is keyed on.
@@ -123,7 +138,7 @@ describe("audit wire contract — C3 listener/union coverage", () => {
       .map((option) => option.shape.type.value as string)
       .sort();
     expect(discriminants).toEqual([...EVENT_TYPES].sort());
-    expect(discriminants).toHaveLength(17);
+    expect(discriminants).toHaveLength(EVENT_TYPES.length);
   });
 });
 

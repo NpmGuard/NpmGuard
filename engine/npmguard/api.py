@@ -203,9 +203,7 @@ def _make_fetch_repo_deps(gh_client: GitHubAppClient):
         ranges = manifest_ranges(manifest)
         filename = lockfile.path.rsplit("/", 1)[-1]
         deps = parse_lockfile(filename, lockfile.content, ranges)
-        return ParsedRepoDeps(
-            deps=deps, lockfile_path=lockfile.path, lockfile_sha=lockfile.sha
-        )
+        return ParsedRepoDeps(deps=deps, lockfile_path=lockfile.path, lockfile_sha=lockfile.sha)
 
     return fetch_repo_deps
 
@@ -374,7 +372,11 @@ def _local_path_refused(runtime: Any, local_path: str | None) -> JSONResponse | 
     if not is_package_directory(local_path):
         return _validation_failed(
             "Invalid request",
-            [ValidationIssue(field="localPath", message=f"{local_path} is not a package directory")],
+            [
+                ValidationIssue(
+                    field="localPath", message=f"{local_path} is not a package directory"
+                )
+            ],
         )
     return None
 
@@ -499,9 +501,7 @@ async def start_stream(request: Request) -> JSONResponse:
         except Exception as exc:
             return _audit_error(exc)
         result.future.add_done_callback(_consume_future)  # fire-and-forget; retrieve exc
-        return _wire(
-            StartAuditResponse(auditId=result.audit_id, packageName=parsed.packageName)
-        )
+        return _wire(StartAuditResponse(auditId=result.audit_id, packageName=parsed.packageName))
 
     return JSONResponse(
         {"error": "Payment required. Use /checkout or provide txHash + chain."},
@@ -698,14 +698,10 @@ async def stripe_webhook(request: Request) -> JSONResponse:
     # one-off flow is untouched. Only runs when the panel is configured.
     if isinstance(runtime, PanelRuntime):
         try:
-            await handle_subscription_event(
-                runtime.settings, event, runtime.panel_billing
-            )
+            await handle_subscription_event(runtime.settings, event, runtime.panel_billing)
         except Exception:
             log.exception("subscription webhook handling failed")
-            return JSONResponse(
-                {"error": "Failed to process subscription event"}, status_code=500
-            )
+            return JSONResponse({"error": "Failed to process subscription event"}, status_code=500)
     return JSONResponse({"received": True})
 
 
@@ -769,7 +765,7 @@ async def demo_start(request: Request) -> JSONResponse:
         return JSONResponse({"error": exc.args[0]}, status_code=404)
 
 
-def _replay_entry(session: AuditSession) -> ReplayEntry | None:
+def _replay_entry(session: AuditSession, replay_version: int) -> ReplayEntry | None:
     """One finished audit as a gallery card, or None if it does not belong on one.
 
     Every value is read back off the row and its stored report. Nothing here is
@@ -818,6 +814,7 @@ def _replay_entry(session: AuditSession) -> ReplayEntry | None:
         verdict=verdict,
         durationMs=max(0, round((finished - started).total_seconds() * 1000)),
         recordedAt=session.created_at,
+        replayVersion=replay_version,
     )
 
 
@@ -826,8 +823,20 @@ async def replays(request: Request) -> JSONResponse:
     """The replay gallery. Each row's `auditId` is its permalink: /audit/{id} rebuilds
     the whole run from the durable event log, so there is nothing to record and no
     second renderer."""
-    sessions = await _runtime(request).sessions.replayable()
-    entries = [entry for entry in map(_replay_entry, sessions) if entry is not None]
+    store = _runtime(request).sessions
+    sessions = await store.replayable()
+    # One query for every row's replay format, not one per row. A stream that
+    # never announced a version is FORMAT 1: the field exists so a consumer can
+    # tell an animatable run from an archived one, and defaulting it forward
+    # would make every old audit claim to be the former.
+    formats = await store.replay_formats([session.audit_id for session in sessions])
+    entries = [
+        entry
+        for entry in (
+            _replay_entry(session, formats.get(session.audit_id, 1)) for session in sessions
+        )
+        if entry is not None
+    ]
     return JSONResponse(
         ReplayGalleryResponse(replays=entries).model_dump(mode="json", exclude_none=False)
     )
@@ -862,9 +871,7 @@ async def package_report(name: str, request: Request) -> JSONResponse:
         return not_found
     report, resolved_version = result
     try:
-        envelope = PackageReportResponse(
-            report=report, version=resolved_version, packageName=name
-        )
+        envelope = PackageReportResponse(report=report, version=resolved_version, packageName=name)
     except PydanticValidationError as exc:
         # The store's readable-domain screen is two fields (schemaVersion +
         # verdict); this is the rest of the contract, applied where the body
@@ -877,7 +884,9 @@ async def package_report(name: str, request: Request) -> JSONResponse:
         # bad report must not take a route down. Logged, because N-3 forbids a
         # silently fabricated absence.
         log.warning(
-            "stored report is outside the contract", package=name, version=resolved_version,
+            "stored report is outside the contract",
+            package=name,
+            version=resolved_version,
             error=str(exc),
         )
         return not_found

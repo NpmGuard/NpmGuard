@@ -233,11 +233,6 @@ class Settings(KitSettings):
     # it at the GitHub stub so no real raw host is ever reached.
     github_raw_base: str | None = None
 
-    # Divisor on the demo replay's human throttle (demo.py); e2e/Playwright uses 0
-    # to emit instantly. Not bounded below here: demo.py clamps negatives to 0 and
-    # that clamp is the pinned contract.
-    demo_speed: float = 1
-
     @field_validator("api_url", "npm_registry")
     @classmethod
     def _http_origin(cls, value: str) -> str:

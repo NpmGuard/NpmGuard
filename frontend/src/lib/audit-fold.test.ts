@@ -4,31 +4,48 @@
  * Input classes (the shape of the (state, event) domain this reducer folds):
  *  C1  replay / idempotence      — a seq already folded is a no-op (same ref);
  *                                  re-folding a full buffer changes nothing.
- *  C2  unknown / retired types    — truly-unknown types hit `default` and change
- *                                  nothing but the seq guard. The 7 RETIRED
+ *                                  MANDATORY, not an edge case: reconnect replays
+ *                                  from a cursor and every seek re-folds from zero.
+ *  C2  unknown / retired types   — truly-unknown types hit `default` and change
+ *                                  nothing but the seq guard. The retired
  *                                  agent_* / verify_* / finding_discovered types
- *                                  (zero emit sites; schemas + arms deleted) are
- *                                  now in exactly that class, and asserted INERT
+ *                                  are in exactly that class, asserted INERT
  *                                  rather than merely non-throwing.
- *  C3  lifecycle transitions     — each real emitted event moves the documented
- *                                  slice of state (audit_started … audit_error).
- *  C4  terminal freeze           — after a terminal event (verdict_reached /
- *                                  audit_error) later NON-terminal events are
- *                                  ignored; terminal events still pass the guard.
- *  C5  hypothesis upsert-in-place — emitted→resolved updates the same hypId entry
- *                                  in place (no duplicate row); verdict is terminal.
- *  C6  fixture cross-check        — the type sequence of a real skeleton fixture
- *                                  folds to a coherent DANGEROUS terminal state.
+ *  C3  lifecycle transitions     — each emitted event moves the documented slice
+ *                                  of state (audit_started … audit_error).
+ *  C4  terminal freeze           — after a terminal event later NON-terminal
+ *                                  events are ignored; terminal events still pass.
+ *  C5  the experiment chain      — the six per-hypothesis frames drive `stage`
+ *                                  independently of `state`, and the run
+ *                                  accumulates across all four boundaries.
+ *  C6  citation merge            — `hypothesis_resolved.citedObservations` reach
+ *                                  the run display even when the pre-judgment
+ *                                  preview bound dropped them. This is what makes
+ *                                  "a verdict points at its evidence" total.
+ *  C7  the format cut            — a stream without replay format 2 folds without
+ *                                  error and is NOT a rich replay. There is no
+ *                                  reconstruction path, so the predicate is the
+ *                                  whole mechanism.
+ *  C8  merge bookkeeping         — a hypothesis folded into another at graph build
+ *                                  is marked, not left open for ever.
+ *  C9  fixture cross-check       — a real committed recording folds to a coherent
+ *                                  terminal state.
  *
  * Blackbox: events are built as typed AuditEventUnion objects; assertions read only
  * the returned AuditFoldState (never fold internals). seq/ts are ours to choose.
  */
 
 import { describe, expect, it } from "vitest";
-import { foldAuditEvent, initialFoldState, type AuditFoldState } from "./audit-fold.ts";
-import type { AuditEventUnion } from "@npmguard/shared";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { AuditEventUnion, DisplayObservation, RunDisplay } from "@npmguard/shared";
+import { AuditEventSchema, REPLAY_FORMAT } from "@npmguard/shared";
+import {
+  foldAuditEvent,
+  initialFoldState,
+  isRichReplay,
+  type AuditFoldState,
+} from "./audit-fold.ts";
 
 // Distributive Omit so the per-type payload keys survive the union.
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -44,504 +61,393 @@ function ev(seq: number, payload: EventPayload): AuditEventUnion {
   } as AuditEventUnion;
 }
 
-/** Fold a whole buffer from the initial state. */
 function foldAll(events: AuditEventUnion[], from: AuditFoldState = initialFoldState()): AuditFoldState {
   return events.reduce(foldAuditEvent, from);
 }
 
+const started = (seq: number, version = REPLAY_FORMAT) =>
+  ev(seq, { type: "audit_started", packageName: "left-pad", replayVersion: version });
+
+function observation(id: string, summary: string): DisplayObservation {
+  return {
+    eventId: id,
+    atMs: Number(id.slice(1)) * 10,
+    stream: "L4:monkey",
+    kind: "network",
+    summary,
+    signal: "high",
+    occurrences: 1,
+  };
+}
+
+function runDisplay(runId: string, observations: DisplayObservation[], omitted = 0): RunDisplay {
+  return {
+    runId,
+    wallMs: 512,
+    exitCode: 0,
+    timedOut: false,
+    eventCount: observations.length + omitted,
+    eventSummary: { uniqueHosts: [], uniqueSyscalls: [], filesWritten: [], dnsQueries: [] },
+    error: null,
+    setupApplied: {
+      envKeys: ["NPM_TOKEN"],
+      date: null,
+      plantedFiles: [],
+      stubUrls: [],
+      hostname: null,
+      locale: null,
+      patchedFiles: [],
+      preloaded: false,
+    },
+    observations,
+    omittedObservationCount: omitted,
+    captures: {
+      stdoutHash: null,
+      stderrHash: null,
+      fsDiffHash: null,
+      pcapHash: null,
+      straceLogHash: null,
+    },
+    contentHash: "c".repeat(64),
+  };
+}
+
+/** The whole six-frame chain for one hypothesis, from seq `base`. */
+function chain(
+  base: number,
+  hypId: string,
+  options: {
+    preview?: DisplayObservation[];
+    omitted?: number;
+    cited?: DisplayObservation[];
+    state?: "CONFIRMED" | "REFUTED" | "DEFERRED";
+  } = {},
+): AuditEventUnion[] {
+  const preview = options.preview ?? [observation("e1", "net POST evil.test/x")];
+  const cited = options.cited ?? [];
+  const runId = `run_${hypId}`;
+  return [
+    ev(base, {
+      type: "hypothesis_emitted",
+      hypId,
+      claim: "env_exfil",
+      severity: "high",
+      description: "reads NPM_TOKEN and sends it out",
+      focusFiles: ["setup.js"],
+      focusLines: [{ file: "setup.js", range: "18-42" }],
+    }),
+    ev(base + 1, {
+      type: "experiment_started",
+      hypId,
+      runId,
+      experiment: [{ tool: "trigger", args: { kind: "entrypoint", target: "setup.js" } }],
+      trigger: { kind: "entrypoint", target: "setup.js", argv: [], stdin: null },
+    }),
+    ev(base + 2, {
+      type: "sandbox_started",
+      hypId,
+      runId,
+      observe: { kernel: true, network: true, fsDiff: true, node: true, inspector: true },
+      budget: { wallMs: 20000, maxSyscalls: null, maxBytesCapture: null },
+    }),
+    ev(base + 3, {
+      type: "sandbox_completed",
+      hypId,
+      run: runDisplay(runId, preview, options.omitted ?? 0),
+    }),
+    ev(base + 4, { type: "judgment_started", hypId, runId }),
+    ev(base + 5, {
+      type: "hypothesis_resolved",
+      hypId,
+      claim: "env_exfil",
+      severity: "high",
+      state: options.state ?? "CONFIRMED",
+      by: "worker:experimenter",
+      reason: "the planted token left the process",
+      evidenceRefs: [{ kind: "run", id: runId, hash: "h".repeat(64) }],
+      citedEventIds: cited.map((item) => item.eventId),
+      citedObservations: cited,
+      runId,
+    }),
+  ];
+}
+
 describe("foldAuditEvent — C1 replay / idempotence", () => {
   it("C1: folding the same seq twice is a no-op returning the identical reference", () => {
-    const s0 = initialFoldState();
-    const s1 = foldAuditEvent(s0, ev(1, { type: "audit_started", packageName: "left-pad" }));
-    const s2 = foldAuditEvent(s1, ev(1, { type: "audit_started", packageName: "OVERWRITE" }));
-    expect(s2).toBe(s1); // same reference — the seq guard short-circuits
-    expect(s2.packageName).toBe("left-pad"); // the duplicate never overwrote
+    const s1 = foldAuditEvent(initialFoldState(), started(1));
+    const s2 = foldAuditEvent(s1, ev(1, { type: "audit_started", packageName: "OVERWRITE", replayVersion: 2 }));
+    expect(s2).toBe(s1);
+    expect(s2.packageName).toBe("left-pad");
   });
 
   it("C1: re-folding an entire buffer is a no-op (full-replay idempotence)", () => {
-    const buffer: AuditEventUnion[] = [
-      ev(1, { type: "audit_started", packageName: "left-pad" }),
-      ev(2, { type: "phase_started", phase: "resolve" }),
-      ev(3, { type: "phase_completed", phase: "resolve", durationMs: 42 }),
-      ev(4, { type: "file_analyzing", file: "index.js" }),
-    ];
+    const buffer = [started(1), ...chain(2, "hyp-1")];
     const once = foldAll(buffer);
-    const twice = foldAll(buffer, once); // engine replays every row on reconnect
-    expect(twice).toBe(once); // every seq is already seen → identical reference
-    expect(twice.phases.find((p) => p.name === "resolve")?.status).toBe("done");
+    expect(foldAll(buffer, once)).toBe(once);
   });
 
-  it("C1: an out-of-window duplicate mid-stream cannot re-open a closed slice", () => {
-    const s = foldAll([
-      ev(1, { type: "triage_progress", current: 2, total: 5, file: "a.js" }),
-      ev(2, { type: "triage_complete", hypothesisCount: 0, hypotheses: [] }),
-    ]);
-    // triage_complete cleared triageProgress; replaying the earlier progress is a no-op.
-    const replay = foldAuditEvent(s, ev(1, { type: "triage_progress", current: 2, total: 5, file: "a.js" }));
-    expect(replay).toBe(s);
-    expect(replay.triageProgress).toBeNull();
+  it("C1: folding a prefix twice equals folding it once — every seek depends on this", () => {
+    const buffer = [started(1), ...chain(2, "hyp-1"), ...chain(8, "hyp-2")];
+    for (let count = 0; count <= buffer.length; count += 1) {
+      const prefix = buffer.slice(0, count);
+      expect(foldAll(prefix)).toEqual(foldAll(prefix));
+    }
   });
 });
 
-describe("foldAuditEvent — C2 unknown / dead types tolerated", () => {
-  it("C2: a truly-unknown type falls through to default and never throws", () => {
-    const s0 = initialFoldState();
-    const unknown = { auditId: "a", timestamp: "t", seq: 7, type: "brand_new_event", foo: 1 } as unknown as AuditEventUnion;
-    let s1!: AuditFoldState;
-    expect(() => {
-      s1 = foldAuditEvent(s0, unknown);
-    }).not.toThrow();
-    // domain state is untouched; only the seq guard advanced.
-    expect(s1.verdict).toBeNull();
-    expect(s1.packageName).toBe("");
-    expect(s1.pipelineLog).toHaveLength(0);
-  });
-
-  it("C2: agent_*/verify_*/finding_discovered types are inert, not handled", () => {
-    // No emit site in the engine, so no schema, no fold arm, and no state written.
-    // They are not members of AuditEventUnion — hence the cast — and must fall
-    // through to `default` exactly like any unknown type. Asserting they are INERT
-    // (not merely non-throwing) is what stops an arm being reintroduced.
-    const retired = [
-      { type: "agent_thinking", step: 0 },
-      { type: "agent_tool_call", tool: "readFile", args: { path: "x.js" }, step: 1 },
-      { type: "agent_tool_result", tool: "readFile", resultPreview: "…", step: 1, injectionDetected: false },
-      { type: "agent_reasoning", text: "hmm", step: 2 },
-      { type: "finding_discovered", finding: { capability: "NETWORK" } },
-      { type: "verify_started", totalTests: 2 },
-      { type: "verify_test_result", proofIndex: 0, testFile: "t.js", status: "confirmed" },
-    ].map((payload, i) => ev(i + 1, payload as never) as AuditEventUnion);
-
-    expect(() => foldAll(retired)).not.toThrow();
-    const s = foldAll(retired);
-    // Nothing but the seq guard moved.
-    expect(s.pipelineLog).toHaveLength(0);
-    expect(s.hypotheses).toHaveLength(0);
-    expect(s.followFile).toBeNull();
-    expect(s.verdict).toBeNull();
-    expect(s.running).toBe(true); // no terminal reached
-    expect(s.seenSeqs.size).toBe(retired.length);
+describe("foldAuditEvent — C2 unknown / retired types", () => {
+  it("C2: a retired type is inert — it consumes its seq and changes nothing else", () => {
+    const before = foldAll([started(1)]);
+    const after = foldAuditEvent(before, {
+      auditId: "audit-1",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      seq: 2,
+      type: "agent_thinking",
+    } as unknown as AuditEventUnion);
+    expect({ ...after, seenSeqs: null }).toEqual({ ...before, seenSeqs: null });
+    expect(after.seenSeqs.has(2)).toBe(true);
   });
 });
 
 describe("foldAuditEvent — C3 lifecycle transitions", () => {
-  it("C3: audit_started sets the package name", () => {
-    const s = foldAuditEvent(initialFoldState(), ev(1, { type: "audit_started", packageName: "chalk" }));
-    expect(s.packageName).toBe("chalk");
-  });
-
-  it("C3: audit_enqueued logs the queue position", () => {
-    const s = foldAuditEvent(initialFoldState(), ev(1, { type: "audit_enqueued", queuePosition: 3 }));
-    expect(s.pipelineLog.at(-1)?.text).toContain("position 3");
-  });
-
-  it("C3: phase_started marks the phase active and phase_completed records duration", () => {
-    const s = foldAll([
-      ev(1, { type: "phase_started", phase: "resolve" }),
-      ev(2, { type: "phase_completed", phase: "resolve", durationMs: 1200 }),
+  it("C3: a scanned file is COUNTED, never accumulated into a node", () => {
+    const state = foldAll([
+      started(1),
+      ev(2, { type: "file_analyzing", file: "a.js" }),
+      ev(3, { type: "file_analyzing", file: "b.js" }),
+      ev(4, { type: "file_analyzing", file: "b.js" }),
     ]);
-    expect(s.phase).toBe("resolve");
-    const resolve = s.phases.find((p) => p.name === "resolve");
-    expect(resolve?.status).toBe("done");
-    expect(resolve?.durationMs).toBe(1200);
+    // Same file twice in a row is one file read, not two.
+    expect(state.scannedCount).toBe(2);
+    expect(state.analyzing).toBe("b.js");
   });
 
-  it("C3: a phase outside PHASE_ORDER is appended, never dropped", () => {
-    const s = foldAuditEvent(initialFoldState(), ev(1, { type: "phase_started", phase: "mystery-phase" }));
-    expect(s.phases.some((p) => p.name === "mystery-phase")).toBe(true);
-  });
-
-  it("C3: dependencies_provisioned records deps and an install line", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, { type: "dependencies_provisioned", installed: true, packageCount: 3, skipped: null, error: null }),
-    );
-    expect(s.deps).toEqual({ installed: true, packageCount: 3, skipped: null });
-    expect(s.pipelineLog.at(-1)?.text).toBe("Installed 3 packages");
-  });
-
-  it("C3: dependencies_provisioned with skipped surfaces the skip reason", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, { type: "dependencies_provisioned", installed: false, packageCount: 0, skipped: "no manifest", error: null }),
-    );
-    expect(s.pipelineLog.at(-1)?.text).toContain("skipped: no manifest");
-  });
-
-  it("C3: file_list seeds every path as pending", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, {
-        type: "file_list",
-        files: [
-          { path: "a/index.js", fileType: "javascript", sizeBytes: 10, permissions: "0644", isBinary: false, binaryType: null },
-          { path: "b/util.js", fileType: "javascript", sizeBytes: 20, permissions: "0644", isBinary: false, binaryType: null },
-        ],
-      }),
-    );
-    expect(s.files).toHaveLength(2);
-    expect(s.fileStatuses["a/index.js"]).toBe("pending");
-    expect(s.fileStatuses["b/util.js"]).toBe("pending");
-  });
-
-  it("C3: inventory_meta strips the envelope and keeps only meta fields", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, {
-        type: "inventory_meta",
-        scripts: { postinstall: "node evil.js" },
-        // The engine's REAL group keys (inventory.py) — prod/dev/optional/peer.
-        // Feeding {dependencies, devDependencies} instead is a shape the engine
-        // never emits, so the test would agree with a fold bug rather than catch
-        // it.
-        dependencies: { prod: { chalk: "^5" }, dev: { vitest: "^4" }, optional: {}, peer: {} },
-        entryPoints: { install: [], runtime: ["index.js"], bin: [] },
-        metadata: {
-          name: "p",
-          version: "1.0.0",
-          description: null,
-          license: null,
-          homepage: null,
-          keywords: [],
-          repository: null,
-        },
-      }),
-    );
-    expect(s.inventoryMeta).not.toBeNull();
-    expect(s.inventoryMeta).not.toHaveProperty("type");
-    expect(s.inventoryMeta).not.toHaveProperty("seq");
-    expect(s.inventoryMeta?.entryPoints.runtime).toEqual(["index.js"]);
-    // lifecycle script surfaced + a dependency-count line
-    expect(s.pipelineLog.some((e) => e.text.includes("Lifecycle scripts"))).toBe(true);
-    expect(s.pipelineLog.some((e) => e.text === "1 prod · 1 dev dependencies")).toBe(true);
-  });
-
-  it("C3: inventory_meta counts every dependency group the engine emits", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, {
-        type: "inventory_meta",
-        scripts: {},
-        dependencies: {
-          prod: { chalk: "^5", ora: "^8" },
-          dev: { vitest: "^4" },
-          optional: { fsevents: "^2" },
-          peer: { react: "^19" },
-        },
-        entryPoints: { install: [], runtime: [], bin: [] },
-        metadata: {
-          name: "p",
-          version: "1.0.0",
-          description: null,
-          license: null,
-          homepage: null,
-          keywords: [],
-          repository: null,
-        },
-      }),
-    );
-    // Guards the exact bug class: reading a group key the engine does not send
-    // yielded 0/0 for every package. A non-zero count is the discriminator.
-    expect(s.pipelineLog.some((e) => e.text === "2 prod · 1 dev dependencies")).toBe(true);
-  });
-
-  it("C3: intent_extracted captures purpose and expected capabilities", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, { type: "intent_extracted", statedPurpose: "a chalk clone", expectedCapabilities: ["NONE"] }),
-    );
-    expect(s.statedPurpose).toBe("a chalk clone");
-    expect(s.expectedCapabilities).toEqual(["NONE"]);
-  });
-
-  it("C3: file_analyzing marks the file analyzing and follows it only in the flag phase", () => {
-    const inFlag = foldAll([
-      ev(1, { type: "phase_started", phase: "flag" }),
-      ev(2, { type: "file_analyzing", file: "index.js" }),
-    ]);
-    expect(inFlag.fileStatuses["index.js"]).toBe("analyzing");
-    expect(inFlag.followFile).toBe("index.js");
-
-    const inResolve = foldAll([
-      ev(1, { type: "phase_started", phase: "resolve" }),
-      ev(2, { type: "file_analyzing", file: "index.js" }),
-    ]);
-    expect(inResolve.followFile).toBeNull(); // not the flag phase → no auto-follow
-  });
-
-  it("C3: triage_progress records the current/total counter", () => {
-    const s = foldAuditEvent(initialFoldState(), ev(1, { type: "triage_progress", current: 2, total: 8, file: "x.js" }));
-    expect(s.triageProgress).toEqual({ current: 2, total: 8 });
-  });
-
-  it("C3: file_verdict maps risk to a file status and flags high risk", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, {
+  it("C3: a file verdict is kept whole, so a consumer reads the engine's own risk", () => {
+    const state = foldAll([
+      started(1),
+      ev(2, {
         type: "file_verdict",
         verdict: {
-          file: "index.js",
-          capabilities: ["NETWORK", "ENV_VARS"],
-          suspiciousPatterns: ["exfil"],
-          suspiciousLines: "10-14",
-          summary: "exfiltrates env",
+          file: "setup.js",
+          capabilities: ["ENV_VARS"],
+          suspiciousPatterns: [],
+          suspiciousLines: "18-42",
+          summary: "reads credential-shaped env vars during installation",
           riskContribution: 8,
         },
       }),
-    );
-    expect(s.fileStatuses["index.js"]).toBe("dangerous"); // risk 8 ≥ dangerous threshold
-    expect(s.fileVerdicts["index.js"].capabilities).toContain("NETWORK");
-    expect(s.pipelineLog.some((e) => e.kind === "file-flag")).toBe(true);
-  });
-
-  it("C3: a low-risk file_verdict is marked safe and raises no flag log", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, {
-        type: "file_verdict",
-        verdict: {
-          file: "safe.js",
-          capabilities: [],
-          suspiciousPatterns: [],
-          suspiciousLines: null,
-          summary: "benign",
-          riskContribution: 0,
-        },
-      }),
-    );
-    expect(s.fileStatuses["safe.js"]).toBe("safe");
-    expect(s.pipelineLog.some((e) => e.kind === "file-flag")).toBe(false);
-  });
-
-  it("C3: triage_complete stores the summary, tracks hypotheses and clears progress", () => {
-    const s = foldAll([
-      ev(1, { type: "triage_progress", current: 1, total: 1, file: "index.js" }),
-      ev(2, {
-        type: "triage_complete",
-        hypothesisCount: 2,
-        hypotheses: [
-          { hypId: "h1", claim: "env_exfil", severity: "high", description: "exfil env" },
-          { hypId: "h2", claim: "dns_exfil", severity: "medium", description: "dns" },
-        ],
-      }),
     ]);
-    expect(s.triage?.hypothesisCount).toBe(2);
-    expect(s.hypotheses.map((h) => h.hypId)).toEqual(["h1", "h2"]);
-    expect(s.triageProgress).toBeNull();
-  });
-
-  it("C3: graph_built logs a node count", () => {
-    const s = foldAuditEvent(initialFoldState(), ev(1, { type: "graph_built", nodeCount: 5, addedCount: 5, mergedCount: 0 }));
-    expect(s.pipelineLog.at(-1)?.text).toContain("5 nodes");
-  });
-
-  it("C3: audit_error freezes the run into an error state", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, { type: "audit_error", error: "sandbox timed out", code: "NPMGUARD-0031", retryable: true }),
-    );
-    expect(s.running).toBe(false);
-    expect(s.error).toBe("sandbox timed out");
-    expect(s.errorCode).toBe("NPMGUARD-0031");
-    expect(s.errorRetryable).toBe(true);
-  });
-
-  it("C3: audit_error carries the engine's message verbatim — nothing is substituted", () => {
-    // A frame of {error:null, code:null, retryable:null} is not emissible: all
-    // three fields are required and non-null on the contract, every emit site in
-    // service.py supplies them, and the generated Pydantic model types them
-    // str/str/bool. Asserting a generic "The audit failed" fallback would pin the
-    // fold's behaviour on traffic the engine cannot produce — agreeing with a
-    // hand-written type rather than with the engine. The null-bearing frame is now
-    // refused at the boundary instead (sse.test.ts C9, contract-audit.test.ts C4),
-    // which is where a contract break belongs.
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, { type: "audit_error", error: "docker daemon unreachable", code: "NPMGUARD-0042", retryable: false }),
-    );
-    expect(s.error).toBe("docker daemon unreachable");
-    expect(s.errorCode).toBe("NPMGUARD-0042");
-    expect(s.errorRetryable).toBe(false);
+    expect(state.fileVerdicts["setup.js"].riskContribution).toBe(8);
   });
 });
 
 describe("foldAuditEvent — C4 terminal freeze", () => {
-  it("C4: verdict_reached is terminal — running goes false and the verdict is set", () => {
-    const s = foldAuditEvent(
-      initialFoldState(),
-      ev(1, {
-        type: "verdict_reached",
-        verdict: "DANGEROUS",
-        rationale: "confirmed env exfil",
-        counts: { total: 1, open: 0, inProgress: 0, confirmed: 1, refuted: 0, deferred: 0 },
-        confirmedCount: 1,
-      }),
-    );
-    expect(s.running).toBe(false);
-    expect(s.verdict).toBe("DANGEROUS");
-    expect(s.confirmedCount).toBe(1);
-  });
-
-  it("C4: a non-terminal event after the verdict is ignored (frozen)", () => {
-    const terminal = foldAuditEvent(
-      initialFoldState(),
-      ev(1, {
+  it("C4: after a verdict, later non-terminal events are ignored", () => {
+    const state = foldAll([
+      started(1),
+      ev(2, {
         type: "verdict_reached",
         verdict: "SAFE",
-        rationale: "all refuted",
-        counts: { total: 2, open: 0, inProgress: 0, confirmed: 0, refuted: 2, deferred: 0 },
+        rationale: "nothing confirmed",
+        counts: { total: 0, open: 0, inProgress: 0, confirmed: 0, refuted: 0, deferred: 0 },
         confirmedCount: 0,
       }),
-    );
-    const after = foldAuditEvent(terminal, ev(2, { type: "phase_started", phase: "orchestrator" }));
-    expect(after).toBe(terminal); // frozen — identical reference
-    expect(after.phase).toBeNull();
-  });
-
-  it("C4: a terminal event still passes the guard after the run stopped", () => {
-    const errored = foldAuditEvent(
-      initialFoldState(),
-      ev(1, { type: "audit_error", error: "boom", code: "NPMGUARD-9999", retryable: false }),
-    );
-    // running is already false; a verdict event is terminal so the guard lets it through.
-    const after = foldAuditEvent(errored, ev(2, {
-      type: "verdict_reached",
-      verdict: "SAFE",
-      rationale: "x",
-      counts: { total: 0, open: 0, inProgress: 0, confirmed: 0, refuted: 0, deferred: 0 },
-      confirmedCount: 0,
-    }));
-    expect(after).not.toBe(errored);
-    expect(after.verdict).toBe("SAFE");
+      ev(3, { type: "file_analyzing", file: "late.js" }),
+    ]);
+    expect(state.running).toBe(false);
+    expect(state.scannedCount).toBe(0);
   });
 });
 
-describe("foldAuditEvent — C5 hypothesis upsert-in-place", () => {
-  it("C5: emitted→resolved updates the same hypId row in place (no duplicate)", () => {
-    const s = foldAll([
-      ev(1, { type: "hypothesis_emitted", hypId: "h1", claim: "env_exfil", severity: "high", file: "index.js" }),
+describe("foldAuditEvent — C5 the experiment chain", () => {
+  it("C5: the six frames drive stage independently of state", () => {
+    const frames = [started(1), ...chain(2, "hyp-1")];
+    const stages = frames.map((_, index) => {
+      const state = foldAll(frames.slice(0, index + 1));
+      return state.hypotheses[0]?.stage ?? null;
+    });
+    expect(stages).toEqual([
+      null,
+      "emitted",
+      "experiment",
+      "sandbox",
+      "sandbox",
+      "judging",
+      "resolved",
+    ]);
+  });
+
+  it("C5: the run accumulates across all four boundaries", () => {
+    const state = foldAll([started(1), ...chain(2, "hyp-1")]);
+    const run = state.runs["hyp-1"];
+    expect(run.stage).toBe("done");
+    expect(run.trigger.target).toBe("setup.js");
+    expect(run.observe?.network).toBe(true);
+    expect(run.budget?.wallMs).toBe(20000);
+    expect(run.display?.runId).toBe("run_hyp-1");
+    expect(state.hypotheses[0].state).toBe("CONFIRMED");
+    expect(state.hypotheses[0].evidenceRefs).toHaveLength(1);
+  });
+
+  it("C5: a hypothesis with no experiment leaves no run behind", () => {
+    const state = foldAll([
+      started(1),
       ev(2, {
+        type: "hypothesis_emitted",
+        hypId: "hyp-9",
+        claim: "telemetry",
+        severity: "low",
+        description: "reports usage",
+        focusFiles: ["index.js"],
+        focusLines: [{ file: "index.js", range: "3" }],
+      }),
+      ev(3, {
         type: "hypothesis_resolved",
-        hypId: "h1",
-        claim: "env_exfil",
-        severity: "high",
-        state: "CONFIRMED",
-        by: "judge",
-        reason: "cited network exfil",
+        hypId: "hyp-9",
+        claim: "telemetry",
+        severity: "low",
+        state: "DEFERRED",
+        by: "orchestrator",
+        reason: "analysis budget exhausted before dispatch",
+        evidenceRefs: [],
+        citedEventIds: [],
+        citedObservations: [],
+        runId: null,
       }),
     ]);
-    expect(s.hypotheses).toHaveLength(1); // upsert, not append
-    expect(s.hypotheses[0].state).toBe("CONFIRMED");
-    expect(s.hypotheses[0].reason).toBe("cited network exfil");
-    expect(s.hypotheses[0].file).toBe("index.js"); // earlier field preserved through the merge
-  });
-
-  it("C5: two distinct hypIds keep separate rows", () => {
-    const s = foldAll([
-      ev(1, { type: "hypothesis_emitted", hypId: "h1", claim: "env_exfil", severity: "high", file: "a.js" }),
-      ev(2, { type: "hypothesis_emitted", hypId: "h2", claim: "dns_exfil", severity: "low", file: "b.js" }),
-    ]);
-    expect(s.hypotheses.map((h) => h.hypId)).toEqual(["h1", "h2"]);
+    expect(state.runs["hyp-9"]).toBeUndefined();
+    expect(state.hypotheses[0].runId).toBeNull();
   });
 });
 
-describe("foldAuditEvent — C6 fixture cross-check (types only)", () => {
-  it("C6: the env-exfil skeleton type-sequence folds to a DANGEROUS terminal state", () => {
-    // The committed skeleton records the ACTUAL live type order (seq/ts are
-    // nondeterministic, so we synthesize envelope + minimal payloads by type).
-    // vitest runs with cwd = frontend/; the engine fixtures live one level up.
-    const fixturePath = resolve(process.cwd(), "../engine/tests/fixtures/sse/test-pkg-env-exfil.skeleton.json");
-    const skeleton = JSON.parse(readFileSync(fixturePath, "utf8")) as {
-      eventTypes: string[];
-      terminal: { verdict: string; counts: Record<string, number> };
-    };
+describe("foldAuditEvent — C6 citation merge", () => {
+  it("C6: a cited observation the preview dropped still reaches the run display", () => {
+    const preview = [observation("e1", "net GET cdn.test/a")];
+    const cited = [observation("e147", "http POST evil.test/exfil")];
+    const state = foldAll([started(1), ...chain(2, "hyp-1", { preview, omitted: 140, cited })]);
+    const run = state.runs["hyp-1"];
+    expect(run.observations.map((item) => item.eventId)).toEqual(["e1", "e147"]);
+    expect(run.citedEventIds).toEqual(["e147"]);
+  });
 
-    let hypSeq = 0;
-    let resolveSeq = 0;
-    const events: AuditEventUnion[] = skeleton.eventTypes.map((type, i) => {
-      const seq = i + 1;
-      switch (type) {
-        case "audit_started":
-          return ev(seq, { type, packageName: "test-pkg-env-exfil" });
-        case "phase_started":
-          return ev(seq, { type, phase: "flag" });
-        case "phase_completed":
-          return ev(seq, { type, phase: "flag", durationMs: 100 });
-        case "dependencies_provisioned":
-          return ev(seq, { type, installed: true, packageCount: 1, skipped: null, error: null });
-        case "file_list":
-          return ev(seq, { type, files: [] });
-        case "inventory_meta":
-          return ev(seq, {
-            type,
-            scripts: {},
-            dependencies: { prod: {}, dev: {}, optional: {}, peer: {} },
-            entryPoints: { install: [], runtime: [], bin: [] },
-            metadata: {
-              name: null,
-              version: null,
-              description: null,
-              license: null,
-              homepage: null,
-              keywords: [],
-              repository: null,
-            },
-          });
-        case "intent_extracted":
-          return ev(seq, { type, statedPurpose: "x", expectedCapabilities: [] });
-        case "file_analyzing":
-          return ev(seq, { type, file: "index.js" });
-        case "triage_progress":
-          return ev(seq, { type, current: 1, total: 2, file: "index.js" });
-        case "hypothesis_emitted": {
-          hypSeq += 1;
-          return ev(seq, { type, hypId: `h${hypSeq}`, claim: "env_exfil", severity: "high", file: "index.js" });
-        }
-        case "file_verdict":
-          return ev(seq, {
-            type,
-            verdict: { file: "index.js", capabilities: [], suspiciousPatterns: [], suspiciousLines: null, summary: "s", riskContribution: 6 },
-          });
-        case "triage_complete":
-          return ev(seq, { type, hypothesisCount: 0, hypotheses: [] });
-        case "graph_built":
-          return ev(seq, { type, nodeCount: 1, addedCount: 1, mergedCount: 0 });
-        case "hypothesis_resolved": {
-          resolveSeq += 1;
-          return ev(seq, {
-            type,
-            hypId: `h${resolveSeq}`,
-            claim: "env_exfil",
-            severity: "high",
-            state: resolveSeq === 1 ? "CONFIRMED" : "REFUTED",
-            by: "judge",
-            reason: "r",
-          });
-        }
-        case "verdict_reached":
-          return ev(seq, {
-            type,
-            verdict: skeleton.terminal.verdict as "SAFE" | "DANGEROUS",
-            rationale: "r",
-            counts: skeleton.terminal.counts as never,
-            confirmedCount: skeleton.terminal.counts.confirmed,
-          });
-        default:
-          // A skeleton type this switch does not build a payload for. Cast past
-          // the union on purpose — the whole point is that an event the client
-          // cannot construct is still inert in the fold (the C2 class), and the
-          // contract union now closes tightly enough to reject a bare `{type}`.
-          return ev(seq, { type } as never);
-      }
-    });
+  it("C6: merged observations are in timeline order, not arrival order", () => {
+    const preview = [observation("e9", "b"), observation("e2", "a")];
+    const cited = [observation("e5", "c")];
+    const state = foldAll([started(1), ...chain(2, "hyp-1", { preview, cited })]);
+    expect(state.runs["hyp-1"].observations.map((item) => item.eventId)).toEqual([
+      "e2",
+      "e5",
+      "e9",
+    ]);
+  });
 
-    const s = foldAll(events);
-    expect(s.running).toBe(false);
-    expect(s.verdict).toBe("DANGEROUS");
-    expect(s.confirmedCount).toBe(1);
-    // Upsert-by-hypId keeps rows unique: h1..hN where N = max(emitted, resolved).
-    const emitted = skeleton.eventTypes.filter((t) => t === "hypothesis_emitted").length;
-    const resolved = skeleton.eventTypes.filter((t) => t === "hypothesis_resolved").length;
-    expect(s.hypotheses.length).toBe(Math.max(emitted, resolved));
+  it("C6: a citation for a row already previewed does not duplicate it", () => {
+    const shared = observation("e1", "net POST evil.test/x");
+    const state = foldAll([
+      started(1),
+      ...chain(2, "hyp-1", { preview: [shared], cited: [shared] }),
+    ]);
+    expect(state.runs["hyp-1"].observations).toHaveLength(1);
+  });
+});
+
+describe("foldAuditEvent — C7 the format cut", () => {
+  it("C7: a stream below format 2 folds without error and is not a rich replay", () => {
+    const state = foldAll([started(1, 1), ev(2, { type: "file_analyzing", file: "a.js" })]);
+    expect(state.replayVersion).toBe(1);
+    expect(isRichReplay(state)).toBe(false);
+    expect(state.scannedCount).toBe(1); // folded, not rejected
+  });
+
+  it("C7: a stream that never announced itself is not a rich replay either", () => {
+    expect(isRichReplay(initialFoldState())).toBe(false);
+  });
+
+  it("C7: format 2 is a rich replay", () => {
+    expect(isRichReplay(foldAll([started(1)]))).toBe(true);
+  });
+});
+
+describe("foldAuditEvent — C8 merge bookkeeping", () => {
+  it("C8: a hypothesis folded into another is marked, not left open for ever", () => {
+    const state = foldAll([
+      started(1),
+      ev(2, {
+        type: "hypothesis_emitted",
+        hypId: "hyp-1",
+        claim: "env_exfil",
+        severity: "high",
+        description: "reads NPM_TOKEN",
+        focusFiles: ["setup.js"],
+        focusLines: [{ file: "setup.js", range: "1-5" }],
+      }),
+      ev(3, {
+        type: "hypothesis_emitted",
+        hypId: "hyp-2",
+        claim: "env_exfil",
+        severity: "high",
+        description: "reads NPM_TOKEN",
+        focusFiles: ["setup.js"],
+        focusLines: [{ file: "setup.js", range: "1-5" }],
+      }),
+      ev(4, {
+        type: "graph_built",
+        nodeCount: 1,
+        addedCount: 1,
+        mergedCount: 1,
+        merges: [{ hypId: "hyp-2", into: "hyp-1" }],
+      }),
+    ]);
+    const merged = state.hypotheses.find((item) => item.hypId === "hyp-2");
+    expect(merged?.stage).toBe("merged");
+    expect(merged?.mergedInto).toBe("hyp-1");
+  });
+});
+
+describe("foldAuditEvent — C9 fixture cross-check", () => {
+  /** vitest runs with cwd = frontend/; the engine fixtures live one level up. */
+  const recording = JSON.parse(
+    readFileSync(resolve(process.cwd(), "..", "engine/demo-data/test-pkg-env-exfil.json"), "utf8"),
+  ) as { events: Record<string, unknown>[] };
+
+  it("C9: the committed DANGEROUS recording folds to a coherent terminal state", () => {
+    const frames = recording.events.map((raw, index) =>
+      AuditEventSchema.parse({ auditId: "demo", seq: index + 1, ...raw }),
+    );
+    const state = foldAll(frames);
+
+    expect(isRichReplay(state)).toBe(true);
+    expect(state.running).toBe(false);
+    expect(state.verdict).toBe("DANGEROUS");
+    expect(state.error).toBeNull();
+
+    // Every hypothesis reached a terminal position: resolved, or folded into one
+    // that was. An OPEN node at the verdict is a suspicion the display lost.
+    for (const hypothesis of state.hypotheses) {
+      expect(["resolved", "merged"]).toContain(hypothesis.stage);
+    }
+
+    // The claim the whole product rests on: a confirmed hypothesis can be walked
+    // back to the exact rows the judge cited.
+    const confirmed = state.hypotheses.filter((item) => item.state === "CONFIRMED");
+    expect(confirmed.length).toBeGreaterThan(0);
+    for (const hypothesis of confirmed) {
+      const run = state.runs[hypothesis.hypId];
+      expect(hypothesis.citedEventIds.length).toBeGreaterThan(0);
+      const available = new Set(run.observations.map((item) => item.eventId));
+      for (const id of hypothesis.citedEventIds) expect(available.has(id)).toBe(true);
+    }
+  });
+
+  it("C9: every hypothesis in the recording is grounded in real source lines", () => {
+    const frames = recording.events.map((raw, index) =>
+      AuditEventSchema.parse({ auditId: "demo", seq: index + 1, ...raw }),
+    );
+    const state = foldAll(frames);
+    // A hypothesis with no focus range has nowhere for its edge to come from.
+    // The frontend must never invent one, so the producer must always send one.
+    for (const hypothesis of state.hypotheses) {
+      expect(hypothesis.focusLines.length).toBeGreaterThan(0);
+    }
   });
 });

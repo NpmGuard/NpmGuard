@@ -32,13 +32,16 @@ import { fetchPackageReport } from "../lib/api.ts";
 import type { PackageReportResponse } from "@npmguard/shared";
 import { useAuditStore } from "../stores/auditStore.ts";
 import { ReportView } from "../components/report/ReportView.tsx";
-import { PanelPage } from "../components/panel/layout.tsx";
+import {
+  WorkspaceBody,
+  WorkspaceHeader,
+  WorkspacePage,
+} from "../components/shell/workspace.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { DegradedSurface } from "../components/ui/degraded-state.tsx";
 import { EmptyState } from "../components/ui/empty-state.tsx";
 import { failed, loaded, type LoadState } from "../components/ui/load-state.ts";
 import { Skeleton } from "../components/ui/skeleton.tsx";
-import { VerdictStamp } from "../components/ui/verdict-stamp.tsx";
 import { PackageSearch } from "lucide-react";
 
 /** A 404 is a SUCCESSFUL read whose answer is "there is no report" — an
@@ -118,30 +121,33 @@ export function PackageLookup() {
 
   if (state.status === "loading") {
     return (
-      <PanelPage>
-        <div aria-busy="true" className="grid gap-3">
+      <WorkspacePage>
+        <WorkspaceBody aria-busy="true" className="grid gap-3">
           <span className="sr-only">Loading the report for {name}</span>
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-40 w-full rounded-lg" />
-        </div>
-      </PanelPage>
+        </WorkspaceBody>
+      </WorkspacePage>
     );
   }
 
   if (state.status === "failed") {
     return (
-      <PanelPage>
+      <WorkspacePage>
+        <WorkspaceBody>
         <DegradedSurface
           failure={state.failure}
           escape={{ label: "Browse audited packages", href: "/packages" }}
         />
-      </PanelPage>
+        </WorkspaceBody>
+      </WorkspacePage>
     );
   }
 
   if (state.data === null) {
     return (
-      <PanelPage>
+      <WorkspacePage>
+        <WorkspaceBody>
         <EmptyState
           read={state.read}
           icon={PackageSearch}
@@ -153,33 +159,43 @@ export function PackageLookup() {
             </Button>
           }
         />
-      </PanelPage>
+        </WorkspaceBody>
+      </WorkspacePage>
     );
   }
 
   const { report, packageName, version: reportVersion } = state.data;
 
   return (
-    <PanelPage>
-      <header className="flex flex-wrap items-center gap-3">
-        <span className="me-auto min-w-0 font-mono text-lg font-semibold break-all text-text">
-          {packageName}
-          <span className="text-text-3">@{reportVersion}</span>
-        </span>
-        <VerdictStamp outcome={report.verdict} />
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label={`re-audit ${packageName}`}
-          onClick={() => void reaudit()}
-        >
-          Re-audit
-        </Button>
-      </header>
+    <WorkspacePage>
+      {/* Identity and action only. The verdict speaks ONCE, in `ReportView`'s
+          summary card, which carries the stamp, the mandatory caveat, the
+          coverage counts and the rationale together — a second stamp up here
+          restates the conclusion away from its evidence. */}
+      <WorkspaceHeader
+        title={`${packageName}@${reportVersion}`}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={`re-audit ${packageName}`}
+            onClick={() => void reaudit()}
+          >
+            Re-audit
+          </Button>
+        }
+      />
 
-      <div className="mt-5">
-        <ReportView report={report} variant="full" />
-      </div>
-    </PanelPage>
+      <WorkspaceBody>
+        {/* A report is READ, not scanned forty rows at a time, so unlike the
+            operational tables it keeps a prose-adjacent measure even inside the
+            full-viewport shell. `ReportView` already leads with the confirmed
+            hypotheses and their cited resolutions, and files come after — the
+            shortest path to proof first, the complete inventory second. */}
+        <div className="mx-auto w-full max-w-[960px]">
+          <ReportView report={report} variant="full" />
+        </div>
+      </WorkspaceBody>
+    </WorkspacePage>
   );
 }
