@@ -79,9 +79,10 @@ class Settings(KitSettings):
     # next can land in different trees.
     data_dir: Path = REPO_ROOT / "data"
 
-    llm_backend: Literal["anthropic", "google", "openai_compatible"] = "anthropic"
+    llm_backend: Literal["anthropic", "bedrock", "google", "openai_compatible"] = "bedrock"
     llm_base_url: str | None = None
     llm_api_key: str = ""
+    bedrock_region: str = Field(default="us-east-1", pattern=r"^[a-z]{2}(?:-gov)?-[a-z]+-\d+$")
     llm_timeout_seconds: float = Field(default=60, gt=0)
     llm_budget_usd_24h: float = Field(default=0, ge=0)
     llm_budget_margin: float = Field(default=0.1, ge=0, le=1)
@@ -148,23 +149,15 @@ class Settings(KitSettings):
     max_running_sessions: int = Field(default=4, ge=1)
     shutdown_deadline_seconds: float = Field(default=10, gt=0)
 
-    # INVARIANT: this is the ONLY declaration of the model pair in the repo, and it is
-    # the pair the RECORDED CORPUS shows actually serving — `tests/fixtures/llm/*/
-    # manifest.json`, whose `models` block stores what answered rather than what someone
-    # intended. Enforced by `tests/test_model_config_agreement.py`: C2 requires the
-    # shipped model to appear in the corpus (so changing it forces a re-record), C3
-    # fails on any second declaration anywhere in the repo — including one that AGREES,
-    # because a copy that can drift is the state being forbidden, not the drift itself.
-    # `.env.template` used to declare it too, and shipped `deepseek-v3.2`/`z-ai/glm-5`
-    # — never validated, and it is what a deploy copies — while these fields read
-    # `claude-haiku-4-5`/`claude-sonnet-4-6`, which never ran. Three sources, one
-    # answer between them. `llm_runtime` appends the cross-provider fallback tail after
-    # this primary, so a run's observed models are legitimately plural (bench B-11).
+    # INVARIANT: this is the only declaration of the primary model pair. The
+    # committed corpus records what actually answered, and
+    # tests/test_model_config_agreement.py requires each shipped primary to appear
+    # there. llm_runtime appends the measured fallback chain.
     # `min_length=1`: an explicitly-empty value must fail at boot naming its VARIABLE,
     # not later as `ModelSpec`'s "model slug must be a non-empty string" — roles are
     # built before the mock short-circuit, so even a mock engine constructs these.
-    triage_model: str = Field(default="deepseek/deepseek-v4-flash", min_length=1)
-    investigation_model: str = Field(default="deepseek/deepseek-v4-flash", min_length=1)
+    triage_model: str = Field(default="zai.glm-5", min_length=1)
+    investigation_model: str = Field(default="zai.glm-5", min_length=1)
     # Model-call concurrency of BOTH triage fan-outs (phases.run_flag over the FLAG
     # file set, phases.run_hypothesize over the flags it produced) — i.e. how many
     # provider calls one audit has in flight, not how many it makes. `ge=1` makes the
@@ -277,7 +270,6 @@ class Settings(KitSettings):
                 "NPMGUARD_LLM_BASE_URL is required when NPMGUARD_LLM_BACKEND=openai_compatible"
             )
         return self
-
 
 
 @lru_cache(maxsize=1)
