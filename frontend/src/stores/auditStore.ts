@@ -38,7 +38,12 @@ interface AuditStoreState extends AuditFoldState {
   startDemo: (packageName: string) => Promise<void>;
   startCheckout: (packageName: string, version?: string, email?: string) => Promise<void>;
   startAuditFromCheckout: (stripeSessionId: string) => Promise<void>;
-  startAuditFromTx: (txHash: string, packageName: string, version: string) => Promise<void>;
+  startAuditFromTx: (
+    txHash: string,
+    packageName: string,
+    version: string,
+    chain: string,
+  ) => Promise<void>;
   connectToSession: (auditId: string) => Promise<void>;
   selectFile: (path: string) => void;
   reset: () => void;
@@ -152,13 +157,13 @@ export const useAuditStore = create<AuditStoreState>((set, get) => {
       begin(auditId, packageName);
     },
 
-    async startAuditFromTx(txHash, packageName, version) {
+    async startAuditFromTx(txHash, packageName, version, chain) {
       set({ error: null });
       const { auditId } = await startAuditStream({
         packageName,
         version,
         txHash,
-        chain: "base-sepolia",
+        chain,
       });
       begin(auditId, packageName);
     },

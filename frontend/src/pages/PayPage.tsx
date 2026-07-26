@@ -12,7 +12,6 @@
 import { useEffect, useState } from "react";
 import { CreditCard, ShieldCheck, Wallet } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
-import type { Address } from "viem";
 import { fetchPublicConfig } from "../lib/api.ts";
 import { ApiError } from "../lib/api-base.ts";
 import type { PublicConfig } from "../lib/engine-types.ts";
@@ -93,14 +92,14 @@ export function PayPage() {
     setCryptoPhase("connecting");
     try {
       const txHash = await payWithInjected(
-        crypto.contract as Address,
+        crypto,
         packageName,
         payVersion,
         BigInt(crypto.auditFeeWei ?? "0"),
       );
       // Signed & broadcast — now the ENGINE verifies the receipt on-chain.
       setCryptoPhase("verifying");
-      await startAuditFromTx(txHash, packageName, payVersion);
+      await startAuditFromTx(txHash, packageName, payVersion, crypto.chain);
       const auditId = useAuditStore.getState().auditId;
       navigate(auditId ? `/audit/${auditId}` : "/audit");
     } catch (err) {
@@ -323,7 +322,7 @@ function CryptoPane(props: CryptoPaneProps) {
         <div className="pg-pay-meta__row">
           <dt>Network</dt>
           <dd>
-            <span className="pill pill--violet">Base Sepolia</span>
+            <span className="pill pill--violet">{crypto.label ?? crypto.chain}</span>
           </dd>
         </div>
         <div className="pg-pay-meta__row">
@@ -372,8 +371,9 @@ function CryptoPane(props: CryptoPaneProps) {
             </div>
           ) : null}
           <p className="microtext">
-            Signs <span className="mono">requestAudit</span> on Base Sepolia with an injected wallet
-            (MetaMask, Rabby). The engine verifies the receipt before the audit runs.
+            Signs <span className="mono">requestAudit</span> on{" "}
+            {crypto.label ?? crypto.chain} with an injected wallet (MetaMask, Rabby). The engine
+            verifies the receipt before the audit runs.
           </p>
         </>
       ) : (

@@ -535,15 +535,32 @@ async def submit_proof(request: Request, session_id: str) -> JSONResponse:
         tier=tier,
     )
     storage_root = None
+    chain_tx = None
     if runtime.zerog is not None:
         stored = await runtime.zerog.try_put_json(
             envelope, filename=f"attestation-{session.package_name}@{session.version}.json"
         )
         storage_root = stored.root_hash if stored else None
-        if storage_root:
-            await runtime.attest.attach_publication(
-                session.package_name, session.version, storage_root=storage_root, chain_tx=None
+        # The on-chain row quotes the Storage root, so chain publication follows
+        # a successful upload. It is still best-effort: the durable attestation
+        # above remains valid when either 0G surface is temporarily unavailable.
+        if storage_root and runtime.zerog_attestations is not None:
+            published = await runtime.zerog_attestations.try_publish(
+                package_name=session.package_name,
+                version=session.version,
+                nullifier=verified.nullifier,
+                tier=tier,
+                artifact_digest=envelope["artifactDigest"],
+                storage_root=storage_root,
             )
+            chain_tx = published.tx_hash if published else None
+    if storage_root or chain_tx:
+        await runtime.attest.attach_publication(
+            session.package_name,
+            session.version,
+            storage_root=storage_root,
+            chain_tx=chain_tx,
+        )
 
     refreshed = await runtime.attest.for_release(session.package_name, session.version)
     return JSONResponse(

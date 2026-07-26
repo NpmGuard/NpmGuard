@@ -189,6 +189,17 @@ async def test_configuring_zerog_leaves_base_absent(chain) -> None:
     assert not is_chain_configured(settings, "0g")
 
 
+def test_unified_zerog_mode_prefers_its_selected_network() -> None:
+    settings = Settings(
+        _env_file=None,
+        zerog_enabled=True,
+        zerog_network="testnet",
+        base_sepolia_contract=CONTRACT,
+        zerog_testnet_contract="0x" + "22" * 20,
+    )
+    assert configured_chains(settings) == ["0g-testnet", "base-sepolia"]
+
+
 def test_chain_ids_match_the_live_networks() -> None:
     """C2c: the wallet signs for whatever chain id we publish, so a wrong id
     sends a real payment to the wrong network. Galileo is 16602 — verified by

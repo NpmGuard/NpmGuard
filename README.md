@@ -7,8 +7,8 @@ public API — plus a CLI that gates `npm install` behind those verdicts.
 Users install packages with `npx npmguard-cli install express`. If the
 package already has an audit → install happens immediately (or is blocked
 if DANGEROUS). If not → the user pays for an audit with a credit card
-(Stripe) or a mobile wallet (WalletConnect on Base Sepolia), the pipeline
-runs, and the verdict decides whether the install proceeds.
+(Stripe) or a mobile wallet (Base or 0G Chain), the pipeline runs, and the
+verdict decides whether the install proceeds.
 
 ## How it works
 
@@ -28,12 +28,12 @@ flowchart TD
     subgraph PAY["Pay for audit"]
         PAY[Stripe or WalletConnect?]
         PAY -->|Stripe| STRIPE[Stripe Checkout<br/>card payment]
-        PAY -->|WalletConnect| WC[Scan QR with mobile wallet<br/>sign tx on Base Sepolia<br/>0.0001 ETH]
+        PAY -->|WalletConnect| WC[Connect wallet<br/>sign tx on Base or 0G Chain]
     end
 
     subgraph VERIFY["Engine verification"]
         STRIPE --> STRIPE_VERIFY[Verify Stripe session]
-        WC --> CHAIN_VERIFY[Verify tx receipt<br/>via Alchemy Base Sepolia]
+        WC --> CHAIN_VERIFY[Verify receipt + event<br/>on the selected chain]
         STRIPE_VERIFY --> PIPELINE
         CHAIN_VERIFY --> PIPELINE
     end
@@ -72,6 +72,46 @@ flowchart TD
 | CLI on npm | [`npmguard-cli`](https://www.npmjs.com/package/npmguard-cli) |
 | Audit Contract (Base Sepolia) | [`0xBF56...B9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed) |
 
+The 0G Galileo deployment addresses are intentionally marked pending until a
+funded deployer broadcasts them. See the
+[Continuity submission sheet](docs/CONTINUITY-SUBMISSION.md).
+
+## 0G Continuity mode
+
+`NPMGUARD_ZEROG_ENABLED=true` moves the product onto the 0G stack as one
+coherent mode:
+
+| Layer | What NpmGuard uses |
+|---|---|
+| 0G Compute | Every LLM audit role uses the Router. Requests opt into synchronous TEE verification, select a verified/private provider trust class, and fail closed unless `x_0g_trace.tee_verified` is true. |
+| 0G Storage | Final audit reports and publisher evidence envelopes are RFC 8785-canonicalized, uploaded by Merkle root, and downloaded with proof verification. |
+| 0G Chain | Wallet audit payments settle through `NpmGuardAuditRequest`; successful evidence uploads are anchored in the append-only `NpmGuardAttestations` registry. |
+
+The engine exposes the active 0G readiness state at `/config/public`. In
+production, unified mode refuses to start when a required Compute key, Storage
+relayer, selected payment contract, or enabled attestation contract is missing.
+Outside production the individual seams remain independently testable.
+
+Minimal Galileo setup:
+
+```bash
+cp engine/.env.template engine/.env
+
+NPMGUARD_ZEROG_ENABLED=true
+NPMGUARD_ZEROG_COMPUTE_NETWORK=mainnet
+NPMGUARD_ZEROG_NETWORK=testnet
+ZEROG_API_KEY=...
+NPMGUARD_ZEROG_RELAYER_KEY=0x...
+NPMGUARD_ZEROG_TESTNET_CONTRACT=0x...
+NPMGUARD_ZEROG_ATTESTATIONS_CONTRACT=0x...
+```
+
+Compute stays independently selectable because the Router model catalog and
+Chain/Storage network are separate. The audit-tuned models currently use the
+mainnet Router while settlement and evidence storage can stay on Galileo.
+All knobs, including `verified` versus `private` routing and `latency` versus
+`price` sorting, are documented in [engine/.env.template](engine/.env.template).
+
 ## Quick Start
 
 ### Install a package with NpmGuard
@@ -84,8 +124,8 @@ npx npmguard-cli install express
 - If **DANGEROUS**, it warns and asks before installing (or `--force`)
 - If there's no audit yet, you get a menu:
   1. **Stripe** — pay by card in the browser
-  2. **WalletConnect** — scan a QR from your mobile wallet, sign a
-     `0.0001 ETH` transaction on **Base Sepolia**
+  2. **Wallet** — sign the audit transaction on the chain selected by the
+     engine (0G Galileo is preferred in unified mode)
   3. Install without audit
   4. Cancel
 
@@ -116,7 +156,7 @@ curl -X POST https://npmguard.com/audit \
   -d '{"packageName":"express","version":"5.2.1"}'
 ```
 
-## Payment — Base Sepolia contract
+## Payment — Base and 0G Chain
 
 The audit engine is gated behind a small payment so that the LLM and
 sandbox compute is paid for. Two options are live:
@@ -125,15 +165,16 @@ sandbox compute is paid for. Two options are live:
 Existing Stripe Checkout flow. The engine has a webhook that marks the
 session paid and triggers the audit.
 
-### WalletConnect (on Base Sepolia)
+### Crypto wallet
 Users sign a transaction to `NpmGuardAuditRequest.requestAudit(pkg, version)`
-which emits an `AuditRequested` event. The engine verifies the receipt via
-a dedicated Alchemy Base Sepolia RPC and decodes the event to match the
-requested `(packageName, version)` before running the audit.
+which emits an `AuditRequested` event. The engine verifies the receipt on the
+selected chain and decodes the event to match the requested
+`(packageName, version)` before running the audit.
 
-- **Fee**: `0.0001 ETH` (set in contract constructor, updatable by owner)
-- **Chain**: Base Sepolia (chain id 84532)
-- **Contract**: [`0xBF562626e4Afb883423Ec719e0270DB232bcB9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed)
+- **Networks**: Base Sepolia (84532), 0G Galileo (16602), 0G Aristotle (16661)
+- **Native currency**: ETH on Base, 0G on 0G Chain
+- **Base contract**: [`0xBF562626e4Afb883423Ec719e0270DB232bcB9eD`](https://sepolia.basescan.org/address/0xbf562626e4afb883423ec719e0270db232bcb9ed)
+- **0G contracts**: see the [Continuity submission sheet](docs/CONTINUITY-SUBMISSION.md)
 
 Anti-replay: the engine atomically persists a `(chain, txHash)` payment claim,
 so a single payment can only launch one audit even across concurrent requests
@@ -188,12 +229,12 @@ host. Deploys are manual. See [deploy/README.md](deploy/README.md).
 |---|---|
 | Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) + [Tailwind](https://tailwindcss.com/) — real-time SSE dashboard |
 | Audit pipeline | Python + FastAPI + Pydantic + SQLAlchemy — inventory, LLM analysis, Docker sandbox |
-| LLM | [DeepSeek V4 Flash](https://www.deepseek.com/) via OpenRouter (OpenAI-compatible) |
+| LLM | 0G Compute Router with verified TEE execution in unified mode; OpenRouter/direct providers remain available |
 | Fiat payment | [Stripe](https://stripe.com/) checkout + webhook |
-| Crypto payment | Solidity contract on [Base Sepolia](https://docs.base.org/chain/base-contracts) + WalletConnect v2 |
+| Crypto payment | Solidity contract on Base or 0G Chain + injected wallet / WalletConnect |
 | Contract tooling | [Foundry](https://book.getfoundry.sh/) — compile, test (fuzz), deploy, Basescan verification |
-| Chain RPC | [Alchemy](https://alchemy.com/) Base Sepolia (+ public fallback) |
-| Storage | Filesystem reports plus SQLite/Postgres durable sessions/events/payment claims — no IPFS, no RPC writes |
+| Chain RPC | 0G Galileo/Aristotle or Base Sepolia |
+| Storage | Filesystem + SQL authoritative stores, with content-addressed report/evidence publication on 0G Storage |
 | CLI | TypeScript, zero blockchain deps in the binary — wallet signs, engine verifies |
 | Hosting | Any Ubuntu host — nginx + systemd, see `deploy/` |
 

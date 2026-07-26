@@ -90,7 +90,7 @@ from .validation import (
     valid_package_name,
     valid_semver,
 )
-from .zerog import ZeroGStorage
+from .zerog import ZeroGAttestationPublisher, ZeroGStorage
 
 log = structlog.get_logger("npmguard.api")
 
@@ -133,6 +133,7 @@ class Runtime:
     attest: AttestStore | None = None
     world: WorldVerifier | None = None
     zerog: ZeroGStorage | None = None
+    zerog_attestations: ZeroGAttestationPublisher | None = None
 
 
 def _runtime(request: Request) -> Runtime:
@@ -584,16 +585,35 @@ async def public_config(request: Request) -> JSONResponse:
                 "chainId": CHAINS[name].chain_id,
                 "contract": chain_contract(settings, name),
                 "auditFeeWei": str(fee) if fee is not None else None,
+                "label": CHAINS[name].label,
+                "nativeSymbol": CHAINS[name].native_symbol,
+                "rpcUrl": getattr(settings, CHAINS[name].rpc_setting, None)
+                or CHAINS[name].default_rpc,
+                "explorerUrl": CHAINS[name].explorer,
             }
         )
     return JSONResponse(
         {
             **base,
             "chains": chains,
+            "preferredChain": chains[0]["chain"] if chains else None,
             # `crypto` is the pre-multichain shape the shipped CLI and web app
             # still read: the first configured chain. Keep it until both move to
             # `chains`, or every released CLI loses the pay-by-wallet option.
             "crypto": chains[0] if chains else None,
+            "zerog": {
+                "enabled": settings.zerog_enabled,
+                "network": settings.zerog_network,
+                "computeNetwork": settings.zerog_compute_network,
+                "computeEnabled": settings.zerog_enabled or settings.llm_backend == "zerog",
+                "teeVerificationEnabled": settings.zerog_verify_tee,
+                "trustMode": settings.zerog_trust_mode,
+                "providerSort": settings.zerog_provider_sort,
+                "storageEnabled": settings.zerog_storage_enabled,
+                "reportMirrorEnabled": settings.zerog_storage_enabled
+                and (settings.zerog_enabled or settings.zerog_mirror_reports),
+                "attestationsEnabled": settings.zerog_attestations_enabled,
+            },
         }
     )
 
@@ -712,7 +732,8 @@ async def lifespan(app: FastAPI):
         # and the flag are set, so the default engine touches no storage network.
         mirror=(
             ZeroGStorage(settings)
-            if settings.zerog_mirror_reports and settings.zerog_storage_enabled
+            if settings.zerog_storage_enabled
+            and (settings.zerog_enabled or settings.zerog_mirror_reports)
             else None
         ),
     )
@@ -898,6 +919,9 @@ async def lifespan(app: FastAPI):
         attest=AttestStore(sessions_factory) if settings.world_enabled else None,
         world=WorldVerifier(settings) if settings.world_enabled else None,
         zerog=ZeroGStorage(settings) if settings.zerog_storage_enabled else None,
+        zerog_attestations=(
+            ZeroGAttestationPublisher(settings) if settings.zerog_attestations_enabled else None
+        ),
     )
     try:
         yield

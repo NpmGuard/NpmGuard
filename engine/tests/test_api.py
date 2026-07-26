@@ -148,6 +148,32 @@ def test_payment_gate_and_cre_paths(make_app, tmp_path) -> None:
         # and every write lands under tmp_path (see fixture) — no repo residue.
 
 
+def test_unified_zerog_mode_wires_storage_and_reports_readiness(make_app) -> None:
+    """The master flag turns a funded Storage client into the report mirror."""
+    with TestClient(
+        make_app(
+            NPMGUARD_ZEROG_ENABLED="true",
+            NPMGUARD_ZEROG_RELAYER_KEY="0x" + "11" * 32,
+        )
+    ) as client:
+        runtime = client.app.state.runtime
+        assert runtime.audits.mirror is not None
+        assert runtime.zerog is not None
+        config = client.get("/config/public").json()
+        assert config["zerog"] == {
+            "enabled": True,
+            "network": "testnet",
+            "computeNetwork": "mainnet",
+            "computeEnabled": True,
+            "teeVerificationEnabled": True,
+            "trustMode": "verified",
+            "providerSort": "latency",
+            "storageEnabled": True,
+            "reportMirrorEnabled": True,
+            "attestationsEnabled": False,
+        }
+
+
 @pytest.mark.parametrize("base", BASES)
 def test_invalid_json_body_is_a_400(make_app, base) -> None:
     """C6+C2: malformed JSON is rejected uniformly on both bases."""

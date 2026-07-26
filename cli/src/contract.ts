@@ -85,7 +85,7 @@ export const CHAINS: Record<string, ChainDef> = {
     chain: evm(
       16602,
       "0G Galileo Testnet",
-      "OG",
+      "0G",
       "https://evmrpc-testnet.0g.ai",
       "https://chainscan-galileo.0g.ai",
     ),
@@ -98,7 +98,7 @@ export const CHAINS: Record<string, ChainDef> = {
     chain: evm(
       16661,
       "0G Aristotle",
-      "OG",
+      "0G",
       "https://evmrpc.0g.ai",
       "https://chainscan.0g.ai",
     ),

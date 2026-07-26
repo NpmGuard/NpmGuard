@@ -28,7 +28,7 @@ export function resolveVersion(name: string, version?: string): Promise<ResolveR
 export type StartAuditPayload =
   | { packageName: string; version?: string } // dev mode (payment off)
   | { stripeSessionId: string }
-  | { packageName: string; version: string; txHash: string; chain: "base-sepolia" | "base" };
+  | { packageName: string; version: string; txHash: string; chain: string };
 
 /** POST /audit/stream — idempotent per payment proof (replays return the same
  * auditId). */

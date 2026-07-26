@@ -325,6 +325,69 @@ def test_a_verified_proof_is_recorded_and_surfaced(make_app, npm, monkeypatch) -
         assert "full_name" not in repr(envelope)
 
 
+def test_a_verified_proof_publishes_storage_then_chain(make_app, npm, monkeypatch) -> None:
+    """The 0G registry row must quote the exact Storage root just produced."""
+    from npmguard.zerog import PublishedAttestation, StoredObject
+
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        session_id = _open(client)
+        runtime = _sign_in(monkeypatch, app)
+        client.post(f"/attest/session/{session_id}/own")
+        _stub_world(app)
+
+        class Storage:
+            async def try_put_json(self, envelope, *, filename):
+                self.envelope = envelope
+                self.filename = filename
+                return StoredObject(root_hash="0x" + "55" * 32, tx_hash="0xstorage")
+
+        class Registry:
+            async def try_publish(self, **values):
+                self.values = values
+                return PublishedAttestation(tx_hash="0xchain", block_number=42)
+
+        storage, registry = Storage(), Registry()
+        object.__setattr__(runtime, "zerog", storage)
+        object.__setattr__(runtime, "zerog_attestations", registry)
+
+        done = client.post(f"/attest/session/{session_id}/proof", json={})
+        assert done.status_code == 200
+        body = done.json()
+        assert body["attestation"]["storageRoot"] == "0x" + "55" * 32
+        assert body["attestation"]["chainTx"] == "0xchain"
+        assert registry.values["storage_root"] == body["attestation"]["storageRoot"]
+        assert registry.values["artifact_digest"] == storage.envelope["artifactDigest"]
+        assert registry.values["package_name"] == PKG
+        assert registry.values["version"] == VERSION
+
+
+def test_a_storage_outage_skips_chain_without_losing_the_proof(make_app, npm, monkeypatch) -> None:
+    app = make_app(**WORLD_ENV, **GITHUB_ENV)
+    with TestClient(app) as client:
+        session_id = _open(client)
+        runtime = _sign_in(monkeypatch, app)
+        client.post(f"/attest/session/{session_id}/own")
+        _stub_world(app)
+
+        class Storage:
+            async def try_put_json(self, envelope, *, filename):
+                return None
+
+        class Registry:
+            async def try_publish(self, **values):
+                raise AssertionError("chain cannot publish a row without its Storage root")
+
+        object.__setattr__(runtime, "zerog", Storage())
+        object.__setattr__(runtime, "zerog_attestations", Registry())
+
+        done = client.post(f"/attest/session/{session_id}/proof", json={})
+        assert done.status_code == 200
+        assert done.json()["status"] == "verified"
+        assert done.json()["attestation"]["storageRoot"] is None
+        assert done.json()["attestation"]["chainTx"] is None
+
+
 def test_a_release_cannot_be_attested_twice(make_app, npm, monkeypatch) -> None:
     """Mirrors the on-chain registry's append-only rule: a second attestation is
     a conflict, never an overwrite. Rewritable history would let an attacker

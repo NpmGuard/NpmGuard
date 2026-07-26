@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -21,6 +22,13 @@ class Settings(KitSettings):
     api_host: str = "0.0.0.0"
     api_port: int = Field(default=8000, ge=1, le=65535)
     cors_origin: str = "http://localhost:5173"
+
+    # Master 0G operating mode. This is intentionally separate from
+    # ``llm_backend=zerog``: the latter remains a backwards-compatible
+    # compute-only selection, while this flag opts the whole product into the
+    # 0G stack (Compute, preferred settlement chain, Storage mirroring and the
+    # attestation registry).
+    zerog_enabled: bool = False
 
     # The inference switch. `openrouter` and `zerog` are one-variable presets —
     # each resolves its own endpoint, model catalogue and adapter — so a demo can
@@ -69,12 +77,19 @@ class Settings(KitSettings):
     sandbox_network: str = "none"
     max_docker_exec_timeout_sec: int = Field(default=30, ge=5, le=300)
 
-    # 0G Compute Router — OpenAI-compatible, TEE-attested inference. Only the
-    # MAINNET router carries models usable for code audit (the testnet router
-    # serves two multimodal models); the Router is a metered service with its own
-    # balance, independent of which 0G chain the contracts live on, so pointing
-    # inference at mainnet while settling on Galileo testnet is coherent.
-    zerog_router_base_url: str = "https://router-api.0g.ai/v1"
+    # 0G Compute Router — OpenAI-compatible, TEE-attested inference. Compute has
+    # a balance and model catalogue separate from Chain/Storage, so its network
+    # is explicit. Mainnet remains the default because it has the code-audit
+    # models this pipeline is tuned for; testnet is available when its catalogue
+    # has suitable models.
+    zerog_compute_network: Literal["testnet", "mainnet"] = "mainnet"
+    zerog_router_base_url: str | None = None
+    # Ask the Router to verify TEE execution synchronously and fail closed when
+    # it does not return a positive verification result. Provider routing uses
+    # the Router's canonical headers rather than its deprecated body object.
+    zerog_verify_tee: bool = True
+    zerog_trust_mode: Literal["standard", "verified", "private"] = "verified"
+    zerog_provider_sort: Literal["latency", "price"] = "latency"
     # Role models are per-catalogue: `triage_model` / `investigation_model` name
     # OpenRouter slugs that the 0G Router does not serve, so the zerog backend
     # reads its own pair rather than silently reinterpreting those.
@@ -205,6 +220,18 @@ class Settings(KitSettings):
         return self.zerog_storage_indexer_url or self._ZEROG_INDEXERS[self.zerog_network]
 
     @property
+    def zerog_router_url(self) -> str:
+        if self.zerog_router_base_url:
+            return self.zerog_router_base_url
+        if self.zerog_compute_network == "testnet":
+            return "https://router-api-testnet.integratenetwork.work/v1"
+        return "https://router-api.0g.ai/v1"
+
+    @property
+    def zerog_chain_name(self) -> str:
+        return "0g" if self.zerog_network == "mainnet" else "0g-testnet"
+
+    @property
     def zerog_storage_rpc_url(self) -> str:
         """The chain RPC storage submissions are sent to — the same endpoint the
         matching settlement chain uses, so one network choice moves both."""
@@ -217,6 +244,11 @@ class Settings(KitSettings):
         """Storage writes cost gas, so without a relayer key there is nothing to
         pay with and every 0G write is skipped rather than half-attempted."""
         return bool(self.zerog_relayer_key)
+
+    @property
+    def zerog_attestations_enabled(self) -> bool:
+        """Publishing needs both a funded signer and a deployed registry."""
+        return bool(self.zerog_relayer_key and self.zerog_attestations_contract)
 
     @property
     def world_enabled(self) -> bool:
@@ -272,9 +304,48 @@ class Settings(KitSettings):
 
     @model_validator(mode="after")
     def validate_llm_endpoint(self) -> "Settings":
-        if self.llm_backend == "openai_compatible" and not self.llm_base_url:
+        if (
+            not self.zerog_enabled
+            and self.llm_backend == "openai_compatible"
+            and not self.llm_base_url
+        ):
             raise ValueError(
                 "NPMGUARD_LLM_BASE_URL is required when NPMGUARD_LLM_BACKEND=openai_compatible"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_zerog_mode(self) -> "Settings":
+        """A production 0G-mode process must not silently boot half configured.
+
+        Development and test environments may exercise individual seams with
+        fakes. Production gets the stricter contract promised by the master
+        flag: Compute and Storage must be usable, the selected 0G payment chain
+        must exist when payments are required, and an enabled World flow must
+        have its on-chain registry.
+        """
+        if not self.zerog_enabled or self.env != "prod":
+            return self
+
+        missing: list[str] = []
+        if not self.mock_llm and not (self.llm_api_key or os.environ.get("ZEROG_API_KEY")):
+            missing.append("NPMGUARD_LLM_API_KEY or ZEROG_API_KEY")
+        if not self.zerog_relayer_key:
+            missing.append("NPMGUARD_ZEROG_RELAYER_KEY")
+        selected_contract = (
+            self.zerog_contract if self.zerog_network == "mainnet" else self.zerog_testnet_contract
+        )
+        if self.payment_required and not selected_contract:
+            missing.append(
+                "NPMGUARD_ZEROG_CONTRACT"
+                if self.zerog_network == "mainnet"
+                else "NPMGUARD_ZEROG_TESTNET_CONTRACT"
+            )
+        if self.world_enabled and not self.zerog_attestations_contract:
+            missing.append("NPMGUARD_ZEROG_ATTESTATIONS_CONTRACT")
+        if missing:
+            raise ValueError(
+                "NPMGUARD_ZEROG_ENABLED requires production configuration: " + ", ".join(missing)
             )
         return self
 

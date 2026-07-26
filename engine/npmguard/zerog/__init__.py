@@ -6,6 +6,18 @@ NpmGuard not being able to quietly rewrite it*: publisher-attestation envelopes,
 and (optionally) a mirror of each audit report.
 """
 
+from .attestations import (
+    PublishedAttestation,
+    ZeroGAttestationError,
+    ZeroGAttestationPublisher,
+)
 from .storage import StoredObject, ZeroGStorage, ZeroGStorageError
 
-__all__ = ["StoredObject", "ZeroGStorage", "ZeroGStorageError"]
+__all__ = [
+    "PublishedAttestation",
+    "StoredObject",
+    "ZeroGAttestationError",
+    "ZeroGAttestationPublisher",
+    "ZeroGStorage",
+    "ZeroGStorageError",
+]

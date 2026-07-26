@@ -83,6 +83,7 @@ class ProviderResult:
     finish_reason: str | None = None
     refusal: str | None = None
     reasoning: Any = None
+    provider_metadata: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.content is not None and not isinstance(self.content, str):
@@ -135,6 +136,8 @@ class ProviderResult:
             value = getattr(self, field)
             if value is not None and not isinstance(value, str):
                 raise ProviderResultError(f"{field} must be a string or None")
+        if self.provider_metadata is not None and not isinstance(self.provider_metadata, dict):
+            raise ProviderResultError("provider_metadata must be a dictionary or None")
 
 
 class ProviderResponseError(ValueError):
@@ -475,24 +478,48 @@ ZEROG_RESPONSE_KEY_HEADER = "ZG-Res-Key"
 
 
 class ZeroGAdapter(OpenAICompatAdapter):
-    """0G Compute Router — OpenAI-compatible, but inference runs inside a TEE and
-    the response is signed by an enclave-born key before it leaves the provider.
+    """0G Compute Router with explicit verifiable-provider routing.
 
-    Verifying that signature needs the enclave *chat id*, which arrives in the
-    ``ZG-Res-Key`` response header with ``response.id`` as the documented
-    fallback. Both are exactly what ``provider_call_id`` already means, so the
-    identifier lands in the existing capture column and no schema change is
-    needed — reading the header only makes the id reliable when the body's id is
-    a router-side value instead of the provider's.
+    Current Router responses carry ``x_0g_trace`` in the JSON body. When
+    ``verify_tee`` is enabled, the adapter asks the Router to verify execution
+    synchronously and rejects any result whose trace is not positively marked
+    ``tee_verified``. The older ``ZG-Res-Key`` header remains a useful call-id
+    fallback for compatible/direct routes.
 
-    Router conformance is NOT assumed. When the header is absent this behaves as
-    a plain OpenAI-compatible route and nothing downstream may claim
-    verifiability for that call. Reports cost via static ModelSpec prices (the
-    Router publishes per-model pricing but does not return cost in `usage`), and
-    has no cache_control.
+    Billing in the trace is denominated in neurons, not USD, so it is not
+    coerced into ``ProviderResult.cost_usd``. Static ModelSpec prices continue
+    to feed the existing USD budget pipeline.
     """
 
     supports_cache_control = False
+
+    def __init__(
+        self,
+        settings: LlmSettings,
+        *,
+        verify_tee: bool = False,
+        trust_mode: str = "verified",
+        provider_sort: str = "latency",
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        super().__init__(settings, transport=transport)
+        self._verify_tee = verify_tee
+        self._trust_mode = trust_mode
+        self._provider_sort = provider_sort
+
+    def _request_kwargs(self, request: ProviderRequest) -> dict[str, Any]:
+        kwargs = super()._request_kwargs(request)
+        kwargs["extra_headers"] = {
+            "X-0G-Provider-Trust-Mode": self._trust_mode,
+            "X-0G-Provider-Sort": self._provider_sort,
+        }
+        return kwargs
+
+    def _extra_body(self, request: ProviderRequest) -> dict[str, Any]:
+        extra = super()._extra_body(request)
+        if self._verify_tee:
+            extra["verify_tee"] = True
+        return extra
 
     async def _create(self, kwargs: dict[str, Any]) -> tuple[Any, str | None]:
         raw = await self._client.chat.completions.with_raw_response.create(**kwargs)
@@ -501,8 +528,24 @@ class ZeroGAdapter(OpenAICompatAdapter):
 
     def _result(self, response: Any, *args: Any, **kwargs: Any) -> ProviderResult:
         result = super()._result(response, *args, **kwargs)
-        if result.provider:
-            return result
-        # attribute the call so a report can tell 0G-served inference apart from
-        # every other OpenAI-compatible route without re-deriving it from a URL
-        return ProviderResult(**{**result.__dict__, "provider": "0g"})
+        extra = getattr(response, "model_extra", None) or {}
+        trace = extra.get("x_0g_trace")
+        if self._verify_tee and (
+            not isinstance(trace, dict) or trace.get("tee_verified") is not True
+        ):
+            raise ProviderResultError("0G Router did not verify TEE execution")
+        trace_request_id = trace.get("request_id") if isinstance(trace, dict) else None
+        # Attribute the call so captures can tell 0G-served inference apart from
+        # every other compatible route. Preserve the whole Router trace: it
+        # carries the on-chain provider, exact neuron billing and TEE result.
+        provider = "0g:verified" if self._verify_tee else "0g"
+        return ProviderResult(
+            **{
+                **result.__dict__,
+                "provider_call_id": (
+                    trace_request_id if isinstance(trace_request_id, str) else result.provider_call_id
+                ),
+                "provider": result.provider or provider,
+                "provider_metadata": {"x_0g_trace": trace} if isinstance(trace, dict) else None,
+            }
+        )

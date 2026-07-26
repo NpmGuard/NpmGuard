@@ -280,6 +280,10 @@ export interface CryptoConfig {
   chainId: number;
   contract: string;
   auditFeeWei: string | null;
+  label?: string;
+  nativeSymbol?: string;
+  rpcUrl?: string;
+  explorerUrl?: string;
 }
 
 export interface PublicConfig {
@@ -289,8 +293,22 @@ export interface PublicConfig {
   priceCents: number;
   /** Every chain the engine has a contract configured for. */
   chains?: CryptoConfig[];
-  /** The first configured chain — the pre-multichain shape this app still reads. */
+  /** Engine-selected default (0G first when unified 0G mode is enabled). */
+  preferredChain?: string | null;
+  /** The preferred configured chain; retained for older clients. */
   crypto: CryptoConfig | null;
+  zerog?: {
+    enabled: boolean;
+    network: "testnet" | "mainnet";
+    computeNetwork: "testnet" | "mainnet";
+    computeEnabled: boolean;
+    teeVerificationEnabled: boolean;
+    trustMode: "standard" | "verified" | "private";
+    providerSort: "latency" | "price";
+    storageEnabled: boolean;
+    reportMirrorEnabled: boolean;
+    attestationsEnabled: boolean;
+  };
 }
 
 export interface CheckoutResponse {

@@ -10,10 +10,18 @@
 # Blackbox for B1/B2/B3 (public build_npmguard_llm + _adapter seam); B4 drives the
 # adapter over an injected httpx transport — the same seam TESTING.md documents.
 
+import json
+
 import httpx
 import pytest
 
-from kit_llm import LlmSettings, OpenAICompatAdapter, OpenRouterAdapter, ZeroGAdapter
+from kit_llm import (
+    LlmSettings,
+    OpenAICompatAdapter,
+    OpenRouterAdapter,
+    ProviderResultError,
+    ZeroGAdapter,
+)
 from npmguard.config import Settings
 from npmguard.llm_runtime import _adapter, _profile, _provider_settings, _role_models
 
@@ -82,6 +90,40 @@ def test_the_backend_switch_needs_no_second_variable() -> None:
     )
 
 
+def test_the_master_zerog_flag_routes_compute_too() -> None:
+    """Unified mode must not leave inference on the separately configured backend."""
+    settings = _settings(
+        zerog_enabled=True,
+        llm_backend="anthropic",
+        llm_base_url="https://api.anthropic.com/v1/",
+    )
+    assert _role_models(settings) == ("deepseek-v4-flash", "deepseek-v4-flash")
+    resolved = _provider_settings(settings)
+    assert resolved.llm_base_url == "https://router-api.0g.ai/v1"
+    assert type(_adapter(settings, resolved)) is ZeroGAdapter
+
+
+def test_the_master_flag_prefers_the_dedicated_zerog_key(monkeypatch) -> None:
+    monkeypatch.setenv("ZEROG_API_KEY", "zerog-key")
+    settings = _settings(
+        zerog_enabled=True,
+        llm_backend="anthropic",
+        llm_api_key="old-provider-key",
+    )
+    assert _provider_settings(settings).llm_api_key == "zerog-key"
+
+
+def test_compute_network_selects_the_documented_testnet_router() -> None:
+    settings = _settings(
+        zerog_enabled=True,
+        zerog_compute_network="testnet",
+        zerog_triage_model="testnet-code-model",
+    )
+    assert _provider_settings(settings).llm_base_url == (
+        "https://router-api-testnet.integratenetwork.work/v1"
+    )
+
+
 def test_switching_backends_swaps_the_whole_route() -> None:
     """Not just the endpoint: the model catalogue, fallback tail and adapter all
     have to move together, or a 0G run silently asks for OpenRouter slugs."""
@@ -112,9 +154,10 @@ def test_the_openrouter_preset_still_namespaces_vendor_slugs() -> None:
         "google/gemini-3-pro"
     )
     # already-namespaced slugs are left alone
-    assert _role_models(_settings(llm_backend="openrouter", triage_model="qwen/qwen3-30b-a3b"))[
-        0
-    ] == "qwen/qwen3-30b-a3b"
+    assert (
+        _role_models(_settings(llm_backend="openrouter", triage_model="qwen/qwen3-30b-a3b"))[0]
+        == "qwen/qwen3-30b-a3b"
+    )
 
 
 def test_a_non_openrouter_endpoint_does_not_get_the_rewrite() -> None:
@@ -198,7 +241,11 @@ def _completion_transport(headers: dict[str, str]) -> httpx.MockTransport:
                 "id": "chatcmpl-body-id",
                 "model": "deepseek-v4-flash",
                 "choices": [
-                    {"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "ok"},
+                    }
                 ],
                 "usage": {"prompt_tokens": 7, "completion_tokens": 3},
             },
@@ -216,7 +263,9 @@ async def _complete(headers: dict[str, str]):
     )
     try:
         return await adapter.complete(
-            ProviderRequest(role="flag", model="deepseek-v4-flash", messages=[{"role": "user", "content": "hi"}])
+            ProviderRequest(
+                role="flag", model="deepseek-v4-flash", messages=[{"role": "user", "content": "hi"}]
+            )
         )
     finally:
         await adapter.aclose()
@@ -237,3 +286,111 @@ async def test_a_missing_header_falls_back_to_the_body_id() -> None:
     result = await _complete({})
     assert result.provider_call_id == "chatcmpl-body-id"
     assert result.in_tokens == 7 and result.out_tokens == 3
+
+
+async def test_verified_zerog_requests_use_router_verification_and_routing_headers() -> None:
+    from kit_llm.provider import ProviderRequest
+
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        seen["trust"] = request.headers.get("X-0G-Provider-Trust-Mode")
+        seen["sort"] = request.headers.get("X-0G-Provider-Sort")
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-body-id",
+                "model": "deepseek-v4-flash",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "verified"},
+                    }
+                ],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+                "x_0g_trace": {
+                    "request_id": "router-request-id",
+                    "provider": "0x1234",
+                    "tee_verified": True,
+                    "billing": {"total": "12"},
+                },
+            },
+        )
+
+    adapter = ZeroGAdapter(
+        LlmSettings(llm_api_key="k", llm_base_url="https://router-api.0g.ai/v1"),
+        verify_tee=True,
+        trust_mode="private",
+        provider_sort="price",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        result = await adapter.complete(
+            ProviderRequest(
+                role="flag",
+                model="deepseek-v4-flash",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        )
+    finally:
+        await adapter.aclose()
+
+    assert seen == {
+        "body": {
+            "messages": [{"role": "user", "content": "hi"}],
+            "model": "deepseek-v4-flash",
+            "verify_tee": True,
+        },
+        "trust": "private",
+        "sort": "price",
+    }
+    assert result.provider == "0g:verified"
+    assert result.provider_call_id == "router-request-id"
+    assert result.provider_metadata == {
+        "x_0g_trace": {
+            "request_id": "router-request-id",
+            "provider": "0x1234",
+            "tee_verified": True,
+            "billing": {"total": "12"},
+        }
+    }
+
+
+async def test_verified_zerog_fails_closed_when_router_cannot_verify_tee() -> None:
+    from kit_llm.provider import ProviderRequest
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "router-request-id",
+                "model": "deepseek-v4-flash",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "unverified"},
+                    }
+                ],
+                "x_0g_trace": {"tee_verified": False},
+            },
+        )
+
+    adapter = ZeroGAdapter(
+        LlmSettings(llm_api_key="k", llm_base_url="https://router-api.0g.ai/v1"),
+        verify_tee=True,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(ProviderResultError, match="did not verify TEE"):
+            await adapter.complete(
+                ProviderRequest(
+                    role="flag",
+                    model="deepseek-v4-flash",
+                    messages=[{"role": "user", "content": "hi"}],
+                )
+            )
+    finally:
+        await adapter.aclose()

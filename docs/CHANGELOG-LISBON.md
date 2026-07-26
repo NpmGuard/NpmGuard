@@ -5,7 +5,22 @@ Dated log of work done during the Lisbon hackathon window, for the
 
 ## Prior state
 
-The work below builds on NpmGuard as it existed before the hackathon:
+NpmGuard has dated independent 0G work from April:
+
+| | |
+|---|---|
+| 0G commit | `5b9772be2ace0ab1300437d29e0d8e37d46f1124` |
+| Dated | `2026-04-04T19:40:11+02:00` |
+| Subject | `feat: switch payment chain from Base Sepolia to 0G Galileo Testnet` |
+| Prior deployment | `0x1201448ae5f00e1783036439569e71ab3757d0de` on Galileo |
+
+That version used 0G Galileo settlement and had an earlier 0G Compute
+integration. The architecture subsequently moved from TypeScript to the current
+Python engine and the 0G path was removed. The work below is therefore genuine
+continuation: port the earlier integration onto the current product, then add
+new 0G layers and production hardening.
+
+For judging exactly what changed during Lisbon, the delta baseline is:
 
 | | |
 |---|---|
@@ -399,3 +414,62 @@ real-world assurance, and the screen must never let one read as though it did.
 
 **Suite:** engine `672 passed`; frontend typecheck clean, `294 passed`,
 production build OK. 16 pre-existing node-PATH failures.
+
+---
+
+## 2026-07-26 — unified 0G product mode and production hardening
+
+**One flag now selects the whole product stack.**
+`NPMGUARD_ZEROG_ENABLED=true` is no longer a Compute-only alias. It:
+
+- sends every audit inference role through 0G Compute;
+- makes the configured 0G network the preferred payment chain returned to the
+  CLI and browser;
+- enables the finished-report mirror on 0G Storage;
+- publishes each successfully stored publisher-attestation envelope to the
+  append-only registry on 0G Chain.
+
+The individual credentials and contract addresses are still explicit. In
+production the engine fails at startup when unified mode would otherwise run
+partially configured. `/config/public` exposes the selected Compute and Chain
+networks plus Compute, Storage, mirror, and registry readiness for the demo UI
+and operations checks.
+
+**Verifiable inference is now enforced, not inferred from metadata.** Current
+Router support resolved the open question in Phase 0: requests carry
+`verify_tee: true`, `X-0G-Provider-Trust-Mode`, and
+`X-0G-Provider-Sort`. The adapter requires
+`x_0g_trace.tee_verified === true` and fails closed if the Router cannot verify
+the execution. Verified calls are captured as provider `0g:verified`; the
+Router request/header id remains the durable per-call handle. The full trace —
+including the serving provider's on-chain address and exact per-call billing —
+is preserved in the attempt record. Billing stays in its native neuron
+denomination rather than being mislabeled as USD.
+
+**Attestation publication now reaches the contract.** The engine previously
+uploaded the evidence envelope and stopped. A serialized relayer now calls
+`NpmGuardAttestations.attest(package, version, nullifier, tier,
+artifactDigest, storageRoot)` after a successful Storage upload, waits for the
+receipt, and attaches both the Merkle root and transaction hash to the durable
+attestation. Storage and Chain publication remain best-effort and downstream of
+the accepted human proof, so a network outage cannot erase or corrupt local
+attestation state.
+
+**The browser is genuinely chain-aware.** The pay page no longer hardcodes Base
+Sepolia. It switches/adds the engine-selected chain, uses the advertised native
+symbol, RPC, explorer and contract, and sends that chain name back for
+server-side verification. The CLI and browser therefore share the same
+preferred Galileo path in unified mode while retaining Base compatibility.
+
+**Submission readiness.** The root README now documents the three 0G layers and
+the one-flag setup. `docs/CONTINUITY-SUBMISSION.md` records the prior April 0G
+commit/deployment, current contract placeholders, demo spine, required contacts,
+and an honest “What’s next”. Agentic ID and 0G DA are trajectory items, not
+claimed integrations: neither is useful unless identity state is actually
+issued/migrated or the required DA infrastructure is actually operated.
+
+**Verification:** the focused engine integration/lint gate is `119 passed, 1
+skipped`; frontend is `307 passed`, typecheck clean, and production build clean;
+the CLI TypeScript build is clean. The complete non-environment engine suite is
+`718 passed, 3 skipped, 1 xfailed`. The 16 excluded Node instrumentation tests
+remain the Apple-Silicon hardcoded-PATH issue documented above.

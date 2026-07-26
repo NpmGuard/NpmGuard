@@ -957,20 +957,23 @@ def _finish_provider_result(
     error: str | None,
     cost: float | None,
 ) -> AttemptWrite:
+    output = {
+        "content": result.content,
+        "tool_calls": result.tool_calls,
+        "actual_model": result.actual_model,
+        "provider": result.provider,
+        "finish_reason": result.finish_reason,
+        "refusal": result.refusal,
+        "reasoning": result.reasoning,
+    }
+    if result.provider_metadata is not None:
+        output["provider_metadata"] = result.provider_metadata
     return _finish(
         write,
         started,
         status=status,
         error=error,
-        output={
-            "content": result.content,
-            "tool_calls": result.tool_calls,
-            "actual_model": result.actual_model,
-            "provider": result.provider,
-            "finish_reason": result.finish_reason,
-            "refusal": result.refusal,
-            "reasoning": result.reasoning,
-        },
+        output=output,
         in_tokens=result.in_tokens,
         out_tokens=result.out_tokens,
         cached_tokens=result.cached_tokens,

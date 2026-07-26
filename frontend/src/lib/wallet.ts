@@ -9,8 +9,14 @@
  * websockets.
  */
 
-import { createWalletClient, custom, type Address, type EIP1193Provider } from "viem";
-import { baseSepolia } from "viem/chains";
+import {
+  createWalletClient,
+  custom,
+  defineChain,
+  type Address,
+  type EIP1193Provider,
+} from "viem";
+import type { CryptoConfig } from "./engine-types.ts";
 
 export const AUDIT_REQUEST_ABI = [
   {
@@ -31,8 +37,6 @@ export const AUDIT_REQUEST_ABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;
-
-const CHAIN_ID_HEX = "0x14a34"; // 84532, Base Sepolia
 
 declare global {
   interface Window {
@@ -58,11 +62,29 @@ function isRejection(err: unknown): boolean {
   return message.includes("reject") || message.includes("denied");
 }
 
-async function ensureBaseSepolia(provider: EIP1193Provider): Promise<void> {
+function walletChain(config: CryptoConfig) {
+  const nativeSymbol = config.nativeSymbol ?? (config.chain.startsWith("0g") ? "0G" : "ETH");
+  return defineChain({
+    id: config.chainId,
+    name: config.label ?? config.chain,
+    nativeCurrency: { name: nativeSymbol, symbol: nativeSymbol, decimals: 18 },
+    rpcUrls: {
+      default: {
+        http: config.rpcUrl ? [config.rpcUrl] : [],
+      },
+    },
+    blockExplorers: config.explorerUrl
+      ? { default: { name: `${config.label ?? config.chain} explorer`, url: config.explorerUrl } }
+      : undefined,
+  });
+}
+
+async function ensureChain(provider: EIP1193Provider, config: CryptoConfig): Promise<void> {
+  const chainId = `0x${config.chainId.toString(16)}`;
   try {
     await provider.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: CHAIN_ID_HEX }],
+      params: [{ chainId }],
     });
   } catch (err) {
     const code = (err as { code?: number }).code;
@@ -71,11 +93,15 @@ async function ensureBaseSepolia(provider: EIP1193Provider): Promise<void> {
       method: "wallet_addEthereumChain",
       params: [
         {
-          chainId: CHAIN_ID_HEX,
-          chainName: "Base Sepolia",
-          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-          rpcUrls: ["https://sepolia.base.org"],
-          blockExplorerUrls: ["https://sepolia.basescan.org"],
+          chainId,
+          chainName: config.label ?? config.chain,
+          nativeCurrency: {
+            name: config.nativeSymbol ?? (config.chain.startsWith("0g") ? "0G" : "ETH"),
+            symbol: config.nativeSymbol ?? (config.chain.startsWith("0g") ? "0G" : "ETH"),
+            decimals: 18,
+          },
+          rpcUrls: config.rpcUrl ? [config.rpcUrl] : [],
+          blockExplorerUrls: config.explorerUrl ? [config.explorerUrl] : [],
         },
       ],
     });
@@ -83,13 +109,13 @@ async function ensureBaseSepolia(provider: EIP1193Provider): Promise<void> {
 }
 
 /**
- * Connect the injected wallet, switch to Base Sepolia, and sign
+ * Connect the injected wallet, switch to the engine-selected chain, and sign
  * requestAudit(packageName, version) with the audit fee attached to
  * `contract`. Returns the tx hash — server-side verification happens when the
  * hash is submitted to POST /audit/stream.
  */
 export async function payWithInjected(
-  contract: Address,
+  config: CryptoConfig,
   packageName: string,
   version: string,
   feeWei: bigint,
@@ -100,11 +126,11 @@ export async function payWithInjected(
     const accounts = (await provider.request({ method: "eth_requestAccounts" })) as Address[];
     const account = accounts[0];
     if (!account) throw new Error("No wallet account available");
-    await ensureBaseSepolia(provider);
-    const client = createWalletClient({ chain: baseSepolia, transport: custom(provider) });
+    await ensureChain(provider, config);
+    const client = createWalletClient({ chain: walletChain(config), transport: custom(provider) });
     return await client.writeContract({
       account,
-      address: contract,
+      address: config.contract as Address,
       abi: AUDIT_REQUEST_ABI,
       functionName: "requestAudit",
       args: [packageName, version],

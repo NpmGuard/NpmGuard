@@ -46,6 +46,8 @@ class ChainSpec:
     contract_setting: str
     default_rpc: str
     explorer: str
+    label: str
+    native_symbol: str
 
 
 # A chain is only offered once its contract address is configured; nothing here
@@ -54,32 +56,40 @@ class ChainSpec:
 # report 16601 for Galileo, which is stale.
 CHAINS: dict[str, ChainSpec] = {
     "base-sepolia": ChainSpec(
-        84532,
-        "base_sepolia_rpc_url",
-        "base_sepolia_contract",
-        "https://sepolia.base.org",
-        "https://sepolia.basescan.org",
+        chain_id=84532,
+        rpc_setting="base_sepolia_rpc_url",
+        contract_setting="base_sepolia_contract",
+        default_rpc="https://sepolia.base.org",
+        explorer="https://sepolia.basescan.org",
+        label="Base Sepolia",
+        native_symbol="ETH",
     ),
     "base": ChainSpec(
-        8453,
-        "base_rpc_url",
-        "base_contract",
-        "https://mainnet.base.org",
-        "https://basescan.org",
+        chain_id=8453,
+        rpc_setting="base_rpc_url",
+        contract_setting="base_contract",
+        default_rpc="https://mainnet.base.org",
+        explorer="https://basescan.org",
+        label="Base",
+        native_symbol="ETH",
     ),
     "0g-testnet": ChainSpec(
-        16602,
-        "zerog_testnet_rpc_url",
-        "zerog_testnet_contract",
-        "https://evmrpc-testnet.0g.ai",
-        "https://chainscan-galileo.0g.ai",
+        chain_id=16602,
+        rpc_setting="zerog_testnet_rpc_url",
+        contract_setting="zerog_testnet_contract",
+        default_rpc="https://evmrpc-testnet.0g.ai",
+        explorer="https://chainscan-galileo.0g.ai",
+        label="0G Galileo Testnet",
+        native_symbol="0G",
     ),
     "0g": ChainSpec(
-        16661,
-        "zerog_rpc_url",
-        "zerog_contract",
-        "https://evmrpc.0g.ai",
-        "https://chainscan.0g.ai",
+        chain_id=16661,
+        rpc_setting="zerog_rpc_url",
+        contract_setting="zerog_contract",
+        default_rpc="https://evmrpc.0g.ai",
+        explorer="https://chainscan.0g.ai",
+        label="0G Aristotle",
+        native_symbol="0G",
     ),
 }
 
@@ -105,8 +115,16 @@ def chain_contract(settings: Settings, chain: SupportedChain) -> str | None:
 
 
 def configured_chains(settings: Settings) -> list[str]:
-    """Chain names with a contract address configured, in declaration order."""
-    return [name for name in CHAINS if is_chain_configured(settings, name)]
+    """Configured chains, with the selected 0G network first in 0G mode.
+
+    Alternatives remain available, but every client that follows server order
+    naturally defaults to 0G when the master flag is enabled.
+    """
+    names = [name for name in CHAINS if is_chain_configured(settings, name)]
+    if settings.zerog_enabled and settings.zerog_chain_name in names:
+        names.remove(settings.zerog_chain_name)
+        names.insert(0, settings.zerog_chain_name)
+    return names
 
 
 async def verify_audit_payment(

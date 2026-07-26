@@ -158,7 +158,9 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 def _is_zerog(settings: Settings) -> bool:
-    return settings.llm_backend == "zerog"
+    # The master mode routes every audit role through 0G Compute. Keep the
+    # legacy backend value as a compute-only compatibility switch.
+    return settings.zerog_enabled or settings.llm_backend == "zerog"
 
 
 def _is_openrouter(settings: Settings) -> bool:
@@ -200,7 +202,12 @@ def _adapter(settings: Settings, llm_settings: LlmSettings) -> ProviderPort:
     endpoint label does not prove conformance (provider.py), so the only honest
     signal is the URL the request will actually go to."""
     if _is_zerog(settings) or ZEROG_ROUTER_HOST in llm_settings.llm_base_url:
-        return ZeroGAdapter(llm_settings)
+        return ZeroGAdapter(
+            llm_settings,
+            verify_tee=settings.zerog_verify_tee,
+            trust_mode=settings.zerog_trust_mode,
+            provider_sort=settings.zerog_provider_sort,
+        )
     if OPENROUTER_HOST in llm_settings.llm_base_url:
         return OpenRouterAdapter(llm_settings)
     return OpenAICompatAdapter(llm_settings)
@@ -209,15 +216,21 @@ def _adapter(settings: Settings, llm_settings: LlmSettings) -> ProviderPort:
 def _provider_settings(settings: Settings) -> LlmSettings:
     base_url = settings.llm_base_url
     api_key = settings.llm_api_key
-    if settings.llm_backend == "anthropic":
+    if settings.zerog_enabled:
+        # The product-level flag is authoritative. An old generic endpoint/key
+        # may still be present for the non-0G backend, so do not let either keep
+        # unified mode on that provider. Dedicated 0G values win.
+        base_url = settings.zerog_router_url
+        api_key = os.environ.get("ZEROG_API_KEY") or api_key
+    elif settings.llm_backend == "zerog":
+        base_url = base_url or settings.zerog_router_url
+        api_key = api_key or os.environ.get("ZEROG_API_KEY", "")
+    elif settings.llm_backend == "anthropic":
         base_url = base_url or "https://api.anthropic.com/v1/"
         api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
     elif settings.llm_backend == "google":
         base_url = base_url or "https://generativelanguage.googleapis.com/v1beta/openai/"
         api_key = api_key or os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "")
-    elif _is_zerog(settings):
-        base_url = base_url or settings.zerog_router_base_url
-        api_key = api_key or os.environ.get("ZEROG_API_KEY", "")
     elif settings.llm_backend == "openrouter":
         base_url = base_url or OPENROUTER_BASE_URL
         api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
