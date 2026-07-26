@@ -167,7 +167,7 @@ async def prove_ownership(request: Request, session_id: str) -> JSONResponse:
     ref = None
     if not bypassed:
         token = await runtime.gh_client.get_user_access_token(
-            user["id"], runtime.panel_sessions
+            user["id"], runtime.sessionmaker
         )
         if not token:
             return JSONResponse(

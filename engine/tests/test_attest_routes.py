@@ -114,6 +114,7 @@ def _sign_in(
             return object()
 
         async def get_user_access_token(self, uid, sessions):
+            assert sessions is runtime.sessionmaker
             return "gho_test"
 
     object.__setattr__(runtime, "gh_client", _Client())
