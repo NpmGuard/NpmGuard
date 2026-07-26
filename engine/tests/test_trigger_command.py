@@ -1,4 +1,4 @@
-# CLASS MAP — build_trigger_command (pure: Trigger → node argv or None)
+# CLASS MAP — build_trigger_command (pure, TOTAL: Trigger → node argv)
 # Axes: target path shape (absolute / bare-relative / dot-relative / subpath),
 #       trigger kind, argv passthrough, L4 instrumentation flag
 #   C1 absolute planted driver required verbatim
@@ -7,11 +7,21 @@
 #   C4 argv mirrors normal node invocation (entry at [1], args after)
 #   C5 dash-leading argv guarded by the -- separator
 #   C6 subpath is a module specifier, never a filesystem path
-#   C7 lifecycle/bin kinds have no run command (None)
+#   C7 the kind vocabulary is exactly what can run — a kind with no run command
+#      is refused where the experiment COMPILES, never carried to a SetupError
+#      inside a paid audit
 #   C8 l4=True injects the --require instrumentation preamble; l4=False does not
-from npmguard.contract.models import Trigger
+from typing import get_args
+
+import pytest
+
+from npmguard.contract.models import ToolCall, Trigger
+from npmguard.contract.models import Trigger as _Trigger
+from npmguard.experiments import ExperimentCompileError, compile_experiment
 from npmguard.observation import build_trigger_command
 from tests.support.optional import present
+
+TriggerKind = _Trigger.model_fields["kind"].annotation
 
 
 def _require_spec(command: list[str] | None) -> str:
@@ -64,10 +74,19 @@ def test_subpath_is_a_module_specifier_not_a_path() -> None:
     assert _require_spec(build_trigger_command(trigger, l4=False)) == 'require("lodash/fp")'
 
 
-def test_lifecycle_and_bin_have_no_run_command() -> None:
-    """C7: lifecycle/bin have no run command."""
-    assert build_trigger_command(Trigger(kind="lifecycle", target="postinstall"), l4=False) is None
-    assert build_trigger_command(Trigger(kind="bin", target="cli"), l4=False) is None
+def test_every_declared_kind_has_a_run_command() -> None:
+    """C7: the contract declares only kinds that run, so this function is TOTAL.
+
+    A kind with no command earns a SetupError and therefore a DEFER — a coverage
+    gap that blocks SAFE — for a value no producer emits. `lifecycle` and `bin`
+    were exactly that, so they are gone from `TriggerKind` and an experiment
+    naming one is refused at compile time instead."""
+    for kind in get_args(TriggerKind):
+        command = build_trigger_command(Trigger(kind=kind, target="x"), l4=False)
+        assert command and command[0] == "node", kind
+
+    with pytest.raises(ExperimentCompileError, match="invalid args for tool 'trigger'"):
+        compile_experiment([ToolCall(tool="trigger", args={"kind": "lifecycle", "target": "postinstall"})])
 
 
 def test_l4_flag_injects_instrumentation_require() -> None:
