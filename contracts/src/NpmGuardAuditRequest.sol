@@ -24,7 +24,7 @@ contract NpmGuardAuditRequest {
     address public owner;
     uint256 public auditFee;
 
-    /// @notice keccak256(packageName, "@", version) => already requested
+    /// @notice requestKey(packageName, version) => already requested
     mapping(bytes32 => bool) public requested;
 
     modifier onlyOwner() {
@@ -37,6 +37,22 @@ contract NpmGuardAuditRequest {
         auditFee = _auditFee;
     }
 
+    // The one-shot key for a (packageName, version) pair.
+    //
+    // abi.encode, NOT abi.encodePacked: packed encoding concatenates dynamic types
+    // with no length prefix, so a separator that can also occur inside a name makes
+    // the key ambiguous. A scoped package carries one, and the two pairs
+    // ("@scope/pkg", "1.0.0") and ("", "scope/pkg@1.0.0") pack to identical bytes.
+    // requestAudit is permissionless and this flag is permanent, so that ambiguity
+    // lets anyone burn any scoped package's slot for one fee. abi.encode
+    // length-prefixes each string, so one key means one pair.
+    function requestKey(
+        string memory packageName,
+        string memory version
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(packageName, version));
+    }
+
     /// @notice Pay `auditFee` to request an audit for (packageName, version).
     ///         Excess ETH is refunded. Each (pkg, version) can only be requested once.
     function requestAudit(
@@ -45,7 +61,7 @@ contract NpmGuardAuditRequest {
     ) external payable {
         if (msg.value < auditFee) revert InsufficientFee(auditFee, msg.value);
 
-        bytes32 key = keccak256(abi.encodePacked(packageName, "@", version));
+        bytes32 key = requestKey(packageName, version);
         if (requested[key]) revert AlreadyRequested();
         requested[key] = true;
 
@@ -62,7 +78,7 @@ contract NpmGuardAuditRequest {
         string calldata packageName,
         string calldata version
     ) external view returns (bool) {
-        return requested[keccak256(abi.encodePacked(packageName, "@", version))];
+        return requested[requestKey(packageName, version)];
     }
 
     function setFee(uint256 _fee) external onlyOwner {
