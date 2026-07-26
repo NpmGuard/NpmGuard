@@ -33,7 +33,11 @@ export type ButtonVariant = "primary" | "outline" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "bg-accent text-accent-on border border-accent hover:bg-accent-text hover:border-accent-text",
+  // Primary is INK, not accent: on paper the strongest thing on the page is the
+  // stamp pressed hardest, and it stays legible over every wash. Accent is kept
+  // for links, focus and the one moving spinner arc — an accent-filled button
+  // beside gold-on-lacquer links would make every CTA compete with them.
+  primary: "bg-text text-canvas border border-text hover:bg-text-2 hover:border-text-2",
   // `border-border-control` and not `border-border`: the decorative hairline
   // measures 1.3:1, which fails WCAG 1.4.11 for a control whose boundary is its
   // only affordance. §2.2 added the control step precisely for this.

@@ -20,11 +20,10 @@
  * 1. `tokens.css` brings in Tailwind, which DECLARES the layer order
  *    (`@layer theme, base, components, utilities`). The first `@layer`
  *    statement in the bundle is what fixes that order, so it comes first.
- * 2. The two faces, self-hosted. The variable Inter file ships every subset as
- *    a separate `@font-face` gated on `unicode-range`, so a Latin page
- *    downloads only the Latin file — §2.7's "subset to Latin" without a
- *    hand-maintained `@font-face`. Plex Mono is loaded at 400 (body) and 500
- *    (labels, table headers) only.
+ * 2. The two faces, self-hosted and variable. Each fontsource variable file
+ *    ships every subset as a separate `@font-face` gated on `unicode-range`,
+ *    so a Latin page downloads only the Latin file — §2.7's "subset to Latin"
+ *    without a hand-maintained `@font-face`.
  * 3. `base.css` is the app's own base layer: element defaults, the page plane,
  *    the one focus ring. 105 lines, down from 798.
  * 4. `how-it-works.css` is the single page-scoped sheet that survives, and its
@@ -35,9 +34,8 @@
 
 @import "./styles/tokens.css";
 
-@import "@fontsource-variable/inter/wght.css";
-@import "@fontsource/ibm-plex-mono/latin-400.css";
-@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource-variable/space-grotesk/wght.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
 
 @import "./styles/base.css";
 @import "./styles/how-it-works.css";
