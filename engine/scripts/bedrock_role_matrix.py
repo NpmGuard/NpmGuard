@@ -36,6 +36,7 @@ MODELS = (
 )
 ROLES = ("intent", "flag", "hypothesis", "propose", "agent", "judge")
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "llm"
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 OUTPUTS: dict[str, type[BaseModel]] = {
     "intent": PackageIntent,
     "flag": FileFlagResponse,
@@ -200,7 +201,12 @@ def _credential(path: Path) -> str | None:
     )
     if key or not path.is_file():
         return key
-    accepted = {"AWS_BEARER_TOKEN_BEDROCK", "AWS_BEDROCK_API_KEY", "BEDROCK_KEY"}
+    accepted = {
+        "NPMGUARD_LLM_API_KEY",
+        "AWS_BEARER_TOKEN_BEDROCK",
+        "AWS_BEDROCK_API_KEY",
+        "BEDROCK_KEY",
+    }
     for line in path.read_text(encoding="utf-8").splitlines():
         name, separator, value = line.partition("=")
         if separator and name.strip() in accepted:
@@ -256,7 +262,7 @@ async def main() -> None:
     parser.add_argument("--timeout-seconds", type=float, default=60)
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--credentials-file", type=Path, default=Path(".aws"))
+    parser.add_argument("--credentials-file", type=Path, default=ENV_FILE)
     args = parser.parse_args()
 
     key = _credential(args.credentials_file)
