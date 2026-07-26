@@ -27,6 +27,14 @@
 #                NPMGUARD-0031 (pipeline.py:401-409; e2e S16/S17 pin the wire code)
 # Errors: C13 infra DEFER / C14 unexpected DEFER / C15 timeout DEFER — covered in
 #         tests/test_orchestrator_errors.py (W6-owned; kept there, renumbered here)
+# Format 2: C20 a dispatched hypothesis emits experiment_started → sandbox_started
+#               → sandbox_completed → judgment_started → hypothesis_resolved, in
+#               that order, under ONE hypId and ONE runId minted before the run
+#           C21 sandbox_completed carries the redacted RunDisplay and
+#               hypothesis_resolved carries the rows its citations name — the wire
+#               path from a verdict back to its evidence
+#           C22 a hypothesis deferred BEFORE dispatch emits no sandbox frames and a
+#               null runId: the boundaries describe work that happened
 # Plumbing: C16 emitter=None → whole run completes without a crash
 #           C17 the stored artifact round-trips: evidenceRef.hash is readable from
 #               the ArtifactStore and verifies against its content hash
@@ -36,6 +44,7 @@
 #           C19 stored artifact hash != declared hash → RuntimeError inside the try →
 #               generic except → DEFERRED "Internal error", never CONFIRMED/REFUTED
 import asyncio
+import json
 
 import pytest
 
@@ -47,6 +56,7 @@ from kit_stream import StreamService
 from npmguard import orchestrator as orchestrator_module
 from npmguard.audit_log import AuditLog
 from npmguard.config import Settings
+from npmguard.contract.kinds import HYPOTHESIS_EVENT_ORDER
 from npmguard.contract.models import (
     Budget,
     Claim,
@@ -157,8 +167,10 @@ class FakeObservation:
         self.stall_seconds = stall_seconds
         self.calls: list[dict] = []
 
-    async def __call__(self, package_path, experiment, settings, *, observe, budget):
-        self.calls.append({"experiment": experiment, "observe": observe, "budget": budget})
+    async def __call__(self, package_path, experiment, settings, *, observe, budget, run_id):
+        self.calls.append(
+            {"experiment": experiment, "observe": observe, "budget": budget, "runId": run_id}
+        )
         if self.stall_seconds:
             await asyncio.sleep(self.stall_seconds)
         return self.artifacts.pop(0)
@@ -249,6 +261,94 @@ async def test_confirmed_with_citations_and_resolved_event(rig_factory, monkeypa
     assert resolved[0]["data"]["state"] == "CONFIRMED"
     assert resolved[0]["data"]["severity"] == "high"
     assert resolved[0]["data"]["reason"] == "canary exfiltrated"
+
+
+async def test_a_dispatched_hypothesis_emits_the_six_frames_in_order(
+    rig_factory, monkeypatch, tmp_path
+) -> None:
+    """C20: one dispatched hypothesis produces the whole format-2 chain, in order,
+    under ONE hypId and ONE runId. The identity is what joins them: a viewer
+    watching `experiment_started` has to be able to recognise the
+    `sandbox_completed` that answers it, and an id minted after the run could not
+    appear on the frames that announced it."""
+    rig = await rig_factory([CONFIRM])
+    emitter = AuditEmitter(AUDIT_ID, rig.stream)
+    await _run(
+        rig,
+        monkeypatch,
+        tmp_path,
+        hypotheses=[_hyp()],
+        observation=FakeObservation([_artifact()]),
+        emitter=emitter,
+    )
+    events = await rig.stream.read_after(audit_channel(AUDIT_ID), -1)
+    chain = [event["type"] for event in events]
+    assert chain == list(HYPOTHESIS_EVENT_ORDER)[1:]  # emitted comes from hypothesize
+    assert {event["data"]["hypId"] for event in events} == {"hyp-1"}
+    run_ids = {
+        event["data"].get("runId") or event["data"]["run"]["runId"]
+        for event in events
+        if "runId" in event["data"] or "run" in event["data"]
+    }
+    assert len(run_ids) == 1, run_ids
+
+
+async def test_the_sandbox_frame_carries_a_redacted_run_and_resolves_its_citations(
+    rig_factory, monkeypatch, tmp_path
+) -> None:
+    """C21: `sandbox_completed` carries the frontend-safe projection, and
+    `hypothesis_resolved` carries the rows the judge cited. Together they are the
+    path from a verdict back to the events it rests on — asserted on the WIRE,
+    because that is where a missing citation stops being recoverable."""
+    rig = await rig_factory([CONFIRM])
+    emitter = AuditEmitter(AUDIT_ID, rig.stream)
+    await _run(
+        rig,
+        monkeypatch,
+        tmp_path,
+        hypotheses=[_hyp()],
+        observation=FakeObservation([_artifact()]),
+        emitter=emitter,
+    )
+    events = await rig.stream.read_after(audit_channel(AUDIT_ID), -1)
+    by_type = {event["type"]: event["data"] for event in events}
+
+    run = by_type["sandbox_completed"]["run"]
+    assert run["eventCount"] == len(_events())
+    assert run["omittedObservationCount"] == 0
+    # Environment KEYS are the evidence; the planted VALUE never crosses.
+    assert run["setupApplied"]["envKeys"] == ["NPM_TOKEN"]
+    assert "canary" not in json.dumps(run)
+
+    resolved = by_type["hypothesis_resolved"]
+    assert resolved["citedEventIds"], "a CONFIRMED must cite"
+    assert {item["eventId"] for item in resolved["citedObservations"]} == set(
+        resolved["citedEventIds"]
+    )
+    assert resolved["evidenceRefs"], "a CONFIRMED rests on a stored artifact"
+
+
+async def test_an_undispatched_hypothesis_emits_no_sandbox_frames(
+    rig_factory, monkeypatch, tmp_path
+) -> None:
+    """C22: the boundaries describe work that happened. A hypothesis the budget
+    deferred before dispatch never reached a sandbox, so it announces none — and
+    its `runId` is null rather than an id naming a run nobody ran."""
+    rig = await rig_factory([CONFIRM])
+    emitter = AuditEmitter(AUDIT_ID, rig.stream)
+    await _run(
+        rig,
+        monkeypatch,
+        tmp_path,
+        hypotheses=[_hyp()],
+        observation=FakeObservation([_artifact()]),
+        emitter=emitter,
+        budget_ms=0,
+    )
+    events = await rig.stream.read_after(audit_channel(AUDIT_ID), -1)
+    assert [event["type"] for event in events] == ["hypothesis_resolved"]
+    assert events[0]["data"]["runId"] is None
+    assert events[0]["data"]["citedObservations"] == []
 
 
 async def test_refuted_records_evidence_artifact(rig_factory, monkeypatch, tmp_path) -> None:
@@ -439,13 +539,22 @@ async def test_experiment_budget_plumbed_into_observation(rig_factory, monkeypat
     monkeypatch.setattr(orchestrator_module, "run_under_observation", observation)
     hypothesis = _hyp()
     result = await run_experiment(
-        hypothesis, tmp_path, "left-pad: pads strings", Settings(_env_file=None), rig.llm, AUDIT_ID
+        hypothesis,
+        tmp_path,
+        "left-pad: pads strings",
+        Settings(_env_file=None),
+        rig.llm,
+        AUDIT_ID,
+        "run-wire-1",
     )
     assert len(observation.calls) == 1
     call = observation.calls[0]
     assert call["observe"] is FULL_ORACLE
     assert call["budget"] is EXPERIMENT_BUDGET
     assert EXPERIMENT_BUDGET == {"wallMs": 20_000}
+    # The caller's id reaches the sandbox, so a real run seals itself under the
+    # id the stream already announced.
+    assert call["runId"] == "run-wire-1"
     assert call["experiment"] == list(present(hypothesis.experiment))
     assert result.confirmed is False
     assert result.evidence_ref.id == artifact.runId

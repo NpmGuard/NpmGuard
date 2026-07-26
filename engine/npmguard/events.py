@@ -8,6 +8,16 @@ from kit_stream import StreamService
 from kit_stream.service import READ_BATCH
 
 TERMINAL_EVENTS = frozenset({"verdict_reached", "audit_error"})
+# The replay vocabulary this engine emits, stamped on `audit_started`. Format 2
+# added the experiment / sandbox / judgment boundaries that make a stream a
+# causal record instead of a progress log.
+#
+# Declared here rather than generated, because it is a VALUE and the codegen
+# carries types: `shared/src/events.ts::REPLAY_FORMAT` is the other half, and
+# `test_events_sse.py` pins that a real audit's first frame carries this number.
+# Raising it is a hard cut — a consumer below it renders an unsupported-replay
+# state, and never reconstructs the frames the older format did not carry.
+REPLAY_FORMAT = 2
 # The four fields _wire_event stamps on every SSE frame from the durable
 # envelope. `type` is the discriminator of the event union
 # (shared/src/events.ts: AuditEventSchema), so a payload key of the same name
@@ -15,13 +25,22 @@ TERMINAL_EVENTS = frozenset({"verdict_reached", "audit_error"})
 ENVELOPE_KEYS = frozenset({"type", "auditId", "timestamp", "seq"})
 
 
-def _json_value(value: Any) -> Any:
+def json_value(value: Any) -> Any:
+    """A payload as JSON: contract models dumped with their nulls intact.
+
+    `exclude_none=False` is the wire nullability rule — every Optional engine
+    field reaches a consumer as an explicit `null`, so a schema written with
+    `.nullable()` parses real traffic. Public because the demo recorder captures
+    the same payloads without a StreamService and must serialize them the same
+    way; two spellings of "payload → JSON" is how a recording stops matching the
+    stream it stands in for.
+    """
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json", exclude_none=False)
     if isinstance(value, dict):
-        return {key: _json_value(item) for key, item in value.items()}
+        return {key: json_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_json_value(item) for item in value]
+        return [json_value(item) for item in value]
     return value
 
 
@@ -65,7 +84,7 @@ class AuditEmitter:
             f"{sorted(body.keys() & ENVELOPE_KEYS)} on audit {self.audit_id}"
         )
         return await self._stream.append(
-            audit_channel(self.audit_id), event_type, _json_value(body)
+            audit_channel(self.audit_id), event_type, json_value(body)
         )
 
 

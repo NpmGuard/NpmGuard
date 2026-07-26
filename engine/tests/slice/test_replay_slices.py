@@ -68,7 +68,7 @@ async def _replay_orchestrator(
     llm = build_npmguard_llm(sessions, settings, provider=provider)
 
     hypotheses = [Hypothesis.model_validate(h) for h in bundle.hypotheses]
-    graph, _, _ = build_graph(f"replay-{bundle.package}", hypotheses)
+    graph = build_graph(f"replay-{bundle.package}", hypotheses).graph
     sandbox = RecordedSandbox(bundle)
 
     monkeypatch.setattr(orchestrator_module, "run_experiment", sandbox.run_experiment)

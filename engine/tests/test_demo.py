@@ -1,7 +1,7 @@
 # CLASS MAP — DemoService: what the committed recordings load as, what a viewer
-# receives during a replay, how the pacing knob behaves, and the row the replay
-# finalises. The demo path is a product surface (a replay gallery whose purpose is
-# to be credible evidence), so the unit is "what a gallery viewer observes".
+# receives, and the row a seeded recording finalises. The demo path is a product
+# surface (a replay gallery whose purpose is to be credible evidence), so the unit
+# is "what a gallery viewer observes".
 # Units: DemoService(sessions, stream).recordings and .start(name) -> the durable
 #        event log (drained through sse_events, the same generator the SSE route
 #        serves) + the audit_sessions row.
@@ -9,37 +9,10 @@
 # Seams: a throwaway sqlite DB behind AuditSessionStore + StreamService with the
 #  polling notifier — no HTTP, no engine process. `npmguard.demo.REPO_ROOT` for the
 #  loader classes: the demo-data directory is resolved from it at construction and
-#  there is no injection point. The pacing classes RELOAD THE MODULE, because
-#  DEMO_SPEED is read from the environment at import time — the env var is the only
-#  real seam, and a test that moved a module attribute instead would prove the
-#  attribute is honoured while saying nothing about the knob.
+#  there is no injection point.
 #
-# CURATED DATA — engine/demo-data/test-pkg-env-exfil.json is a HYBRID, and no test
-# here asserts any curated value as ENGINE TRUTH. Replay classes assert equality
-# WITH THE RECORDING, because verbatim replay is the contract; the divergence class
-# pins the divergences AS divergences, computing what the engine emits from the
-# engine's own code over the same committed source tree — so a re-record turns it
-# red and it is deleted rather than rotting into a specification.
-#   faithful (byte-identical to the prod audit): report.verdict, rationale, counts,
-#     confirmedHypIds, all 14 hypotheses incl. experiment + evidenceRefs, every
-#     resolution.reason; and — measured — the file set and sizeBytes
-#   curated, contradicting engine output:
-#     file_list[].fileType "javascript"     engine emits "js" (EXTENSION_TYPE_MAP)
-#     file_list[].permissions "0644"        engine emits "644" (format(mode, "o"))
-#     file_verdict[index.js].risk 3         the code computes 8 (max severity over
-#                                           that file's six hypotheses is "high")
-#     dependencies_provisioned installed    engine returns installed=False,
-#       =true / skipped=null                 skipped="no runtime dependencies"
-#     report.trace[].input/.output {}       populated summaries (durationMs round)
-#     intent_extracted.expectedCapabilities curated one-liner list, and
-#     report.fileSummaries[]                 curated summaries — NOT asserted
-#                                            against engine truth: both need a live
-#                                            model, so only what can be recomputed
-#                                            offline is pinned
-#
-# Axes: recording (DANGEROUS 68-frame / SAFE 30-frame / absent / unloadable) ×
+# Axes: recording (DANGEROUS / SAFE / absent / unloadable) ×
 #       what the viewer receives (frames, envelope, row, queue visibility) ×
-#       pacing (0 / finite / negative / non-numeric, floor, cap) ×
 #       what a future caller could do with the recorded report
 #
 # Three facts the tests below turn on that are not visible at any one of them:
@@ -60,12 +33,9 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import json
-import os
 import shutil
 import stat
-import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,7 +49,7 @@ from kit_spine.notify_polling import PollingNotifier
 from kit_stream import StreamService
 from npmguard import demo as demo_module
 from npmguard import report_store
-from npmguard.config import REPO_ROOT, ConfigError, Settings
+from npmguard.config import REPO_ROOT, Settings
 from npmguard.deps import provision_dependencies
 from npmguard.events import TERMINAL_EVENTS, sse_events
 from npmguard.inventory import EXTENSION_TYPE_MAP, classify_files
@@ -93,20 +63,10 @@ SAFE_RECORDING = DEMO_DATA / "chalk.json"
 # a hand-authored fixture, not a bench-dd malware sample, and never installed.
 EXFIL_SOURCES = REPO_ROOT / "sandbox" / "test-fixtures" / "test-pkg-env-exfil"
 ENVELOPE_KEYS = ("type", "auditId", "timestamp", "seq")
-SPEED_ENV = "NPMGUARD_DEMO_SPEED"
-
-REPLAY_DEADLINE_SECONDS = 60.0  # generous outer bound; a stalled replay must not hang
-POLL_SECONDS = 0.005
-# Pacing bounds. The recorded human throttle for chalk.json sums to 7.32 s at
-# speed 1, so these two windows are ~25x apart and cannot overlap; a sleep can
-# only ever overshoot, never undershoot, so the floor is the safe direction.
+# Seeding is a handful of inserts. The ceiling is two orders of magnitude above
+# that and still an order below the shortest pause a recording carries, so it
+# falsifies "a sleep came back" without being CI-sensitive.
 INSTANT_CEILING = 0.4
-DIVIDED_SPEED = 6
-SLOW_FLOOR = 0.8
-# Two-sided on purpose: 7.32/6 = 1.22 s measured, so a ceiling of 4 s still
-# falsifies "the knob was ignored" (which is 7.32 s) with 3x of slack for a slow
-# machine. Sleeps only ever overshoot, so only the ceiling is CI-sensitive.
-DIVIDED_CEILING = 4.0
 
 
 def _recording(path: Path) -> dict[str, Any]:
@@ -151,48 +111,19 @@ async def rig(tmp_path):
     await engine.dispose()
 
 
-@pytest.fixture
-def at_speed():
-    """Re-import npmguard.demo with NPMGUARD_DEMO_SPEED set, and hand back the
-    module. DEMO_SPEED is a module constant read from the environment at import,
-    so this is the seam the knob actually has; the original binding is restored
-    afterwards by restoring the variable and reloading once more."""
-    original = os.environ.get(SPEED_ENV)
-
-    def _reload(value: str | None) -> Any:
-        if value is None:
-            os.environ.pop(SPEED_ENV, None)
-        else:
-            os.environ[SPEED_ENV] = value
-        return importlib.reload(demo_module)
-
-    yield _reload
-    if original is None:
-        os.environ.pop(SPEED_ENV, None)
-    else:
-        os.environ[SPEED_ENV] = original
-    importlib.reload(demo_module)
-
-
 async def _replay(rig, module=demo_module, *, package: str) -> SimpleNamespace:
-    """Start a replay and wait, bounded, for the row to go terminal."""
+    """Seed a recording and read back what a viewer would receive.
+
+    No waiting and no polling: `start` returns once the whole tape is durable, so
+    the row is already terminal. `elapsed` is kept because "seeding costs no wall
+    clock" is now a property worth asserting.
+    """
     service = module.DemoService(rig.sessions, rig.stream)
     started = time.monotonic()
     handle = await service.start(package)
     audit_id = handle.auditId
-    async with asyncio.timeout(REPLAY_DEADLINE_SECONDS):
-        while True:
-            row = await rig.sessions.get(audit_id)
-            if row is not None and row.status in ("done", "error"):
-                break
-            await asyncio.sleep(POLL_SECONDS)
     elapsed = time.monotonic() - started
-    # The row turns terminal INSIDE the replay task, so the task itself can still
-    # be a tick from done. Join it by its published name (DemoService names the
-    # task after the audit) so no test ends with a live task the loop must destroy.
-    live = [task for task in asyncio.all_tasks() if task.get_name() == f"npmguard-demo-{audit_id}"]
-    if live:
-        await asyncio.wait(live, timeout=REPLAY_DEADLINE_SECONDS)
+    row = await rig.sessions.get(audit_id)
     return SimpleNamespace(
         audit_id=audit_id,
         row=row,
@@ -338,13 +269,12 @@ def test_two_recordings_cannot_claim_one_package_name(rig, tmp_path, monkeypatch
 # --------------------------------------------------------------------------- #
 
 
-async def test_replay_emits_every_recorded_frame_in_order_verbatim(rig, at_speed) -> None:
+async def test_replay_emits_every_recorded_frame_in_order_verbatim(rig) -> None:
     """C4: the contract is verbatim replay, so this asserts equality WITH THE
     RECORDING for all 68 frames — including the curated payload values, which are
     faithfully replayed lies (see the class map's curated table and C13)."""
-    module = at_speed("0")
     recorded = _recording(DANGEROUS_RECORDING)
-    result = await _replay(rig, module, package="test-pkg-env-exfil")
+    result = await _replay(rig, package="test-pkg-env-exfil")
     assert [frame["type"] for frame in result.frames] == [
         event["type"] for event in recorded["events"]
     ]
@@ -353,25 +283,23 @@ async def test_replay_emits_every_recorded_frame_in_order_verbatim(rig, at_speed
     ]
 
 
-async def test_replay_restamps_the_envelope_and_drops_recorded_timestamps(rig, at_speed) -> None:
+async def test_replay_restamps_the_envelope_and_drops_recorded_timestamps(rig) -> None:
     """C5: seq/auditId/timestamp belong to THIS replay, not to the recording. A
     viewer therefore sees live time; the recorded 2026-01-01 instants only drive
     the pacing and never reach the wire."""
-    module = at_speed("0")
     recorded = _recording(DANGEROUS_RECORDING)
-    result = await _replay(rig, module, package="test-pkg-env-exfil")
+    result = await _replay(rig, package="test-pkg-env-exfil")
     assert [frame["seq"] for frame in result.frames] == list(range(len(recorded["events"])))
     assert {frame["auditId"] for frame in result.frames} == {result.audit_id}
     recorded_stamps = {event["timestamp"] for event in recorded["events"]}
     assert not recorded_stamps & {frame["timestamp"] for frame in result.frames}
 
 
-async def test_replay_finalises_the_row_with_the_recorded_report(rig, at_speed) -> None:
+async def test_replay_finalises_the_row_with_the_recorded_report(rig) -> None:
     """C6: nothing is regenerated — the row's report is the recorded object, whose
     verdict/counts/hypotheses are the faithful half of the hybrid."""
-    module = at_speed("0")
     recorded = _recording(DANGEROUS_RECORDING)
-    result = await _replay(rig, module, package="test-pkg-env-exfil")
+    result = await _replay(rig, package="test-pkg-env-exfil")
     assert result.row.status == "done"
     assert result.row.error is None
     assert result.row.report == recorded["report"]
@@ -381,12 +309,11 @@ async def test_replay_finalises_the_row_with_the_recorded_report(rig, at_speed) 
     assert len(result.row.report["hypotheses"]) == 14
 
 
-async def test_safe_recording_replays_the_same_way(rig, at_speed) -> None:
+async def test_safe_recording_replays_the_same_way(rig) -> None:
     """C7: the second recording, so the classes above are properties of the
     replayer and not of one file. A SAFE demo ends on the same terminal frame."""
-    module = at_speed("0")
     recorded = _recording(SAFE_RECORDING)
-    result = await _replay(rig, module, package="chalk")
+    result = await _replay(rig, package="chalk")
     assert len(result.frames) == len(recorded["events"]) == 30
     assert [_payload(frame) for frame in result.frames] == [
         _payload(event) for event in recorded["events"]
@@ -395,15 +322,14 @@ async def test_safe_recording_replays_the_same_way(rig, at_speed) -> None:
     assert result.row.report["verdict"] == "SAFE"
 
 
-async def test_demo_row_is_invisible_to_the_audit_queue(rig, at_speed) -> None:
+async def test_demo_row_is_invisible_to_the_audit_queue(rig) -> None:
     """C8: package_path == DEMO_PACKAGE_PATH is the demo tag, and file_contents holds
     the recorded sources a viewer browses. So a replay is excluded from queued() /
     running() / queued_count() — it cannot consume a real audit's admission slot,
     and restart recovery cannot sweep it into a 0031 or re-run the real pipeline
     on it."""
-    module = at_speed("0")
     recorded = _recording(DANGEROUS_RECORDING)
-    result = await _replay(rig, module, package="test-pkg-env-exfil")
+    result = await _replay(rig, package="test-pkg-env-exfil")
     assert result.row.file_contents == recorded["files"]
     assert result.row.package_path == "__demo__"
     assert await rig.sessions.queued_count() == 0
@@ -412,111 +338,57 @@ async def test_demo_row_is_invisible_to_the_audit_queue(rig, at_speed) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Pacing — NPMGUARD_DEMO_SPEED
+# Seeding — the whole tape, at once
 # --------------------------------------------------------------------------- #
 
 
-async def test_speed_zero_skips_the_throttle_entirely(rig, at_speed) -> None:
-    """C9: the e2e/Playwright setting. chalk.json carries 7.32 s of recorded human
-    pacing at speed 1; at 0 the whole replay lands inside INSTANT_CEILING."""
-    module = at_speed("0")
-    result = await _replay(rig, module, package="chalk")
-    assert len(result.frames) == 30
-    assert result.elapsed < INSTANT_CEILING
+async def test_the_whole_tape_is_durable_when_start_returns(rig) -> None:
+    """C9: `start` seeds every frame before it answers, so a caller that connects
+    on the returned id can never race the writer. The old replay spawned a paced
+    background task, which meant "the audit exists" and "the audit is readable"
+    were different moments."""
+    service = demo_module.DemoService(rig.sessions, rig.stream)
+    handle = await service.start("chalk")
+    frames = await _frames(rig.stream, handle.auditId)
+    assert len(frames) == len(_recording(SAFE_RECORDING)["events"])
+    row = await rig.sessions.get(handle.auditId)
+    assert row is not None and row.status == "done"
 
 
-async def test_a_finite_speed_divides_the_throttle(rig, at_speed) -> None:
-    """C10: the knob is a divisor, not a switch — asserted from BOTH sides, since a
-    floor alone is also satisfied by a replay that ignores the knob and throttles at
-    speed 1 (measured: that mutation passes a floor-only assertion)."""
-    module = at_speed(str(DIVIDED_SPEED))
-    result = await _replay(rig, module, package="chalk")
-    assert SLOW_FLOOR < result.elapsed < DIVIDED_CEILING
+async def test_seeding_leaves_no_background_task_behind(rig) -> None:
+    """C10: there is no replay task. A gallery that opens ten demos should not be
+    holding ten sleeping coroutines, and a server-side sleep is exactly what a
+    pausable, seekable client replay cannot use."""
+    before = {task.get_name() for task in asyncio.all_tasks()}
+    service = demo_module.DemoService(rig.sessions, rig.stream)
+    handle = await service.start("chalk")
+    leaked = [
+        task.get_name()
+        for task in asyncio.all_tasks()
+        if task.get_name() not in before and handle.auditId in task.get_name()
+    ]
+    assert leaked == []
 
 
-async def test_a_negative_speed_is_clamped_to_zero(rig, at_speed) -> None:
-    """C11: max(0.0, …) — a negative divisor would otherwise mean a negative sleep
-    (a ValueError from asyncio.sleep) or an inverted throttle."""
-    module = at_speed("-4")
-    result = await _replay(rig, module, package="chalk")
-    assert result.elapsed < INSTANT_CEILING
-
-
-def test_a_non_numeric_speed_breaks_the_import(at_speed) -> None:
-    """C12: a NON-NUMERIC value still stops the IMPORT — npmguard.api imports this
-    module, so a bad config must kill the process rather than boot an engine that
-    cannot replay — but now as a ConfigError NAMING `NPMGUARD_DEMO_SPEED`, where it
-    used to be `could not convert string to float: 'fast'`, naming neither the knob
-    nor the module. No longer a FINDING: the knob is declared in config.py and
-    parsed there, so pydantic's field-level message is rewritten to name the
-    environment variable an operator actually set."""
-    import npmguard.api  # noqa: F401  (the import chain being asserted)
-
-    assert "npmguard.demo" in sys.modules
-    with pytest.raises(ConfigError) as excinfo:
-        at_speed("fast")
-    # Still a ValueError subclass, so any caller that broadly catches parse
-    # failures at boot keeps working.
-    assert isinstance(excinfo.value, ValueError)
-    assert SPEED_ENV in str(excinfo.value)
-    assert "could not convert string to float" not in str(excinfo.value)
-
-
-@pytest.mark.parametrize(
-    ("kind", "speed", "events", "lower", "upper"),
-    [
-        # file_analyzing floors at 600 ms; the recorded gap is 1 ms. At speed 4
-        # the floor is 150 ms, while the recorded delta alone would be 0.25 ms.
-        (
-            "floor",
-            "4",
-            [
-                ("file_analyzing", "00.000"),
-                ("file_analyzing", "00.001"),
-                ("verdict_reached", "00.002"),
-            ],
-            0.1,
-            None,
-        ),
-        # A 600 s recorded gap caps at MAX_DELAY_MS (4 s). At speed 40 that is
-        # 100 ms; uncapped it would be 15 s, so the upper bound falsifies the cap.
-        (
-            "cap",
-            "40",
-            [
-                ("file_list", "00.000"),
-                ("file_list", "10:00.000"),
-                ("verdict_reached", "10:00.001"),
-            ],
-            0.02,
-            1.0,
-        ),
-    ],
-)
-async def test_throttle_floor_and_cap(
-    rig, at_speed, tmp_path, monkeypatch, kind, speed, events, lower, upper
-) -> None:
-    """C13: the two bounds that make a replay watchable. The floor keeps frames
-    from flying past faster than a human reads; the cap keeps a long pause in a
-    recording from stalling the gallery. Both are observed as elapsed time over a
-    three-frame recording, at a scaled speed so the test costs milliseconds. The
-    last frame is the terminal one every recording must end with (C3b), one
-    millisecond after the frame being measured, so it adds only its own floor
-    (800 ms / speed — 200 ms and 20 ms) and cannot reach either bound."""
+async def test_seeding_a_long_recording_costs_no_wall_clock(rig, tmp_path, monkeypatch) -> None:
+    """C11: pacing is gone rather than merely fast. A recording whose frames are ten
+    minutes apart seeds in the same time as one whose frames are milliseconds apart,
+    because the recorded timestamps are DATA the client reads — never a schedule the
+    server sleeps against."""
     recording = _valid(
         packageName="paced",
         events=[
-            {"type": kind_, "timestamp": f"2026-01-01T00:{stamp}Z", "files": []}
-            for kind_, stamp in events
+            {"type": "file_list", "timestamp": "2026-01-01T00:00:00.000Z", "files": []},
+            {"type": "file_list", "timestamp": "2026-01-01T00:10:00.000Z", "files": []},
+            {"type": "verdict_reached", "timestamp": "2026-01-01T00:20:00.000Z"},
         ],
     )
-    module = at_speed(speed)
-    monkeypatch.setattr(module, "REPO_ROOT", _write_recordings(tmp_path, {"paced.json": recording}))
-    result = await _replay(rig, module, package="paced")
-    assert len(result.frames) == len(events)
-    assert result.elapsed > lower
-    if upper is not None:
-        assert result.elapsed < upper
+    monkeypatch.setattr(
+        demo_module, "REPO_ROOT", _write_recordings(tmp_path, {"paced.json": recording})
+    )
+    result = await _replay(rig, package="paced")
+    assert len(result.frames) == 3
+    assert result.elapsed < INSTANT_CEILING
 
 
 # --------------------------------------------------------------------------- #
@@ -628,7 +500,7 @@ def test_recorded_report_has_no_extractable_version(rig, tmp_path, monkeypatch) 
     assert report_store.save_report("test-pkg-env-exfil", recording.version, report) == "2.0.1"
 
 
-async def test_the_report_row_is_durable_no_later_than_the_terminal_frame(rig, at_speed) -> None:
+async def test_the_report_row_is_durable_no_later_than_the_terminal_frame(rig) -> None:
     """C16: was a FINDING (every frame emitted, then finalize — so the terminal frame
     could be durable while the row was still 'running' with no report, and a gallery
     that fetches on verdict_reached could get nothing). Now the real path's ordering:
@@ -636,8 +508,7 @@ async def test_the_report_row_is_durable_no_later_than_the_terminal_frame(rig, a
     append. Observed at the store seam — when finalize runs, every non-terminal frame
     is already durable and the terminal one is not — plus the end state: the frame is
     there and the row is done, so nothing was merely dropped."""
-    module = at_speed("0")
-    result = await _replay(rig, module, package="chalk")
+    result = await _replay(rig, package="chalk")
     observed = rig.sessions.frames_at_finalize
     assert observed is not None
     assert [frame["type"] for frame in observed] == [
@@ -648,9 +519,7 @@ async def test_the_report_row_is_durable_no_later_than_the_terminal_frame(rig, a
     assert result.row.status == "done" and result.row.report is not None
 
 
-async def test_a_failed_terminal_append_rolls_the_report_row_back(
-    rig, at_speed, monkeypatch
-) -> None:
+async def test_a_failed_terminal_append_rolls_the_report_row_back(rig, monkeypatch) -> None:
     """C16b: the two writes are one unit, not two ordered ones. With the append
     failing, the row must not be terminal and must hold no report — a terminal row
     whose terminal event never landed strands every follower for ever, since
@@ -661,25 +530,32 @@ async def test_a_failed_terminal_append_rolls_the_report_row_back(
     package_path demo tag deliberately hides it from queued()/running() — so what this
     buys is only the direction of the failure: a replay that visibly stops, never a
     terminal frame promising a report that is not there.)"""
-    module = at_speed("0")
-    service = module.DemoService(rig.sessions, rig.stream)
+    service = demo_module.DemoService(rig.sessions, rig.stream)
     original = rig.stream.append
+    create = rig.sessions.create
+    created: list[str] = []
+
+    async def recording_create(*args, **kwargs):
+        session = await create(*args, **kwargs)
+        created.append(session.audit_id)
+        return session
 
     async def failing_append(channel, type, data=None, *, session=None):
         if type in TERMINAL_EVENTS:
             raise RuntimeError("stream is down")
         return await original(channel, type, data, session=session)
 
+    monkeypatch.setattr(rig.sessions, "create", recording_create)
     monkeypatch.setattr(rig.stream, "append", failing_append)
-    handle = await service.start("chalk")
-    audit_id = handle.auditId
-    task = next(
-        task for task in asyncio.all_tasks() if task.get_name() == f"npmguard-demo-{audit_id}"
-    )
+    # Seeding is awaited now, so the failure reaches the caller of `start`
+    # directly instead of dying inside a background task nobody joins. The row
+    # exists by then — `start` creates it before seeding — so its id has to come
+    # off the create call rather than off a return value there never is.
     with pytest.raises(RuntimeError, match="stream is down"):
-        await asyncio.wait_for(task, REPLAY_DEADLINE_SECONDS)
+        await service.start("chalk")
 
     monkeypatch.setattr(rig.stream, "append", original)
+    (audit_id,) = created
     row = await rig.sessions.get(audit_id)
     assert row is not None
     assert row.status not in ("done", "error")

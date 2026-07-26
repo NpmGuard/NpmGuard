@@ -145,6 +145,11 @@ class DependencyGroups(BaseModel):
     peer: dict[str, str] | None = {}
 
 
+class DisplayStub(BaseModel):
+    pattern: str
+    served: bool
+
+
 class EntryPoints(BaseModel):
     install: list[str]
     runtime: list[str]
@@ -224,6 +229,11 @@ class HypothesisCounts(BaseModel):
     confirmed: Annotated[int, Field(ge=0)]
     refuted: Annotated[int, Field(ge=0)]
     deferred: Annotated[int, Field(ge=0)]
+
+
+class HypothesisMerge(BaseModel):
+    hypId: str
+    into: str
 
 
 class HypothesisResolution(BaseModel):
@@ -348,12 +358,33 @@ class ResolvedPackage(BaseModel):
     tmpdir: str | None = None
 
 
+class RunCaptures(BaseModel):
+    stdoutHash: str | None = None
+    stderrHash: str | None = None
+    fsDiffHash: str | None = None
+    pcapHash: str | None = None
+    straceLogHash: str | None = None
+
+
 class RunError(BaseModel):
     kind: Annotated[
         Literal['CrashError', 'TimeoutError', 'SensorError', 'SetupError'],
         Field(title='RunErrorKind'),
     ]
     detail: str
+
+
+class SanitizedSetup(BaseModel):
+    envKeys: list[str] | None = []
+    date: str | None = None
+    plantedFiles: Annotated[
+        list[PlantedFileRef] | None, Field(validate_default=True)
+    ] = []
+    stubUrls: Annotated[list[DisplayStub] | None, Field(validate_default=True)] = []
+    hostname: str | None = None
+    locale: str | None = None
+    patchedFiles: list[str] | None = []
+    preloaded: bool | None = False
 
 
 class ScanAlreadyRunning(BaseModel):
@@ -542,6 +573,7 @@ class AuditStartedEvent(BaseModel):
     seq: Annotated[int, Field(ge=0)]
     type: Literal['audit_started']
     packageName: str
+    replayVersion: Annotated[int | None, Field(gt=0)] = 1
 
 
 class BaseAuditEvent(BaseModel):
@@ -751,6 +783,62 @@ class DependenciesProvisionedEvent(BaseModel):
     error: str | None = None
 
 
+class DisplayObservation(BaseModel):
+    eventId: str
+    atMs: Annotated[float, Field(ge=0.0)]
+    stream: Annotated[
+        Literal[
+            'L1:seccomp',
+            'L2:pcap',
+            'L3:fsDiff',
+            'L4:monkey',
+            'L4:v8inspector',
+            'engine',
+        ],
+        Field(title='StreamKind'),
+    ]
+    kind: Annotated[
+        Literal[
+            'openat',
+            'read',
+            'write',
+            'connect',
+            'sendto',
+            'execve',
+            'clone',
+            'unlink',
+            'rename',
+            'link',
+            'dns_query',
+            'http_request',
+            'tls_sni',
+            'tcp_syn',
+            'file_created',
+            'file_modified',
+            'file_deleted',
+            'require',
+            'env_access',
+            'fs_op',
+            'network',
+            'process',
+            'eval',
+            'crypto',
+            'timer',
+            'script_parsed',
+            'debugger_paused',
+            'truncated',
+            'setup_bypass',
+            'error',
+        ],
+        Field(title='EventKind'),
+    ]
+    summary: str
+    signal: Annotated[
+        Literal['high', 'context', 'error'], Field(title='ObservationSignal')
+    ]
+    occurrences: Annotated[int | None, Field(gt=0)] = 1
+
+
 class EvidenceEvent(BaseModel):
     stream: Annotated[
         Literal[
@@ -805,6 +893,17 @@ class EvidenceEvent(BaseModel):
     derived: Derived | None = None
 
 
+class ExperimentStartedEvent(BaseModel):
+    auditId: str
+    timestamp: str
+    seq: Annotated[int, Field(ge=0)]
+    type: Literal['experiment_started']
+    hypId: str
+    runId: str
+    experiment: Annotated[list[ToolCall] | None, Field(validate_default=True)] = []
+    trigger: Trigger
+
+
 class FileAnalyzingEvent(BaseModel):
     auditId: str
     timestamp: str
@@ -837,6 +936,7 @@ class GraphBuiltEvent(BaseModel):
     nodeCount: Annotated[int, Field(ge=0)]
     addedCount: Annotated[int, Field(ge=0)]
     mergedCount: Annotated[int, Field(ge=0)]
+    merges: Annotated[list[HypothesisMerge] | None, Field(validate_default=True)] = []
 
 
 class HypothesisEmittedEvent(BaseModel):
@@ -866,7 +966,9 @@ class HypothesisEmittedEvent(BaseModel):
     severity: Annotated[
         Literal['low', 'medium', 'high', 'critical'], Field(title='HypothesisSeverity')
     ]
-    file: str
+    description: str
+    focusFiles: list[str] | None = []
+    focusLines: Annotated[list[FocusRange] | None, Field(validate_default=True)] = []
 
 
 class HypothesisResolvedEvent(BaseModel):
@@ -902,6 +1004,12 @@ class HypothesisResolvedEvent(BaseModel):
     ]
     by: str
     reason: str
+    evidenceRefs: Annotated[list[EvidenceRef] | None, Field(validate_default=True)] = []
+    citedEventIds: list[str] | None = []
+    citedObservations: Annotated[
+        list[DisplayObservation] | None, Field(validate_default=True)
+    ] = []
+    runId: str | None = None
 
 
 class Hypothesis(BaseModel):
@@ -978,6 +1086,15 @@ class InventoryReport(BaseModel):
     dealbreaker: DealBreaker | None = None
 
 
+class JudgmentStartedEvent(BaseModel):
+    auditId: str
+    timestamp: str
+    seq: Annotated[int, Field(ge=0)]
+    type: Literal['judgment_started']
+    hypId: str
+    runId: str
+
+
 class PackageSummary(BaseModel):
     packageName: str
     version: str
@@ -1048,6 +1165,43 @@ class RepoDetailResponse(BaseModel):
 
 class ReposResponse(BaseModel):
     repos: list[PanelRepo]
+
+
+class RunDisplay(BaseModel):
+    runId: str
+    wallMs: Annotated[float, Field(ge=0.0)]
+    exitCode: int | None
+    timedOut: bool
+    eventCount: Annotated[int, Field(ge=0)]
+    eventSummary: EventSummary
+    error: RunError | None = None
+    setupApplied: SanitizedSetup
+    observations: Annotated[
+        list[DisplayObservation] | None, Field(validate_default=True)
+    ] = []
+    omittedObservationCount: Annotated[int | None, Field(ge=0)] = 0
+    captures: RunCaptures
+    contentHash: str
+
+
+class SandboxCompletedEvent(BaseModel):
+    auditId: str
+    timestamp: str
+    seq: Annotated[int, Field(ge=0)]
+    type: Literal['sandbox_completed']
+    hypId: str
+    run: RunDisplay
+
+
+class SandboxStartedEvent(BaseModel):
+    auditId: str
+    timestamp: str
+    seq: Annotated[int, Field(ge=0)]
+    type: Literal['sandbox_started']
+    hypId: str
+    runId: str
+    observe: ObserveFlags
+    budget: Budget
 
 
 class ScanDepFrame(BaseModel):
@@ -1135,6 +1289,10 @@ class AuditEvent(
         | FileVerdictEvent
         | TriageCompleteEvent
         | GraphBuiltEvent
+        | ExperimentStartedEvent
+        | SandboxStartedEvent
+        | SandboxCompletedEvent
+        | JudgmentStartedEvent
         | HypothesisResolvedEvent
         | VerdictReachedEvent
         | AuditErrorEvent
@@ -1155,6 +1313,10 @@ class AuditEvent(
         | FileVerdictEvent
         | TriageCompleteEvent
         | GraphBuiltEvent
+        | ExperimentStartedEvent
+        | SandboxStartedEvent
+        | SandboxCompletedEvent
+        | JudgmentStartedEvent
         | HypothesisResolvedEvent
         | VerdictReachedEvent
         | AuditErrorEvent,

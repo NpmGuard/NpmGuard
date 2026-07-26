@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,9 +17,17 @@ from .contract.models import EvidenceRef, Hypothesis, RunArtifact
 from .errors import DockerUnavailableError
 from .events import Emitting
 from .evidence import ArtifactStore, RenderedTimeline, render_timeline
+from .experiments import compile_experiment
 from .graph import HypothesisGraph, next_open
-from .observation import RunUnderObservationError, is_unresolved_module, run_under_observation
+from .observation import (
+    RunUnderObservationError,
+    is_unresolved_module,
+    mint_run_id,
+    planned_run,
+    run_under_observation,
+)
 from .phases import JudgeVerdict
+from .run_display import observations_for, project_run_display, sanitize_experiment
 
 logger = structlog.get_logger("npmguard.orchestrator")
 
@@ -112,14 +121,26 @@ async def run_experiment(
     settings: Settings,
     llm: LlmClient,
     audit_id: str,
+    run_id: str,
+    on_run_complete: Callable[[RunArtifact], Awaitable[None]] | None = None,
 ) -> ExperimentResult:
+    """Run the hypothesis's experiment under the full oracle, then judge it.
+
+    `on_run_complete` fires between the two — the only point at which "the
+    sandbox is finished and the judge has not started" is a true statement, and
+    therefore the only honest place to announce it. A caller that passes nothing
+    gets exactly the previous behaviour.
+    """
     artifact = await run_under_observation(
         package_path,
         list(hypothesis.experiment or []),
         settings,
         observe=FULL_ORACLE,
         budget=EXPERIMENT_BUDGET,
+        run_id=run_id,
     )
+    if on_run_complete is not None:
+        await on_run_complete(artifact)
     timeline = render_timeline(artifact)
     judgment = await judge_evidence(hypothesis, timeline, stated_purpose, llm, audit_id)
     reference = EvidenceRef(kind="run", id=artifact.runId, hash=artifact.contentHash)
@@ -134,19 +155,67 @@ async def run_experiment(
     )
 
 
-async def _emit_resolved(emitter: Emitting | None, hypothesis: Hypothesis) -> None:
-    if emitter:
+async def _emit_resolved(
+    emitter: Emitting | None,
+    hypothesis: Hypothesis,
+    *,
+    run_id: str | None = None,
+    cited_event_ids: list[str] | None = None,
+    artifact: RunArtifact | None = None,
+) -> None:
+    """The terminal frame for one hypothesis, carrying the proof it rests on.
+
+    `citedObservations` is resolved HERE rather than left to the consumer, and it
+    is drawn from the artifact rather than from the `sandbox_completed` preview:
+    the judge had not run when that frame was emitted, so a cited row may have
+    fallen outside its bound. Sending the cited rows again is what makes
+    "a confirmed verdict points back at the exact events" total.
+
+    `runId` is null exactly when no run backs the state — a hypothesis deferred
+    before dispatch has no experiment to point at, and a null says so.
+    """
+    if emitter is None:
+        return
+    await emitter.emit(
+        "hypothesis_resolved",
+        {
+            "hypId": hypothesis.hypId,
+            "claim": hypothesis.claim.kind,
+            "severity": hypothesis.severity,
+            "state": hypothesis.state,
+            "by": hypothesis.resolution.by if hypothesis.resolution else "orchestrator",
+            "reason": hypothesis.resolution.reason if hypothesis.resolution else "",
+            "evidenceRefs": list(hypothesis.evidenceRefs or []),
+            "citedEventIds": cited_event_ids or [],
+            "citedObservations": (
+                observations_for(artifact, cited_event_ids or []) if artifact is not None else []
+            ),
+            "runId": run_id,
+        },
+    )
+
+
+def _run_announcer(
+    emitter: Emitting | None, hyp_id: str, run_id: str
+) -> Callable[[RunArtifact], Awaitable[None]]:
+    """The callback that closes the sandbox and opens the judgment.
+
+    Both frames are emitted from the one moment where each is true: the run is
+    sealed and the judge has not been called. Splitting them apart would put
+    `judgment_started` either before the evidence exists or after the verdict is
+    known, and a viewer would be watching a claim rather than a boundary.
+    """
+
+    async def announce(sealed: RunArtifact) -> None:
+        if emitter is None:
+            return
         await emitter.emit(
-            "hypothesis_resolved",
-            {
-                "hypId": hypothesis.hypId,
-                "claim": hypothesis.claim.kind,
-                "severity": hypothesis.severity,
-                "state": hypothesis.state,
-                "by": hypothesis.resolution.by if hypothesis.resolution else "orchestrator",
-                "reason": hypothesis.resolution.reason if hypothesis.resolution else "",
-            },
+            "sandbox_completed",
+            {"hypId": hyp_id, "run": project_run_display(sealed, run_id=run_id)},
         )
+        await emitter.emit("judgment_started", {"hypId": hyp_id, "runId": run_id})
+
+    return announce
 
 
 async def run_orchestrator(
@@ -181,11 +250,48 @@ async def run_orchestrator(
             raise AssertionError(
                 f"orchestrator: unarmed hypothesis {hypothesis.hypId} reached dispatch"
             )
+        # Minted before execution so all four boundary frames share one handle.
+        # They announce work this loop already did; they decide nothing, and
+        # deleting every emit below leaves each verdict byte-identical.
+        run_id = mint_run_id()
+        resolved: ExperimentResult | None = None
         try:
+            # Inside the try: an experiment that will not compile takes the same
+            # route to DEFERRED it always did, and never emits a sandbox frame
+            # for a run that cannot start.
+            trigger = compile_experiment(list(hypothesis.experiment)).trigger
+            observe, budget = planned_run(FULL_ORACLE, EXPERIMENT_BUDGET)
+            if emitter:
+                await emitter.emit(
+                    "experiment_started",
+                    {
+                        "hypId": hypothesis.hypId,
+                        "runId": run_id,
+                        "experiment": sanitize_experiment(list(hypothesis.experiment)),
+                        "trigger": trigger,
+                    },
+                )
+                await emitter.emit(
+                    "sandbox_started",
+                    {
+                        "hypId": hypothesis.hypId,
+                        "runId": run_id,
+                        "observe": observe,
+                        "budget": budget,
+                    },
+                )
             async with asyncio.timeout(PER_HYPOTHESIS_SECONDS):
                 result = await run_experiment(
-                    hypothesis, package_path, stated_purpose, settings, llm, graph.audit_id
+                    hypothesis,
+                    package_path,
+                    stated_purpose,
+                    settings,
+                    llm,
+                    graph.audit_id,
+                    run_id,
+                    _run_announcer(emitter, hypothesis.hypId, run_id),
                 )
+            resolved = result
             artifact_value = result.artifact.model_dump(mode="json", exclude_none=False)
             declared_hash = artifact_value.pop("contentHash")
             stored_hash = artifact_store.write_artifact(artifact_value)
@@ -265,8 +371,7 @@ async def run_orchestrator(
                     "DEFERRED",
                     by="worker:experimenter",
                     reason=(
-                        f"Observation incomplete (per-hypothesis timeout "
-                        f"{PER_HYPOTHESIS_SECONDS}s)"
+                        f"Observation incomplete (per-hypothesis timeout {PER_HYPOTHESIS_SECONDS}s)"
                     ),
                 )
                 summary.deferred += 1
@@ -302,5 +407,11 @@ async def run_orchestrator(
                     reason=f"Internal error ({type(exc).__name__}): {exc}",
                 )
                 summary.deferred += 1
-        await _emit_resolved(emitter, graph.get(hypothesis.hypId))
+        await _emit_resolved(
+            emitter,
+            graph.get(hypothesis.hypId),
+            run_id=run_id,
+            cited_event_ids=list(resolved.cited_events) if resolved else [],
+            artifact=resolved.artifact if resolved else None,
+        )
     return summary
