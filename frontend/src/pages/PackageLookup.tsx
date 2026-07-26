@@ -42,7 +42,6 @@ import { DegradedSurface } from "../components/ui/degraded-state.tsx";
 import { EmptyState } from "../components/ui/empty-state.tsx";
 import { failed, loaded, type LoadState } from "../components/ui/load-state.ts";
 import { Skeleton } from "../components/ui/skeleton.tsx";
-import { VerdictHeadline } from "../components/ui/verdict-stamp.tsx";
 import { PackageSearch } from "lucide-react";
 
 /** A 404 is a SUCCESSFUL read whose answer is "there is no report" — an
@@ -169,6 +168,10 @@ export function PackageLookup() {
 
   return (
     <WorkspacePage>
+      {/* Identity and action only. The verdict speaks ONCE, in `ReportView`'s
+          summary card, which carries the stamp, the mandatory caveat, the
+          coverage counts and the rationale together — a second stamp up here
+          restates the conclusion away from its evidence. */}
       <WorkspaceHeader
         title={`${packageName}@${reportVersion}`}
         actions={
@@ -181,21 +184,17 @@ export function PackageLookup() {
             Re-audit
           </Button>
         }
-      >
-        {/* The verdict LEADS, with its coverage attached. `VerdictHeadline` takes
-            `counts` as a required prop, so a headline cannot render without the
-            denominator it was drawn from — and SAFE always carries "No confirmed
-            threat found. Not a proof of absence." A bare stamp in a header row,
-            which is what this was, states the conclusion and withholds the
-            evidence for it. */}
-        <VerdictHeadline outcome={report.verdict} counts={report.counts} />
-      </WorkspaceHeader>
+      />
 
       <WorkspaceBody>
-        {/* `ReportView` already leads with the confirmed hypotheses and their
-            cited resolutions, and files come after — the shortest path to proof
-            first, the complete inventory second. */}
-        <ReportView report={report} variant="full" />
+        {/* A report is READ, not scanned forty rows at a time, so unlike the
+            operational tables it keeps a prose-adjacent measure even inside the
+            full-viewport shell. `ReportView` already leads with the confirmed
+            hypotheses and their cited resolutions, and files come after — the
+            shortest path to proof first, the complete inventory second. */}
+        <div className="mx-auto w-full max-w-[960px]">
+          <ReportView report={report} variant="full" />
+        </div>
       </WorkspaceBody>
     </WorkspacePage>
   );
