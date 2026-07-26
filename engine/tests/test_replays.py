@@ -5,7 +5,7 @@
 #   pinned to tmp_path as in test_api.py.
 # Axes: row lifecycle (done / error / still-running) × row origin (registry /
 #       demo / staged-from-a-local-path) × report content (verdict domain,
-#       resolvable version)
+#       resolvable version) × replay format (announced / never announced)
 #
 # What the exclusions are protecting, since no one test says it: a listed row is a
 # LINK to /audit/{id}/report, which serves the stored report RAW. So this endpoint
@@ -34,10 +34,11 @@ from npmguard.contract import models as contract
 API = "/api"
 REPORT_DEADLINE_SECONDS = 30.0
 
-def _report(
-    verdict: str = "SAFE", version: str | None = "4.0.1", schema_version: int = 2
-) -> dict:
-    trace = [{"phase": "inventory", "output": {"metadata": {"version": version}}}] if version else []
+
+def _report(verdict: str = "SAFE", version: str | None = "4.0.1", schema_version: int = 2) -> dict:
+    trace = (
+        [{"phase": "inventory", "output": {"metadata": {"version": version}}}] if version else []
+    )
     return {"schemaVersion": schema_version, "verdict": verdict, "trace": trace}
 
 
@@ -99,6 +100,28 @@ def _insert(
         connection.commit()
 
 
+def _announce(tmp_path, audit_id: str, replay_version: int) -> None:
+    """The `audit_started` frame the engine stamps its replay format on.
+
+    Written straight into `stream_events` for the same reason the session rows
+    are: the gallery's projection is what is under test, and running an audit to
+    obtain one frame would test the pipeline instead.
+    """
+    channel = f"audit_{audit_id.replace('-', '')}"
+    with contextlib.closing(sqlite3.connect(tmp_path / "api.sqlite3")) as connection:
+        connection.execute(
+            "INSERT INTO stream_events (channel, seq, type, ts, data) VALUES (?,?,?,?,?)",
+            (
+                channel,
+                0,
+                "audit_started",
+                "2026-07-20T12:00:00.000Z",
+                json.dumps({"packageName": "chalk", "replayVersion": replay_version}),
+            ),
+        )
+        connection.commit()
+
+
 def _replays(client: TestClient) -> list[dict]:
     response = client.get(f"{API}/replays")
     assert response.status_code == 200
@@ -117,8 +140,31 @@ def test_finished_audit_is_a_replay(make_app, tmp_path) -> None:
                 "verdict": "SAFE",
                 "durationMs": 3500,
                 "recordedAt": "2026-07-20T12:00:00.000Z",
+                # No `audit_started` frame was written, so the stream never said
+                # what it speaks. Format 1 — never the current one.
+                "replayVersion": 1,
             }
         ]
+
+
+def test_replay_format_comes_off_the_streams_own_first_frame(make_app, tmp_path) -> None:
+    """C1b: the gallery reports what each stream ANNOUNCED, per row.
+
+    The field exists so a viewer can tell an animatable investigation from an
+    archived one before clicking. Defaulting an unannounced stream forward would
+    make every audit recorded before the stamp claim to be the former — which is
+    exactly the promise the audit page would then have to break.
+    """
+    with TestClient(make_app()) as client:
+        _insert(
+            tmp_path, "aud-old", "chalk", report=_report(), created_at="2026-07-20T10:00:00.000Z"
+        )
+        _insert(
+            tmp_path, "aud-new", "chalk", report=_report(), created_at="2026-07-20T12:00:00.000Z"
+        )
+        _announce(tmp_path, "aud-new", 2)
+        formats = {row["auditId"]: row["replayVersion"] for row in _replays(client)}
+        assert formats == {"aud-old": 1, "aud-new": 2}
 
 
 def test_newest_first(make_app, tmp_path) -> None:
@@ -167,8 +213,7 @@ def test_listed_audit_id_is_a_working_permalink(make_app, tmp_path) -> None:
 
         with contextlib.closing(sqlite3.connect(tmp_path / "api.sqlite3")) as connection:
             connection.execute(
-                "UPDATE audit_sessions SET local_path = NULL, package_name = ? "
-                "WHERE audit_id = ?",
+                "UPDATE audit_sessions SET local_path = NULL, package_name = ? WHERE audit_id = ?",
                 ("npm-telemetry-helper", audit_id),
             )
             connection.commit()
@@ -208,9 +253,7 @@ def test_demo_rows_are_absent(make_app, tmp_path) -> None:
     "package_name",
     ["test-pkg-env-exfil", "chalk", "ember-browser-services"],
 )
-def test_staged_audits_are_absent_whatever_they_are_named(
-    make_app, tmp_path, package_name
-) -> None:
+def test_staged_audits_are_absent_whatever_they_are_named(make_app, tmp_path, package_name) -> None:
     """C6: a staged audit is absent because of `local_path`, NOT its name.
 
     Both halves discriminate. A staged audit under an ordinary registry name is
@@ -219,9 +262,7 @@ def test_staged_audits_are_absent_whatever_they_are_named(
     fixture-LOOKING name with no staged path is present, because the engine
     attaches no meaning to a package name."""
     with TestClient(make_app()) as client:
-        _insert(
-            tmp_path, "staged", package_name, report=_report(), local_path="/srv/corpus/pkg"
-        )
+        _insert(tmp_path, "staged", package_name, report=_report(), local_path="/srv/corpus/pkg")
         _insert(tmp_path, "registry", "shaped-like-nothing-special", report=_report())
         assert [row["auditId"] for row in _replays(client)] == ["registry"]
 

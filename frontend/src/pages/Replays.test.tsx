@@ -22,7 +22,7 @@
  * accessibility tree and the `data-state` attributes the design system plants.
  */
 
-import type { ReplayEntry } from "@npmguard/shared";
+import { REPLAY_FORMAT, type ReplayEntry } from "@npmguard/shared";
 import { configure, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
@@ -56,6 +56,10 @@ function replay(over: Partial<ReplayEntry> = {}): ReplayEntry {
     verdict: "SAFE",
     durationMs: 42_000,
     recordedAt: "2026-07-24T09:15:00.000Z",
+    // Playable by default: the gallery leads with the runs that animate, so a
+    // fixture that did not would put every row behind a disclosure and make each
+    // test below secretly about the disclosure.
+    replayVersion: REPLAY_FORMAT,
     ...over,
   };
 }
@@ -110,4 +114,20 @@ it("R5: the verdict is a word in the tree, not only a hue", async () => {
 
   expect(await screen.findByText("DANGEROUS")).toBeInTheDocument();
   expect(screen.getByText("SAFE")).toBeInTheDocument();
+});
+
+it("R6: a pre-format-2 audit is listed as a static report, never as a playable one", async () => {
+  // The row is a real audit and stays listed — hiding it would make the gallery
+  // look emptier than the engine is. What it must not do is sit in the watchable
+  // list, because opening it lands on a static report and the gallery would have
+  // promised an investigation it cannot show.
+  serve([replay({ replayVersion: 1, packageName: "left-pad" })]);
+  renderWithClient(<Replays />);
+
+  expect(
+    await screen.findByText(/No audit on this engine carries the event format/),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /Audits recorded before the evidence graph/ }),
+  ).toBeInTheDocument();
 });

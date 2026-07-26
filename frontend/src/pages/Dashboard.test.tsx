@@ -46,12 +46,19 @@
  *                                     Both are single-sentence grey-ish boxes to the
  *                                     eye, which is exactly why they need a test.
  *
+ * ── Where the clean repository lives ────────────────────────────────────────
+ *
+ * The page leads with what needs attention and COLLAPSES the repositories that
+ * do not. So "the half that worked still rendered" is asserted by opening that
+ * group and finding the row inside it — which is the stronger claim anyway: the
+ * count alone could be printed from a number, and the row could not.
+ *
  * Blackbox: msw at the HTTP boundary, queries through the real client, assertions
  * on the accessibility tree and the `data-state` attributes the design system
  * plants for exactly this purpose.
  */
 
-import { configure, screen } from "@testing-library/react";
+import { configure, fireEvent, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -69,10 +76,11 @@ import { Dashboard } from "./Dashboard.tsx";
 
 const server = setupServer();
 
-// Six real fetches, six schema parses and a full page render per case, with the
-// suite running four workers wide. RTL's 1s default is not a meaningful budget
-// for that, and a timeout here reads as a false "the region never resolved".
-configure({ asyncUtilTimeout: 5000 });
+// Six real fetches, six schema parses, a full page render and — for the cases
+// that open the collapsed group — a click and a second render, with the suite
+// running four workers wide. RTL's 1s default is not a meaningful budget for
+// that, and a timeout here reads as a false "the region never resolved".
+configure({ asyncUtilTimeout: 10_000 });
 
 beforeAll(() => {
   useAbsoluteApiBase();
@@ -110,13 +118,22 @@ function healthy(over: {
 
 const fails = (status: number) => () => HttpResponse.json({ error: "upstream" }, { status });
 
+/** Open the collapsed group the settled repositories live in. */
+async function openQuietRepos() {
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Repositories with nothing to act on/ }),
+  );
+}
+
 describe("Dashboard — D1 alerts fail while repos succeed", () => {
   it("D1: the repo list still renders, and the alerts region says it is unavailable", async () => {
     healthy({ alerts: fails(502) });
     renderWithClient(<Dashboard />);
 
-    // The half that worked is still shown — degrading everything would be a
-    // different bug with the same shape.
+    // The half that worked is still there — degrading everything would be a
+    // different bug with the same shape. It is behind the quiet group, because
+    // a repository with nothing to act on is not what this page leads with.
+    await openQuietRepos();
     expect(await screen.findByText("widget")).toBeInTheDocument();
 
     // The half that failed NAMES itself, rather than rendering nothing at all.
@@ -145,6 +162,7 @@ describe("Dashboard — D3 billing fails", () => {
     healthy({ billing: fails(503) });
     renderWithClient(<Dashboard />);
 
+    await openQuietRepos();
     expect(await screen.findByText("widget")).toBeInTheDocument();
     expect(await screen.findByText(/Plan & usage unavailable/)).toBeInTheDocument();
   });
