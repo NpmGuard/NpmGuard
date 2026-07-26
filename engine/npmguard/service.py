@@ -706,15 +706,10 @@ class AuditService:
         session = await self.sessions.get(audit_id)
         if session is None or session.status != "running":
             # INVARIANT: this guard reads the COMMITTED ROW STATUS and must never
-            # become "do I hold the claim on it". It is the only thing keeping
-            # finalize's `assert rowcount == 1` from firing on a row a cancelled
-            # worker already finalized, and it rests on _finish being ONE
-            # transaction. MEASURED at 071b9a9 by replacing exactly this check
-            # with a claim-based one under a forced cancellation after the
-            # terminal commit: `AssertionError: finalize(...): matched 0
-            # non-terminal rows` escaped close() itself — which in the real
-            # lifespan means the LLM client, the notifier and the DB engine are
-            # never disposed, because they are all awaited after this call.
+            # become "do I hold the claim on it". A cancelled worker can finalize
+            # and then die still holding the claim, so a claim-based guard lets
+            # finalize's `assert rowcount == 1` fire out of close() itself. It
+            # rests on _finish being ONE transaction.
             #
             # Releasing the claim is unconditional and needs no branch: on a
             # terminal row finalize already cleared it, so this matches 0 rows and
